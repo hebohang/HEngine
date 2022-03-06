@@ -11,12 +11,14 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\HEngine\Log.h" />
     <ClInclude Include="src\HEngine.h" />
     <ClInclude Include="src\HEngine\Application.h" />
     <ClInclude Include="src\HEngine\Core.h" />
     <ClInclude Include="src\HEngine\EntryPoint.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\HEngine\Log.cpp" />
     <ClCompile Include="src\HEngine\Application.cpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
@@ -69,6 +71,7 @@
       <PreprocessorDefinitions>HE_PLATFORM_WINDOWS;HE_BUILD_DLL;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalIncludeDirectories>$(SolutionDir)HEngine\vendor\spdlog\include;</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -84,6 +87,7 @@
       <PreprocessorDefinitions>HE_PLATFORM_WINDOWS;HE_BUILD_DLL;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalIncludeDirectories>$(SolutionDir)HEngine\vendor\spdlog\include;</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>

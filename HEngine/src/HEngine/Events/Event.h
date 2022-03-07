@@ -1,5 +1,5 @@
 #pragma once
-
+#include "hepch.h"
 #include "HEngine/Core.h"
 
 namespace HEngine 

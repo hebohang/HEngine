@@ -18,6 +18,9 @@ project "HEngine"
 
 	targetdir ("bin/" .. outputdir .. "/%{prj.name}")
 	objdir ("bin-int/" .. outputdir .. "/%{prj.name}")
+
+	pchheader "hepch.h"
+	pchsource "HEngine/src/hepch.cpp"
 	
 	files
 	{

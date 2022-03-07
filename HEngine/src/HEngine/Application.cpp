@@ -1,3 +1,4 @@
+#include "hepch.h"
 #include "Application.h"
 
 #include "HEngine/Events/ApplicationEvent.h"

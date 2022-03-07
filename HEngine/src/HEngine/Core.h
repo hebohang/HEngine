@@ -1,9 +1,5 @@
 #pragma once
 
-#include <string>
-#include <sstream>
-#include <functional>
-
 #ifdef HE_PLATFORM_WINDOWS
 	#ifdef HE_BUILD_DLL
 		#define HENGINE_API __declspec(dllexport)

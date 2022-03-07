@@ -11,13 +11,19 @@ workspace "HEngine"
 
 outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 
+-- Include directories relative to root folder (solution directory)
+IncludeDir = {}
+IncludeDir["GLFW"] = "HEngine/vendor/GLFW/include"
+
+include "HEngine/vendor/GLFW"
+
 project "HEngine"
 	location "HEngine"
 	kind "SharedLib"
 	language "C++"
 
-	targetdir ("bin/" .. outputdir .. "/%{prj.name}")
-	objdir ("bin-int/" .. outputdir .. "/%{prj.name}")
+	targetdir ("%{wks.location}/bin/" .. outputdir .. "/%{prj.name}")
+	objdir ("%{wks.location}/bin-int/" .. outputdir .. "/%{prj.name}")
 
 	pchheader "hepch.h"
 	pchsource "HEngine/src/hepch.cpp"
@@ -31,13 +37,21 @@ project "HEngine"
 	includedirs
 	{
 		"%{prj.name}/src",
-		"%{prj.name}/vendor/spdlog/include"
+		"%{prj.name}/vendor/spdlog/include",
+		"%{IncludeDir.GLFW}"
+	}
+	
+	links
+	{
+		"GLFW",
+		"opengl32.lib"
 	}
 
 	filter "system:windows"
 		cppdialect "C++17"
 		staticruntime "On"
 		systemversion "latest"
+		buildoptions "/MDd"
 
 		defines
 		{
@@ -79,7 +93,8 @@ project "Sandbox"
 	includedirs 
 	{
 		"HEngine/vendor/spdlog/include",
-		"HEngine/src"
+		"HEngine/src",
+		"HEngine/vendor"
 	}
 
 	links

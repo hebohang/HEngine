@@ -1,3 +1,6 @@
 [submodule "HEngine/vendor/spdlog"]
 	path = HEngine/vendor/spdlog
 	url = https://github.com/gabime/spdlog
+[submodule "HEngine/vendor/GLFW"]
+	path = HEngine/vendor/GLFW
+	url = https://github.com/hebohang/glfw

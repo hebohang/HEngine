@@ -6,6 +6,8 @@
 #include "HEngine/Layer.h"
 #include "HEngine/Log.h"
 
+#include "HEngine/ImGui/ImGuiLayer.h"
+
 // ---Entry Point--------------------
 #include "HEngine/EntryPoint.h"	 
 // ----------------------------------

@@ -4,3 +4,6 @@
 [submodule "HEngine/vendor/GLFW"]
 	path = HEngine/vendor/GLFW
 	url = https://github.com/hebohang/glfw
+[submodule "HEngine/vendor/imgui"]
+	path = HEngine/vendor/imgui
+	url = git@github.com:hebohang/imgui.git

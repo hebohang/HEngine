@@ -155,7 +155,9 @@
     <ClInclude Include="src\HEngine\LayerStack.h" />
     <ClInclude Include="src\HEngine\Log.h" />
     <ClInclude Include="src\HEngine\MouseButtonCodes.h" />
+    <ClInclude Include="src\HEngine\Renderer\GraphicsContext.h" />
     <ClInclude Include="src\HEngine\Window.h" />
+    <ClInclude Include="src\Platform\OpenGL\OpenGLContext.h" />
     <ClInclude Include="src\Platform\Windows\WindowsInput.h" />
     <ClInclude Include="src\Platform\Windows\WindowsWindow.h" />
     <ClInclude Include="src\hepch.h" />
@@ -592,6 +594,7 @@
     <ClCompile Include="src\HEngine\Layer.cpp" />
     <ClCompile Include="src\HEngine\LayerStack.cpp" />
     <ClCompile Include="src\HEngine\Log.cpp" />
+    <ClCompile Include="src\Platform\OpenGL\OpenGLContext.cpp" />
     <ClCompile Include="src\Platform\Windows\WindowsInput.cpp" />
     <ClCompile Include="src\Platform\Windows\WindowsWindow.cpp" />
     <ClCompile Include="src\hepch.cpp">

@@ -6,6 +6,8 @@
 #include "HEngine/Events/Event.h"
 #include "HEngine/Events/ApplicationEvent.h"
 
+#include "HEngine/ImGui/ImGuiLayer.h"
+
 namespace HEngine
 {
 	class HENGINE_API Application
@@ -27,6 +29,7 @@ namespace HEngine
 		bool OnWindowClose(WindowCloseEvent& e);
 
 		std::unique_ptr<Window> m_Window;
+		ImGuiLayer* m_ImGuiLayer;
 		bool m_Running = true;
 		LayerStack m_LayerStack;
 	private:

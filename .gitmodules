@@ -7,3 +7,6 @@
 [submodule "HEngine/vendor/imgui"]
 	path = HEngine/vendor/imgui
 	url = git@github.com:hebohang/imgui.git
+[submodule "HEngine/vendor/glm"]
+	path = HEngine/vendor/glm
+	url = git@github.com:g-truc/glm.git

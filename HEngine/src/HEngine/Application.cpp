@@ -61,8 +61,8 @@ namespace HEngine
 			for (Layer* layer : m_LayerStack)
 				layer->OnUpdate();
 
-			auto [x, y] = Input::GetMousePosition();
-			HE_CORE_TRACE("{0}, {1}", x, y);
+			//auto [x, y] = Input::GetMousePosition();
+			//HE_CORE_TRACE("{0}, {1}", x, y);
 
 			m_Window->OnUpdate();
 		}

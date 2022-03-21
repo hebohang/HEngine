@@ -67,6 +67,8 @@
     <ClInclude Include="src\hepch.h" />
     <ClInclude Include="src\HEngine\Input.h" />
     <ClInclude Include="src\Platform\Windows\WindowsInput.h" />
+    <ClInclude Include="src\HEngine\KeyCodes.h" />
+    <ClInclude Include="src\HEngine\MouseButtonCodes.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\HEngine\Application.cpp">

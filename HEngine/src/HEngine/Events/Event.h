@@ -19,7 +19,7 @@ namespace HEngine
 		MouseButtonPressed, MouseButtonReleased, MouseMoved, MouseScrolled
 	};
 
-	// 有点像 type_traits ，萃取出事件的类型
+	// like type_traits, traits the event type
 	enum EventCategory
 	{
 		None = 0,

@@ -155,9 +155,12 @@
     <ClInclude Include="src\HEngine\LayerStack.h" />
     <ClInclude Include="src\HEngine\Log.h" />
     <ClInclude Include="src\HEngine\MouseButtonCodes.h" />
+    <ClInclude Include="src\HEngine\Renderer\Buffer.h" />
     <ClInclude Include="src\HEngine\Renderer\GraphicsContext.h" />
+    <ClInclude Include="src\HEngine\Renderer\Renderer.h" />
     <ClInclude Include="src\HEngine\Renderer\Shader.h" />
     <ClInclude Include="src\HEngine\Window.h" />
+    <ClInclude Include="src\Platform\OpenGL\OpenGLBuffer.h" />
     <ClInclude Include="src\Platform\OpenGL\OpenGLContext.h" />
     <ClInclude Include="src\Platform\Windows\WindowsInput.h" />
     <ClInclude Include="src\Platform\Windows\WindowsWindow.h" />
@@ -595,7 +598,10 @@
     <ClCompile Include="src\HEngine\Layer.cpp" />
     <ClCompile Include="src\HEngine\LayerStack.cpp" />
     <ClCompile Include="src\HEngine\Log.cpp" />
+    <ClCompile Include="src\HEngine\Renderer\Buffer.cpp" />
+    <ClCompile Include="src\HEngine\Renderer\Renderer.cpp" />
     <ClCompile Include="src\HEngine\Renderer\Shader.cpp" />
+    <ClCompile Include="src\Platform\OpenGL\OpenGLBuffer.cpp" />
     <ClCompile Include="src\Platform\OpenGL\OpenGLContext.cpp" />
     <ClCompile Include="src\Platform\Windows\WindowsInput.cpp" />
     <ClCompile Include="src\Platform\Windows\WindowsWindow.cpp" />

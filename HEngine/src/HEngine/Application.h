@@ -9,6 +9,7 @@
 #include "HEngine/ImGui/ImGuiLayer.h"
 
 #include "HEngine/Renderer/Shader.h"
+#include "HEngine/Renderer/Buffer.h"
 
 namespace HEngine
 {
@@ -35,8 +36,10 @@ namespace HEngine
 		bool m_Running = true;
 		LayerStack m_LayerStack;
 
-		unsigned int m_VertexArray, m_VertexBuffer, m_IndexBuffer;
+		unsigned int m_VertexArray;
 		std::unique_ptr<Shader> m_Shader;
+		std::unique_ptr<VertexBuffer> m_VertexBuffer;
+		std::unique_ptr<IndexBuffer> m_IndexBuffer;
 	private:
 		static Application* s_Instance;
 	};

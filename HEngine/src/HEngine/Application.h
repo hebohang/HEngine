@@ -8,15 +8,9 @@
 
 #include "HEngine/ImGui/ImGuiLayer.h"
 
-#include "HEngine/Renderer/Shader.h"
-#include "HEngine/Renderer/Buffer.h"
-#include "HEngine/Renderer/VertexArray.h"
-
-#include "HEngine/Renderer/OrthographicCamera.h"
-
 namespace HEngine
 {
-	class HENGINE_API Application
+	class Application
 	{
 	public:
 		Application();

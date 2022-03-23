@@ -157,6 +157,7 @@
     <ClInclude Include="src\HEngine\MouseButtonCodes.h" />
     <ClInclude Include="src\HEngine\Renderer\Buffer.h" />
     <ClInclude Include="src\HEngine\Renderer\GraphicsContext.h" />
+    <ClInclude Include="src\HEngine\Renderer\OrthographicCamera.h" />
     <ClInclude Include="src\HEngine\Renderer\RenderCommand.h" />
     <ClInclude Include="src\HEngine\Renderer\Renderer.h" />
     <ClInclude Include="src\HEngine\Renderer\RendererAPI.h" />
@@ -604,6 +605,7 @@
     <ClCompile Include="src\HEngine\LayerStack.cpp" />
     <ClCompile Include="src\HEngine\Log.cpp" />
     <ClCompile Include="src\HEngine\Renderer\Buffer.cpp" />
+    <ClCompile Include="src\HEngine\Renderer\OrthographicCamera.cpp" />
     <ClCompile Include="src\HEngine\Renderer\RenderCommand.cpp" />
     <ClCompile Include="src\HEngine\Renderer\Renderer.cpp" />
     <ClCompile Include="src\HEngine\Renderer\RendererAPI.cpp" />

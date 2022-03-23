@@ -6,6 +6,8 @@
 #include "HEngine/Layer.h"
 #include "HEngine/Log.h"
 
+#include "HEngine/Core/Timestep.h"
+
 #include "HEngine/Input.h"
 #include "HEngine/KeyCodes.h"
 #include "HEngine/MouseButtonCodes.h"

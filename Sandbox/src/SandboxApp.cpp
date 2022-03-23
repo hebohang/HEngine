@@ -116,22 +116,22 @@ public:
 		m_BlueShader.reset(new HEngine::Shader(blueShaderVertexSrc, blueShaderFragmentSrc));
 	}
 
-	void OnUpdate() override
+	void OnUpdate(HEngine::Timestep ts) override
 	{
 		if (HEngine::Input::IsKeyPressed(HE_KEY_LEFT))
-			m_CameraPosition.x -= m_CameraMoveSpeed;
+			m_CameraPosition.x -= m_CameraMoveSpeed * ts;
 		else if (HEngine::Input::IsKeyPressed(HE_KEY_RIGHT))
-			m_CameraPosition.x += m_CameraMoveSpeed;
+			m_CameraPosition.x += m_CameraMoveSpeed * ts;
 
 		if (HEngine::Input::IsKeyPressed(HE_KEY_UP))
-			m_CameraPosition.y += m_CameraMoveSpeed;
+			m_CameraPosition.y += m_CameraMoveSpeed * ts;
 		else if (HEngine::Input::IsKeyPressed(HE_KEY_DOWN))
-			m_CameraPosition.y -= m_CameraMoveSpeed;
+			m_CameraPosition.y -= m_CameraMoveSpeed * ts;
 
 		if (HEngine::Input::IsKeyPressed(HE_KEY_A))
-			m_CameraRotation += m_CameraRotationSpeed;		
+			m_CameraRotation += m_CameraRotationSpeed * ts;
 		else if (HEngine::Input::IsKeyPressed(HE_KEY_D))
-			m_CameraRotation -= m_CameraRotationSpeed;
+			m_CameraRotation -= m_CameraRotationSpeed * ts;
 
 		HEngine::RenderCommand::SetClearColor({ 0.1f, 0.1f, 0.1f, 1 });
 		HEngine::RenderCommand::Clear();
@@ -165,10 +165,10 @@ private:
 
 	HEngine::OrthographicCamera m_Camera;
 	glm::vec3 m_CameraPosition;
-	float m_CameraMoveSpeed = 0.1f;
+	float m_CameraMoveSpeed = 1.0f;
 
 	float m_CameraRotation = 0.0f;
-	float m_CameraRotationSpeed = 2.0f;
+	float m_CameraRotationSpeed = 180.0f;
 };
 
 class Sandbox : public HEngine::Application

@@ -6,6 +6,8 @@
 #include "HEngine/Events/Event.h"
 #include "HEngine/Events/ApplicationEvent.h"
 
+#include "HEngine/Core/Timestep.h"
+
 #include "HEngine/ImGui/ImGuiLayer.h"
 
 namespace HEngine
@@ -27,11 +29,13 @@ namespace HEngine
 		inline static Application& Get() { return *s_Instance; }
 	private:
 		bool OnWindowClose(WindowCloseEvent& e);
-
+	private:
 		std::unique_ptr<Window> m_Window;
 		ImGuiLayer* m_ImGuiLayer;
 		bool m_Running = true;
 		LayerStack m_LayerStack;
+		//Timestep m_Timestep;
+		float m_LastFrameTime = 0.0f;
 	private:
 		static Application* s_Instance;
 	};

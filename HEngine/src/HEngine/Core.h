@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #ifdef HE_PLATFORM_WINDOWS
 #if HE_DYNAMIC_LINK
 	#ifdef HE_BUILD_DLL
@@ -29,3 +31,12 @@
 #define BIT(x) (1 << x)
 
 #define HE_BIND_EVENT_FN(fn) std::bind(&fn, this, std::placeholders::_1)
+
+namespace HEngine
+{
+	template<typename T>
+	using Scope = std::unique_ptr<T>;
+
+	template<typename T>
+	using Ref = std::shared_ptr<T>;
+}

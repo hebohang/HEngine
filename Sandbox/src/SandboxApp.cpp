@@ -21,7 +21,7 @@ public:
 			 0.0f,  0.5f, 0.0f, 0.8f, 0.8f, 0.2f, 1.0f
 		};
 
-		std::shared_ptr<HEngine::VertexBuffer> vertexBuffer;
+		HEngine::Ref<HEngine::VertexBuffer> vertexBuffer;
 		vertexBuffer.reset(HEngine::VertexBuffer::Create(vertices, sizeof(vertices)));
 		vertexBuffer->SetLayout({
 			{ HEngine::ShaderDataType::Float3, "a_Position" },
@@ -30,7 +30,7 @@ public:
 		m_VertexArray->AddVertexBuffer(vertexBuffer);
 
 		uint32_t indices[3] = { 0, 1, 2 };
-		std::shared_ptr<HEngine::IndexBuffer> indexBuffer;
+		HEngine::Ref<HEngine::IndexBuffer> indexBuffer;
 		indexBuffer.reset(HEngine::IndexBuffer::Create(indices, sizeof(indices) / sizeof(uint32_t)));
 		m_VertexArray->SetIndexBuffer(indexBuffer);
 
@@ -43,7 +43,7 @@ public:
 			-0.5f,  0.5f, 0.0f
 		};
 
-		std::shared_ptr<HEngine::VertexBuffer> squareVB;
+		HEngine::Ref<HEngine::VertexBuffer> squareVB;
 		squareVB.reset(HEngine::VertexBuffer::Create(squareVertices, sizeof(squareVertices)));
 		squareVB->SetLayout({
 			{ HEngine::ShaderDataType::Float3, "a_Position" },
@@ -51,7 +51,7 @@ public:
 		m_SquareVA->AddVertexBuffer(squareVB);
 
 		uint32_t squareIndices[6] = { 0, 1, 2, 2, 3, 0 };
-		std::shared_ptr<HEngine::IndexBuffer> squareIB;
+		HEngine::Ref<HEngine::IndexBuffer> squareIB;
 		squareIB.reset(HEngine::IndexBuffer::Create(squareIndices, sizeof(squareIndices) / sizeof(uint32_t)));
 		m_SquareVA->SetIndexBuffer(squareIB);
 
@@ -184,11 +184,11 @@ public:
 		
 	}
 private:
-	std::shared_ptr<HEngine::Shader> m_Shader;
-	std::shared_ptr<HEngine::VertexArray> m_VertexArray;
+	HEngine::Ref<HEngine::Shader> m_Shader;
+	HEngine::Ref<HEngine::VertexArray> m_VertexArray;
 
-	std::shared_ptr<HEngine::Shader> m_FlatColorShader;
-	std::shared_ptr<HEngine::VertexArray> m_SquareVA;
+	HEngine::Ref<HEngine::Shader> m_FlatColorShader;
+	HEngine::Ref<HEngine::VertexArray> m_SquareVA;
 
 	HEngine::OrthographicCamera m_Camera;
 	glm::vec3 m_CameraPosition;

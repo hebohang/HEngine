@@ -7,6 +7,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+#include "HEngine/Renderer/Shader.h"
+
 class ExampleLayer : public HEngine::Layer
 {
 public:
@@ -91,7 +93,7 @@ public:
 			}
 		)";
 
-		m_Shader.reset(HEngine::Shader::Create(vertexSrc, fragmentSrc));
+		m_Shader = HEngine::Shader::Create("VertexPosColor", vertexSrc, fragmentSrc);
 
 		std::string flatColorShaderVertexSrc = R"(
 			#version 330 core
@@ -125,15 +127,15 @@ public:
 			}
 		)";
 
-		m_FlatColorShader.reset(HEngine::Shader::Create(flatColorShaderVertexSrc, flatColorShaderFragmentSrc));
+		m_FlatColorShader = HEngine::Shader::Create("FlatColor", flatColorShaderVertexSrc, flatColorShaderFragmentSrc);
 
-		m_TextureShader.reset(HEngine::Shader::Create("assets/shaders/Texture.glsl"));
+		auto textureShader = m_ShaderLibrary.Load("assets/shaders/Texture.glsl");
 
 		m_Texture = HEngine::Texture2D::Create("assets/textures/Checkerboard.png");
 		m_ChernoLogoTexture = HEngine::Texture2D::Create("assets/textures/ChernoLogo.png");
 
-		std::dynamic_pointer_cast<HEngine::OpenGLShader>(m_TextureShader)->Bind();
-		std::dynamic_pointer_cast<HEngine::OpenGLShader>(m_TextureShader)->UploadUniformInt("u_Texture", 0);
+		std::dynamic_pointer_cast<HEngine::OpenGLShader>(textureShader)->Bind();
+		std::dynamic_pointer_cast<HEngine::OpenGLShader>(textureShader)->UploadUniformInt("u_Texture", 0);
 	}
 
 	void OnUpdate(HEngine::Timestep ts) override
@@ -176,11 +178,12 @@ public:
 			}
 		}
 
-		m_Texture->Bind();
-		HEngine::Renderer::Submit(m_TextureShader, m_SquareVA, glm::scale(glm::mat4(1.0f), glm::vec3(1.5f)));
-		m_ChernoLogoTexture->Bind();
-		HEngine::Renderer::Submit(m_TextureShader, m_SquareVA, glm::scale(glm::mat4(1.0f), glm::vec3(1.5f)));
+		auto textureShader = m_ShaderLibrary.Get("Texture");
 
+		m_Texture->Bind();
+		HEngine::Renderer::Submit(textureShader, m_SquareVA, glm::scale(glm::mat4(1.0f), glm::vec3(1.5f)));
+		m_ChernoLogoTexture->Bind();
+		HEngine::Renderer::Submit(textureShader, m_SquareVA, glm::scale(glm::mat4(1.0f), glm::vec3(1.5f)));
 
 		// Triangle
 		// HEngine::Renderer::Submit(m_Shader, m_VertexArray);
@@ -200,10 +203,11 @@ public:
 		
 	}
 private:
+	HEngine::ShaderLibrary m_ShaderLibrary;
 	HEngine::Ref<HEngine::Shader> m_Shader;
 	HEngine::Ref<HEngine::VertexArray> m_VertexArray;
 
-	HEngine::Ref<HEngine::Shader> m_FlatColorShader, m_TextureShader;
+	HEngine::Ref<HEngine::Shader> m_FlatColorShader;
 	HEngine::Ref<HEngine::VertexArray> m_SquareVA;
 
 	HEngine::Ref<HEngine::Texture2D> m_Texture, m_ChernoLogoTexture;

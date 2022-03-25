@@ -17,6 +17,7 @@
 
 // ---Renderer-----------------------
 #include "HEngine/Renderer/Renderer.h"
+#include "HEngine/Renderer/Renderer2D.h"
 #include "HEngine/Renderer/RenderCommand.h"
 
 #include "HEngine/Renderer/Buffer.h"

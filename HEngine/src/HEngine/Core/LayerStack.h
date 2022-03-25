@@ -1,6 +1,6 @@
 #pragma once
 
-#include "HEngine/Core.h"
+#include "HEngine/Core/Core.h"
 #include "Layer.h"
 
 #include <vector>

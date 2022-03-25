@@ -1,6 +1,6 @@
 #pragma once
 
-#include "HEngine/Input.h"
+#include "HEngine/Core/Input.h"
 
 namespace HEngine
 {

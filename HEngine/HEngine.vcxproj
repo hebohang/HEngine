@@ -141,32 +141,32 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="src\HEngine.h" />
-    <ClInclude Include="src\HEngine\Application.h" />
-    <ClInclude Include="src\HEngine\Core.h" />
+    <ClInclude Include="src\HEngine\Core\Application.h" />
+    <ClInclude Include="src\HEngine\Core\Core.h" />
+    <ClInclude Include="src\HEngine\Core\EntryPoint.h" />
+    <ClInclude Include="src\HEngine\Core\Input.h" />
+    <ClInclude Include="src\HEngine\Core\KeyCodes.h" />
+    <ClInclude Include="src\HEngine\Core\Layer.h" />
+    <ClInclude Include="src\HEngine\Core\LayerStack.h" />
+    <ClInclude Include="src\HEngine\Core\Log.h" />
+    <ClInclude Include="src\HEngine\Core\MouseButtonCodes.h" />
     <ClInclude Include="src\HEngine\Core\Timestep.h" />
-    <ClInclude Include="src\HEngine\EntryPoint.h" />
+    <ClInclude Include="src\HEngine\Core\Window.h" />
     <ClInclude Include="src\HEngine\Events\ApplicationEvent.h" />
     <ClInclude Include="src\HEngine\Events\Event.h" />
     <ClInclude Include="src\HEngine\Events\KeyEvent.h" />
     <ClInclude Include="src\HEngine\Events\MouseEvent.h" />
     <ClInclude Include="src\HEngine\ImGui\ImGuiLayer.h" />
-    <ClInclude Include="src\HEngine\Input.h" />
-    <ClInclude Include="src\HEngine\KeyCodes.h" />
-    <ClInclude Include="src\HEngine\Layer.h" />
-    <ClInclude Include="src\HEngine\LayerStack.h" />
-    <ClInclude Include="src\HEngine\Log.h" />
-    <ClInclude Include="src\HEngine\MouseButtonCodes.h" />
-    <ClInclude Include="src\HEngine\OrthographicCameraController.h" />
     <ClInclude Include="src\HEngine\Renderer\Buffer.h" />
     <ClInclude Include="src\HEngine\Renderer\GraphicsContext.h" />
     <ClInclude Include="src\HEngine\Renderer\OrthographicCamera.h" />
+    <ClInclude Include="src\HEngine\Renderer\OrthographicCameraController.h" />
     <ClInclude Include="src\HEngine\Renderer\RenderCommand.h" />
     <ClInclude Include="src\HEngine\Renderer\Renderer.h" />
     <ClInclude Include="src\HEngine\Renderer\RendererAPI.h" />
     <ClInclude Include="src\HEngine\Renderer\Shader.h" />
     <ClInclude Include="src\HEngine\Renderer\Texture.h" />
     <ClInclude Include="src\HEngine\Renderer\VertexArray.h" />
-    <ClInclude Include="src\HEngine\Window.h" />
     <ClInclude Include="src\Platform\OpenGL\OpenGLBuffer.h" />
     <ClInclude Include="src\Platform\OpenGL\OpenGLContext.h" />
     <ClInclude Include="src\Platform\OpenGL\OpenGLRendererAPI.h" />
@@ -604,15 +604,15 @@
     <ClInclude Include="vendor\stb_image\stb_image.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="src\HEngine\Application.cpp" />
+    <ClCompile Include="src\HEngine\Core\Application.cpp" />
+    <ClCompile Include="src\HEngine\Core\Layer.cpp" />
+    <ClCompile Include="src\HEngine\Core\LayerStack.cpp" />
+    <ClCompile Include="src\HEngine\Core\Log.cpp" />
     <ClCompile Include="src\HEngine\ImGui\ImGuiBuild.cpp" />
     <ClCompile Include="src\HEngine\ImGui\ImGuiLayer.cpp" />
-    <ClCompile Include="src\HEngine\Layer.cpp" />
-    <ClCompile Include="src\HEngine\LayerStack.cpp" />
-    <ClCompile Include="src\HEngine\Log.cpp" />
-    <ClCompile Include="src\HEngine\OrthographicCameraController.cpp" />
     <ClCompile Include="src\HEngine\Renderer\Buffer.cpp" />
     <ClCompile Include="src\HEngine\Renderer\OrthographicCamera.cpp" />
+    <ClCompile Include="src\HEngine\Renderer\OrthographicCameraController.cpp" />
     <ClCompile Include="src\HEngine\Renderer\RenderCommand.cpp" />
     <ClCompile Include="src\HEngine\Renderer\Renderer.cpp" />
     <ClCompile Include="src\HEngine\Renderer\RendererAPI.cpp" />

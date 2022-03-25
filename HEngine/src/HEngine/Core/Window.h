@@ -2,7 +2,7 @@
 
 #include "hepch.h"
 
-#include "HEngine/Core.h"
+#include "HEngine/Core/Core.h"
 #include "HEngine/Events/Event.h"
 
 namespace HEngine

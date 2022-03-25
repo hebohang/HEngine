@@ -13,7 +13,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "HEngine/Log.h"
+#include "HEngine/Core/Log.h"
 
 #ifdef HE_PLATFORM_WINDOWS
 	#include <Windows.h>

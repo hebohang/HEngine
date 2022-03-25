@@ -11,6 +11,7 @@ namespace HEngine
     {
     public:
         static void Init();
+        static void OnWindowResize(uint32_t width, uint32_t height);
 
         static void BeginScene(OrthographicCamera& camera);
         static void EndScene();

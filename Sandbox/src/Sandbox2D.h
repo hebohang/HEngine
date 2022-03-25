@@ -21,5 +21,7 @@ private:
     HEngine::Ref<HEngine::VertexArray> m_SquareVA;
     HEngine::Ref<HEngine::Shader> m_FlatColorShader;
 
+    HEngine::Ref<HEngine::Texture2D> m_CheckerboardTexture;
+
     glm::vec4 m_SquareColor = { 0.2f, 0.3f, 0.8f, 1.0f };
 };

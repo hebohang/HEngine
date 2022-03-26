@@ -123,7 +123,7 @@ namespace HEngine
 	};
 }
 
-#define HE_PROFILE 1
+#define HE_PROFILE 0
 #if HE_PROFILE
 	#define HE_PROFILE_BEGIN_SESSION(name, filepath) ::HEngine::Instrumentor::Get().BeginSession(name, filepath)
 	#define HE_PROFILE_END_SESSION() ::HEngine::Instrumentor::Get().EndSession()

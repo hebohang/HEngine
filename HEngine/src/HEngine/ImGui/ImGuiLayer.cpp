@@ -63,12 +63,6 @@ namespace HEngine
         ImGui::DestroyContext();
     }
 
-    void ImGuiLayer::OnImGuiRender()
-    {
-        static bool show = true;
-        ImGui::ShowDemoWindow(&show);
-    }
-
     void ImGuiLayer::Begin()
     {
         // Start the Dear ImGui frame

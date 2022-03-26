@@ -13,6 +13,8 @@ namespace HEngine
 
 	Application::Application()
 	{
+		HE_PROFILE_FUNCTION();
+
 		HE_CORE_ASSERT(!s_Instance, "Application already exists!")
 		s_Instance = this;
 

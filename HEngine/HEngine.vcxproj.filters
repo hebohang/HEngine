@@ -1523,5 +1523,6 @@
       <Filter>vendor\stb_image</Filter>
     </ClCompile>
     <ClCompile Include="src\HEngine\Renderer\Renderer2D.cpp" />
+    <ClCompile Include="src\HEngine\Renderer\GraphicsContext.cpp" />
   </ItemGroup>
 </Project>

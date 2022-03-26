@@ -613,6 +613,7 @@
     <ClCompile Include="src\HEngine\ImGui\ImGuiBuild.cpp" />
     <ClCompile Include="src\HEngine\ImGui\ImGuiLayer.cpp" />
     <ClCompile Include="src\HEngine\Renderer\Buffer.cpp" />
+    <ClCompile Include="src\HEngine\Renderer\GraphicsContext.cpp" />
     <ClCompile Include="src\HEngine\Renderer\OrthographicCamera.cpp" />
     <ClCompile Include="src\HEngine\Renderer\OrthographicCameraController.cpp" />
     <ClCompile Include="src\HEngine\Renderer\RenderCommand.cpp" />

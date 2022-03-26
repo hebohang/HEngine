@@ -1,6 +1,7 @@
 #pragma once
 
 #include <iostream>
+#include <chrono>
 #include <memory>
 #include <utility>
 #include <algorithm>
@@ -14,6 +15,8 @@
 #include <unordered_set>
 
 #include "HEngine/Core/Log.h"
+
+#include "HEngine/Debug/Instrumentor.h"
 
 #ifdef HE_PLATFORM_WINDOWS
 	#include <Windows.h>

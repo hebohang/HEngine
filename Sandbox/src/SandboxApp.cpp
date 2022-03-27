@@ -25,7 +25,7 @@ public:
 		};
 
 		HEngine::Ref<HEngine::VertexBuffer> vertexBuffer;
-		vertexBuffer.reset(HEngine::VertexBuffer::Create(vertices, sizeof(vertices)));
+		vertexBuffer = HEngine::VertexBuffer::Create(vertices, sizeof(vertices));
 		vertexBuffer->SetLayout({
 			{ HEngine::ShaderDataType::Float3, "a_Position" },
 			{ HEngine::ShaderDataType::Float4, "a_Color" },
@@ -47,7 +47,7 @@ public:
 		};
 
 		HEngine::Ref<HEngine::VertexBuffer> squareVB;
-		squareVB.reset(HEngine::VertexBuffer::Create(squareVertices, sizeof(squareVertices)));
+		squareVB = HEngine::VertexBuffer::Create(squareVertices, sizeof(squareVertices));
 		squareVB->SetLayout({
 			{ HEngine::ShaderDataType::Float3, "a_Position" },
 			{ HEngine::ShaderDataType::Float2, "a_TexCoord" },

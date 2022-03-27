@@ -32,7 +32,7 @@ namespace HEngine
         };
 
         Ref<VertexBuffer> squareVB;
-        squareVB.reset(VertexBuffer::Create(squareVertices, sizeof(squareVertices)));
+        squareVB = VertexBuffer::Create(squareVertices, sizeof(squareVertices));
         squareVB->SetLayout({
             { ShaderDataType::Float3, "a_Position" },
             { ShaderDataType::Float2, "a_TexCoord" },

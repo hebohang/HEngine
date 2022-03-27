@@ -43,7 +43,8 @@ void Sandbox2D::OnUpdate(HEngine::Timestep ts)
 		//HEngine::Renderer2D::DrawRotatedQuad({ -1.0f, 0.0f }, { 0.8f, 0.8f }, glm::radians(-45.0f), { 0.8f, 0.2f, 0.3f, 1.0f });
 		HEngine::Renderer2D::DrawQuad({ -1.0f, 0.0f }, { 0.8f, 0.8f }, { 0.8f, 0.2f, 0.3f, 1.0f });
 		HEngine::Renderer2D::DrawQuad({ 0.5f, -0.5f }, { 0.5f, 0.75f }, { 0.2f, 0.3f, 0.8f, 1.0f });
-		//HEngine::Renderer2D::DrawQuad({ 0.0f,  0.0f, -0.1f }, { 10.0f, 10.0f }, m_CheckerboardTexture, 10.0f);
+		HEngine::Renderer2D::DrawQuad({ -5.0f,  -5.0f, -0.1f }, { 10.0f, 10.0f }, m_CheckerboardTexture, 10.0f);
+		HEngine::Renderer2D::DrawQuad({ -0.5f,  -0.5f,  0.0f }, { 1.0f, 1.0f }, m_CheckerboardTexture, 20.0f);
 		HEngine::Renderer2D::EndScene();
 	}
 }

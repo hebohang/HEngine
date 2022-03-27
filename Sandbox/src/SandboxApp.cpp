@@ -29,7 +29,7 @@ public:
 		vertexBuffer->SetLayout({
 			{ HEngine::ShaderDataType::Float3, "a_Position" },
 			{ HEngine::ShaderDataType::Float4, "a_Color" },
-			});
+		});
 		m_VertexArray->AddVertexBuffer(vertexBuffer);
 
 		uint32_t indices[3] = { 0, 1, 2 };

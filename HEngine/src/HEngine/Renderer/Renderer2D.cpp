@@ -41,7 +41,7 @@ namespace HEngine
 
         uint32_t squareIndices[6] = { 0, 1, 2, 2, 3, 0 };
         Ref<IndexBuffer> squareIB;
-        squareIB.reset(IndexBuffer::Create(squareIndices, sizeof(squareIndices) / sizeof(uint32_t)));
+        squareIB = IndexBuffer::Create(squareIndices, sizeof(squareIndices) / sizeof(uint32_t));
         s_Data->QuadVertexArray->SetIndexBuffer(squareIB);
 
         s_Data->WhiteTexture = Texture2D::Create(1, 1);

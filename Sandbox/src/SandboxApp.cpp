@@ -34,7 +34,7 @@ public:
 
 		uint32_t indices[3] = { 0, 1, 2 };
 		HEngine::Ref<HEngine::IndexBuffer> indexBuffer;
-		indexBuffer.reset(HEngine::IndexBuffer::Create(indices, sizeof(indices) / sizeof(uint32_t)));
+		indexBuffer = HEngine::IndexBuffer::Create(indices, sizeof(indices) / sizeof(uint32_t));
 		m_VertexArray->SetIndexBuffer(indexBuffer);
 
 		m_SquareVA = HEngine::VertexArray::Create();
@@ -56,7 +56,7 @@ public:
 
 		uint32_t squareIndices[6] = { 0, 1, 2, 2, 3, 0 };
 		HEngine::Ref<HEngine::IndexBuffer> squareIB;
-		squareIB.reset(HEngine::IndexBuffer::Create(squareIndices, sizeof(squareIndices) / sizeof(uint32_t)));
+		squareIB = HEngine::IndexBuffer::Create(squareIndices, sizeof(squareIndices) / sizeof(uint32_t));
 		m_SquareVA->SetIndexBuffer(squareIB);
 
 		std::string vertexSrc = R"(

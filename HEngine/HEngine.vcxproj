@@ -142,7 +142,7 @@
   <ItemGroup>
     <ClInclude Include="src\HEngine.h" />
     <ClInclude Include="src\HEngine\Core\Application.h" />
-    <ClInclude Include="src\HEngine\Core\Core.h" />
+    <ClInclude Include="src\HEngine\Core\Base.h" />
     <ClInclude Include="src\HEngine\Core\EntryPoint.h" />
     <ClInclude Include="src\HEngine\Core\Input.h" />
     <ClInclude Include="src\HEngine\Core\KeyCodes.h" />

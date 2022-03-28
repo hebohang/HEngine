@@ -1,7 +1,7 @@
 #pragma once
 
 #include <string>
-#include "HEngine/Core/Core.h"
+#include "HEngine/Core/Base.h"
 
 namespace HEngine
 {

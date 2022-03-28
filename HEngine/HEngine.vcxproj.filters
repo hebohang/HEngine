@@ -1445,6 +1445,7 @@
     </ClInclude>
     <ClInclude Include="src\HEngine\Renderer\Renderer2D.h" />
     <ClInclude Include="src\HEngine\Debug\Instrumentor.h" />
+    <ClInclude Include="src\HEngine\Renderer\SubTexture2D.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\HEngine\Core\Application.cpp">
@@ -1524,5 +1525,6 @@
     </ClCompile>
     <ClCompile Include="src\HEngine\Renderer\Renderer2D.cpp" />
     <ClCompile Include="src\HEngine\Renderer\GraphicsContext.cpp" />
+    <ClCompile Include="src\HEngine\Renderer\SubTexture2D.cpp" />
   </ItemGroup>
 </Project>

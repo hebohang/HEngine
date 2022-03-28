@@ -167,6 +167,7 @@
     <ClInclude Include="src\HEngine\Renderer\Renderer2D.h" />
     <ClInclude Include="src\HEngine\Renderer\RendererAPI.h" />
     <ClInclude Include="src\HEngine\Renderer\Shader.h" />
+    <ClInclude Include="src\HEngine\Renderer\SubTexture2D.h" />
     <ClInclude Include="src\HEngine\Renderer\Texture.h" />
     <ClInclude Include="src\HEngine\Renderer\VertexArray.h" />
     <ClInclude Include="src\Platform\OpenGL\OpenGLBuffer.h" />
@@ -621,6 +622,7 @@
     <ClCompile Include="src\HEngine\Renderer\Renderer2D.cpp" />
     <ClCompile Include="src\HEngine\Renderer\RendererAPI.cpp" />
     <ClCompile Include="src\HEngine\Renderer\Shader.cpp" />
+    <ClCompile Include="src\HEngine\Renderer\SubTexture2D.cpp" />
     <ClCompile Include="src\HEngine\Renderer\Texture.cpp" />
     <ClCompile Include="src\HEngine\Renderer\VertexArray.cpp" />
     <ClCompile Include="src\Platform\OpenGL\OpenGLBuffer.cpp" />

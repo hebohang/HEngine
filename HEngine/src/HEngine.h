@@ -22,6 +22,7 @@
 
 #include "HEngine/Renderer/Buffer.h"
 #include "HEngine/Renderer/Shader.h"
+#include "HEngine/Renderer/Framebuffer.h"
 #include "HEngine/Renderer/Texture.h"
 #include "HEngine/Renderer/SubTexture2D.h"
 #include "HEngine/Renderer/VertexArray.h"

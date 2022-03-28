@@ -20,6 +20,7 @@ private:
     // Temp
     HEngine::Ref<HEngine::VertexArray> m_SquareVA;
     HEngine::Ref<HEngine::Shader> m_FlatColorShader;
+    HEngine::Ref<HEngine::Framebuffer> m_Framebuffer;
 
     HEngine::Ref<HEngine::Texture2D> m_CheckerboardTexture;
 

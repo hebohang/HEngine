@@ -2,8 +2,6 @@
 
 #include "HEngine.h"
 
-#include "ParticleSystem.h"
-
 class Sandbox2D : public HEngine::Layer
 {
 public:
@@ -24,11 +22,6 @@ private:
     HEngine::Ref<HEngine::Shader> m_FlatColorShader;
 
     HEngine::Ref<HEngine::Texture2D> m_CheckerboardTexture;
-    HEngine::Ref<HEngine::Texture2D> m_SpriteSheet;
-    HEngine::Ref<HEngine::SubTexture2D> m_TextureStairs, m_TextureBarrel, m_TextureTree;
 
     glm::vec4 m_SquareColor = { 0.2f, 0.3f, 0.8f, 1.0f };
-
-    ParticleProps m_Particle;
-    ParticleSystem m_ParticleSystem;
 };

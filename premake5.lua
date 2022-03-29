@@ -9,6 +9,11 @@ workspace "HEngine"
 		"Dist"
 	}
 
+	flags
+	{
+		"MultiProcessorCompile"
+	}
+
 outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 
 -- Include directories relative to root folder (solution directory)
@@ -19,9 +24,11 @@ IncludeDir["ImGui"] = "HEngine/vendor/imgui"
 IncludeDir["glm"] = "HEngine/vendor/glm"
 IncludeDir["stb_image"] = "HEngine/vendor/stb_image"
 
-include "HEngine/vendor/GLFW"
-include "HEngine/vendor/Glad"
-include "HEngine/vendor/imgui"
+group "Dependencies"
+	include "HEngine/vendor/GLFW"
+	include "HEngine/vendor/Glad"
+	include "HEngine/vendor/imgui"
+group ""
 
 project "HEngine"
 	location "HEngine"
@@ -79,6 +86,58 @@ project "HEngine"
 			"HE_PLATFORM_WINDOWS",
 			"HE_BUILD_DLL",
 			"GLFW_INCLUDE_NONE",
+		}
+
+	filter "configurations:Debug"
+		defines "HZ_DEBUG"
+		runtime "Debug"
+		symbols "on"
+
+	filter "configurations:Release"
+		defines "HZ_RELEASE"
+		runtime "Release"
+		optimize "on"
+
+	filter "configurations:Dist"
+		defines "HZ_DIST"
+		runtime "Release"
+		optimize "on"
+
+project "HEngine-Editor"
+	location "HEngine-Editor"
+	kind "ConsoleApp"
+	language "C++"
+	cppdialect "C++17"
+	staticruntime "on"
+
+	targetdir ("bin/" .. outputdir .. "/%{prj.name}")
+	objdir ("bin-int/" .. outputdir .. "/%{prj.name}")
+	
+	files
+	{
+		"%{prj.name}/src/**.h",
+		"%{prj.name}/src/**.cpp",
+	}
+
+	includedirs 
+	{
+		"HEngine/vendor/spdlog/include",
+		"HEngine/src",
+		"HEngine/vendor",
+		"%{IncludeDir.glm}",
+	}
+
+	links
+	{
+		"HEngine"
+	}
+
+	filter "system:windows"
+		systemversion "latest"
+
+		defines
+		{
+			"HE_PLATFORM_WINDOWS"
 		}
 
 	filter "configurations:Debug"

@@ -15,7 +15,7 @@ namespace HEngine
 	class Application
 	{
 	public:
-		Application();
+		Application(const std::string& name = "HEngine");
 		virtual ~Application();
 
 		void Run();

@@ -16,6 +16,7 @@ namespace HEngine
 
         virtual void OnAttach() override;
         virtual void OnDetach() override;
+        virtual void OnEvent(Event& e) override;
 
         void Begin();
         void End();

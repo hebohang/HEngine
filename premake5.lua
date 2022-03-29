@@ -1,6 +1,6 @@
 workspace "HEngine"
 	architecture "x64"
-	startproject "Sandbox"
+	startproject "HEngineEditor"
 
 	configurations
 	{
@@ -103,8 +103,8 @@ project "HEngine"
 		runtime "Release"
 		optimize "on"
 
-project "HEngine-Editor"
-	location "HEngine-Editor"
+project "HEngineEditor"
+	location "HEngineEditor"
 	kind "ConsoleApp"
 	language "C++"
 	cppdialect "C++17"

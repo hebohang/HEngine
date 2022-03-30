@@ -127,6 +127,7 @@ project "HEngineEditor"
 		"HEngine/src",
 		"HEngine/vendor",
 		"%{IncludeDir.glm}",
+		"%{IncludeDir.entt}",
 	}
 
 	links

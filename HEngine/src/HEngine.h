@@ -15,6 +15,9 @@
 
 #include "HEngine/ImGui/ImGuiLayer.h"
 
+#include "HEngine/Scene/Scene.h"
+#include "HEngine/Scene/Components.h"
+
 // ---Renderer-----------------------
 #include "HEngine/Renderer/Renderer.h"
 #include "HEngine/Renderer/Renderer2D.h"

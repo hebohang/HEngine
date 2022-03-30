@@ -1460,6 +1460,7 @@
     </ClInclude>
     <ClInclude Include="src\HEngine\Scene\Scene.h" />
     <ClInclude Include="src\HEngine\Scene\Components.h" />
+    <ClInclude Include="src\HEngine\Scene\Entity.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\HEngine\Core\Application.cpp">
@@ -1553,5 +1554,6 @@
       <Filter>vendor\stb_image</Filter>
     </ClCompile>
     <ClCompile Include="src\HEngine\Scene\Scene.cpp" />
+    <ClCompile Include="src\HEngine\Scene\Entity.cpp" />
   </ItemGroup>
 </Project>

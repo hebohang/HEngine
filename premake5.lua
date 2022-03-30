@@ -23,6 +23,7 @@ IncludeDir["Glad"] = "HEngine/vendor/Glad/include"
 IncludeDir["ImGui"] = "HEngine/vendor/imgui"
 IncludeDir["glm"] = "HEngine/vendor/glm"
 IncludeDir["stb_image"] = "HEngine/vendor/stb_image"
+IncludeDir["entt"] = "HEngine/vendor/entt/include"
 
 group "Dependencies"
 	include "HEngine/vendor/GLFW"
@@ -68,6 +69,7 @@ project "HEngine"
 		"%{IncludeDir.ImGui}",
 		"%{IncludeDir.glm}",
 		"%{IncludeDir.stb_image}",
+		"%{IncludeDir.entt}",
 	}
 	
 	links
@@ -177,6 +179,7 @@ project "Sandbox"
 		"HEngine/src",
 		"HEngine/vendor",
 		"%{IncludeDir.glm}",
+		"%{IncludeDir.entt}",
 	}
 
 	links

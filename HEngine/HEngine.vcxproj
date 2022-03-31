@@ -179,6 +179,7 @@
     <ClInclude Include="src\HEngine\Scene\Components.h" />
     <ClInclude Include="src\HEngine\Scene\Entity.h" />
     <ClInclude Include="src\HEngine\Scene\Scene.h" />
+    <ClInclude Include="src\HEngine\Scene\SceneCamera.h" />
     <ClInclude Include="src\Platform\OpenGL\OpenGLBuffer.h" />
     <ClInclude Include="src\Platform\OpenGL\OpenGLContext.h" />
     <ClInclude Include="src\Platform\OpenGL\OpenGLFramebuffer.h" />
@@ -616,6 +617,7 @@
     <ClInclude Include="vendor\stb_image\stb_image.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\HEngine\Scene\SceneCamera.cpp" />
     <ClCompile Include="src\HEngine\Core\Application.cpp" />
     <ClCompile Include="src\HEngine\Core\Layer.cpp" />
     <ClCompile Include="src\HEngine\Core\LayerStack.cpp" />

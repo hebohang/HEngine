@@ -1462,6 +1462,7 @@
     <ClInclude Include="src\HEngine\Scene\Components.h" />
     <ClInclude Include="src\HEngine\Scene\Entity.h" />
     <ClInclude Include="src\HEngine\Renderer\Camera.h" />
+    <ClInclude Include="src\HEngine\Scene\SceneCamera.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\HEngine\Core\Application.cpp">
@@ -1556,5 +1557,6 @@
     </ClCompile>
     <ClCompile Include="src\HEngine\Scene\Scene.cpp" />
     <ClCompile Include="src\HEngine\Scene\Entity.cpp" />
+    <ClCompile Include="src\HEngine\Scene\SceneCamera.cpp" />
   </ItemGroup>
 </Project>

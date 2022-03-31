@@ -144,6 +144,7 @@
     </Lib>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="src\HEngine\Scene\ScriptableEntity.h" />
     <ClInclude Include="src\HEngine.h" />
     <ClInclude Include="src\HEngine\Renderer\Camera.h" />
     <ClInclude Include="src\HEngine\Core\Application.h" />
@@ -639,6 +640,7 @@
     <ClCompile Include="src\HEngine\Renderer\VertexArray.cpp" />
     <ClCompile Include="src\HEngine\Scene\Entity.cpp" />
     <ClCompile Include="src\HEngine\Scene\Scene.cpp" />
+    <ClCompile Include="src\HEngine\Scene\ScriptableEntity.cpp" />
     <ClCompile Include="src\Platform\OpenGL\OpenGLBuffer.cpp" />
     <ClCompile Include="src\Platform\OpenGL\OpenGLContext.cpp" />
     <ClCompile Include="src\Platform\OpenGL\OpenGLFramebuffer.cpp" />

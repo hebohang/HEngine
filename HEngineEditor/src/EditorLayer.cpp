@@ -1,6 +1,7 @@
 #include "EditorLayer.h"
-#include "imgui/imgui.h"
+#include "HEngine/Scene/SceneSerializer.h"
 
+#include <imgui/imgui.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
@@ -22,6 +23,7 @@ namespace HEngine
 
         m_ActiveScene = CreateRef<Scene>();
 
+#if 0
         // Entity
         Entity square = m_ActiveScene->CreateEntity("Green Square");
         square.AddComponent<SpriteRendererComponent>(glm::vec4{ 0.0f, 1.0f, 0.0f, 1.0f });
@@ -68,6 +70,7 @@ namespace HEngine
 
         m_CameraEntity.AddComponent<NativeScriptComponent>().Bind<CameraController>();
         m_SecondCamera.AddComponent<NativeScriptComponent>().Bind<CameraController>();
+#endif
 
         m_SceneHierarchyPanel.SetContext(m_ActiveScene);
     }
@@ -173,6 +176,18 @@ namespace HEngine
         {
             if (ImGui::BeginMenu("File"))
             {
+                if (ImGui::MenuItem("Serialize"))
+                {
+                    SceneSerializer serializer(m_ActiveScene);
+                    serializer.Serialize("assets/scenes/Example.he");
+                }
+
+                if (ImGui::MenuItem("Deserialize"))
+                {
+                    SceneSerializer serializer(m_ActiveScene);
+                    serializer.Deserialize("assets/scenes/Example.he");
+                }
+
                 if (ImGui::MenuItem("Exit", NULL, false)) Application::Get().Close();
                 ImGui::EndMenu();
             }

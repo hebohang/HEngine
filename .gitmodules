@@ -10,3 +10,6 @@
 [submodule "HEngine/vendor/glm"]
 	path = HEngine/vendor/glm
 	url = git@github.com:g-truc/glm.git
+[submodule "HEngine/vendor/yaml-cpp"]
+	path = HEngine/vendor/yaml-cpp
+	url = git@github.com:hebohang/yaml-cpp.git

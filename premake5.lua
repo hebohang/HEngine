@@ -24,11 +24,13 @@ IncludeDir["ImGui"] = "HEngine/vendor/imgui"
 IncludeDir["glm"] = "HEngine/vendor/glm"
 IncludeDir["stb_image"] = "HEngine/vendor/stb_image"
 IncludeDir["entt"] = "HEngine/vendor/entt/include"
+IncludeDir["yaml_cpp"] = "HEngine/vendor/yaml-cpp/include"
 
 group "Dependencies"
 	include "HEngine/vendor/GLFW"
 	include "HEngine/vendor/Glad"
 	include "HEngine/vendor/imgui"
+	include "HEngine/vendor/yaml-cpp"
 group ""
 
 project "HEngine"
@@ -70,6 +72,7 @@ project "HEngine"
 		"%{IncludeDir.glm}",
 		"%{IncludeDir.stb_image}",
 		"%{IncludeDir.entt}",
+		"%{IncludeDir.yaml_cpp}",
 	}
 	
 	links
@@ -77,7 +80,8 @@ project "HEngine"
 		"GLFW",
 		"Glad",
 		"ImGui",
-		"opengl32.lib"
+		"yaml-cpp",
+		"opengl32.lib",
 	}
 
 	filter "system:windows"
@@ -88,6 +92,7 @@ project "HEngine"
 			"HE_PLATFORM_WINDOWS",
 			"HE_BUILD_DLL",
 			"GLFW_INCLUDE_NONE",
+			"YAML_CPP_STATIC_DEFINE",
 		}
 
 	filter "configurations:Debug"

@@ -1,8 +1,8 @@
 #pragma once
 
-#include "entt.hpp"
-
 #include "HEngine/Core/Timestep.h"
+
+#include <entt.hpp>
 
 namespace HEngine
 {
@@ -30,6 +30,7 @@ namespace HEngine
         uint32_t m_ViewportWidth = 0, m_ViewportHeight = 0;
 
         friend class Entity;
+        friend class SceneSerializer;
         friend class SceneHierarchyPanel;
     };
 }

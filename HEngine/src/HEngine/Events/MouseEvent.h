@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Event.h"
+#include "HEngine/Core/MouseCodes.h"
 
 namespace HEngine 
 {
@@ -8,7 +9,7 @@ namespace HEngine
 	class HENGINE_API MouseMovedEvent : public Event
 	{
 	public:
-		MouseMovedEvent(float x, float y)
+		MouseMovedEvent(const float x, const float y)
 			: m_MouseX(x), m_MouseY(y) {}
 
 		inline float GetX() const { return m_MouseX; }
@@ -30,7 +31,7 @@ namespace HEngine
 	class HENGINE_API MouseScrolledEvent : public Event
 	{
 	public:
-		MouseScrolledEvent(float xOffset, float yOffset)
+		MouseScrolledEvent(const float xOffset, const float yOffset)
 			: m_XOffset(xOffset), m_YOffset(yOffset) {}
 
 		inline float GetXOffset() const { return m_XOffset; }
@@ -52,20 +53,20 @@ namespace HEngine
 	class HENGINE_API MouseButtonEvent : public Event
 	{
 	public:
-		inline int GetMouseButton() const { return m_Button; }
+		MouseCode GetMouseButton() const { return m_Button; }
 
 		EVENT_CLASS_CATEGORY(EventCategoryMouse | EventCategoryInput)
 	protected:
-		MouseButtonEvent(int button)
+		MouseButtonEvent(const MouseCode button)
 			: m_Button(button) {}
 
-		int m_Button;
+		MouseCode m_Button;
 	};
 
 	class HENGINE_API MouseButtonPressedEvent : public MouseButtonEvent
 	{
 	public:
-		MouseButtonPressedEvent(int button)
+		MouseButtonPressedEvent(const MouseCode button)
 			: MouseButtonEvent(button) {}
 
 		std::string ToString() const override
@@ -81,7 +82,7 @@ namespace HEngine
 	class HENGINE_API MouseButtonReleasedEvent : public MouseButtonEvent
 	{
 	public:
-		MouseButtonReleasedEvent(int button)
+		MouseButtonReleasedEvent(const MouseCode button)
 			: MouseButtonEvent(button) {}
 
 		std::string ToString() const override

@@ -6,6 +6,7 @@
 #include "SubTexture2D.h"
 
 #include "HEngine/Renderer/Camera.h"
+#include "HEngine/Renderer/EditorCamera.h"
 
 namespace HEngine
 {
@@ -16,6 +17,7 @@ namespace HEngine
         static void Shutdown();
          
         static void BeginScene(const Camera& camera, const glm::mat4& transform);
+        static void BeginScene(const EditorCamera& camera);
         static void BeginScene(const OrthographicCamera& camera); // TODO: Remove
         static void EndScene();
         static void Flush();
@@ -51,6 +53,7 @@ namespace HEngine
         static void ResetStats();
         static Statistics GetStats();
     private:
-        static void FlushAndReset();
+		static void StartBatch();
+		static void NextBatch();
     };
 }

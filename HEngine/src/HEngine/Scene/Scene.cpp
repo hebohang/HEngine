@@ -31,57 +31,72 @@ namespace HEngine
         m_Registry.destroy(entity);
     }
 
-    void Scene::OnUpdate(Timestep ts)
-    {
-        // Update scripts
-        {
-            m_Registry.view<NativeScriptComponent>().each([=](auto entity, auto& nsc)  // nsc: native script component
-                {
-                    // TODO: Move to Scene::OnScenePlay
-                    if (!nsc.Instance)
-                    {
-                        nsc.Instance = nsc.InstantiateScript();
-                        nsc.Instance->m_Entity = Entity{ entity, this };
-                        nsc.Instance->OnCreate();
-                    }
+	void Scene::OnUpdateRuntime(Timestep ts)
+	{
+		// Update scripts
+		{
+			m_Registry.view<NativeScriptComponent>().each([=](auto entity, auto& nsc)  // nsc: native script component
+				{
+					// TODO: Move to Scene::OnScenePlay
+					if (!nsc.Instance)
+					{
+						nsc.Instance = nsc.InstantiateScript();
+						nsc.Instance->m_Entity = Entity{ entity, this };
+						nsc.Instance->OnCreate();
+					}
 
-                    nsc.Instance->OnUpdate(ts);
-                });
-        }
+					nsc.Instance->OnUpdate(ts);
+				});
+		}
 
-        // Render 2D
-        Camera* mainCamera = nullptr;
-        glm::mat4 cameraTransform;
-        {
-            auto view = m_Registry.view<TransformComponent, CameraComponent>();
-            for (auto entity : view)
-            {
-                auto [transform, camera] = view.get<TransformComponent, CameraComponent>(entity);
-                
-                if (camera.Primary)
-                {
-                    mainCamera = &camera.Camera;
-                    cameraTransform = transform.GetTransform();
-                    break;
-                }
-            }
-        }
+		// Render 2D
+		Camera* mainCamera = nullptr;
+		glm::mat4 cameraTransform;
+		{
+			auto view = m_Registry.view<TransformComponent, CameraComponent>();
+			for (auto entity : view)
+			{
+				auto [transform, camera] = view.get<TransformComponent, CameraComponent>(entity);
 
-        if (mainCamera)
-        {
-            Renderer2D::BeginScene(mainCamera->GetProjection(), cameraTransform);
+				if (camera.Primary)
+				{
+					mainCamera = &camera.Camera;
+					cameraTransform = transform.GetTransform();
+					break;
+				}
+			}
+		}
 
-            auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
-            for (auto entity : group)
-            {
-                auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
+		if (mainCamera)
+		{
+			Renderer2D::BeginScene(mainCamera->GetProjection(), cameraTransform);
 
-                Renderer2D::DrawQuad(transform.GetTransform(), sprite.Color);
-            }
+			auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
+			for (auto entity : group)
+			{
+				auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
 
-            Renderer2D::EndScene();
-        }
-    }
+				Renderer2D::DrawQuad(transform.GetTransform(), sprite.Color);
+			}
+
+			Renderer2D::EndScene();
+		}
+	}
+
+	void Scene::OnUpdateEditor(Timestep ts, EditorCamera& camera)
+	{
+		Renderer2D::BeginScene(camera);
+
+		auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
+		for (auto entity : group)
+		{
+			auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
+
+			Renderer2D::DrawQuad(transform.GetTransform(), sprite.Color);
+		}
+
+		Renderer2D::EndScene();
+	}
 
     void Scene::OnViewportResize(uint32_t width, uint32_t height)
     {

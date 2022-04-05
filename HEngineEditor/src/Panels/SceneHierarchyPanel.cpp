@@ -247,6 +247,7 @@ namespace HEngine
                 DrawVec3Control("Scale", component.Scale, 1.0f);
             });
 
+#if 0
         DrawComponent<CameraComponent>("Camera", entity, [](auto& component)
             {
                 auto& camera = component.Camera;
@@ -305,6 +306,7 @@ namespace HEngine
                     ImGui::Checkbox("Fixed Aspect Ratio", &component.FixedAspectRatio);
                 }
             });
+#endif
 
         DrawComponent<SpriteRendererComponent>("Sprite Render", entity, [](auto& component)
             {

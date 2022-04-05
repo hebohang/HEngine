@@ -3,6 +3,8 @@
 #include "HEngine.h"
 #include "Panels/SceneHierarchyPanel.h"
 
+#include "HEngine/Renderer/EditorCamera.h"
+
 namespace HEngine
 {
     class EditorLayer : public Layer
@@ -37,6 +39,8 @@ namespace HEngine
         Entity m_SecondCamera;
 
         bool m_PrimaryCamera = true;
+
+		EditorCamera m_EditorCamera;
 
         Ref<Texture2D> m_CheckerboardTexture;
 

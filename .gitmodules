@@ -13,3 +13,6 @@
 [submodule "HEngine/vendor/yaml-cpp"]
 	path = HEngine/vendor/yaml-cpp
 	url = git@github.com:hebohang/yaml-cpp.git
+[submodule "HEngine/vendor/ImGuizmo"]
+	path = HEngine/vendor/ImGuizmo
+	url = git@github.com:hebohang/ImGuizmo.git

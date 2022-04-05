@@ -20,6 +20,7 @@ project "HEngineEditor"
 		"%{wks.location}/HEngine/vendor",
 		"%{IncludeDir.glm}",
 		"%{IncludeDir.entt}",
+		"%{IncludeDir.ImGuizmo}",
 	}
 
 	links

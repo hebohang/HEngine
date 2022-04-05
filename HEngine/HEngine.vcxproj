@@ -162,6 +162,7 @@
     <ClInclude Include="src\HEngine\Events\KeyEvent.h" />
     <ClInclude Include="src\HEngine\Events\MouseEvent.h" />
     <ClInclude Include="src\HEngine\ImGui\ImGuiLayer.h" />
+    <ClInclude Include="src\HEngine\Math\Math.h" />
     <ClInclude Include="src\HEngine\Renderer\Buffer.h" />
     <ClInclude Include="src\HEngine\Renderer\Camera.h" />
     <ClInclude Include="src\HEngine\Renderer\Framebuffer.h" />
@@ -627,6 +628,7 @@
     <ClCompile Include="src\HEngine\Core\Log.cpp" />
     <ClCompile Include="src\HEngine\ImGui\ImGuiBuild.cpp" />
     <ClCompile Include="src\HEngine\ImGui\ImGuiLayer.cpp" />
+    <ClCompile Include="src\HEngine\Math\Math.cpp" />
     <ClCompile Include="src\HEngine\Renderer\Buffer.cpp" />
     <ClCompile Include="src\HEngine\Renderer\Framebuffer.cpp" />
     <ClCompile Include="src\HEngine\Renderer\GraphicsContext.cpp" />

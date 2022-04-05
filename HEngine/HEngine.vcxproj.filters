@@ -1494,6 +1494,7 @@
     <ClInclude Include="vendor\stb_image\stb_image.h">
       <Filter>vendor\stb_image</Filter>
     </ClInclude>
+    <ClInclude Include="src\HEngine\Math\Math.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\HEngine\Core\Application.cpp">
@@ -1607,5 +1608,6 @@
     <ClCompile Include="vendor\stb_image\stb_image.cpp">
       <Filter>vendor\stb_image</Filter>
     </ClCompile>
+    <ClCompile Include="src\HEngine\Math\Math.cpp" />
   </ItemGroup>
 </Project>

@@ -11,6 +11,8 @@
 #include <GLFW/glfw3.h>
 #include <glad/glad.h>
 
+#include <ImGuizmo.h>
+
 namespace HEngine
 {
     ImGuiLayer::ImGuiLayer()
@@ -35,8 +37,9 @@ namespace HEngine
         //io.ConfigViewportsNoAutoMerge = true;
         //io.ConfigViewportsNoTaskBarIcon = true;
 
-        io.Fonts->AddFontFromFileTTF("assets/fonts/opensans/OpenSans-Bold.ttf", 18.0f);
-        io.FontDefault = io.Fonts->AddFontFromFileTTF("assets/fonts/opensans/OpenSans-Regular.ttf", 18.0f);
+		float fontSize = 18.0f;
+        io.Fonts->AddFontFromFileTTF("assets/fonts/opensans/OpenSans-Bold.ttf", fontSize);
+        io.FontDefault = io.Fonts->AddFontFromFileTTF("assets/fonts/opensans/OpenSans-Regular.ttf", fontSize);
 
         // Setup Dear ImGui style
         ImGui::StyleColorsDark();
@@ -84,6 +87,7 @@ namespace HEngine
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
+		ImGuizmo::BeginFrame();
     }
 
     void ImGuiLayer::End()

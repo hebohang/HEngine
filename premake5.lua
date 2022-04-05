@@ -1,5 +1,7 @@
+include "./vendor/premake/premake_customization/solution_items.lua"
+
 workspace "HEngine"
-	architecture "x64"
+	architecture "x86_64"
 	startproject "HEngineEditor"
 
 	configurations
@@ -7,6 +9,11 @@ workspace "HEngine"
 		"Debug",
 		"Release",
 		"Dist"
+	}
+
+	solution_items
+	{
+		".editorconfig"
 	}
 
 	flags
@@ -18,200 +25,23 @@ outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 
 -- Include directories relative to root folder (solution directory)
 IncludeDir = {}
-IncludeDir["GLFW"] = "HEngine/vendor/GLFW/include"
-IncludeDir["Glad"] = "HEngine/vendor/Glad/include"
-IncludeDir["ImGui"] = "HEngine/vendor/imgui"
-IncludeDir["glm"] = "HEngine/vendor/glm"
-IncludeDir["stb_image"] = "HEngine/vendor/stb_image"
-IncludeDir["entt"] = "HEngine/vendor/entt/include"
-IncludeDir["yaml_cpp"] = "HEngine/vendor/yaml-cpp/include"
+IncludeDir["GLFW"] =		"%{wks.location}/HEngine/vendor/GLFW/include"
+IncludeDir["Glad"] =		"%{wks.location}/HEngine/vendor/Glad/include"
+IncludeDir["ImGui"] =		"%{wks.location}/HEngine/vendor/imgui"
+IncludeDir["glm"] =			"%{wks.location}/HEngine/vendor/glm"
+IncludeDir["stb_image"] =   "%{wks.location}/HEngine/vendor/stb_image"
+IncludeDir["entt"] =		"%{wks.location}/HEngine/vendor/entt/include"
+IncludeDir["yaml_cpp"] =	"%{wks.location}/HEngine/vendor/yaml-cpp/include"
+IncludeDir["ImGuizmo"] =	"%{wks.location}/HEngine/vendor/ImGuizmo"
 
 group "Dependencies"
+	include "vendor/premake"
 	include "HEngine/vendor/GLFW"
 	include "HEngine/vendor/Glad"
 	include "HEngine/vendor/imgui"
 	include "HEngine/vendor/yaml-cpp"
 group ""
 
-project "HEngine"
-	location "HEngine"
-	kind "StaticLib"
-	language "C++"
-	cppdialect "C++17"
-	staticruntime "on"
-
-	targetdir ("%{wks.location}/bin/" .. outputdir .. "/%{prj.name}")
-	objdir ("%{wks.location}/bin-int/" .. outputdir .. "/%{prj.name}")
-
-	pchheader "hepch.h"
-	pchsource "HEngine/src/hepch.cpp"
-	
-	files
-	{
-		"%{prj.name}/src/**.h",
-		"%{prj.name}/src/**.cpp",
-		"%{prj.name}/vendor/stb_image/**.h",
-		"%{prj.name}/vendor/stb_image/**.cpp",
-		"%{prj.name}/vendor/glm/glm/**.h",
-		"%{prj.name}/vendor/glm/glm/**.hpp",
-		"%{prj.name}/vendor/glm/glm/**.inl",
-	}
-
-	defines
-	{
-		"_CRT_SECURE_NO_WARNINGS",
-	}
-
-	includedirs
-	{
-		"%{prj.name}/src",
-		"%{prj.name}/vendor/spdlog/include",
-		"%{IncludeDir.GLFW}",
-		"%{IncludeDir.Glad}",
-		"%{IncludeDir.ImGui}",
-		"%{IncludeDir.glm}",
-		"%{IncludeDir.stb_image}",
-		"%{IncludeDir.entt}",
-		"%{IncludeDir.yaml_cpp}",
-	}
-	
-	links
-	{
-		"GLFW",
-		"Glad",
-		"ImGui",
-		"yaml-cpp",
-		"opengl32.lib",
-	}
-
-	filter "system:windows"
-		systemversion "latest"
-
-		defines
-		{
-			"HE_PLATFORM_WINDOWS",
-			"HE_BUILD_DLL",
-			"GLFW_INCLUDE_NONE",
-			"YAML_CPP_STATIC_DEFINE",
-		}
-
-	filter "configurations:Debug"
-		defines "HZ_DEBUG"
-		runtime "Debug"
-		symbols "on"
-
-	filter "configurations:Release"
-		defines "HZ_RELEASE"
-		runtime "Release"
-		optimize "on"
-
-	filter "configurations:Dist"
-		defines "HZ_DIST"
-		runtime "Release"
-		optimize "on"
-
-project "HEngineEditor"
-	location "HEngineEditor"
-	kind "ConsoleApp"
-	language "C++"
-	cppdialect "C++17"
-	staticruntime "on"
-
-	targetdir ("bin/" .. outputdir .. "/%{prj.name}")
-	objdir ("bin-int/" .. outputdir .. "/%{prj.name}")
-	
-	files
-	{
-		"%{prj.name}/src/**.h",
-		"%{prj.name}/src/**.cpp",
-	}
-
-	includedirs 
-	{
-		"HEngine/vendor/spdlog/include",
-		"HEngine/src",
-		"HEngine/vendor",
-		"%{IncludeDir.glm}",
-		"%{IncludeDir.entt}",
-	}
-
-	links
-	{
-		"HEngine"
-	}
-
-	filter "system:windows"
-		systemversion "latest"
-
-		defines
-		{
-			"HE_PLATFORM_WINDOWS"
-		}
-
-	filter "configurations:Debug"
-		defines "HZ_DEBUG"
-		runtime "Debug"
-		symbols "on"
-
-	filter "configurations:Release"
-		defines "HZ_RELEASE"
-		runtime "Release"
-		optimize "on"
-
-	filter "configurations:Dist"
-		defines "HZ_DIST"
-		runtime "Release"
-		optimize "on"
-
-project "Sandbox"
-	location "Sandbox"
-	kind "ConsoleApp"
-	language "C++"
-	cppdialect "C++17"
-	staticruntime "on"
-
-	targetdir ("bin/" .. outputdir .. "/%{prj.name}")
-	objdir ("bin-int/" .. outputdir .. "/%{prj.name}")
-	
-	files
-	{
-		"%{prj.name}/src/**.h",
-		"%{prj.name}/src/**.cpp",
-	}
-
-	includedirs 
-	{
-		"HEngine/vendor/spdlog/include",
-		"HEngine/src",
-		"HEngine/vendor",
-		"%{IncludeDir.glm}",
-		"%{IncludeDir.entt}",
-	}
-
-	links
-	{
-		"HEngine"
-	}
-
-	filter "system:windows"
-		systemversion "latest"
-
-		defines
-		{
-			"HE_PLATFORM_WINDOWS"
-		}
-
-	filter "configurations:Debug"
-		defines "HZ_DEBUG"
-		runtime "Debug"
-		symbols "on"
-
-	filter "configurations:Release"
-		defines "HZ_RELEASE"
-		runtime "Release"
-		optimize "on"
-
-	filter "configurations:Dist"
-		defines "HZ_DIST"
-		runtime "Release"
-		optimize "on"
+include "HEngine"
+include "Sandbox"
+include "HEngineEditor"

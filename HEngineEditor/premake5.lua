@@ -33,7 +33,8 @@ project "HEngineEditor"
 
 		defines
 		{
-			"HE_PLATFORM_WINDOWS"
+			"HE_PLATFORM_WINDOWS",
+			"HE_ENABLE_ASSERTS",
 		}
 
 	filter "configurations:Debug"

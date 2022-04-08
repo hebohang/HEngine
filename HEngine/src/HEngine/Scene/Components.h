@@ -1,11 +1,11 @@
 #pragma once
 
+#include "SceneCamera.h"
+#include "ScriptableEntity.h"
+
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/quaternion.hpp>
-
-#include "SceneCamera.h"
-#include "ScriptableEntity.h"
 
 namespace HEngine
 {

@@ -16,6 +16,9 @@ namespace HEngine
         glm::vec2 TexCoord;
         float TexIndex;
         float TilingFactor;
+
+		// Editor-only
+		int EntityID;
     };
 
     struct Renderer2DData
@@ -50,11 +53,12 @@ namespace HEngine
 
         s_Data.QuadVertexBuffer = VertexBuffer::Create(s_Data.MaxVertices * sizeof(QuadVertex));
         s_Data.QuadVertexBuffer->SetLayout({
-            { ShaderDataType::Float3, "a_Position" },
-            { ShaderDataType::Float4, "a_Color" },
-            { ShaderDataType::Float2, "a_TexCoord" },
-            { ShaderDataType::Float, "a_TexIndex" },
-            { ShaderDataType::Float, "a_TilingFactor" },
+            { ShaderDataType::Float3,	"a_Position" },
+            { ShaderDataType::Float4,	"a_Color" },
+            { ShaderDataType::Float2,	"a_TexCoord" },
+            { ShaderDataType::Float,	"a_TexIndex" },
+            { ShaderDataType::Float,	"a_TilingFactor" },
+            { ShaderDataType::Int,		"a_EntityID" },
         });
         s_Data.QuadVertexArray->AddVertexBuffer(s_Data.QuadVertexBuffer);
 
@@ -248,7 +252,7 @@ namespace HEngine
         s_Data.Stats.QuadCount++;
     }
 
-    void Renderer2D::DrawQuad(const glm::mat4& transform, const glm::vec4& color)
+    void Renderer2D::DrawQuad(const glm::mat4& transform, const glm::vec4& color, int entityID)
     {
         constexpr size_t quadVertexCount = 4;
         const float textureIndex = 0.0f; // White Texture
@@ -265,6 +269,7 @@ namespace HEngine
             s_Data.QuadVertexBufferPtr->TexCoord = textureCoords[i];
             s_Data.QuadVertexBufferPtr->TexIndex = textureIndex;
             s_Data.QuadVertexBufferPtr->TilingFactor = tilingFactor;
+			s_Data.QuadVertexBufferPtr->EntityID = entityID;
             s_Data.QuadVertexBufferPtr++;
         }
 
@@ -273,7 +278,7 @@ namespace HEngine
         s_Data.Stats.QuadCount++;
     }
 
-    void Renderer2D::DrawQuad(const glm::mat4& transform, const Ref<Texture2D>& texture, float tilingFactor, const glm::vec4& tintColor)
+    void Renderer2D::DrawQuad(const glm::mat4& transform, const Ref<Texture2D>& texture, float tilingFactor, const glm::vec4& tintColor, int entityID)
     {
         constexpr size_t quadVertexCount = 4;
         constexpr glm::vec2 textureCoords[] = { { 0.0f, 0.0f }, { 1.0f, 0.0f }, { 1.0f, 1.0f }, { 0.0f, 1.0f } };
@@ -308,7 +313,8 @@ namespace HEngine
             s_Data.QuadVertexBufferPtr->TexCoord = textureCoords[i];
             s_Data.QuadVertexBufferPtr->TexIndex = textureIndex;
             s_Data.QuadVertexBufferPtr->TilingFactor = tilingFactor;
-            s_Data.QuadVertexBufferPtr++;
+			s_Data.QuadVertexBufferPtr->EntityID = entityID;
+			s_Data.QuadVertexBufferPtr++;
         }
 
         s_Data.QuadIndexCount += 6;
@@ -454,6 +460,11 @@ namespace HEngine
 
         s_Data.Stats.QuadCount++;
     }
+
+	void Renderer2D::DrawSprite(const glm::mat4& transform, SpriteRendererComponent& src, int entityID)
+	{
+		DrawQuad(transform, src.Color, entityID);
+	}
 
     void Renderer2D::ResetStats()
     {

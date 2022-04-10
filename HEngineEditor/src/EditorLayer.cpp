@@ -137,7 +137,7 @@ namespace HEngine
     void EditorLayer::OnImGuiRender()
     {
         HE_PROFILE_FUNCTION();
-
+		
         static bool dockspaceOpen = true;
         static bool opt_fullscreen = true;
         static bool opt_padding = false;
@@ -194,6 +194,8 @@ namespace HEngine
 
         style.WindowMinSize.x = minWinSizeX;
 
+		static bool bShowContentBrowser = false;
+
         if (ImGui::BeginMenuBar())
         {
             if (ImGui::BeginMenu("File"))
@@ -210,12 +212,20 @@ namespace HEngine
                 if (ImGui::MenuItem("Exit", NULL, false)) Application::Get().Close();
                 ImGui::EndMenu();
             }
+			if (ImGui::BeginMenu("Window"))
+			{
+				ImGui::MenuItem("Content Browser", NULL, &bShowContentBrowser);
+				ImGui::EndMenu();
+			}
 
             ImGui::EndMenuBar();
         }
 
         m_SceneHierarchyPanel.OnImGuiRender();
-        m_ContentBrowserPanel.OnImGuiRender();
+		if (bShowContentBrowser)
+		{
+			m_ContentBrowserPanel.OnImGuiRender(&bShowContentBrowser);
+		}
 
         ImGui::Begin("Stats");
 

@@ -194,7 +194,7 @@ namespace HEngine
 
         style.WindowMinSize.x = minWinSizeX;
 
-		static bool bShowContentBrowser = false;
+		static bool bShowContentBrowser = true;
 
         if (ImGui::BeginMenuBar())
         {

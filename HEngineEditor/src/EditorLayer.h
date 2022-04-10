@@ -2,6 +2,7 @@
 
 #include "HEngine.h"
 #include "Panels/SceneHierarchyPanel.h"
+#include "Panels/ContentBrowserPanel.h"
 
 #include "HEngine/Renderer/EditorCamera.h"
 
@@ -57,6 +58,7 @@ namespace HEngine
 
         // Panels
         SceneHierarchyPanel m_SceneHierarchyPanel;
+		ContentBrowserPanel m_ContentBrowserPanel;
     };
 }
 

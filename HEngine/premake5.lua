@@ -2,7 +2,7 @@ project "HEngine"
 	kind "StaticLib"
 	language "C++"
 	cppdialect "C++17"
-	staticruntime "on"
+	staticruntime "off"
 
 	targetdir ("%{wks.location}/bin/" .. outputdir .. "/%{prj.name}")
 	objdir ("%{wks.location}/bin-int/" .. outputdir .. "/%{prj.name}")
@@ -32,6 +32,7 @@ project "HEngine"
 	{
 		"src",
 		"vendor/spdlog/include",
+		"%{IncludeDir.Box2D}",
 		"%{IncludeDir.GLFW}",
 		"%{IncludeDir.Glad}",
 		"%{IncludeDir.ImGui}",
@@ -44,6 +45,7 @@ project "HEngine"
 	
 	links
 	{
+		"Box2D",
 		"GLFW",
 		"Glad",
 		"ImGui",
@@ -67,16 +69,16 @@ project "HEngine"
 		}
 
 	filter "configurations:Debug"
-		defines "HZ_DEBUG"
+		defines "HE_DEBUG"
 		runtime "Debug"
 		symbols "on"
 
 	filter "configurations:Release"
-		defines "HZ_RELEASE"
+		defines "HE_RELEASE"
 		runtime "Release"
 		optimize "on"
 
 	filter "configurations:Dist"
-		defines "HZ_DIST"
+		defines "HE_DIST"
 		runtime "Release"
 		optimize "on"

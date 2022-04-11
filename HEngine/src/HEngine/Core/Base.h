@@ -60,16 +60,21 @@
 #endif // End of DLL support
 
 #ifdef HE_DEBUG
+	#if defined(HE_PLATFORM_WINDOWS)
+		#define HE_DEBUGBREAK() __debugbreak()
+	#elif defined(HE_PLATFORM_LINUX)
+		#include <signal.h>
+		#define HE_DEBUGBREAK() raise(SIGTRAP)
+	#else
+		#error "Platform doesn't support debugbreak yet!"
+	#endif
 	#define HE_ENABLE_ASSERTS
+#else 
+	#define HE_DEBUGBREAK()
 #endif
 
-#ifdef HE_ENABLE_ASSERTS
-	#define HE_ASSERT(x, ...) { if(!(x)) { HE_ERROR("Assertion Failed: {0}", __VA_ARGS__); __debugbreak(); } }
-	#define HE_CORE_ASSERT(x, ...) { if(!(x)) { HE_CORE_ERROR("Assertion Failed: {0}", __VA_ARGS__); __debugbreak(); } }
-#else
-	#define HE_ASSERT(x, ...)
-	#define HE_CORE_ASSERT(x, ...)
-#endif
+#define HE_EXPAND_MACRO(x) x
+#define HE_STRINGIFY_MACRO(x) #x
 
 #define BIT(x) (1 << x)
 
@@ -93,3 +98,6 @@ namespace HEngine
 		return std::make_shared<T>(std::forward<Args>(args)...);
 	}
 }
+
+#include "HEngine/Core/Log.h"
+#include "HEngine/Core/Assert.h"

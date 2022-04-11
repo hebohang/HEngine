@@ -2,7 +2,7 @@ project "HEngineEditor"
 	kind "ConsoleApp"
 	language "C++"
 	cppdialect "C++17"
-	staticruntime "on"
+	staticruntime "off"
 
 	targetdir ("%{wks.location}/bin/" .. outputdir .. "/%{prj.name}")
 	objdir ("%{wks.location}/bin-int/" .. outputdir .. "/%{prj.name}")
@@ -25,7 +25,7 @@ project "HEngineEditor"
 
 	links
 	{
-		"HEngine"
+		"HEngine",
 	}
 
 	filter "system:windows"
@@ -38,16 +38,16 @@ project "HEngineEditor"
 		}
 
 	filter "configurations:Debug"
-		defines "HZ_DEBUG"
+		defines "HE_DEBUG"
 		runtime "Debug"
 		symbols "on"
 
 	filter "configurations:Release"
-		defines "HZ_RELEASE"
+		defines "HE_RELEASE"
 		runtime "Release"
 		optimize "on"
 
 	filter "configurations:Dist"
-		defines "HZ_DIST"
+		defines "HE_DIST"
 		runtime "Release"
 		optimize "on"

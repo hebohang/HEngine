@@ -15,7 +15,7 @@ namespace HEngine
 	{
 		HE_PROFILE_FUNCTION();
 
-		HE_CORE_ASSERT(!s_Instance, "Application already exists!")
+		HE_CORE_ASSERT(!s_Instance, "Application already exists!");
 		s_Instance = this;
 
 		m_Window = Window::Create(WindowProps(name));
@@ -29,8 +29,8 @@ namespace HEngine
 
 	Application::~Application()
 	{
+		Renderer::Shutdown();
 	}
-
 
 	void Application::PushLayer(Layer* layer)
 	{
@@ -75,12 +75,12 @@ namespace HEngine
 			{
 				for (Layer* layer : m_LayerStack)
 					layer->OnUpdate(timestep);
-			}
 
-			m_ImGuiLayer->Begin();
-			for (Layer* layer : m_LayerStack)
-				layer->OnImGuiRender();
-			m_ImGuiLayer->End();
+				m_ImGuiLayer->Begin();
+				for (Layer* layer : m_LayerStack)
+					layer->OnImGuiRender();
+				m_ImGuiLayer->End();
+			}
 
 			m_Window->OnUpdate();
 		}

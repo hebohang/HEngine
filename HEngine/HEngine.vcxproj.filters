@@ -78,6 +78,9 @@
     <ClInclude Include="src\HEngine\Core\Application.h">
       <Filter>src\HEngine\Core</Filter>
     </ClInclude>
+    <ClInclude Include="src\HEngine\Core\Assert.h">
+      <Filter>src\HEngine\Core</Filter>
+    </ClInclude>
     <ClInclude Include="src\HEngine\Core\Base.h">
       <Filter>src\HEngine\Core</Filter>
     </ClInclude>

@@ -16,3 +16,6 @@
 [submodule "HEngine/vendor/ImGuizmo"]
 	path = HEngine/vendor/ImGuizmo
 	url = git@github.com:hebohang/ImGuizmo.git
+[submodule "HEngine/vendor/Box2D"]
+	path = HEngine/vendor/Box2D
+	url = git@github.com:hebohang/box2d.git

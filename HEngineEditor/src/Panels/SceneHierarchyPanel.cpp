@@ -66,11 +66,15 @@ namespace HEngine
 
     void SceneHierarchyPanel::DrawEntityNode(Entity entity)
     {
-        auto& tag = entity.GetComponent<TagComponent>().Tag;
+		const char* name = "Unnamed Entity";
+		if (entity.HasComponent<TagComponent>()) 
+		{
+			name = entity.GetComponent<TagComponent>().Tag.c_str();
+		}
 
         ImGuiTreeNodeFlags flags = ((m_SelectionContext == entity) ? ImGuiTreeNodeFlags_Selected : 0) | ImGuiTreeNodeFlags_OpenOnArrow;
         flags |= ImGuiTreeNodeFlags_SpanAvailWidth;
-        bool opened = ImGui::TreeNodeEx((void*)(uint64_t)(uint32_t)entity, flags, tag.c_str());
+        bool opened = ImGui::TreeNodeEx((void*)(uint64_t)(uint32_t)entity, flags, name);
         if (ImGui::IsItemClicked())
         {
             m_SelectionContext = entity;
@@ -88,7 +92,7 @@ namespace HEngine
         if (opened)
         {
             ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
-            bool opened = ImGui::TreeNodeEx((void*)231313, flags, tag.c_str());  // just test
+            bool opened = ImGui::TreeNodeEx((void*)231313, flags, name);  // just test
             if (opened)
                 ImGui::TreePop();
             ImGui::TreePop();
@@ -178,7 +182,7 @@ namespace HEngine
             auto& component = entity.GetComponent<T>();
             ImVec2 contentRegionAvailable = ImGui::GetContentRegionAvail();
 
-            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{ 4, 4 });
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{ 4.0f, 4.0f });
             float lineHeight = GImGui->Font->FontSize + GImGui->Style.FramePadding.y * 2.0f;
             ImGui::Separator();
             bool open = ImGui::TreeNodeEx((void*)typeid(T).hash_code(), treeNodeFlags, name.c_str());
@@ -294,7 +298,7 @@ namespace HEngine
 				{
 					for (int i = 0; i < 2; i++)
 					{
-						bool isSelected = currentProjectionTypeString == projectionTypeStrings[i];
+						bool isSelected = (currentProjectionTypeString == projectionTypeStrings[i]);
 						if (ImGui::Selectable(projectionTypeStrings[i], isSelected))
 						{
 							currentProjectionTypeString = projectionTypeStrings[i];

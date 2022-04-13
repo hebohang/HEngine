@@ -4,9 +4,9 @@ Entities:
     TagComponent:
       Tag: Empty Entity
     TransformComponent:
-      Translation: [0, -1.10929489, 0]
-      Rotation: [0, 0, 0]
-      Scale: [9.43330193, 1, 2.28537154]
+      Translation: [-1.3486495, 0.311258316, 0]
+      Rotation: [0, 0, -0.875593007]
+      Scale: [9.43330002, 1, 2.28537154]
     SpriteRendererComponent:
       Color: [0.961389959, 0.650992274, 0.0779505447, 1]
     Rigidbody2DComponent:
@@ -55,4 +55,23 @@ Entities:
       Density: 1
       Friction: 0.5
       Restitution: 0
+      RestitutionThreshold: 0.5
+  - Entity: 12658026827338607587
+    TagComponent:
+      Tag: floor
+    TransformComponent:
+      Translation: [4.26170015, -2.11626816, 0]
+      Rotation: [0, 0, 0.750431955]
+      Scale: [9.43330383, 1, 2.28537154]
+    SpriteRendererComponent:
+      Color: [0.961389959, 0.650992274, 0.0779505447, 1]
+    Rigidbody2DComponent:
+      BodyType: Static
+      FixedRotation: false
+    BoxCollider2DComponent:
+      Offset: [0, 0]
+      Size: [0.5, 0.5]
+      Density: 1
+      Friction: 0.5
+      Restitution: 0.829999983
       RestitutionThreshold: 0.5

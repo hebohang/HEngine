@@ -16,8 +16,8 @@ namespace HEngine
 	extern const std::filesystem::path g_AssetPath;
 
     SceneHierarchyPanel::SceneHierarchyPanel(const Ref<Scene>& context)
-        : m_Context(context)
     {
+		SetContext(context);
     }
 
     void SceneHierarchyPanel::SetContext(const Ref<Scene>& context)
@@ -30,23 +30,26 @@ namespace HEngine
     {
         ImGui::Begin("Scene Hierarchy");
 
-        m_Context->m_Registry.each([&](auto entityID)
-            {
-                Entity entity = { entityID, m_Context.get() };
-                DrawEntityNode(entity);
-            });
+		if (m_Context)
+		{
+			m_Context->m_Registry.each([&](auto entityID)
+				{
+					Entity entity = { entityID, m_Context.get() };
+					DrawEntityNode(entity);
+				});
 
-        if (ImGui::IsMouseDown(0) && ImGui::IsWindowHovered())
-            m_SelectionContext = {};
+			if (ImGui::IsMouseDown(0) && ImGui::IsWindowHovered())
+				m_SelectionContext = {};
 
-        // Right-click on blank space
-        if (ImGui::BeginPopupContextWindow(0, 1, false))
-        {
-            if (ImGui::MenuItem("Create Empty Entity"))
-                m_Context->CreateEntity("Empty Entity");
+			// Right-click on blank space
+			if (ImGui::BeginPopupContextWindow(0, 1, false))
+			{
+				if (ImGui::MenuItem("Create Empty Entity"))
+					m_Context->CreateEntity("Empty Entity");
 
-            ImGui::EndPopup();
-        }
+				ImGui::EndPopup();
+			}
+		}
 
         ImGui::End();
 

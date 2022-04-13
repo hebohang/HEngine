@@ -1,8 +1,10 @@
 #pragma once
 
+#include "HEngine/Core/UUID.h"
 #include "Scene.h"
-
+#include "Components.h"
 #include "entt.hpp"
+
 
 namespace HEngine
 {
@@ -32,7 +34,7 @@ namespace HEngine
         template<typename T>
         bool HasComponent()
         {
-            return m_Scene->m_Registry.any_of<T>(m_EntityHandle);
+            return m_Scene->m_Registry.all_of<T>(m_EntityHandle);
         }
 
         template<typename T>
@@ -45,6 +47,8 @@ namespace HEngine
         operator bool() const { return m_EntityHandle != entt::null; }
         operator entt::entity() const { return m_EntityHandle; }
         operator uint32_t() const { return (uint32_t)m_EntityHandle; }
+
+		UUID GetUUID() { return GetComponent<IDComponent>().ID; }
 
         bool operator==(const Entity& other) const 
         { 

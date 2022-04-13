@@ -3,6 +3,7 @@
 #include "Entity.h"
 
 #include "Components.h"
+#include "ScriptableEntity.h"
 #include "HEngine/Renderer/Renderer2D.h"
 
 #include <glm/glm.hpp>
@@ -37,12 +38,18 @@ namespace HEngine
 
     Entity Scene::CreateEntity(const std::string& name)
     {
-        Entity entity = { m_Registry.create(), this };
-        entity.AddComponent<TransformComponent>();
-        auto& tag = entity.AddComponent<TagComponent>();
-        tag.Tag = name.empty() ? "Entity" : name;
-        return entity;
+		return CreateEntityWithUUID(UUID(), name);
     }
+
+	Entity Scene::CreateEntityWithUUID(UUID uuid, const std::string& name)
+	{
+		Entity entity = { m_Registry.create(), this };
+		entity.AddComponent<IDComponent>(uuid);
+		entity.AddComponent<TransformComponent>();
+		auto& tag = entity.AddComponent<TagComponent>();
+		tag.Tag = name.empty() ? "Entity" : name;
+		return entity;
+	}
 
     void Scene::DestroyEntity(Entity entity)
     {
@@ -212,13 +219,17 @@ namespace HEngine
     template<typename T>
     void Scene::OnComponentAdded(Entity entity, T& component)
     {
-        static_cast<false>;
     }
 
     template<>
-    void Scene::OnComponentAdded<TransformComponent>(Entity entity, TransformComponent& component)
+    void Scene::OnComponentAdded<IDComponent>(Entity entity, IDComponent& component)
     {
     }
+
+	template<>
+	void Scene::OnComponentAdded<TransformComponent>(Entity entity, TransformComponent& component)
+	{
+	}
 
     template<>
     void Scene::OnComponentAdded<CameraComponent>(Entity entity, CameraComponent& component)

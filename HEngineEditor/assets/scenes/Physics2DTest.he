@@ -1,6 +1,6 @@
 Scene: Untitled
 Entities:
-  - Entity: 12837192831283
+  - Entity: 13071368868562772916
     TagComponent:
       Tag: Empty Entity
     TransformComponent:
@@ -19,7 +19,7 @@ Entities:
       Friction: 0.5
       Restitution: 0.829999983
       RestitutionThreshold: 0.5
-  - Entity: 12837192831283
+  - Entity: 5903113385073348598
     TagComponent:
       Tag: Camera
     TransformComponent:
@@ -37,7 +37,7 @@ Entities:
         OrthographicFar: 1
       Primary: true
       FixedAspectRatio: false
-  - Entity: 12837192831283
+  - Entity: 812816755726642217
     TagComponent:
       Tag: Sprite
     TransformComponent:

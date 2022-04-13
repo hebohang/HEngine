@@ -1,7 +1,7 @@
 #pragma once
 
 #include "SceneCamera.h"
-#include "ScriptableEntity.h"
+#include "HEngine/Core/UUID.h"
 #include "HEngine/Renderer/Texture.h"
 
 #include <glm/glm.hpp>
@@ -10,6 +10,14 @@
 
 namespace HEngine
 {
+	struct IDComponent
+	{
+		UUID ID;
+
+		IDComponent() = default;
+		IDComponent(const IDComponent&) = default;
+	};
+
     struct TagComponent
     {
         std::string Tag;
@@ -61,6 +69,8 @@ namespace HEngine
         CameraComponent(const CameraComponent&) = default;
     };
 
+	// Forward declaration
+	class ScriptableEntity;
     struct NativeScriptComponent
     {
         ScriptableEntity* Instance = nullptr;

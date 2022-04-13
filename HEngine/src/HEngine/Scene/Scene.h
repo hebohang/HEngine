@@ -1,6 +1,7 @@
 #pragma once
 
 #include "HEngine/Core/Timestep.h"
+#include "HEngine/Core/UUID.h"
 #include "HEngine/Renderer/EditorCamera.h"
 
 #include <entt.hpp>
@@ -18,6 +19,7 @@ namespace HEngine
         ~Scene();
 
         Entity CreateEntity(const std::string& name = std::string());
+        Entity CreateEntityWithUUID(UUID uuid, const std::string& name = std::string());
         void DestroyEntity(Entity entity);
 
 		void OnRuntimeStart();

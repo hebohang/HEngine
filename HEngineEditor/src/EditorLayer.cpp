@@ -246,10 +246,10 @@ namespace HEngine
 
         ImGui::Begin("Stats");
 
-		//std::string name = "None";
-		//if (m_HoveredEntity)
-		//	name = m_HoveredEntity.GetComponent<TagComponent>().Tag;
-		//ImGui::Text("Hovered Entity: %s", name.c_str());
+		std::string name = "None";
+		if (m_HoveredEntity)
+			name = m_HoveredEntity.GetComponent<TagComponent>().Tag;
+		ImGui::Text("Hovered Entity: %s", name.c_str());
 
         auto stats = Renderer2D::GetStats();
         ImGui::Text("Renderer2D Stats:");

@@ -21,8 +21,6 @@ namespace HEngine
 		m_Window = Window::Create(WindowProps(name));
 		m_Window->SetEventCallback(HE_BIND_EVENT_FN(Application::OnEvent));
 
-		Renderer::Init();
-
 		m_ImGuiLayer = new ImGuiLayer();
 		PushOverlay(m_ImGuiLayer);
 	}
@@ -44,6 +42,12 @@ namespace HEngine
 		layer->OnAttach();
 	}
 
+	void Application::PopLayer(Layer* layer)
+	{
+		m_LayerStack.PopLayer(layer);
+		layer->OnDetach();
+	}
+
 	void Application::Close()
 	{
 		m_Running = false;
@@ -61,6 +65,11 @@ namespace HEngine
 				break;
 			(*it)->OnEvent(e);
 		}
+	}
+
+	void Application::Init()
+	{
+		Renderer::Init();
 	}
 
 	void Application::Run()

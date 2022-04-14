@@ -23,6 +23,8 @@ namespace HEngine
     private:
         bool OnKeyPressed(KeyPressedEvent& e);
         bool OnMouseButtonPressed(MouseButtonPressedEvent& e);
+		 
+		void OnOverlayRender();
 
         void NewScene();
         void OpenScene();
@@ -32,7 +34,7 @@ namespace HEngine
 
 		void SerializeScene(Ref<Scene> scene, const std::filesystem::path& path);
 
-		void OnScenePlay();
+		void OnScenePlay(); 
 		void OnSceneStop();
 
 		void OnDuplicateEntity();
@@ -69,6 +71,8 @@ namespace HEngine
         glm::vec4 m_SquareColor = { 0.2f, 0.3f, 0.8f, 1.0f };
 
 		int m_GizmoType = -1;
+
+		bool m_ShowPhysicsColliders = false;
 
 		enum class SceneState
 		{

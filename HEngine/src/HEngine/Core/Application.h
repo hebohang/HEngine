@@ -24,6 +24,7 @@ namespace HEngine
 
 		void PushLayer(Layer* layer);
 		void PushOverlay(Layer* layer);
+		void PopLayer(Layer* layer);
 
 		Window& GetWindow() { return *m_Window; }
 
@@ -33,6 +34,7 @@ namespace HEngine
 
 		static Application& Get() { return *s_Instance; }
 	private:
+		void Init();
 		void Run();
 		bool OnWindowClose(WindowCloseEvent& e);
 		bool OnWindowResize(WindowResizeEvent& e);

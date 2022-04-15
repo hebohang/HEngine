@@ -17,16 +17,13 @@ add_executable(HEngineEditor ${HEngineEditorSrc})
 
 target_link_libraries(HEngineEditor PRIVATE HEngineRuntime)
 
-target_include_directories(HEngineEditor
-PRIVATE
-"../Runtime/ThirdParty/spdlog/include"
-"../Runtime"
-"../Runtime/HEngine"
-"../Runtime/ThirdParty"
-"../Runtime/ThirdParty/glm"
-"../Runtime/ThirdParty/entt/include"
-"../Runtime/ThirdParty/imguizmo"
-"../Runtime/ThirdParty/Box2D"
+target_include_directories(HEngineEditor PRIVATE
+	"../Runtime"
+	"../Runtime/HEngine"
+	"${CMAKE_SOURCE_DIR}/Engine/Source/ThirdParty"
+	"${CMAKE_SOURCE_DIR}/Engine/Source/ThirdParty/entt/include"
+	"${CMAKE_SOURCE_DIR}/Engine/Source/ThirdParty/imguizmo"
+	"${CMAKE_SOURCE_DIR}/Engine/Source/ThirdParty/Box2D"
 )
 
 target_compile_definitions(HEngineEditor PRIVATE

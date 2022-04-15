@@ -1,0 +1,62 @@
+set(ThirdPartyFolder "${CMAKE_CURRENT_SOURCE_DIR}")
+
+if(NOT TARGET Glad)
+    include(Glad.cmake)
+    set_target_properties(Glad PROPERTIES FOLDER ${ThirdPartyFolder}/Glad)
+endif()
+
+# GLFW with the same name of project GLFW, so named "glfw"
+if(NOT TARGET glfw)
+    option(GLFW_BUILD_EXAMPLES "" OFF)
+    option(GLFW_BUILD_TESTS "" OFF)
+    option(GLFW_BUILD_DOCS "" OFF)
+    option(GLFW_INSTALL "" OFF)
+    add_subdirectory(glfw)
+    set_target_properties(glfw PROPERTIES FOLDER ${ThirdPartyFolder}/GLFW)
+endif()
+
+if(NOT TARGET imgui)
+    include(imgui.cmake)
+    set_target_properties(imgui PROPERTIES FOLDER ${ThirdPartyFolder}/imgui)
+endif()
+
+if(NOT TARGET yaml-cpp)
+    include(yaml-cpp.cmake)
+    set_target_properties(yaml-cpp PROPERTIES FOLDER ${ThirdPartyFolder}/yaml-cpp)
+endif()
+
+if(NOT TARGET spdlog)
+    option(SPDLOG_BUILD_EXAMPLE "" OFF)
+    option(SPDLOG_INSTALL "" OFF)
+    add_subdirectory(spdlog)
+    set_target_properties(spdlog PROPERTIES FOLDER ${ThirdPartyFolder}/spdlog)
+endif()
+
+if(NOT TARGET glm)
+    option(BUILD_STATIC_LIBS "" ON)
+    option(BUILD_TESTING "" OFF)
+    option(GLM_TEST_ENABLE "" OFF)
+    add_subdirectory(glm)
+    set_target_properties(glm PROPERTIES FOLDER ${ThirdPartyFolder}/glm)
+endif()
+
+if(NOT TARGET entt)
+    add_library(entt INTERFACE)
+    target_include_directories(entt INTERFACE "${ThirdPartyFolder}/entt/include")
+    set_target_properties(entt PROPERTIES FOLDER ${ThirdPartyFolder}/entt)
+endif()
+
+if(NOT TARGET Box2D)
+    include(Box2D.cmake)
+    set_target_properties(Box2D PROPERTIES FOLDER ${ThirdPartyFolder}/Box2D)
+endif()
+
+if(NOT TARGET stb)
+    include(stb.cmake)
+    set_target_properties(stb PROPERTIES FOLDER ${ThirdPartyFolder}/stb)
+endif()
+
+if(NOT TARGET ImGuizmo)
+    include(ImGuizmo.cmake)
+    set_target_properties(ImGuizmo PROPERTIES FOLDER ${ThirdPartyFolder}/ImGuizmo)
+endif()

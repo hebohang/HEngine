@@ -40,4 +40,12 @@ endif()
 #    PUBLIC cxx_std_17
 #)
 
+find_package(OpenGL 4.5 REQUIRED)
+
+if(OPENGL_FOUND)
+    message("Found OpenGL")
+else()
+    message("Not Found OpenGL")
+endif()
+
 add_subdirectory(Source)

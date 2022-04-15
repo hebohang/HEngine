@@ -1,7 +1,8 @@
 # Binaries
 **/bin/
-!vendor/premake/bin/
 bin-int/
+out/
+build/
 
 # HEngine files
 *.log

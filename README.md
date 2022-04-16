@@ -1,6 +1,15 @@
 # HEngine
 HEngine
 
+Now only support platform Windows
+
+OpenGL 4.5
+
+TODO:
+D3D11
+D3D12
+Vulkan
+
 # 命名规范
 
 ## 命名法
@@ -33,10 +42,14 @@ set(ProjectRootDir "${CMAKE_CURRENT_SOURCE_DIR}")
 **1. Downloading the repository**
 `git@github.com:hebohang/HEngine.git`
 **2. You can choose one of the following methods to build HEngine:**
+
 2.1 Run the Win-GenProjects.bat 
-2.2 
+
+2.2 Run the following commands:
 ```
 cd HEngine
 cmake -B build
 cmake --build build --parallel 4
 ```
+
+2.3 Visual Studio: Open Folder, then choose HEngine folder)

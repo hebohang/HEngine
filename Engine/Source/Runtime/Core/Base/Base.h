@@ -99,5 +99,5 @@ namespace HEngine
 	}
 }
 
-#include "Runtime/Core/Log.h"
-#include "Runtime/Core/Assert.h"
+#include "Runtime/Core/Log/Log.h"
+#include "Runtime/Core/Base/Assert.h"

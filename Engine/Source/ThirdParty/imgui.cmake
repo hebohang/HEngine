@@ -1,4 +1,4 @@
-set(ImguiSourceDir ${CMAKE_CURRENT_SOURCE_DIR}/imgui)
+set(ImguiSourceDir ${ThirdPartyDir}/imgui)
 
 file(GLOB ImGuiSrc
     "${ImguiSourceDir}/imconfig.h"
@@ -16,5 +16,6 @@ file(GLOB ImGuiSrc
 
 add_library(imgui STATIC ${ImGuiSrc})
 target_include_directories(imgui PUBLIC
+    "${ThirdPartyDir}"
     "${ImguiSourceDir}"
 )

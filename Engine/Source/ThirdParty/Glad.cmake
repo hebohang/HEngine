@@ -1,4 +1,4 @@
-set(GladSourceDir ${CMAKE_CURRENT_SOURCE_DIR}/Glad)
+set(GladSourceDir ${ThirdPartyDir}/Glad)
 
 file(GLOB GladSrc 
     "${GladSourceDir}/include/glad/glad.h"

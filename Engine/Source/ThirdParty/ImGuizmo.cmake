@@ -1,4 +1,4 @@
-set(ImGuizmoSourceDir ${CMAKE_CURRENT_SOURCE_DIR}/ImGuizmo)
+set(ImGuizmoSourceDir ${ThirdPartyDir}/ImGuizmo)
 
 file(GLOB_RECURSE ImGuizmoSrc 
     "${ImGuizmoSourceDir}/ImGuizmo.h"

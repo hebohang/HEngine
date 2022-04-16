@@ -2,35 +2,35 @@
 
 // For use by HEngine applications
 
-#include "HEngine/Core/Application.h"
-#include "HEngine/Core/Layer.h"
-#include "HEngine/Core/Log.h"
+#include "Runtime/Core/Application.h"
+#include "Runtime/Core/Layer.h"
+#include "Runtime/Core/Log.h"
 
-#include "HEngine/Core/Timestep.h"
+#include "Runtime/Core/Timestep.h"
 
-#include "HEngine/Core/Input.h"
-#include "HEngine/Core/KeyCodes.h"
-#include "HEngine/Core/MouseCodes.h"
-#include "HEngine/Renderer/OrthographicCameraController.h"
+#include "Runtime/Core/Input.h"
+#include "Runtime/Core/KeyCodes.h"
+#include "Runtime/Core/MouseCodes.h"
+#include "Runtime/Renderer/OrthographicCameraController.h"
 
-#include "HEngine/ImGui/ImGuiLayer.h"
+#include "Runtime/ImGui/ImGuiLayer.h"
 
-#include "HEngine/Scene/Scene.h"
-#include "HEngine/Scene/Entity.h"
-#include "HEngine/Scene/ScriptableEntity.h"
-#include "HEngine/Scene/Components.h"
+#include "Runtime/Scene/Scene.h"
+#include "Runtime/Scene/Entity.h"
+#include "Runtime/Scene/ScriptableEntity.h"
+#include "Runtime/Scene/Components.h"
 
 // ---Renderer-----------------------
-#include "HEngine/Renderer/Renderer.h"
-#include "HEngine/Renderer/Renderer2D.h"
-#include "HEngine/Renderer/RenderCommand.h"
+#include "Runtime/Renderer/Renderer.h"
+#include "Runtime/Renderer/Renderer2D.h"
+#include "Runtime/Renderer/RenderCommand.h"
 
-#include "HEngine/Renderer/Buffer.h"
-#include "HEngine/Renderer/Shader.h"
-#include "HEngine/Renderer/Framebuffer.h"
-#include "HEngine/Renderer/Texture.h"
-#include "HEngine/Renderer/SubTexture2D.h"
-#include "HEngine/Renderer/VertexArray.h"
+#include "Runtime/Renderer/Buffer.h"
+#include "Runtime/Renderer/Shader.h"
+#include "Runtime/Renderer/Framebuffer.h"
+#include "Runtime/Renderer/Texture.h"
+#include "Runtime/Renderer/SubTexture2D.h"
+#include "Runtime/Renderer/VertexArray.h"
 
-#include "HEngine/Renderer/OrthographicCamera.h"
+#include "Runtime/Renderer/OrthographicCamera.h"
 // ----------------------------------

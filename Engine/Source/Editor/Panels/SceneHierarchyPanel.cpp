@@ -1,7 +1,7 @@
 #include "SceneHierarchyPanel.h"
 
-#include "HEngine/Scene/Components.h"
-#include "HEngine/Renderer/Texture.h"
+#include "Runtime/Scene/Components.h"
+#include "Runtime/Renderer/Texture.h"
 
 #include <imgui/imgui.h>
 #include <imgui/imgui_internal.h>

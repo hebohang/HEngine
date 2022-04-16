@@ -1,8 +1,8 @@
 #pragma once
 
-#include "HEngine/Core/Base.h"
-#include "HEngine/Scene/Scene.h"
-#include "HEngine/Scene/Entity.h"
+#include "Runtime/Core/Base.h"
+#include "Runtime/Scene/Scene.h"
+#include "Runtime/Scene/Entity.h"
 
 namespace HEngine
 {

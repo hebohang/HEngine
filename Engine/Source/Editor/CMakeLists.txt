@@ -1,41 +1,33 @@
-file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/Resources
-DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+file(COPY ${EngineEditorDir}/Resources
+DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 
-file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/imgui.ini
-DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+file(COPY ${EngineEditorDir}/imgui.ini
+DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 
-file(GLOB HEngineEditorSrc
-"*.h"
-"*.cpp"
-"Panels/*.h"
-"Panels/*.cpp"
-)
+file(GLOB EditorHeaderFiles CONFIGUE_DEPENDS "*.h" "Panels/*.h")
+file(GLOB EditorSourceFiles CONFIGUE_DEPENDS "*.cpp" "Panels/*.cpp")
 
-source_group(TREE ${CMAKE_SOURCE_DIR}/Engine/Source/Editor FILES ${HEngineEditorSrc})
+source_group(TREE ${EngineEditorDir} FILES ${EditorHeaderFiles} ${EditorSourceFiles})
 
-add_executable(HEngineEditor ${HEngineEditorSrc})
+add_executable(HEngineEditor ${EditorHeaderFiles} ${EditorSourceFiles})
 
 target_link_libraries(HEngineEditor PRIVATE HEngineRuntime)
 
 target_include_directories(HEngineEditor PRIVATE
-	"../Runtime"
-	"../Runtime/HEngine"
-	"${CMAKE_SOURCE_DIR}/Engine/Source/ThirdParty"
-	"${CMAKE_SOURCE_DIR}/Engine/Source/ThirdParty/entt/include"
-	"${CMAKE_SOURCE_DIR}/Engine/Source/ThirdParty/imguizmo"
-	"${CMAKE_SOURCE_DIR}/Engine/Source/ThirdParty/Box2D"
+	"${EngineSourceDir}"
+	"${EngineRuntimeDir}"
 )
 
 target_compile_definitions(HEngineEditor PRIVATE
-HE_PLATFORM_WINDOWS
-HE_DEBUG
-_CRT_SECURE_NO_WARNINGS
+	HE_PLATFORM_WINDOWS
+	HE_DEBUG
+	_CRT_SECURE_NO_WARNINGS
 )
 
 if(MSVC)
 	set_target_properties(
 	HEngineEditor PROPERTIES
-	VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/Engine/Source/HEngineEditor")
+	VS_DEBUGGER_WORKING_DIRECTORY "${EngineEditorDir}")
 endif()
 
 

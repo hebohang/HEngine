@@ -1,7 +1,7 @@
 #include "hepch.h"
-#include "HEngine/Core/Input.h"
+#include "Runtime/Core/Input.h"
 
-#include "HEngine/Core/Application.h"
+#include "Runtime/Core/Application.h"
 #include <GLFW/glfw3.h>
 
 namespace HEngine

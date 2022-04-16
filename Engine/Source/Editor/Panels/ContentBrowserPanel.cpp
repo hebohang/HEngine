@@ -1,4 +1,3 @@
-#include "hepch.h"
 #include "ContentBrowserPanel.h"
 
 #include <imgui/imgui.h>

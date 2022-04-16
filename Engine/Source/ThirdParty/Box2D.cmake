@@ -1,4 +1,4 @@
-set(Box2DSourceDir ${CMAKE_CURRENT_SOURCE_DIR}/Box2D)
+set(Box2DSourceDir ${ThirdPartyDir}/Box2D)
 
 file(GLOB_RECURSE Box2DSrc 
     "${Box2DSourceDir}/include/*.h"

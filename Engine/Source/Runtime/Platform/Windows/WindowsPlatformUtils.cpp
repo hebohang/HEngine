@@ -1,12 +1,12 @@
 #include "hepch.h"
-#include "HEngine/Utils/PlatformUtils.h"
+#include "Runtime/Utils/PlatformUtils.h"
 
 #include <commdlg.h>
 #include <GLFW/glfw3.h>
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
 
-#include "HEngine/Core/Application.h"
+#include "Runtime/Core/Application.h"
 
 namespace HEngine 
 {

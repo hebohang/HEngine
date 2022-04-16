@@ -1,4 +1,4 @@
-set(ThirdPartyFolder "${CMAKE_CURRENT_SOURCE_DIR}")
+set(ThirdPartyFolder "ThirdParty")
 
 if(NOT TARGET Glad)
     include(Glad.cmake)
@@ -42,7 +42,7 @@ endif()
 
 if(NOT TARGET entt)
     add_library(entt INTERFACE)
-    target_include_directories(entt INTERFACE "${ThirdPartyFolder}/entt/include")
+    target_include_directories(entt INTERFACE "${ThirdPartyDir}/entt/include")
     set_target_properties(entt PROPERTIES FOLDER ${ThirdPartyFolder}/entt)
 endif()
 

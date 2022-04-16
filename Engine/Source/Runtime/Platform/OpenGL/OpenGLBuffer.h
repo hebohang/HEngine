@@ -1,6 +1,6 @@
 #pragma once
 
-#include "HEngine/Renderer/Buffer.h"
+#include "Runtime/Renderer/Buffer.h"
 
 namespace HEngine
 {

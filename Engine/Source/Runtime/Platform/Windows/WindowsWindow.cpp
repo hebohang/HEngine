@@ -1,9 +1,9 @@
 #include "hepch.h"
 #include "WindowsWindow.h"
 
-#include "HEngine/Events/ApplicationEvent.h"
-#include "HEngine/Events/MouseEvent.h"
-#include "HEngine/Events/KeyEvent.h"
+#include "Runtime/Events/ApplicationEvent.h"
+#include "Runtime/Events/MouseEvent.h"
+#include "Runtime/Events/KeyEvent.h"
 
 #include "Platform/OpenGL/OpenGLContext.h"
 

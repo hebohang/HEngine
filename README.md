@@ -10,9 +10,9 @@ D3D11
 D3D12
 Vulkan
 
-# 命名规范
+## 命名规范
 
-## 命名法
+### 命名法
 统一采用Pascal命名法（文件夹、类名等），第三方库除外
 
 CMakeLists.txt 的变量命名也采用 Pascal 命名法，比如：
@@ -21,7 +21,7 @@ set(ProjectRootDir "${CMAKE_CURRENT_SOURCE_DIR}")
 ```
 这里变量 ProjectRootDir 采用 Pascal 命名法，与 CMAKE 自带变量区分（比如 CMAKE_CURRENT_SOURCE_DIR ）
 
-## include 头文件顺序
+### include 头文件顺序
 首先include同级文件，其次是同Source文件，再次为第三方依赖（确保依赖顺序）
 比如 Editor 中：
 ```
@@ -38,9 +38,10 @@ set(ProjectRootDir "${CMAKE_CURRENT_SOURCE_DIR}")
 #include <glm/gtc/type_ptr.hpp>
 ```
 
-# Getting Started
+## Getting Started
 **1. Downloading the repository**
-`git@github.com:hebohang/HEngine.git`
+`git clone git@github.com:hebohang/HEngine.git`
+
 **2. You can choose one of the following methods to build HEngine:**
 
 2.1 Run the Win-GenProjects.bat 
@@ -53,3 +54,7 @@ cmake --build build --parallel 4
 ```
 
 2.3 Visual Studio: Open Folder, then choose HEngine folder)
+
+## Credits
+* Cherno Hazel
+* BoomingTech Pilot

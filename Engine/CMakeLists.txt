@@ -1,5 +1,6 @@
 set(EngineRootDir "${ProjectRootDir}/Engine")
 set(EngineAssetsDir "${EngineRootDir}/Assets")
+set(EngineShadersDir "${EngineRootDir}/Shaders")
 set(EngineSourceDir "${EngineRootDir}/Source")
 
 if (NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
@@ -36,6 +37,9 @@ else()
 endif()
 
 file(COPY ${EngineAssetsDir}
+DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+
+file(COPY ${EngineShadersDir}
 DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 
 add_subdirectory(Source)

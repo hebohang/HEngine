@@ -6,6 +6,7 @@
 #include "backends/imgui_impl_opengl3.h"
 
 #include "Runtime/Core/AppFramework/Application.h"
+#include "Runtime/Resource/AssetManager/AssetManager.h"
 
 // TEMPORARY
 #include <GLFW/glfw3.h>
@@ -38,8 +39,8 @@ namespace HEngine
         //io.ConfigViewportsNoTaskBarIcon = true;
 
 		float fontSize = 18.0f;
-        io.Fonts->AddFontFromFileTTF("assets/fonts/opensans/OpenSans-Bold.ttf", fontSize);
-        io.FontDefault = io.Fonts->AddFontFromFileTTF("assets/fonts/opensans/OpenSans-Regular.ttf", fontSize);
+        io.Fonts->AddFontFromFileTTF("Assets/fonts/opensans/OpenSans-Bold.ttf", fontSize);
+        io.FontDefault = io.Fonts->AddFontFromFileTTF("Assets/fonts/opensans/OpenSans-Regular.ttf", fontSize);
 
         // Setup Dear ImGui style
         ImGui::StyleColorsDark();

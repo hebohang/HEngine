@@ -2,6 +2,8 @@
 #include "Runtime/Scene/SceneSerializer.h"
 #include "Runtime/Utils/PlatformUtils.h"
 #include "Runtime/Utils/MathUtils/MathUtils.h"
+#include "Runtime/Resource/ConfigManager/ConfigManager.h"
+#include "Runtime/Resource/AssetManager/AssetManager.h"
 
 #include <imgui/imgui.h>
 #include <imgui/imgui_internal.h>
@@ -11,8 +13,6 @@
 
 namespace HEngine
 {
-	extern const std::filesystem::path g_AssetPath;
-
 	static bool bShowViewport = true;
 	static bool bShowContentBrowser = true;
 	static bool bShowSceneHierachy = true;
@@ -27,9 +27,9 @@ namespace HEngine
 
     void EditorLayer::OnAttach()
     {
-        m_CheckerboardTexture = Texture2D::Create("assets/textures/Checkerboard.png");
-        m_IconPlay = Texture2D::Create("Resources/Icons/PlayButton.png");
-        m_IconStop = Texture2D::Create("Resources/Icons/StopButton.png");
+        m_CheckerboardTexture = Texture2D::Create(AssetManager::GetInstance().GetFullPath("Assets/textures/Checkerboard.png"));
+        m_IconPlay = Texture2D::Create(AssetManager::GetInstance().GetFullPath("Resources/Icons/PlayButton.png"));
+        m_IconStop = Texture2D::Create(AssetManager::GetInstance().GetFullPath("Resources/Icons/StopButton.png"));
 
         FramebufferSpecification fbSpec;
 		fbSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RED_INTEGER, FramebufferTextureFormat::Depth };
@@ -314,7 +314,7 @@ namespace HEngine
 				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
 				{
 					const wchar_t* path = (const wchar_t*)payload->Data;
-					OpenScene(std::filesystem::path(g_AssetPath) / path);
+					OpenScene(std::filesystem::path(ConfigManager::GetInstance().GetAssetsFolder()) / path);
 				}
 				ImGui::EndDragDropTarget();
 			}

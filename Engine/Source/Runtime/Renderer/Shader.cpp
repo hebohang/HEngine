@@ -6,6 +6,11 @@
 
 namespace HEngine
 {
+    Ref<Shader> Shader::Create(const std::filesystem::path& filepath)
+    {
+        return Create(filepath.string());
+    }
+
     Ref<Shader> Shader::Create(const std::string& filepath)
     {
         switch (Renderer::GetAPI())

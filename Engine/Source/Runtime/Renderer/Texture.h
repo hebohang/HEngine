@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <filesystem>
 #include "Runtime/Core/Base/Base.h"
 
 namespace HEngine
@@ -27,6 +28,7 @@ namespace HEngine
     {
     public:
         static Ref<Texture2D> Create(uint32_t width, uint32_t height);
+        static Ref<Texture2D> Create(const std::filesystem::path& path);
         static Ref<Texture2D> Create(const std::string& path);
     };
 }

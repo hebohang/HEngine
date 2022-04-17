@@ -5,6 +5,8 @@
 #include "Shader.h"
 #include "RenderCommand.h"
 
+#include "Runtime/Resource/AssetManager/AssetManager.h"
+
 #include <glm/gtc/matrix_transform.hpp>
 
 namespace HEngine
@@ -169,9 +171,9 @@ namespace HEngine
         for (uint32_t i = 0; i < s_Data.MaxTextureSlots; i++)
             samplers[i] = i;
 
-        s_Data.QuadShader = Shader::Create("Shaders/Renderer2D_Quad.glsl");
-        s_Data.CircleShader = Shader::Create("Shaders/Renderer2D_Circle.glsl");
-        s_Data.LineShader = Shader::Create("Shaders/Renderer2D_Line.glsl");
+        s_Data.QuadShader = Shader::Create(AssetManager::GetInstance().GetFullPath("Shaders/Renderer2D_Quad.glsl"));
+        s_Data.CircleShader = Shader::Create(AssetManager::GetInstance().GetFullPath("Shaders/Renderer2D_Circle.glsl"));
+        s_Data.LineShader = Shader::Create(AssetManager::GetInstance().GetFullPath("Shaders/Renderer2D_Line.glsl"));
 
         s_Data.QuadShader->Bind();
         s_Data.QuadShader->SetIntArray("u_Textures", samplers, s_Data.MaxTextureSlots);

@@ -46,6 +46,7 @@ https://docs.unrealengine.com/4.27/zh-CN/ProductionPipelines/DevelopmentSetup/Co
 1. 尽量不使用下划线
 1. 如果是类内部成员变量，在前面加小写字母m
 1. 如果是bool类型变量，在前面加小写字母b（覆盖上一条，即类内部的bool类型成员变量只需要加b即可）
+1. 类内成员统一放在类的最末尾（方法置于前）
 
 ## Getting Started
 **1. Downloading the repository**

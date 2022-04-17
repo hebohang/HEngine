@@ -2,8 +2,8 @@
 #include "Application.h"
 
 #include "Runtime/Renderer/Renderer.h"
-
 #include "Runtime/Input/Input.h"
+#include "Runtime/Resource/ConfigManager/ConfigManager.h"
 
 #include <GLFW/glfw3.h>
 
@@ -57,6 +57,8 @@ namespace HEngine
 		PushOverlay(m_ImGuiLayer);
 
 		Renderer::Init();
+
+		ConfigManager::GetInstance().Initialize();
 	}
 
 	void Application::Run()

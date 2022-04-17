@@ -409,8 +409,8 @@ namespace HEngine
 
 	void EditorLayer::LoadDefaultEditorConfig()
 	{
-		const std::filesystem::path CurrentEditorConfigPath{ "imgui.ini" };
-		const std::filesystem::path DefaultEditorConfigPath{ "assets/config/imgui.ini" };
+		const std::filesystem::path CurrentEditorConfigPath{ AssetManager::GetInstance().GetFullPath("imgui.ini") };
+		const std::filesystem::path DefaultEditorConfigPath{ AssetManager::GetInstance().GetFullPath("Assets/Config/imgui.ini") };
 		HE_CORE_ASSERT(std::filesystem::exists(DefaultEditorConfigPath));
 		if (std::filesystem::exists(CurrentEditorConfigPath))
 			std::filesystem::remove(CurrentEditorConfigPath);

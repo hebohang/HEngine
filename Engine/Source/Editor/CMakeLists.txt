@@ -11,6 +11,8 @@ source_group(TREE ${EngineEditorDir} FILES ${EditorHeaderFiles} ${EditorSourceFi
 
 add_executable(HEngineEditor ${EditorHeaderFiles} ${EditorSourceFiles})
 
+add_compile_definitions("ENGINE_ROOT_DIR=${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+
 target_link_libraries(HEngineEditor PRIVATE HEngineRuntime)
 
 target_include_directories(HEngineEditor PRIVATE

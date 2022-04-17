@@ -11,11 +11,11 @@ target_include_directories(HEngineRuntime
 )
 
 target_compile_definitions(HEngineRuntime
-    PRIVATE HE_PLATFORM_WINDOWS
     PRIVATE HE_BUILD_DLL
     PRIVATE GLFW_INCLUDE_NONE
     PRIVATE IMGUI_IMPL_OPENGL_LOADER_CUSTOM
     PRIVATE HE_DEBUG
+    "ENGINE_ROOT_DIR=${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
 )
 
 target_precompile_headers(HEngineRuntime PUBLIC "hepch.h")

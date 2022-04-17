@@ -1,4 +1,5 @@
 #include "ContentBrowserPanel.h"
+#include "Runtime/Resource/AssetManager/AssetManager.h"
 
 #include <imgui/imgui.h>
 
@@ -10,8 +11,8 @@ namespace HEngine
 	ContentBrowserPanel::ContentBrowserPanel()
 		: m_CurrentDirectory(g_AssetPath)
 	{
-		m_DirectoryIcon = Texture2D::Create("Resources/Icons/ContentBrowser/DirectoryIcon.png");
-		m_FileIcon = Texture2D::Create("Resources/Icons/ContentBrowser/FileIcon.png");
+		m_DirectoryIcon = Texture2D::Create(AssetManager::GetInstance().GetFullPath("Resources/Icons/ContentBrowser/DirectoryIcon.png").string());
+		m_FileIcon = Texture2D::Create(AssetManager::GetInstance().GetFullPath("Resources/Icons/ContentBrowser/FileIcon.png").string());
 	}
 
 	void ContentBrowserPanel::OnImGuiRender(bool* pOpen)

@@ -20,6 +20,9 @@
 #include "Runtime/Scene/ScriptableEntity.h"
 #include "Runtime/Scene/Components.h"
 
+#include "Runtime/Resource/ConfigManager/ConfigManager.h"
+#include "Runtime/Resource/AssetManager/AssetManager.h"
+
 // ---Renderer-----------------------
 #include "Runtime/Renderer/Renderer.h"
 #include "Runtime/Renderer/Renderer2D.h"

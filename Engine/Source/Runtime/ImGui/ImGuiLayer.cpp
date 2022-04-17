@@ -39,8 +39,8 @@ namespace HEngine
         //io.ConfigViewportsNoTaskBarIcon = true;
 
 		float fontSize = 18.0f;
-        io.Fonts->AddFontFromFileTTF("Assets/fonts/opensans/OpenSans-Bold.ttf", fontSize);
-        io.FontDefault = io.Fonts->AddFontFromFileTTF("Assets/fonts/opensans/OpenSans-Regular.ttf", fontSize);
+        io.Fonts->AddFontFromFileTTF(AssetManager::GetInstance().GetFullPath("Assets/fonts/opensans/OpenSans-Bold.ttf").string().c_str(), fontSize);
+        io.FontDefault = io.Fonts->AddFontFromFileTTF(AssetManager::GetInstance().GetFullPath("Assets/fonts/opensans/OpenSans-Regular.ttf").string().c_str(), fontSize);
 
         // Setup Dear ImGui style
         ImGui::StyleColorsDark();

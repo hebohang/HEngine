@@ -1,7 +1,8 @@
 #pragma once
 
 #include "Runtime/Core/Base/Base.h"
-#include "Window.h"
+#include "Runtime/Core/Base/PublicSingleton.h"
+#include "Runtime/Core/Window.h"
 #include "Runtime/Core/LayerStack.h"
 #include "Runtime/Events/Event.h"
 #include "Runtime/Events/ApplicationEvent.h"
@@ -14,11 +15,11 @@ int main(int argc, char** argv);
 
 namespace HEngine
 {
-	class Application
+	class Application : public PublicSingleton<Application>
 	{
 	public:
-		Application(const std::string& name = "HEngine");
-		virtual ~Application();
+		Application() = default;
+		virtual ~Application() {}
 
 		void OnEvent(Event& e);
 
@@ -32,10 +33,11 @@ namespace HEngine
 
 		ImGuiLayer* GetImGuiLayer() { return m_ImGuiLayer; }
 
-		static Application& Get() { return *s_Instance; }
+		//static Application& Get() { return *s_Instance; }
 	private:
-		void Init();
+		void Init(const std::string& name);
 		void Run();
+		void Clean();
 		bool OnWindowClose(WindowCloseEvent& e);
 		bool OnWindowResize(WindowResizeEvent& e);
 	private:
@@ -46,12 +48,11 @@ namespace HEngine
 		LayerStack m_LayerStack;
 		float m_LastFrameTime = 0.0f;
 	private:
-		static Application* s_Instance;
 		friend int ::main(int argc, char** argv);
-	};
 
-	// To be defined in CLIENT
-	Application* CreateApplication();
+		// To be defined in CLIENT
+		friend void MyAppInitialize(Application& app);
+	};
 }
 
 

@@ -1,7 +1,6 @@
 #include "EditorLayer.h"
 
 #include <HEngine.h>
-#include <Runtime/Core/EntryPoint.h>	 
 
 #include <imgui/imgui.h>
 #include <glm/gtc/matrix_transform.hpp>
@@ -9,22 +8,9 @@
 
 namespace HEngine
 {
-	class HEngineEditor : public Application
+	void MyAppInitialize(Application& app)
 	{
-	public:
-		HEngineEditor()
-			: Application("HEngine Editor")
-		{
-			PushLayer(new EditorLayer());
-		}
-
-		~HEngineEditor()
-		{
-		}
-	};
-
-	Application* CreateApplication()
-	{
-		return new HEngineEditor();
+		app.Init("HEngine Editor");
+		app.PushLayer(new EditorLayer());
 	}
 }

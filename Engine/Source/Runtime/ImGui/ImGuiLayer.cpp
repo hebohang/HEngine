@@ -55,7 +55,7 @@ namespace HEngine
 
         SetDarkThemeColors();
 
-        Application& app = Application::Get();
+        Application& app = Application::GetInstance();
         GLFWwindow* window = static_cast<GLFWwindow*>(app.GetWindow().GetNativeWindow());
 
         // Setup Platform/Renderer backends
@@ -93,7 +93,7 @@ namespace HEngine
     void ImGuiLayer::End()
     {
         ImGuiIO& io = ImGui::GetIO();
-        Application& app = Application::Get();
+        Application& app = Application::GetInstance();
         io.DisplaySize = ImVec2((float)app.GetWindow().GetWidth(), (float)app.GetWindow().GetHeight());
 
         // Rendering

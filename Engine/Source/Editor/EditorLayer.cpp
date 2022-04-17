@@ -1,7 +1,7 @@
 #include "EditorLayer.h"
 #include "Runtime/Scene/SceneSerializer.h"
 #include "Runtime/Utils/PlatformUtils.h"
-#include "Runtime/Math/Math.h"
+#include "Runtime/Utils/MathUtils/MathUtils.h"
 
 #include <imgui/imgui.h>
 #include <imgui/imgui_internal.h>

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Event.h"
-#include "Runtime/Core/KeyCodes.h"
+#include "Runtime/Input/KeyCodes.h"
 
 namespace HEngine 
 {

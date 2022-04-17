@@ -1,9 +1,9 @@
 #include "hepch.h"
 #include "EditorCamera.h"
 
-#include "Runtime/Core/Input.h"
-#include "Runtime/Core/KeyCodes.h"
-#include "Runtime/Core/MouseCodes.h"
+#include "Runtime/Input/Input.h"
+#include "Runtime/Input/KeyCodes.h"
+#include "Runtime/Input/MouseCodes.h"
 
 #include <glfw/glfw3.h>
 #include <glm/gtx/quaternion.hpp>

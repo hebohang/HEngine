@@ -6,7 +6,7 @@
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
 
-#include "Runtime/Core/Application.h"
+#include "Runtime/Core/AppFramework/Application.h"
 
 namespace HEngine 
 {

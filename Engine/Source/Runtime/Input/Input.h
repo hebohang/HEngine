@@ -2,8 +2,8 @@
 
 #include <glm/glm.hpp>
 
-#include "Runtime/Core/KeyCodes.h"
-#include "Runtime/Core/MouseCodes.h"
+#include "Runtime/Input/KeyCodes.h"
+#include "Runtime/Input/MouseCodes.h"
 
 namespace HEngine
 {

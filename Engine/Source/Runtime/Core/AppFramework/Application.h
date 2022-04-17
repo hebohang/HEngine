@@ -4,11 +4,9 @@
 #include "Runtime/Core/Base/PublicSingleton.h"
 #include "Runtime/Core/Window.h"
 #include "Runtime/Core/AppFramework/Layer/LayerStack.h"
+#include "Runtime/Core/Timestep.h"
 #include "Runtime/Events/Event.h"
 #include "Runtime/Events/ApplicationEvent.h"
-
-#include "Runtime/Core/Timestep.h"
-
 #include "Runtime/ImGui/ImGuiLayer.h"
 
 int main(int argc, char** argv);
@@ -27,11 +25,11 @@ namespace HEngine
 		void PushOverlay(Layer* layer);
 		void PopLayer(Layer* layer);
 
-		Window& GetWindow() { return *m_Window; }
+		Window& GetWindow() { return *mWindow; }
 
 		void Close();
 
-		ImGuiLayer* GetImGuiLayer() { return m_ImGuiLayer; }
+		ImGuiLayer* GetImGuiLayer() { return mImGuiLayer; }
 	private:
 		void Init(const std::string& name);
 		void Run();
@@ -39,12 +37,12 @@ namespace HEngine
 		bool OnWindowClose(WindowCloseEvent& e);
 		bool OnWindowResize(WindowResizeEvent& e);
 	private:
-		Scope<Window> m_Window;
-		ImGuiLayer* m_ImGuiLayer;
-		bool m_Running = true;
-		bool m_Minimized = false;
-		LayerStack m_LayerStack;
-		float m_LastFrameTime = 0.0f;
+		Scope<Window> mWindow;
+		ImGuiLayer* mImGuiLayer;
+		bool bRunning = true;
+		bool bMinimized = false;
+		LayerStack mLayerStack;
+		float mLastFrameTime = 0.0f;
 	private:
 		friend int ::main(int argc, char** argv);
 

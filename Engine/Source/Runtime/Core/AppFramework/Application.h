@@ -25,11 +25,11 @@ namespace HEngine
 		void PushOverlay(Layer* layer);
 		void PopLayer(Layer* layer);
 
-		Window& GetWindow() { return *mWindow; }
+		[[nodiscard]] Window& GetWindow() { return *mWindow; }
 
 		void Close();
 
-		ImGuiLayer* GetImGuiLayer() { return mImGuiLayer; }
+		[[nodiscard]] ImGuiLayer* GetImGuiLayer() { return mImGuiLayer; }
 	private:
 		void Init(const std::string& name);
 		void Run();

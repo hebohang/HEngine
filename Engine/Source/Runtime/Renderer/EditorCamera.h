@@ -18,22 +18,22 @@ namespace HEngine
 		void OnUpdate(Timestep ts);
 		void OnEvent(Event& e);
 
-		inline float GetDistance() const { return m_Distance; }
+		[[nodiscard]] inline float GetDistance() const { return m_Distance; }
 		inline void SetDistance(float distance) { m_Distance = distance; }
 
 		inline void SetViewportSize(float width, float height) { m_ViewportWidth = width; m_ViewportHeight = height; UpdateProjection(); }
 
-		const glm::mat4& GetViewMatrix() const { return m_ViewMatrix; }
-		glm::mat4 GetViewProjection() const { return m_Projection * m_ViewMatrix; }
+		[[nodiscard]] const glm::mat4& GetViewMatrix() const { return m_ViewMatrix; }
+		[[nodiscard]] glm::mat4 GetViewProjection() const { return m_Projection * m_ViewMatrix; }
 
-		glm::vec3 GetUpDirection() const;
-		glm::vec3 GetRightDirection() const;
-		glm::vec3 GetForwardDirection() const;
-		const glm::vec3& GetPosition() const { return m_Position; }
-		glm::quat GetOrientation() const;
+		[[nodiscard]]glm::vec3 GetUpDirection() const;
+		[[nodiscard]]glm::vec3 GetRightDirection() const;
+		[[nodiscard]]glm::vec3 GetForwardDirection() const;
+		[[nodiscard]]const glm::vec3& GetPosition() const { return m_Position; }
+		[[nodiscard]]glm::quat GetOrientation() const;
 
-		float GetPitch() const { return m_Pitch; }
-		float GetYaw() const { return m_Yaw; }
+		[[nodiscard]]float GetPitch() const { return m_Pitch; }
+		[[nodiscard]]float GetYaw() const { return m_Yaw; }
 	private:
 		void UpdateProjection();
 		void UpdateView();

@@ -82,7 +82,7 @@ namespace HEngine
 			m_OutputStream.flush();
 		}
 
-		static Instrumentor& Get()
+		[[nodiscard]] static Instrumentor& Get()
 		{
 			static Instrumentor instance;
 			return instance;

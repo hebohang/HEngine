@@ -9,6 +9,6 @@ namespace HEngine
     class AssetManager : public PublicSingleton<AssetManager>
     {
     public:
-        std::filesystem::path GetFullPath(const std::string& RelativePath) const;
+        [[nodiscard]] std::filesystem::path GetFullPath(const std::string& RelativePath) const;
     };
 }

@@ -60,9 +60,9 @@ namespace HEngine
 
 		virtual void ClearAttachment(uint32_t attachmentIndex, int value) = 0;
 
-        virtual uint32_t GetColorAttachmentRendererID(uint32_t index = 0) const = 0;
+		[[nodiscard]] virtual uint32_t GetColorAttachmentRendererID(uint32_t index = 0) const = 0;
 
-        virtual const FramebufferSpecification& GetSpecification() const = 0;
+		[[nodiscard]] virtual const FramebufferSpecification& GetSpecification() const = 0;
 
         static Ref<Framebuffer> Create(const FramebufferSpecification& spec);
     };

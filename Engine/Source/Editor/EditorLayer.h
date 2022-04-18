@@ -76,13 +76,6 @@ namespace HEngine
 
 		bool m_ShowPhysicsColliders = false;
 
-		enum class SceneState
-		{
-			Edit = 0,
-			Play = 1
-		};
-		SceneState m_SceneState = SceneState::Edit;
-
         // Panels
         SceneHierarchyPanel m_SceneHierarchyPanel;
 		ContentBrowserPanel m_ContentBrowserPanel;

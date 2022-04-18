@@ -22,6 +22,7 @@
 
 #include "Runtime/Resource/ConfigManager/ConfigManager.h"
 #include "Runtime/Resource/AssetManager/AssetManager.h"
+#include "Runtime/Resource/ModeManager/ModeManager.h"
 
 // ---Renderer-----------------------
 #include "Runtime/Renderer/Renderer.h"

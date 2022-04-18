@@ -38,16 +38,16 @@ namespace HEngine
 		template<typename... Components>
 		auto GetAllEntitiesWith()
 		{
-			return m_Registry.view<Components...>();
+			return mRegistry.view<Components...>();
 		}
     private:
         template<typename T>
         void OnComponentAdded(Entity entity, T& component);
     private:
-        entt::registry m_Registry;
-        uint32_t m_ViewportWidth = 0, m_ViewportHeight = 0;
+        entt::registry mRegistry;
+        uint32_t mViewportWidth = 0, mViewportHeight = 0;
 
-		b2World* m_PhysicsWorld = nullptr;
+		b2World* mPhysicsWorld = nullptr;
 
         friend class Entity;
         friend class SceneSerializer;

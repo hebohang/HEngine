@@ -9,12 +9,12 @@ namespace HEngine
     public:
         Camera() = default;
         Camera(const glm::mat4& projection)
-            : m_Projection(projection) {}
+            : mProjection(projection) {}
 
         virtual ~Camera() = default;
 
-        [[nodiscard]] const glm::mat4& GetProjection() const { return m_Projection; }
+        [[nodiscard]] const glm::mat4& GetProjection() const { return mProjection; }
     protected:
-        glm::mat4 m_Projection = glm::mat4(1.0f);
+        glm::mat4 mProjection = glm::mat4(1.0f);
     };
 }

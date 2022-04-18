@@ -12,14 +12,14 @@ namespace HEngine
         template<typename T>
         T& GetComponent()
         {
-            return m_Entity.GetComponent<T>();
+            return mEntity.GetComponent<T>();
         }
     protected:
         virtual void OnCreate() {}
         virtual void OnDestroy() {}
         virtual void OnUpdate(Timestep ts) {}
     private:
-        Entity m_Entity;
+        Entity mEntity;
         friend class Scene;
     };
 }

@@ -21,8 +21,8 @@ namespace HEngine
 
     void SceneHierarchyPanel::SetContext(const Ref<Scene>& context)
     {
-        m_Context = context;
-        m_SelectionContext = {};
+        mContext = context;
+        mSelectionContext = {};
     }
 
     void SceneHierarchyPanel::OnImGuiRender(bool* pOpen, bool* pOpenProperties)
@@ -31,22 +31,22 @@ namespace HEngine
 		{
 			ImGui::Begin("Scene Hierarchy", pOpen);
 
-			if (m_Context)
+			if (mContext)
 			{
-				m_Context->m_Registry.each([&](auto entityID)
+				mContext->mRegistry.each([&](auto entityID)
 					{
-						Entity entity = { entityID, m_Context.get() };
+						Entity entity = { entityID, mContext.get() };
 						DrawEntityNode(entity);
 					});
 
 				if (ImGui::IsMouseDown(0) && ImGui::IsWindowHovered())
-					m_SelectionContext = {};
+					mSelectionContext = {};
 
 				// Right-click on blank space
 				if (ImGui::BeginPopupContextWindow(0, 1, false))
 				{
 					if (ImGui::MenuItem("Create Empty Entity"))
-						m_Context->CreateEntity("Empty Entity");
+						mContext->CreateEntity("Empty Entity");
 
 					ImGui::EndPopup();
 				}
@@ -57,9 +57,9 @@ namespace HEngine
 		if (*pOpenProperties)
 		{
 			ImGui::Begin("Properties", pOpenProperties);
-			if (m_SelectionContext)
+			if (mSelectionContext)
 			{
-				DrawComponents(m_SelectionContext);
+				DrawComponents(mSelectionContext);
 			}
 			ImGui::End();
 		}
@@ -67,7 +67,7 @@ namespace HEngine
 
     void SceneHierarchyPanel::SetSelectedEntity(Entity entity)
     {
-		m_SelectionContext = entity;
+		mSelectionContext = entity;
     }
 
     void SceneHierarchyPanel::DrawEntityNode(Entity entity)
@@ -78,12 +78,12 @@ namespace HEngine
 			name = entity.GetComponent<TagComponent>().Tag.c_str();
 		}
 
-        ImGuiTreeNodeFlags flags = ((m_SelectionContext == entity) ? ImGuiTreeNodeFlags_Selected : 0) | ImGuiTreeNodeFlags_OpenOnArrow;
+        ImGuiTreeNodeFlags flags = ((mSelectionContext == entity) ? ImGuiTreeNodeFlags_Selected : 0) | ImGuiTreeNodeFlags_OpenOnArrow;
         flags |= ImGuiTreeNodeFlags_SpanAvailWidth;
         bool opened = ImGui::TreeNodeEx((void*)(uint64_t)(uint32_t)entity, flags, name);
         if (ImGui::IsItemClicked())
         {
-            m_SelectionContext = entity;
+            mSelectionContext = entity;
         }
 
         bool entityDeleted = false;
@@ -106,9 +106,9 @@ namespace HEngine
 
         if (entityDeleted)
         {
-            m_Context->DestroyEntity(entity);
-            if (m_SelectionContext == entity)
-                m_SelectionContext = {};
+            mContext->DestroyEntity(entity);
+            if (mSelectionContext == entity)
+                mSelectionContext = {};
         }
     }
 
@@ -242,56 +242,56 @@ namespace HEngine
 
         if (ImGui::BeginPopup("AddComponent"))
         {
-			if (!m_SelectionContext.HasComponent<CameraComponent>())
+			if (!mSelectionContext.HasComponent<CameraComponent>())
 			{
 				if (ImGui::MenuItem("Camera"))
 				{
-					m_SelectionContext.AddComponent<CameraComponent>();
+					mSelectionContext.AddComponent<CameraComponent>();
 					ImGui::CloseCurrentPopup();
 				}
 			}
 
-			if (!m_SelectionContext.HasComponent<SpriteRendererComponent>())
+			if (!mSelectionContext.HasComponent<SpriteRendererComponent>())
 			{
 				if (ImGui::MenuItem("Sprite Renderer"))
 				{
-					m_SelectionContext.AddComponent<SpriteRendererComponent>();
+					mSelectionContext.AddComponent<SpriteRendererComponent>();
 					ImGui::CloseCurrentPopup();
 				}
 			}
 
-			if (!m_SelectionContext.HasComponent<CircleRendererComponent>())
+			if (!mSelectionContext.HasComponent<CircleRendererComponent>())
 			{
 				if (ImGui::MenuItem("Circle Renderer"))
 				{
-					m_SelectionContext.AddComponent<CircleRendererComponent>();
+					mSelectionContext.AddComponent<CircleRendererComponent>();
 					ImGui::CloseCurrentPopup();
 				}
 			}
 
-			if (!m_SelectionContext.HasComponent<Rigidbody2DComponent>())
+			if (!mSelectionContext.HasComponent<Rigidbody2DComponent>())
 			{
 				if (ImGui::MenuItem("Rigidbody 2D"))
 				{
-					m_SelectionContext.AddComponent<Rigidbody2DComponent>();
+					mSelectionContext.AddComponent<Rigidbody2DComponent>();
 					ImGui::CloseCurrentPopup();
 				}
 			}
 
-			if (!m_SelectionContext.HasComponent<BoxCollider2DComponent>())
+			if (!mSelectionContext.HasComponent<BoxCollider2DComponent>())
 			{
 				if (ImGui::MenuItem("Box Collider 2D"))
 				{
-					m_SelectionContext.AddComponent<BoxCollider2DComponent>();
+					mSelectionContext.AddComponent<BoxCollider2DComponent>();
 					ImGui::CloseCurrentPopup();
 				}
 			}
 
-			if (!m_SelectionContext.HasComponent<CircleCollider2DComponent>())
+			if (!mSelectionContext.HasComponent<CircleCollider2DComponent>())
 			{
 				if (ImGui::MenuItem("Circle Collider 2D"))
 				{
-					m_SelectionContext.AddComponent<CircleCollider2DComponent>();
+					mSelectionContext.AddComponent<CircleCollider2DComponent>();
 					ImGui::CloseCurrentPopup();
 				}
 			}

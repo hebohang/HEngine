@@ -44,44 +44,44 @@ namespace HEngine
 
 		void LoadDefaultEditorConfig();
     private:
-        OrthographicCameraController m_CameraController;
+        OrthographicCameraController mCameraController;
 
         // Temp
-        Ref<VertexArray> m_SquareVA;
-        Ref<Shader> m_FlatColorShader;
-        Ref<Framebuffer> m_Framebuffer;
+        Ref<VertexArray> mSquareVA;
+        Ref<Shader> mFlatColorShader;
+        Ref<Framebuffer> mFramebuffer;
 
-        Ref<Scene> m_ActiveScene;
-        Ref<Scene> m_EditorScene;
-		std::filesystem::path m_EditorScenePath;
-        Entity m_SquareEntity;
-        Entity m_CameraEntity;
-        Entity m_SecondCamera;
+        Ref<Scene> mActiveScene;
+        Ref<Scene> mEditorScene;
+		std::filesystem::path mEditorScenePath;
+        Entity mSquareEntity;
+        Entity mCameraEntity;
+        Entity mSecondCamera;
 
-		Entity m_HoveredEntity;
+		Entity mHoveredEntity;
 
-        bool m_PrimaryCamera = true;
+        bool mPrimaryCamera = true;
 
-		EditorCamera m_EditorCamera;
+		EditorCamera mEditorCamera;
 
-        Ref<Texture2D> m_CheckerboardTexture;
+        Ref<Texture2D> mCheckerboardTexture;
 
-        bool m_ViewportFocused = false, m_ViewportHovered = false;
-        glm::vec2 m_ViewportSize = { 0.0f, 0.0f };
-		glm::vec2 m_ViewportBounds[2];
+        bool mViewportFocused = false, mViewportHovered = false;
+        glm::vec2 mViewportSize = { 0.0f, 0.0f };
+		glm::vec2 mViewportBounds[2];
 
-        glm::vec4 m_SquareColor = { 0.2f, 0.3f, 0.8f, 1.0f };
+        glm::vec4 mSquareColor = { 0.2f, 0.3f, 0.8f, 1.0f };
 
-		int m_GizmoType = -1;
+		int mGizmoType = -1;
 
-		bool m_ShowPhysicsColliders = false;
+		bool mShowPhysicsColliders = false;
 
         // Panels
-        SceneHierarchyPanel m_SceneHierarchyPanel;
-		ContentBrowserPanel m_ContentBrowserPanel;
+        SceneHierarchyPanel mSceneHierarchyPanel;
+		ContentBrowserPanel mContentBrowserPanel;
 
 		// Editor resources
-		Ref<Texture2D> m_IconPlay, m_IconStop;
+		Ref<Texture2D> mIconPlay, mIconStop;
     };
 }
 

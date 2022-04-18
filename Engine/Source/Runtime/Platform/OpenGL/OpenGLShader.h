@@ -26,7 +26,7 @@ namespace HEngine
         virtual void SetFloat4(const std::string& name, const glm::vec4& value) override;
         virtual void SetMat4(const std::string& name, const glm::mat4& value) override;
 
-        virtual const std::string& GetName() const override { return m_Name; };
+        virtual const std::string& GetName() const override { return mName; };
 
         void UploadUniformInt(const std::string& name, int value);
         void UploadUniformIntArray(const std::string& name, int* values, uint32_t count);
@@ -43,7 +43,7 @@ namespace HEngine
         std::unordered_map<GLenum, std::string> PreProcess(const std::string& source);
         void Compile(const std::unordered_map<GLenum, std::string>& shaderSources);
     private:
-        uint32_t m_RendererID;
-        std::string m_Name;
+        uint32_t mRendererID;
+        std::string mName;
     };
 }

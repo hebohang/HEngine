@@ -61,14 +61,14 @@ namespace HEngine
 	{
 		Ref<Scene> newScene = CreateRef<Scene>();
 
-		newScene->m_ViewportWidth = scene->m_ViewportWidth;
-		newScene->m_ViewportHeight = scene->m_ViewportHeight;
+		newScene->mViewportWidth = scene->mViewportWidth;
+		newScene->mViewportHeight = scene->mViewportHeight;
 
 		std::unordered_map<UUID, entt::entity> enttMap;
 
 		// Create entities in new scene
-		auto& srcSceneRegistry = scene->m_Registry;
-		auto& dstSceneRegistry = newScene->m_Registry;
+		auto& srcSceneRegistry = scene->mRegistry;
+		auto& dstSceneRegistry = newScene->mRegistry;
 		auto idView = srcSceneRegistry.view<IDComponent>();
 		for (auto e : idView)
 		{
@@ -98,7 +98,7 @@ namespace HEngine
 
 	Entity Scene::CreateEntityWithUUID(UUID uuid, const std::string& name)
 	{
-		Entity entity = { m_Registry.create(), this };
+		Entity entity = { mRegistry.create(), this };
 		entity.AddComponent<IDComponent>(uuid);
 		entity.AddComponent<TransformComponent>();
 		auto& tag = entity.AddComponent<TagComponent>();
@@ -108,14 +108,14 @@ namespace HEngine
 
     void Scene::DestroyEntity(Entity entity)
     {
-        m_Registry.destroy(entity);
+        mRegistry.destroy(entity);
     }
 
 	void Scene::OnRuntimeStart()
 	{
-		m_PhysicsWorld = new b2World({ 0.0f, -9.8f });
+		mPhysicsWorld = new b2World({ 0.0f, -9.8f });
 
-		auto view = m_Registry.view<Rigidbody2DComponent>();
+		auto view = mRegistry.view<Rigidbody2DComponent>();
 		for (auto e : view)
 		{
 			Entity entity = { e, this };
@@ -127,7 +127,7 @@ namespace HEngine
 			bodyDef.position.Set(transform.Translation.x, transform.Translation.y);
 			bodyDef.angle = transform.Rotation.z;
 
-			b2Body* body = m_PhysicsWorld->CreateBody(&bodyDef);
+			b2Body* body = mPhysicsWorld->CreateBody(&bodyDef);
 			body->SetFixedRotation(rb2d.FixedRotation);
 			rb2d.RuntimeBody = body;
 
@@ -170,21 +170,21 @@ namespace HEngine
 
 	void Scene::OnRuntimeStop()
 	{
-		delete m_PhysicsWorld;
-		m_PhysicsWorld = nullptr;
+		delete mPhysicsWorld;
+		mPhysicsWorld = nullptr;
 	}
 
 	void Scene::OnUpdateRuntime(Timestep ts)
 	{
 		// Update scripts
 		{
-			m_Registry.view<NativeScriptComponent>().each([=](auto entity, auto& nsc)  // nsc: native script component
+			mRegistry.view<NativeScriptComponent>().each([=](auto entity, auto& nsc)  // nsc: native script component
 				{
 					// TODO: Move to Scene::OnScenePlay
 					if (!nsc.Instance)
 					{
 						nsc.Instance = nsc.InstantiateScript();
-						nsc.Instance->m_Entity = Entity{ entity, this };
+						nsc.Instance->mEntity = Entity{ entity, this };
 						nsc.Instance->OnCreate();
 					}
 
@@ -196,10 +196,10 @@ namespace HEngine
 		{
 			const int32_t velocityIterations = 6;
 			const int32_t positionIterations = 2;
-			m_PhysicsWorld->Step(ts, velocityIterations, positionIterations);
+			mPhysicsWorld->Step(ts, velocityIterations, positionIterations);
 
 			// Retrieve transform from Box2D
-			auto view = m_Registry.view<Rigidbody2DComponent>();
+			auto view = mRegistry.view<Rigidbody2DComponent>();
 			for (auto e : view)
 			{
 				Entity entity = { e, this };
@@ -218,7 +218,7 @@ namespace HEngine
 		Camera* mainCamera = nullptr;
 		glm::mat4 cameraTransform;
 		{
-			auto view = m_Registry.view<TransformComponent, CameraComponent>();
+			auto view = mRegistry.view<TransformComponent, CameraComponent>();
 			for (auto entity : view)
 			{
 				auto [transform, camera] = view.get<TransformComponent, CameraComponent>(entity);
@@ -238,7 +238,7 @@ namespace HEngine
 
 			// Draw sprites
 			{
-				auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
+				auto group = mRegistry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
 				for (auto entity : group)
 				{
 					auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
@@ -249,7 +249,7 @@ namespace HEngine
 
 			// Draw circle
 			{
-				auto view = m_Registry.view<TransformComponent, CircleRendererComponent>();
+				auto view = mRegistry.view<TransformComponent, CircleRendererComponent>();
 				for (auto entity : view)
 				{
 					auto [transform, circle] = view.get<TransformComponent, CircleRendererComponent>(entity);
@@ -268,7 +268,7 @@ namespace HEngine
 
 		// Draw sprites
 		{
-			auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
+			auto group = mRegistry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
 			for (auto entity : group)
 			{
 				auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);
@@ -279,7 +279,7 @@ namespace HEngine
 
 		// Draw circle
 		{
-			auto view = m_Registry.view<TransformComponent, CircleRendererComponent>();
+			auto view = mRegistry.view<TransformComponent, CircleRendererComponent>();
 			for (auto entity : view)
 			{
 				auto [transform, circle] = view.get<TransformComponent, CircleRendererComponent>(entity);
@@ -293,11 +293,11 @@ namespace HEngine
 
     void Scene::OnViewportResize(uint32_t width, uint32_t height)
     {
-        m_ViewportWidth = width;
-        m_ViewportHeight = height;
+        mViewportWidth = width;
+        mViewportHeight = height;
 
         // Resize our non-FixedAspectRatio cameras
-        auto view = m_Registry.view<CameraComponent>();
+        auto view = mRegistry.view<CameraComponent>();
         for (auto entity : view)
         {
             auto& cameraComponent = view.get<CameraComponent>(entity);
@@ -322,7 +322,7 @@ namespace HEngine
 
 	Entity Scene::GetPrimaryCameraEntity()
 	{
-		auto view = m_Registry.view<CameraComponent>();
+		auto view = mRegistry.view<CameraComponent>();
 		for (auto entity : view)
 		{
 			const auto& camera = view.get<CameraComponent>(entity);
@@ -350,8 +350,8 @@ namespace HEngine
     template<>
     void Scene::OnComponentAdded<CameraComponent>(Entity entity, CameraComponent& component)
     {
-		if (m_ViewportWidth > 0 && m_ViewportHeight > 0)
-			component.Camera.SetViewportSize(m_ViewportWidth, m_ViewportHeight);
+		if (mViewportWidth > 0 && mViewportHeight > 0)
+			component.Camera.SetViewportSize(mViewportWidth, mViewportHeight);
     }
 
     template<>

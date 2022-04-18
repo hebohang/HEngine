@@ -74,7 +74,7 @@ namespace HEngine
 
     void ImGuiLayer::OnEvent(Event& e)
     {
-        if (m_BlockEvents)
+        if (mBlockEvents)
         {
             ImGuiIO& io = ImGui::GetIO();
             e.Handled |= e.IsInCategory(EventCategoryMouse) & io.WantCaptureMouse;

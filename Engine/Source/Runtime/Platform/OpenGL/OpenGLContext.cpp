@@ -7,7 +7,7 @@
 namespace HEngine
 {
     OpenGLContext::OpenGLContext(GLFWwindow* windowHandle)
-        : m_WindowHandle(windowHandle)
+        : mWindowHandle(windowHandle)
     {
         HE_CORE_ASSERT(windowHandle, "Window handle is null!");
     }
@@ -16,7 +16,7 @@ namespace HEngine
     {
         HE_PROFILE_FUNCTION();
 
-        glfwMakeContextCurrent(m_WindowHandle);
+        glfwMakeContextCurrent(mWindowHandle);
         int status = gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
         HE_CORE_ASSERT(status, "Failed to initialize Glad!");
 
@@ -30,6 +30,6 @@ namespace HEngine
     {
         HE_PROFILE_FUNCTION();
 
-        glfwSwapBuffers(m_WindowHandle);
+        glfwSwapBuffers(mWindowHandle);
     }
 }

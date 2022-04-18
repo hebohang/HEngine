@@ -11,23 +11,23 @@ namespace HEngine
 
         void SetProjection(float left, float right, float bottom, float top);
 
-        [[nodiscard]] const glm::vec3& GetPosition() const { return m_Position; }
-        void SetPosition(const glm::vec3& position) { m_Position = position; RecalculateViewMatrix(); }
+        [[nodiscard]] const glm::vec3& GetPosition() const { return mPosition; }
+        void SetPosition(const glm::vec3& position) { mPosition = position; RecalculateViewMatrix(); }
 
-        [[nodiscard]] float GetRotation() const { return m_Rotation; }
-        void SetRotation(float rotation) { m_Rotation = rotation; RecalculateViewMatrix(); }
+        [[nodiscard]] float GetRotation() const { return mRotation; }
+        void SetRotation(float rotation) { mRotation = rotation; RecalculateViewMatrix(); }
 
-        [[nodiscard]]const glm::mat4& GetProjectionMatrix() const { return m_ProjectionMatrix; }
-        [[nodiscard]]const glm::mat4& GetViewMatrix() const { return m_ViewMatrix; }
-        [[nodiscard]]const glm::mat4& GetViewProjectionMatrix() const { return m_ViewProjectionMatrix; }
+        [[nodiscard]]const glm::mat4& GetProjectionMatrix() const { return mProjectionMatrix; }
+        [[nodiscard]]const glm::mat4& GetViewMatrix() const { return mViewMatrix; }
+        [[nodiscard]]const glm::mat4& GetViewProjectionMatrix() const { return mViewProjectionMatrix; }
     private:
         void RecalculateViewMatrix();
     private:
-        glm::mat4 m_ProjectionMatrix;
-        glm::mat4 m_ViewMatrix;
-        glm::mat4 m_ViewProjectionMatrix;
+        glm::mat4 mProjectionMatrix;
+        glm::mat4 mViewMatrix;
+        glm::mat4 mViewProjectionMatrix;
 
-        glm::vec3 m_Position = { 0.0f, 0.0f, 0.0f };
-        float m_Rotation = 0.0f;
+        glm::vec3 mPosition = { 0.0f, 0.0f, 0.0f };
+        float mRotation = 0.0f;
     };
 }

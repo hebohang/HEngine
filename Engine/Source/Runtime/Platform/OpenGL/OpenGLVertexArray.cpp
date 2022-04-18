@@ -28,17 +28,17 @@ namespace HEngine
 
     OpenGLVertexArray::OpenGLVertexArray()
     {
-        glCreateVertexArrays(1, &m_RendererID);
+        glCreateVertexArrays(1, &mRendererID);
     }
 
     OpenGLVertexArray::~OpenGLVertexArray()
     {
-        glDeleteVertexArrays(1, &m_RendererID);
+        glDeleteVertexArrays(1, &mRendererID);
     }
 
     void OpenGLVertexArray::Bind() const
     {
-        glBindVertexArray(m_RendererID);
+        glBindVertexArray(mRendererID);
     }
 
     void OpenGLVertexArray::Unbind() const
@@ -50,7 +50,7 @@ namespace HEngine
     {
         HE_CORE_ASSERT(vertexBuffer->GetLayout().GetElements().size(), "Vertex buffer has no layout!");
 
-        glBindVertexArray(m_RendererID);
+        glBindVertexArray(mRendererID);
         vertexBuffer->Bind();
 
         const auto& layout = vertexBuffer->GetLayout();
@@ -63,14 +63,14 @@ namespace HEngine
 			case ShaderDataType::Float3:
 			case ShaderDataType::Float4:
 			{
-				glEnableVertexAttribArray(m_VertexBufferIndex);
-				glVertexAttribPointer(m_VertexBufferIndex,
+				glEnableVertexAttribArray(mVertexBufferIndex);
+				glVertexAttribPointer(mVertexBufferIndex,
 					element.GetComponentCount(),
 					ShaderDataTypeToOpenGLBaseType(element.Type),
 					element.Normalized ? GL_TRUE : GL_FALSE,
 					layout.GetStride(),
 					(const void*)element.Offset);
-				m_VertexBufferIndex++;
+				mVertexBufferIndex++;
 				break;
 			}
 			case ShaderDataType::Int:
@@ -79,13 +79,13 @@ namespace HEngine
 			case ShaderDataType::Int4:
 			case ShaderDataType::Bool:
 			{
-				glEnableVertexAttribArray(m_VertexBufferIndex);
-				glVertexAttribIPointer(m_VertexBufferIndex,
+				glEnableVertexAttribArray(mVertexBufferIndex);
+				glVertexAttribIPointer(mVertexBufferIndex,
 					element.GetComponentCount(),
 					ShaderDataTypeToOpenGLBaseType(element.Type),
 					layout.GetStride(),
 					(const void*)element.Offset);
-				m_VertexBufferIndex++;
+				mVertexBufferIndex++;
 				break;
 			}
 			case ShaderDataType::Mat3:
@@ -94,15 +94,15 @@ namespace HEngine
 				uint8_t count = element.GetComponentCount();
 				for (uint8_t i = 0; i < count; i++)
 				{
-					glEnableVertexAttribArray(m_VertexBufferIndex);
-					glVertexAttribPointer(m_VertexBufferIndex,
+					glEnableVertexAttribArray(mVertexBufferIndex);
+					glVertexAttribPointer(mVertexBufferIndex,
 						count,
 						ShaderDataTypeToOpenGLBaseType(element.Type),
 						element.Normalized ? GL_TRUE : GL_FALSE,
 						layout.GetStride(),
 						(const void*)(element.Offset + sizeof(float) * count * i));
-					glVertexAttribDivisor(m_VertexBufferIndex, 1);
-					m_VertexBufferIndex++;
+					glVertexAttribDivisor(mVertexBufferIndex, 1);
+					mVertexBufferIndex++;
 				}
 				break;
 			}
@@ -111,14 +111,14 @@ namespace HEngine
 			}
         }
 
-        m_VertexBuffers.push_back(vertexBuffer);
+        mVertexBuffers.push_back(vertexBuffer);
     }
 
     void OpenGLVertexArray::SetIndexBuffer(const Ref<IndexBuffer>& indexBuffer)
     {
-        glBindVertexArray(m_RendererID);
+        glBindVertexArray(mRendererID);
         indexBuffer->Bind();
 
-        m_IndexBuffer = indexBuffer;
+        mIndexBuffer = indexBuffer;
     }
 }

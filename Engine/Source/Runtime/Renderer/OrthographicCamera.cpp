@@ -6,23 +6,23 @@
 namespace HEngine
 {
     OrthographicCamera::OrthographicCamera(float left, float right, float bottom, float top)
-        : m_ProjectionMatrix(glm::ortho(left, right, bottom, top, -1.0f, 1.0f)), m_ViewMatrix(1.0f)
+        : mProjectionMatrix(glm::ortho(left, right, bottom, top, -1.0f, 1.0f)), mViewMatrix(1.0f)
     {
-        m_ViewProjectionMatrix = m_ProjectionMatrix * m_ViewMatrix;
+        mViewProjectionMatrix = mProjectionMatrix * mViewMatrix;
     }
 
     void OrthographicCamera::SetProjection(float left, float right, float bottom, float top)
     {
-        m_ProjectionMatrix = glm::ortho(left, right, bottom, top, -1.0f, 1.0f);
-        m_ViewProjectionMatrix = m_ProjectionMatrix * m_ViewMatrix;
+        mProjectionMatrix = glm::ortho(left, right, bottom, top, -1.0f, 1.0f);
+        mViewProjectionMatrix = mProjectionMatrix * mViewMatrix;
     }
 
     void OrthographicCamera::RecalculateViewMatrix()
     {
-        glm::mat4 transform = glm::translate(glm::mat4(1.0f), m_Position) * 
-            glm::rotate(glm::mat4(1.0f), glm::radians(m_Rotation), glm::vec3(0, 0, 1));
+        glm::mat4 transform = glm::translate(glm::mat4(1.0f), mPosition) * 
+            glm::rotate(glm::mat4(1.0f), glm::radians(mRotation), glm::vec3(0, 0, 1));
 
-        m_ViewMatrix = glm::inverse(transform);
-        m_ViewProjectionMatrix = m_ProjectionMatrix * m_ViewMatrix;
+        mViewMatrix = glm::inverse(transform);
+        mViewProjectionMatrix = mProjectionMatrix * mViewMatrix;
     }
 }

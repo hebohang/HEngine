@@ -13,9 +13,9 @@ namespace HEngine
 
 		void OnImGuiRender(bool* pOpen);
 	private:
-		std::filesystem::path m_CurrentDirectory;
+		std::filesystem::path mCurrentDirectory;
 
-		Ref<Texture2D> m_DirectoryIcon;
-		Ref<Texture2D> m_FileIcon;
+		Ref<Texture2D> mDirectoryIcon;
+		Ref<Texture2D> mFileIcon;
 	};
 }

@@ -130,7 +130,7 @@ namespace HEngine
 	}
 
 	SceneSerializer::SceneSerializer(const Ref<Scene>& scene)
-		:m_Scene(scene)
+		:mScene(scene)
 	{
 
 	}
@@ -268,9 +268,9 @@ namespace HEngine
 		out << YAML::BeginMap;
 		out << YAML::Key << "Scene" << YAML::Value << "Untitled";
 		out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
-		m_Scene->m_Registry.each([&](auto entityID)
+		mScene->mRegistry.each([&](auto entityID)
 			{
-				Entity entity = { entityID, m_Scene.get() };
+				Entity entity = { entityID, mScene.get() };
 				if (!entity)
 					return;
 				//Serialize Entity
@@ -320,7 +320,7 @@ namespace HEngine
 
 				HE_CORE_TRACE("Deserialized entity with ID = {0}, name = {1}", uuid, name);
 
-				Entity deserializedEntity = m_Scene->CreateEntityWithUUID(uuid, name);
+				Entity deserializedEntity = mScene->CreateEntityWithUUID(uuid, name);
 
 				auto transformComponent = entity["TransformComponent"];
 				if (transformComponent)

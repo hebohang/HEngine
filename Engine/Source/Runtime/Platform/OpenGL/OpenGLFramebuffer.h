@@ -20,18 +20,18 @@ namespace HEngine
 
 		virtual void ClearAttachment(uint32_t attachmentIndex, int value) override;
 
-		virtual uint32_t GetColorAttachmentRendererID(uint32_t index = 0) const override { HE_CORE_ASSERT(index < m_ColorAttachments.size()); return m_ColorAttachments[index]; }
+		virtual uint32_t GetColorAttachmentRendererID(uint32_t index = 0) const override { HE_CORE_ASSERT(index < mColorAttachments.size()); return mColorAttachments[index]; }
 
-        virtual const FramebufferSpecification& GetSpecification() const override { return m_Specification; }
+        virtual const FramebufferSpecification& GetSpecification() const override { return mSpecification; }
     private:
-        uint32_t m_RendererID = 0;
-        FramebufferSpecification m_Specification;
+        uint32_t mRendererID = 0;
+        FramebufferSpecification mSpecification;
 
-		std::vector<FramebufferTextureSpecification> m_ColorAttachmentSpecifications;
-		FramebufferTextureSpecification m_DepthAttachmentSpecification = FramebufferTextureFormat::None;
+		std::vector<FramebufferTextureSpecification> mColorAttachmentSpecifications;
+		FramebufferTextureSpecification mDepthAttachmentSpecification = FramebufferTextureFormat::None;
 
-		std::vector<uint32_t> m_ColorAttachments;
-		uint32_t m_DepthAttachment = 0;
+		std::vector<uint32_t> mColorAttachments;
+		uint32_t mDepthAttachment = 0;
     };
 
 }

@@ -18,23 +18,23 @@ namespace HEngine
 
         void OnResize(float width, float height);
 
-        [[nodiscard]] OrthographicCamera& GetCamera() { return m_Camera; }
-        [[nodiscard]] const OrthographicCamera& GetCamera() const { return m_Camera; }
+        [[nodiscard]] OrthographicCamera& GetCamera() { return mCamera; }
+        [[nodiscard]] const OrthographicCamera& GetCamera() const { return mCamera; }
 
-        [[nodiscard]] float GetZoomLevel() const { return m_ZoomLevel; }
-        void SetZoomLevel(float level) { m_ZoomLevel = level; }
+        [[nodiscard]] float GetZoomLevel() const { return mZoomLevel; }
+        void SetZoomLevel(float level) { mZoomLevel = level; }
     private:
         bool OnMouseScrolled(MouseScrolledEvent& e);
         bool OnWindowResized(WindowResizeEvent& e);
     private:
-        float m_AspectRatio;
-        float m_ZoomLevel = 1.0f;
-        OrthographicCamera m_Camera;
+        float mAspectRatio;
+        float mZoomLevel = 1.0f;
+        OrthographicCamera mCamera;
 
-        bool m_Rotation = false;
+        bool mRotation = false;
 
-        glm::vec3 m_CameraPosition = { 0.0f, 0.0f, 0.0f };
-        float m_CameraRotation = 0.0f;
-        float m_CameraTranslationSpeed = 5.0f, m_CameraRotationSpeed = 180.0f;
+        glm::vec3 mCameraPosition = { 0.0f, 0.0f, 0.0f };
+        float mCameraRotation = 0.0f;
+        float mCameraTranslationSpeed = 5.0f, mCameraRotationSpeed = 180.0f;
     };
 }

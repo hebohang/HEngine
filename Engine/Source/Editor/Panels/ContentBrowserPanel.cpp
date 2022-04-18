@@ -7,10 +7,10 @@
 namespace HEngine
 {
 	ContentBrowserPanel::ContentBrowserPanel()
-		: m_CurrentDirectory(ConfigManager::GetInstance().GetAssetsFolder())
+		: mCurrentDirectory(ConfigManager::GetInstance().GetAssetsFolder())
 	{
-		m_DirectoryIcon = Texture2D::Create(AssetManager::GetInstance().GetFullPath("Resources/Icons/ContentBrowser/DirectoryIcon.png").string());
-		m_FileIcon = Texture2D::Create(AssetManager::GetInstance().GetFullPath("Resources/Icons/ContentBrowser/FileIcon.png").string());
+		mDirectoryIcon = Texture2D::Create(AssetManager::GetInstance().GetFullPath("Resources/Icons/ContentBrowser/DirectoryIcon.png").string());
+		mFileIcon = Texture2D::Create(AssetManager::GetInstance().GetFullPath("Resources/Icons/ContentBrowser/FileIcon.png").string());
 	}
 
 	void ContentBrowserPanel::OnImGuiRender(bool* pOpen)
@@ -22,11 +22,11 @@ namespace HEngine
 			return;
 		}
 
-		if (m_CurrentDirectory != std::filesystem::path(ConfigManager::GetInstance().GetAssetsFolder()))
+		if (mCurrentDirectory != std::filesystem::path(ConfigManager::GetInstance().GetAssetsFolder()))
 		{
 			if (ImGui::Button("<-"))
 			{
-				m_CurrentDirectory = m_CurrentDirectory.parent_path();
+				mCurrentDirectory = mCurrentDirectory.parent_path();
 			}
 		}
 
@@ -41,14 +41,14 @@ namespace HEngine
 
 		ImGui::Columns(columnCount, 0, false);
 
-		for (auto& directoryEntry : std::filesystem::directory_iterator(m_CurrentDirectory))
+		for (auto& directoryEntry : std::filesystem::directory_iterator(mCurrentDirectory))
 		{
 			const auto& path = directoryEntry.path();
 			auto relativePath = std::filesystem::relative(path, ConfigManager::GetInstance().GetAssetsFolder());
 			std::string filenameString = relativePath.filename().string();
 
 			ImGui::PushID(filenameString.c_str());
-			Ref<Texture2D> icon = directoryEntry.is_directory() ? m_DirectoryIcon : m_FileIcon;
+			Ref<Texture2D> icon = directoryEntry.is_directory() ? mDirectoryIcon : mFileIcon;
 			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
 			ImGui::ImageButton((ImTextureID)icon->GetRendererID(), { thumbnailSize, thumbnailSize }, { 0, 1 }, { 1, 0 });
 			
@@ -63,7 +63,7 @@ namespace HEngine
 			if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
 			{
 				if (directoryEntry.is_directory())
-					m_CurrentDirectory /= path.filename();
+					mCurrentDirectory /= path.filename();
 
 			}
 			ImGui::TextWrapped(filenameString.c_str());

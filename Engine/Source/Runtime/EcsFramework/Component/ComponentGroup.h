@@ -16,12 +16,18 @@
 
 namespace HEngine
 {
-    //template<class T>
-    //concept Component = std::is_base_o
+    // Every Component Class should be registered in this file
 
-    template<typename... Component>
+    template<class T>
+    concept Component = std::is_base_of_v<ComponentBase, T>;
+
+    template<Component... C>
     struct ComponentGroup
     {
 
     };
+
+    using AllComponents = ComponentGroup<TransformComponent, CircleRendererComponent, SpriteRendererComponent,
+        CameraComponent, NativeScriptComponent,
+        Rigidbody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent>;
 }

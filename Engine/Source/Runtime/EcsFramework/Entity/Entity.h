@@ -2,10 +2,8 @@
 
 #include "Runtime/Core/UUID.h"
 #include "Runtime/EcsFramework/Level/Level.h"
-#include "Runtime/EcsFramework/Component/ComponentGroup.h"
 
 #include <entt.hpp>
-
 
 namespace HEngine
 {
@@ -57,8 +55,8 @@ namespace HEngine
         operator entt::entity() const { return mEntityHandle; }
         operator uint32_t() const { return (uint32_t)mEntityHandle; }
 
-		UUID GetUUID() { return GetComponent<IDComponent>().ID; }
-		const std::string& GetName() { return GetComponent<TagComponent>().Tag; }
+        UUID GetUUID();
+        const std::string& GetName();
 
         bool operator==(const Entity& other) const 
         { 

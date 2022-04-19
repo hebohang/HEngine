@@ -1,5 +1,6 @@
 #include "hepch.h"
 #include "Runtime/EcsFramework/Entity/Entity.h"
+#include "Runtime/EcsFramework/Component/ComponentGroup.h"
 
 namespace HEngine
 {
@@ -8,4 +9,7 @@ namespace HEngine
     {
         //AddComponent<IDComponent>(UUID());
     }
+
+    UUID Entity::GetUUID() { return GetComponent<IDComponent>().ID; }
+    const std::string& Entity::GetName() { return GetComponent<TagComponent>().Tag; }
 }

@@ -1,10 +1,10 @@
 #include "hepch.h"
-#include "Scene.h"
-#include "Entity.h"
 
+#include "Runtime/EcsFramework/Entity/Entity.h"
+#include "Runtime/EcsFramework/Entity/ScriptableEntity.h"
+#include "Runtime/EcsFramework/Level/Level.h"
 #include "Runtime/EcsFramework/Component/ComponentGroup.h"
 
-#include "ScriptableEntity.h"
 #include "Runtime/Renderer/Renderer2D.h"
 
 #include <glm/glm.hpp>
@@ -30,11 +30,11 @@ namespace HEngine
 		return b2_staticBody;
 	}
 
-    Scene::Scene()
+    Level::Level()
     {
     }
 
-    Scene::~Scene()
+    Level::~Level()
     {
     }
 
@@ -58,9 +58,9 @@ namespace HEngine
 			dst.AddOrReplaceComponent<Component>(src.GetComponent<Component>());
 	}
 
-	Ref<Scene> Scene::Copy(Ref<Scene> scene)
+	Ref<Level> Level::Copy(Ref<Level> scene)
 	{
-		Ref<Scene> newScene = CreateRef<Scene>();
+		Ref<Level> newScene = CreateRef<Level>();
 
 		newScene->mViewportWidth = scene->mViewportWidth;
 		newScene->mViewportHeight = scene->mViewportHeight;
@@ -92,12 +92,12 @@ namespace HEngine
 		return newScene;
 	}
 
-    Entity Scene::CreateEntity(const std::string& name)
+    Entity Level::CreateEntity(const std::string& name)
     {
 		return CreateEntityWithUUID(UUID(), name);
     }
 
-	Entity Scene::CreateEntityWithUUID(UUID uuid, const std::string& name)
+	Entity Level::CreateEntityWithUUID(UUID uuid, const std::string& name)
 	{
 		Entity entity = { mRegistry.create(), this };
 		entity.AddComponent<IDComponent>(uuid);
@@ -107,12 +107,12 @@ namespace HEngine
 		return entity;
 	}
 
-    void Scene::DestroyEntity(Entity entity)
+    void Level::DestroyEntity(Entity entity)
     {
         mRegistry.destroy(entity);
     }
 
-	void Scene::OnRuntimeStart()
+	void Level::OnRuntimeStart()
 	{
 		mPhysicsWorld = new b2World({ 0.0f, -9.8f });
 
@@ -169,19 +169,19 @@ namespace HEngine
 		}
 	}
 
-	void Scene::OnRuntimeStop()
+	void Level::OnRuntimeStop()
 	{
 		delete mPhysicsWorld;
 		mPhysicsWorld = nullptr;
 	}
 
-	void Scene::OnUpdateRuntime(Timestep ts)
+	void Level::OnUpdateRuntime(Timestep ts)
 	{
 		// Update scripts
 		{
 			mRegistry.view<NativeScriptComponent>().each([=](auto entity, auto& nsc)  // nsc: native script component
 				{
-					// TODO: Move to Scene::OnScenePlay
+					// TODO: Move to Level::OnScenePlay
 					if (!nsc.Instance)
 					{
 						nsc.Instance = nsc.InstantiateScript();
@@ -263,7 +263,7 @@ namespace HEngine
 		}
 	}
 
-	void Scene::OnUpdateEditor(Timestep ts, EditorCamera& camera)
+	void Level::OnUpdateEditor(Timestep ts, EditorCamera& camera)
 	{
 		Renderer2D::BeginScene(camera);
 
@@ -292,7 +292,7 @@ namespace HEngine
 		Renderer2D::EndScene();
 	}
 
-    void Scene::OnViewportResize(uint32_t width, uint32_t height)
+    void Level::OnViewportResize(uint32_t width, uint32_t height)
     {
         mViewportWidth = width;
         mViewportHeight = height;
@@ -307,7 +307,7 @@ namespace HEngine
         }
     }
 
-	void Scene::DuplicateEntity(Entity entity)
+	void Level::DuplicateEntity(Entity entity)
 	{
 		Entity newEntity = CreateEntity(entity.GetName());
 
@@ -321,7 +321,7 @@ namespace HEngine
 		CopyComponentIfExists<CircleCollider2DComponent>(newEntity, entity);
 	}
 
-	Entity Scene::GetPrimaryCameraEntity()
+	Entity Level::GetPrimaryCameraEntity()
 	{
 		auto view = mRegistry.view<CameraComponent>();
 		for (auto entity : view)
@@ -334,59 +334,59 @@ namespace HEngine
 	}
 
     template<typename T>
-    void Scene::OnComponentAdded(Entity entity, T& component)
+    void Level::OnComponentAdded(Entity entity, T& component)
     {
     }
 
     template<>
-    void Scene::OnComponentAdded<IDComponent>(Entity entity, IDComponent& component)
+    void Level::OnComponentAdded<IDComponent>(Entity entity, IDComponent& component)
     {
     }
 
 	template<>
-	void Scene::OnComponentAdded<TransformComponent>(Entity entity, TransformComponent& component)
+	void Level::OnComponentAdded<TransformComponent>(Entity entity, TransformComponent& component)
 	{
 	}
 
     template<>
-    void Scene::OnComponentAdded<CameraComponent>(Entity entity, CameraComponent& component)
+    void Level::OnComponentAdded<CameraComponent>(Entity entity, CameraComponent& component)
     {
 		if (mViewportWidth > 0 && mViewportHeight > 0)
 			component.Camera.SetViewportSize(mViewportWidth, mViewportHeight);
     }
 
     template<>
-    void Scene::OnComponentAdded<SpriteRendererComponent>(Entity entity, SpriteRendererComponent& component)
+    void Level::OnComponentAdded<SpriteRendererComponent>(Entity entity, SpriteRendererComponent& component)
     {
     }
 
 	template<>
-	void Scene::OnComponentAdded<CircleRendererComponent>(Entity entity, CircleRendererComponent& component)
+	void Level::OnComponentAdded<CircleRendererComponent>(Entity entity, CircleRendererComponent& component)
 	{
 	}
 
     template<>
-    void Scene::OnComponentAdded<TagComponent>(Entity entity, TagComponent& component)
+    void Level::OnComponentAdded<TagComponent>(Entity entity, TagComponent& component)
     {
     }
 
     template<>
-    void Scene::OnComponentAdded<NativeScriptComponent>(Entity entity, NativeScriptComponent& component)
+    void Level::OnComponentAdded<NativeScriptComponent>(Entity entity, NativeScriptComponent& component)
     {
     }
 
 	template<>
-	void Scene::OnComponentAdded<Rigidbody2DComponent>(Entity entity, Rigidbody2DComponent& component)
+	void Level::OnComponentAdded<Rigidbody2DComponent>(Entity entity, Rigidbody2DComponent& component)
 	{
 	}
 
 	template<>
-	void Scene::OnComponentAdded<BoxCollider2DComponent>(Entity entity, BoxCollider2DComponent& component)
+	void Level::OnComponentAdded<BoxCollider2DComponent>(Entity entity, BoxCollider2DComponent& component)
 	{
 	}
 
 	template<>
-	void Scene::OnComponentAdded<CircleCollider2DComponent>(Entity entity, CircleCollider2DComponent& component)
+	void Level::OnComponentAdded<CircleCollider2DComponent>(Entity entity, CircleCollider2DComponent& component)
 	{
 
 	}

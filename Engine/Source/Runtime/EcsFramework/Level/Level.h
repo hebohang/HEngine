@@ -5,6 +5,7 @@
 #include "Runtime/Renderer/EditorCamera.h"
 
 #include <entt.hpp>
+#include <unordered_map>
 
 class b2World;
 
@@ -12,13 +13,13 @@ namespace HEngine
 {
     class Entity;
 
-    class Scene
+    class Level
     {
     public:
-        Scene();
-        ~Scene();
+        Level();
+        ~Level();
 
-		static Ref<Scene> Copy(Ref<Scene> other);
+		static Ref<Level> Copy(Ref<Level> other);
 
         Entity CreateEntity(const std::string& name = std::string());
         Entity CreateEntityWithUUID(UUID uuid, const std::string& name = std::string());
@@ -48,6 +49,8 @@ namespace HEngine
         uint32_t mViewportWidth = 0, mViewportHeight = 0;
 
 		b2World* mPhysicsWorld = nullptr;
+
+        //std::unordered_map<UUID, >
 
         friend class Entity;
         friend class SceneSerializer;

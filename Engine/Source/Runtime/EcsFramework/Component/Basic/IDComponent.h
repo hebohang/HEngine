@@ -1,4 +1,5 @@
 #pragma once
+
 #include "Runtime/EcsFramework/Component/ComponentBase.h"
 #include "Runtime/Core/UUID.h"
 

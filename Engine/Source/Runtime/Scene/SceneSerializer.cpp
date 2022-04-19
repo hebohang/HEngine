@@ -1,6 +1,6 @@
 #include "hepch.h"
 #include "SceneSerializer.h"
-#include "Entity.h"
+#include "Runtime/EcsFramework/Entity/Entity.h"
 
 #include "Runtime/EcsFramework/Component/ComponentGroup.h"
 
@@ -130,8 +130,8 @@ namespace HEngine
 		return Rigidbody2DComponent::BodyType::Static;
 	}
 
-	SceneSerializer::SceneSerializer(const Ref<Scene>& scene)
-		:mScene(scene)
+	SceneSerializer::SceneSerializer(const Ref<Level>& level)
+		:mLevel(level)
 	{
 
 	}
@@ -269,9 +269,9 @@ namespace HEngine
 		out << YAML::BeginMap;
 		out << YAML::Key << "Scene" << YAML::Value << "Untitled";
 		out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
-		mScene->mRegistry.each([&](auto entityID)
+		mLevel->mRegistry.each([&](auto entityID)
 			{
-				Entity entity = { entityID, mScene.get() };
+				Entity entity = { entityID, mLevel.get() };
 				if (!entity)
 					return;
 				//Serialize Entity
@@ -321,7 +321,7 @@ namespace HEngine
 
 				HE_CORE_TRACE("Deserialized entity with ID = {0}, name = {1}", uuid, name);
 
-				Entity deserializedEntity = mScene->CreateEntityWithUUID(uuid, name);
+				Entity deserializedEntity = mLevel->CreateEntityWithUUID(uuid, name);
 
 				auto transformComponent = entity["TransformComponent"];
 				if (transformComponent)

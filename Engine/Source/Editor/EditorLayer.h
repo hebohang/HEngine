@@ -32,7 +32,7 @@ namespace HEngine
         void SaveScene();
         void SaveSceneAs();
 
-		void SerializeScene(Ref<Scene> scene, const std::filesystem::path& path);
+		void SerializeScene(Ref<Level> scene, const std::filesystem::path& path);
 
 		void OnScenePlay(); 
 		void OnSceneStop();
@@ -51,8 +51,8 @@ namespace HEngine
         Ref<Shader> mFlatColorShader;
         Ref<Framebuffer> mFramebuffer;
 
-        Ref<Scene> mActiveScene;
-        Ref<Scene> mEditorScene;
+        Ref<Level> mActiveScene;
+        Ref<Level> mEditorScene;
 		std::filesystem::path mEditorScenePath;
         Entity mSquareEntity;
         Entity mCameraEntity;

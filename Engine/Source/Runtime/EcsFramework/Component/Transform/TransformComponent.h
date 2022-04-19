@@ -1,5 +1,7 @@
 #pragma once
+
 #include "Runtime/EcsFramework/Component/ComponentBase.h"
+
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/quaternion.hpp>
 

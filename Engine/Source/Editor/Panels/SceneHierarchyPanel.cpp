@@ -14,12 +14,12 @@
 
 namespace HEngine
 {
-    SceneHierarchyPanel::SceneHierarchyPanel(const Ref<Scene>& context)
+    SceneHierarchyPanel::SceneHierarchyPanel(const Ref<Level>& context)
     {
 		SetContext(context);
     }
 
-    void SceneHierarchyPanel::SetContext(const Ref<Scene>& context)
+    void SceneHierarchyPanel::SetContext(const Ref<Level>& context)
     {
         mContext = context;
         mSelectionContext = {};

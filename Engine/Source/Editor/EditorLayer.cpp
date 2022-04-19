@@ -42,7 +42,7 @@ namespace HEngine
         fbSpec.Height = 720;
         mFramebuffer = Framebuffer::Create(fbSpec);
 
-        mActiveScene = CreateRef<Scene>();
+        mActiveScene = CreateRef<Level>();
 
 		mEditorCamera = EditorCamera(30.0f, 1.778f, 0.1f, 1000.0f);
 
@@ -239,7 +239,7 @@ namespace HEngine
 			{
 				ImGui::MenuItem("Viewport", NULL, &bShowViewport);
 				ImGui::MenuItem("Content Browser", NULL, &bShowContentBrowser);
-				ImGui::MenuItem("Scene Hierachy", NULL, &bShowSceneHierachy);
+				ImGui::MenuItem("Level Hierachy", NULL, &bShowSceneHierachy);
 				ImGui::MenuItem("Properties", NULL, &bShowProperties);
 				ImGui::MenuItem("Stats", NULL, &bShowStats);
 				ImGui::MenuItem("Settings", NULL, &bShowSettings);
@@ -506,7 +506,7 @@ namespace HEngine
                 break;
             }
 
-			// Scene Commands
+			// Level Commands
 			case Key::D:
 			{
 				if (control)
@@ -597,7 +597,7 @@ namespace HEngine
 
     void EditorLayer::NewScene()
     {
-        mActiveScene = CreateRef<Scene>();
+        mActiveScene = CreateRef<Level>();
         mActiveScene->OnViewportResize((uint32_t)mViewportSize.x, (uint32_t)mViewportSize.y);
         mSceneHierarchyPanel.SetContext(mActiveScene);
 
@@ -606,7 +606,7 @@ namespace HEngine
 
     void EditorLayer::OpenScene()
     {
-        std::string filepath = FileDialogs::OpenFile("HEngine Scene (*.he)\0*.he\0");
+        std::string filepath = FileDialogs::OpenFile("HEngine Level (*.he)\0*.he\0");
 		if (!filepath.empty())
 			OpenScene(filepath);
     }
@@ -625,7 +625,7 @@ namespace HEngine
 			return;
 		}
 
-		Ref<Scene> newScene = CreateRef<Scene>();
+		Ref<Level> newScene = CreateRef<Level>();
 		SceneSerializer serializer(newScene);
 		if (serializer.Deserialize(path.string()))
 		{
@@ -648,7 +648,7 @@ namespace HEngine
 
     void EditorLayer::SaveSceneAs()
     {
-        std::string filepath = FileDialogs::SaveFile("HEngine Scene (*.he)\0*.he\0");
+        std::string filepath = FileDialogs::SaveFile("HEngine Level (*.he)\0*.he\0");
         if (!filepath.empty())
         {
 			SerializeScene(mActiveScene, filepath);
@@ -656,7 +656,7 @@ namespace HEngine
         }
     }
 
-	void EditorLayer::SerializeScene(Ref<Scene> scene, const std::filesystem::path& path)
+	void EditorLayer::SerializeScene(Ref<Level> scene, const std::filesystem::path& path)
 	{
 		SceneSerializer serializer(scene);
 		serializer.Serialize(path.string());
@@ -666,7 +666,7 @@ namespace HEngine
 	{
 		ModeManager::ChangeState();
 
-		mActiveScene = Scene::Copy(mEditorScene);
+		mActiveScene = Level::Copy(mEditorScene);
 		mActiveScene->OnRuntimeStart();
 
 		mSceneHierarchyPanel.SetContext(mActiveScene);

@@ -42,12 +42,13 @@ set(ProjectRootDir "${CMAKE_CURRENT_SOURCE_DIR}")
 HEngine 的代码规范偏Unreal，可参考：
 https://docs.unrealengine.com/4.27/zh-CN/ProductionPipelines/DevelopmentSetup/CodingStandard/
 
-原则：
+原则：（后面的规则优先级高于前面的规则）
 1. 尽量不使用下划线
+1. 变量一律小写字母开头
+1. 非类内静态变量（全局变量、局部变量），在前面加小写字母s
 1. 如果是类内部成员变量，在前面加小写字母m
-1. 如果是bool类型变量，在前面加小写字母b（覆盖上一条，即类内部的bool类型成员变量只需要加b即可）
+1. 如果是bool类型变量，在前面加小写字母b
 1. 类内成员统一放在类的最末尾（方法置于前）
-1. 临时变量一律小写字母开头
 
 ## Getting Started
 **1. Downloading the repository**

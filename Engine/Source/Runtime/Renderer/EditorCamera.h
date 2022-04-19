@@ -26,14 +26,14 @@ namespace HEngine
 		[[nodiscard]] const glm::mat4& GetViewMatrix() const { return mViewMatrix; }
 		[[nodiscard]] glm::mat4 GetViewProjection() const { return mProjection * mViewMatrix; }
 
-		[[nodiscard]]glm::vec3 GetUpDirection() const;
-		[[nodiscard]]glm::vec3 GetRightDirection() const;
-		[[nodiscard]]glm::vec3 GetForwardDirection() const;
-		[[nodiscard]]const glm::vec3& GetPosition() const { return mPosition; }
-		[[nodiscard]]glm::quat GetOrientation() const;
-
-		[[nodiscard]]float GetPitch() const { return mPitch; }
-		[[nodiscard]]float GetYaw() const { return mYaw; }
+		[[nodiscard]] glm::vec3 GetUpDirection() const;
+		[[nodiscard]] glm::vec3 GetRightDirection() const;
+		[[nodiscard]] glm::vec3 GetForwardDirection() const;
+		[[nodiscard]] const glm::vec3& GetPosition() const { return mPosition; }
+		[[nodiscard]] glm::quat GetOrientation() const;
+					  
+		[[nodiscard]] float GetPitch() const { return mPitch; }
+		[[nodiscard]] float GetYaw() const { return mYaw; }
 	private:
 		void UpdateProjection();
 		void UpdateView();

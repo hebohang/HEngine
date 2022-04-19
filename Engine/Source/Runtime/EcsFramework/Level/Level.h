@@ -44,12 +44,14 @@ namespace HEngine
     private:
         template<typename T>
         void OnComponentAdded(Entity entity, T& component);
-    private:
+    public:
         entt::registry mRegistry;
+    private:
         uint32_t mViewportWidth = 0, mViewportHeight = 0;
 
 		b2World* mPhysicsWorld = nullptr;
 
+        std::vector<class System*> mSystems;
         //std::unordered_map<UUID, >
 
         friend class Entity;

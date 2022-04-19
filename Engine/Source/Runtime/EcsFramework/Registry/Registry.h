@@ -6,6 +6,9 @@
 
 namespace HEngine
 {
+    // TODO
+    // A wrapper of entt::registry
+
     class Registry final
     {
     public:

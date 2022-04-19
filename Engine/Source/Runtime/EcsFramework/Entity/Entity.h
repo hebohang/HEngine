@@ -5,6 +5,9 @@
 
 #include <entt.hpp>
 
+#include <tuple>
+#include <type_traits>
+
 namespace HEngine
 {
     class Entity
@@ -36,6 +39,20 @@ namespace HEngine
         {
             HE_CORE_ASSERT(HasComponent<T>(), "Entity does not have component!");
             return mLevel->mRegistry.get<T>(mEntityHandle);
+        }
+
+        template<typename... T>
+        std::tuple<T*...> GetComponents()
+        {
+            HE_CORE_ASSERT((HasComponent<T>() && ...), "Entity does not have component!");
+            return std::make_tuple<T*...>((&mLevel->mRegistry.get<T>(mEntityHandle))...);
+        }
+
+        template<typename... T>
+        std::tuple<const T* const...> GetConstComponents()
+        {
+            HE_CORE_ASSERT((HasComponent<T>() && ...), "Entity does not have component!");
+            return std::make_tuple(((const T* const)&mLevel->mRegistry.get<T>(mEntityHandle))...);
         }
 
         template<typename T>

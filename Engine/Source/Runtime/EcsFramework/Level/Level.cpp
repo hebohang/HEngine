@@ -1,7 +1,6 @@
 #include "hepch.h"
 
 #include "Runtime/EcsFramework/Entity/Entity.h"
-#include "Runtime/EcsFramework/Entity/ScriptableEntity.h"
 #include "Runtime/EcsFramework/Level/Level.h"
 #include "Runtime/EcsFramework/Component/ComponentGroup.h"
 #include "Runtime/EcsFramework/System/SystemGroup.h"
@@ -20,6 +19,7 @@ namespace HEngine
     Level::Level()
     {
 		mSystems.push_back(new PhysicSystem2D(this));
+		mSystems.push_back(new NativeScriptSystem(this));
     }
 
     Level::~Level()
@@ -122,23 +122,6 @@ namespace HEngine
 
 	void Level::OnUpdateRuntime(Timestep ts)
 	{
-		// Update scripts
-		{
-			mRegistry.view<NativeScriptComponent>().each([=](auto entity, auto& nsc)  // nsc: native script component
-				{
-					// TODO: Move to Level::OnScenePlay
-					if (!nsc.Instance)
-					{
-						nsc.Instance = nsc.InstantiateScript();
-						nsc.Instance->mEntity = Entity{ entity, this };
-						nsc.Instance->OnCreate();
-					}
-
-					nsc.Instance->OnUpdate(ts);
-				});
-		}
-
-		// Physics
 		for (auto& system : mSystems)
 		{
 			system->OnUpdate(ts);

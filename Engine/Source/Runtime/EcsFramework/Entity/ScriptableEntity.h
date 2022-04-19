@@ -20,6 +20,6 @@ namespace HEngine
         virtual void OnUpdate(Timestep ts) {}
     private:
         Entity mEntity;
-        friend class Level;
+        friend class NativeScriptSystem;
     };
 }

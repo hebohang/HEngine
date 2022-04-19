@@ -1,6 +1,6 @@
 #include "SceneHierarchyPanel.h"
 
-#include "Runtime/Scene/Components.h"
+#include "Runtime/EcsFramework/Component/ComponentGroup.h"
 #include "Runtime/Renderer/Texture.h"
 #include "Runtime/Resource/ConfigManager/ConfigManager.h"
 

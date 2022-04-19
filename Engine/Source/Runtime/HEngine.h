@@ -18,7 +18,7 @@
 #include "Runtime/Scene/Scene.h"
 #include "Runtime/Scene/Entity.h"
 #include "Runtime/Scene/ScriptableEntity.h"
-#include "Runtime/Scene/Components.h"
+#include "Runtime/EcsFramework/Component/ComponentGroup.h"
 
 #include "Runtime/Resource/ConfigManager/ConfigManager.h"
 #include "Runtime/Resource/AssetManager/AssetManager.h"

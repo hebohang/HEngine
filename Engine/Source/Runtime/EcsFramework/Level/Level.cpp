@@ -18,9 +18,9 @@ namespace HEngine
 {
     Level::Level()
     {
-		mSystems.push_back(new PhysicSystem2D(this));
-		mSystems.push_back(new NativeScriptSystem(this));
-		mSystems.push_back(new RenderSystem2D(this));
+		//mSystems.push_back(new PhysicSystem2D(this));
+		//mSystems.push_back(new NativeScriptSystem(this));
+		//mSystems.push_back(new RenderSystem2D(this));
     }
 
     Level::~Level()

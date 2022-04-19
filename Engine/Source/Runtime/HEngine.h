@@ -27,6 +27,7 @@
 // ---Renderer-----------------------
 #include "Runtime/Renderer/Renderer.h"
 #include "Runtime/Renderer/Renderer2D.h"
+#include "Runtime/Renderer/Renderer3D.h"
 #include "Runtime/Renderer/RenderCommand.h"
 
 #include "Runtime/Renderer/Buffer.h"

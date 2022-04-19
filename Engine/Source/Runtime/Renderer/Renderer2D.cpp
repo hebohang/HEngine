@@ -1,9 +1,9 @@
 #include "hepch.h"
 #include "Renderer2D.h"
 
-#include "VertexArray.h"
-#include "Shader.h"
-#include "RenderCommand.h"
+#include "Runtime/Renderer/VertexArray.h"
+#include "Runtime/Renderer/Shader.h"
+#include "Runtime/Renderer/RenderCommand.h"
 
 #include "Runtime/Resource/AssetManager/AssetManager.h"
 

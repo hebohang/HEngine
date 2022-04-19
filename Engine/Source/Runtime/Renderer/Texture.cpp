@@ -1,5 +1,5 @@
 #include "hepch.h"
-#include "Texture.h"
+#include "Runtime/Renderer/Texture.h"
 
 #include "Renderer.h"
 #include "Platform/OpenGL/OpenGLTexture.h"

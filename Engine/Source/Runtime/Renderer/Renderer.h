@@ -1,9 +1,9 @@
 #pragma once
 
-#include "RenderCommand.h"
+#include "Runtime/Renderer/RenderCommand.h"
 
 #include "OrthographicCamera.h"
-#include "Shader.h"
+#include "Runtime/Renderer/Shader.h"
 
 namespace HEngine
 {

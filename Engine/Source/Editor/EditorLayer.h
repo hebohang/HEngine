@@ -44,8 +44,6 @@ namespace HEngine
 
 		void LoadDefaultEditorConfig();
     private:
-        OrthographicCameraController mCameraController;
-
         // Temp
         Ref<VertexArray> mSquareVA;
         Ref<Shader> mFlatColorShader;

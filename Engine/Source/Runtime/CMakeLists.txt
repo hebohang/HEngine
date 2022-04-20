@@ -22,14 +22,16 @@ target_precompile_headers(HEngineRuntime PUBLIC "hepch.h")
 
 target_link_libraries(HEngineRuntime PUBLIC glfw
     PUBLIC Glad
+    PUBLIC glm
+    PUBLIC imgui
     PUBLIC ${OPENGL_LIBRARIES}
     PUBLIC yaml-cpp
     PUBLIC spdlog
-    PUBLIC glm
-    PUBLIC entt
+    PUBLIC headers
     PUBLIC Box2D
     PUBLIC stb
     PUBLIC ImGuizmo
+    PUBLIC assimp
 )
 
 

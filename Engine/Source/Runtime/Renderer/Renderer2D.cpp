@@ -224,20 +224,6 @@ namespace HEngine
 		StartBatch();
 	}
 
-    void Renderer2D::BeginScene(const OrthographicCamera& camera)
-    {
-        sData.QuadShader->Bind();
-        sData.QuadShader->SetMat4("u_ViewProjection", camera.GetViewProjectionMatrix());
-
-		sData.CircleShader->Bind();
-		sData.CircleShader->SetMat4("u_ViewProjection", camera.GetViewProjectionMatrix());
-
-		sData.LineShader->Bind();
-		sData.LineShader->SetMat4("u_ViewProjection", camera.GetViewProjectionMatrix());
-
-		StartBatch();
-    }
-
     void Renderer2D::EndScene()
     {
         Flush();

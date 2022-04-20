@@ -11,7 +11,6 @@
 #include "Runtime/Input/Input.h"
 #include "Runtime/Input/KeyCodes.h"
 #include "Runtime/Input/MouseCodes.h"
-#include "Runtime/Renderer/OrthographicCameraController.h"
 
 #include "Runtime/ImGui/ImGuiLayer.h"
 
@@ -36,6 +35,4 @@
 #include "Runtime/Renderer/Texture.h"
 #include "Runtime/Renderer/SubTexture2D.h"
 #include "Runtime/Renderer/VertexArray.h"
-
-#include "Runtime/Renderer/OrthographicCamera.h"
 // ----------------------------------

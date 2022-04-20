@@ -26,7 +26,7 @@ namespace HEngine
 	static bool bShowAboutMe = false;
 
     EditorLayer::EditorLayer()
-        : Layer("EditorLayer"), mCameraController(1280.0f / 720.0f)
+        : Layer("EditorLayer")
     {
     }
 
@@ -110,7 +110,6 @@ namespace HEngine
 			(spec.Width != mViewportSize.x || spec.Height != mViewportSize.y))
 		{
 			mFramebuffer->Resize((uint32_t)mViewportSize.x, (uint32_t)mViewportSize.y);
-			mCameraController.OnResize(mViewportSize.x, mViewportSize.y);
 			mEditorCamera.SetViewportSize(mViewportSize.x, mViewportSize.y);
 			mActiveScene->OnViewportResize((uint32_t)mViewportSize.x, (uint32_t)mViewportSize.y);
 		}
@@ -126,9 +125,6 @@ namespace HEngine
 
 		if (ModeManager::IsEditState())
 		{
-			if (mViewportFocused)
-				mCameraController.OnUpdate(ts);
-
 			mEditorCamera.OnUpdate(ts);
 
 			mActiveScene->OnUpdateEditor(ts, mEditorCamera);
@@ -464,7 +460,6 @@ namespace HEngine
 
     void EditorLayer::OnEvent(Event& e)
     {
-        mCameraController.OnEvent(e);
 		mEditorCamera.OnEvent(e);
 
         EventDispatcher dispatcher(e);

@@ -27,11 +27,6 @@ namespace HEngine
         RenderCommand::SetViewport(0, 0, width, height);
     }
 
-    void Renderer::BeginScene(OrthographicCamera& camera)
-    {
-        mSceneData->ViewProjectionMatrix = camera.GetViewProjectionMatrix();
-    }
-
     void Renderer::EndScene()
     {
     }

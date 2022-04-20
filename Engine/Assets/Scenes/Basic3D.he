@@ -1,0 +1,11 @@
+Scene: Untitled
+Entities:
+  - Entity: 15794395185893427742
+    TagComponent:
+      Tag: Model
+    TransformComponent:
+      Translation: [0.151058316, -0.312652558, -1.3620832]
+      Rotation: [1.56124902, 0.27932173, 0.0262777433]
+      Scale: [1.16000056, 1.16000021, 1.15999651]
+    StaticMeshComponent:
+      Path: Assets//Models//Box.obj

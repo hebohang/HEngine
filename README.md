@@ -21,8 +21,12 @@ set(ProjectRootDir "${CMAKE_CURRENT_SOURCE_DIR}")
 ```
 这里变量 ProjectRootDir 采用 Pascal 命名法，与 CMAKE 自带变量区分（比如 CMAKE_CURRENT_SOURCE_DIR ）
 
-### include 头文件顺序
-首先include同级文件，其次是同Source文件，再次为第三方依赖（确保依赖顺序）
+### include 要求
+#### 顺序
+首先include同级文件，其次是同Source文件，再次为第三方依赖，最后为stl库（确保依赖顺序）
+
+且彼此直接需要以空格隔开
+
 比如 Editor 中：
 ```
 // 同级文件（同属于 Editor ）
@@ -37,6 +41,8 @@ set(ProjectRootDir "${CMAKE_CURRENT_SOURCE_DIR}")
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 ```
+#### 路径
+一律以 Source 起的路径开头（第三方依赖除外），比如 "Runtime/..."
 
 ### 代码规范
 HEngine 的代码规范偏Unreal，可参考：

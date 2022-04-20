@@ -18,9 +18,9 @@ namespace HEngine
 {
     Level::Level()
     {
-		//mSystems.push_back(new PhysicSystem2D(this));
-		//mSystems.push_back(new NativeScriptSystem(this));
-		//mSystems.push_back(new RenderSystem2D(this));
+		mSystems.push_back(new PhysicSystem2D(this));
+		mSystems.push_back(new NativeScriptSystem(this));
+		mSystems.push_back(new RenderSystem2D(this));
     }
 
     Level::~Level()
@@ -31,24 +31,42 @@ namespace HEngine
 		}
     }
 
-	template<typename Component>
+	template<Component... C>
 	static void CopyComponent(entt::registry& dst, entt::registry& src, const std::unordered_map<UUID, entt::entity>& enttMap)
 	{
-		auto view = src.view<Component>();
-		for (auto srcEntity : view)
-		{
-			entt::entity dstEntity = enttMap.at(src.get<IDComponent>(srcEntity).ID);
+		([&]()
+			{
+				auto view = src.view<C>();
+				for (auto srcEntity : view)
+				{
+					entt::entity dstEntity = enttMap.at(src.get<IDComponent>(srcEntity).ID);
 
-			auto& srcComponent = src.get<Component>(srcEntity);
-			dst.emplace_or_replace<Component>(dstEntity, srcComponent);
-		}
+					auto& srcComponent = src.get<C>(srcEntity);
+					dst.emplace_or_replace<C>(dstEntity, srcComponent);
+				}
+			}(), ...);
 	}
 
-	template<typename Component>
+	template<Component... C>
+	static void CopyComponent(ComponentGroup<C...>, entt::registry& dst, entt::registry& src, const std::unordered_map<UUID, entt::entity>& enttMap)
+	{
+		CopyComponent<C...>(dst, src, enttMap);
+	}
+
+	template<Component... C>
 	static void CopyComponentIfExists(Entity dst, Entity src)
 	{
-		if (src.HasComponent<Component>())
-			dst.AddOrReplaceComponent<Component>(src.GetComponent<Component>());
+		([&]()
+			{
+				if (src.HasComponent<C>())
+					dst.AddOrReplaceComponent<C>(src.GetComponent<C>());
+			}(), ...);
+	}
+
+	template<Component... C>
+	static void CopyComponentIfExists(ComponentGroup<C...>, Entity dst, Entity src)
+	{
+		CopyComponentIfExists<C...>(dst, src);
 	}
 
 	Ref<Level> Level::Copy(Ref<Level> scene)
@@ -73,14 +91,7 @@ namespace HEngine
 		}
 
 		// Copy components (except IDComponent and TagComponent)
-		CopyComponent<TransformComponent>(dstSceneRegistry, srcSceneRegistry, enttMap);
-		CopyComponent<SpriteRendererComponent>(dstSceneRegistry, srcSceneRegistry, enttMap);
-		CopyComponent<CircleRendererComponent>(dstSceneRegistry, srcSceneRegistry, enttMap);
-		CopyComponent<CameraComponent>(dstSceneRegistry, srcSceneRegistry, enttMap);
-		CopyComponent<NativeScriptComponent>(dstSceneRegistry, srcSceneRegistry, enttMap);
-		CopyComponent<Rigidbody2DComponent>(dstSceneRegistry, srcSceneRegistry, enttMap);
-		CopyComponent<BoxCollider2DComponent>(dstSceneRegistry, srcSceneRegistry, enttMap);
-		CopyComponent<CircleCollider2DComponent>(dstSceneRegistry, srcSceneRegistry, enttMap);
+		CopyComponent(AllComponents{}, dstSceneRegistry, srcSceneRegistry, enttMap);
 
 		return newScene;
 	}
@@ -156,14 +167,7 @@ namespace HEngine
 	{
 		Entity newEntity = CreateEntity(entity.GetName());
 
-		CopyComponentIfExists<TransformComponent>(newEntity, entity);
-		CopyComponentIfExists<SpriteRendererComponent>(newEntity, entity);
-		CopyComponentIfExists<CircleRendererComponent>(newEntity, entity);
-		CopyComponentIfExists<CameraComponent>(newEntity, entity);
-		CopyComponentIfExists<NativeScriptComponent>(newEntity, entity);
-		CopyComponentIfExists<Rigidbody2DComponent>(newEntity, entity);
-		CopyComponentIfExists<BoxCollider2DComponent>(newEntity, entity);
-		CopyComponentIfExists<CircleCollider2DComponent>(newEntity, entity);
+		CopyComponentIfExists(AllComponents{}, newEntity, entity);
 	}
 
 	Entity Level::GetPrimaryCameraEntity()

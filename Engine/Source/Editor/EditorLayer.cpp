@@ -132,10 +132,6 @@ namespace HEngine
 			mEditorCamera.OnUpdate(ts);
 
 			mActiveScene->OnUpdateEditor(ts, mEditorCamera);
-
-			Renderer3D::BeginScene(mEditorCamera);
-			Renderer3D::DrawCube(glm::mat4{1});
-			Renderer3D::EndScene();
 		}
 		else
 		{

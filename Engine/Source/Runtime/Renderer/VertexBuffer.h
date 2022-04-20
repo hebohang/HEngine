@@ -72,7 +72,7 @@ namespace HEngine
     public:
         BufferLayout() = default;
 
-        BufferLayout(const std::initializer_list<BufferElement>& elements) 
+        BufferLayout(const std::initializer_list<BufferElement>& elements)
             : mElements(elements)
         {
             CalculateOffsetsAndStride();
@@ -82,7 +82,7 @@ namespace HEngine
         [[nodiscard]] inline const std::vector<BufferElement>& GetElements() const { return mElements; }
 
         std::vector<BufferElement>::iterator begin() { return mElements.begin(); }
-        std::vector<BufferElement>::iterator end() { return mElements.end(); }        
+        std::vector<BufferElement>::iterator end() { return mElements.end(); }
         std::vector<BufferElement>::const_iterator begin() const { return mElements.begin(); }
         std::vector<BufferElement>::const_iterator end() const { return mElements.end(); }
     private:
@@ -102,6 +102,12 @@ namespace HEngine
         uint32_t mStride = 0;
     };
 
+    enum class VertexBufferUsage
+    {
+        None = 0, Static = 1, Dynamic = 2
+    };
+
+
     class VertexBuffer
     {
     public:
@@ -115,21 +121,7 @@ namespace HEngine
         [[nodiscard]] virtual const BufferLayout& GetLayout() const = 0;
         virtual void SetLayout(const BufferLayout& layout) = 0;
 
-        static Ref<VertexBuffer> Create(uint32_t size);
-        static Ref<VertexBuffer> Create(float* vertices, uint32_t size);
-    };
-
-    // Currently HEngine only supports 32-bit index buffers
-    class IndexBuffer
-    {
-    public:
-        virtual ~IndexBuffer() = default;
-
-        virtual void Bind() const = 0;
-        virtual void Unbind() const = 0;
-
-        [[nodiscard]] virtual uint32_t GetCount() const = 0;
-
-        static Ref<IndexBuffer> Create(uint32_t* indices, uint32_t size);
+        static Ref<VertexBuffer> Create(uint32_t size, VertexBufferUsage usage = VertexBufferUsage::Dynamic);
+        static Ref<VertexBuffer> Create(void* vertices, uint32_t size, VertexBufferUsage usage = VertexBufferUsage::Static);
     };
 }

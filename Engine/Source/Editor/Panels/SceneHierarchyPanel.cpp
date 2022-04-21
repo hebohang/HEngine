@@ -3,6 +3,7 @@
 #include "Runtime/EcsFramework/Component/ComponentGroup.h"
 #include "Runtime/Renderer/Texture.h"
 #include "Runtime/Resource/ConfigManager/ConfigManager.h"
+#include "Editor/ImGuiWrapper/ImGuiWrapper.h"
 
 #include <imgui/imgui.h>
 #include <imgui/imgui_internal.h>
@@ -122,7 +123,7 @@ namespace HEngine
         ImGui::Text(label.c_str());
         ImGui::NextColumn();
 
-		ImGui::BeginTable("table_padding", 3, ImGuiTableFlags_BordersV | ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_NoPadInnerX);
+		ImGui::BeginTable("table_padding", 3, ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_NoPadInnerX);
 
 		ImGui::TableNextRow();
 		ImGui::TableSetColumnIndex(0);
@@ -459,7 +460,7 @@ namespace HEngine
 
 		DrawComponent<StaticMeshComponent>("Static Mesh Renderer", entity, [](auto& component)
 			{
-				if (ImGui::InputText("Mesh Path", component.path, sizeof(component.path)))
+				if (ImGuiWrapper::InputTextLeft("Mesh Path", component.path, sizeof(component.path)))
 				{
 					component.mesh = Model(component.path);
 				}

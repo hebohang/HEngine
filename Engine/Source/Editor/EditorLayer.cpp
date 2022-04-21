@@ -24,6 +24,7 @@ namespace HEngine
 	// Help
 	static bool bShowTutorial = false;
 	static bool bShowAboutMe = false;
+	static bool bShowDemoImGui = false;
 
     EditorLayer::EditorLayer()
         : Layer("EditorLayer")
@@ -203,7 +204,7 @@ namespace HEngine
         ImGuiIO& io = ImGui::GetIO();
         ImGuiStyle& style = ImGui::GetStyle();
         float minWinSizeX = style.WindowMinSize.x;
-        style.WindowMinSize.x = 470.0f;
+        style.WindowMinSize.x = 110.0f;
         if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
         {
             ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
@@ -249,6 +250,7 @@ namespace HEngine
 			{
 				ImGui::MenuItem("Tutorial", NULL, &bShowTutorial);
 				ImGui::MenuItem("About Me", NULL, &bShowAboutMe);
+				ImGui::MenuItem("Demo ImGui", NULL, &bShowDemoImGui);
 
 				ImGui::EndMenu();
 			}
@@ -397,6 +399,10 @@ namespace HEngine
 			ImGui::Begin("About Me", &bShowAboutMe, helpMenuFlags);
 			ImGui::Text("My name is hbh!");
 			ImGui::End();
+		}
+		if (bShowDemoImGui)
+		{
+			ImGui::ShowDemoWindow(&bShowDemoImGui);
 		}
 		// ----Help End----
 

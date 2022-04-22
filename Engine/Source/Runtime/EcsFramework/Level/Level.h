@@ -2,6 +2,7 @@
 
 #include "Runtime/Core/Timestep.h"
 #include "Runtime/Core/UUID.h"
+#include "Runtime/Core/Base/Base.h"
 #include "Runtime/Renderer/EditorCamera.h"
 
 #include <entt.hpp>
@@ -20,6 +21,8 @@ namespace HEngine
         ~Level();
 
 		static Ref<Level> Copy(Ref<Level> other);
+
+        void ChangeDimMode();
 
         Entity CreateEntity(const std::string& name = std::string());
         Entity CreateEntityWithUUID(UUID uuid, const std::string& name = std::string());
@@ -51,7 +54,7 @@ namespace HEngine
 
 		b2World* mPhysicsWorld = nullptr;
 
-        std::vector<class System*> mSystems;
+        std::vector<Scope<class System>> mSystems;
         //std::unordered_map<UUID, >
 
         friend class Entity;

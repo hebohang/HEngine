@@ -1,5 +1,7 @@
 #include "hepch.h"
 
+#include "Runtime/Resource/ModeManager/ModeManager.h"
+
 #include "Runtime/EcsFramework/Entity/Entity.h"
 #include "Runtime/EcsFramework/Level/Level.h"
 #include "Runtime/EcsFramework/Component/ComponentGroup.h"
@@ -19,17 +21,20 @@ namespace HEngine
 {
     Level::Level()
     {
-		//mSystems.push_back(new PhysicSystem2D(this));
-		//mSystems.push_back(new NativeScriptSystem(this));
-		//mSystems.push_back(new RenderSystem2D(this));
+		if (ModeManager::b3DMode)
+		{
+			mSystems.emplace_back(CreateScope<RenderSystem3D>(this));
+		}
+		else
+		{
+			mSystems.emplace_back(CreateScope<PhysicSystem2D>(this));
+			mSystems.emplace_back(CreateScope<NativeScriptSystem>(this));
+			mSystems.emplace_back(CreateScope<RenderSystem2D>(this));
+		}
     }
 
     Level::~Level()
     {
-		for (auto& system : mSystems)
-		{
-			delete system;
-		}
     }
 
 	template<Component... C>
@@ -97,6 +102,23 @@ namespace HEngine
 		return newScene;
 	}
 
+	void Level::ChangeDimMode()
+	{
+		int nowDimMode = ModeManager::b3DMode;
+		if (nowDimMode)
+		{
+			mSystems.clear();
+			mSystems.emplace_back(CreateScope<RenderSystem3D>(this));
+		}
+		else
+		{
+			mSystems.clear();
+			mSystems.emplace_back(CreateScope<PhysicSystem2D>(this));
+			mSystems.emplace_back(CreateScope<NativeScriptSystem>(this));
+			mSystems.emplace_back(CreateScope<RenderSystem2D>(this));
+		}
+	}
+
     Entity Level::CreateEntity(const std::string& name)
     {
 		return CreateEntityWithUUID(UUID(), name);
@@ -147,19 +169,6 @@ namespace HEngine
 		{
 			system->OnUpdateEditor(ts, camera);
 		}
-
-		Renderer3D::BeginScene(camera);
-
-		auto group = mRegistry.group<TransformComponent>(entt::get<StaticMeshComponent>);
-
-		for (auto entity : group)
-		{
-			auto [transform, mesh] = group.get<TransformComponent, StaticMeshComponent>(entity);
-
-			Renderer3D::DrawModel(transform.GetTransform(), mesh, (int)entity);
-		}
-
-		Renderer3D::EndScene();
 	}
 
     void Level::OnViewportResize(uint32_t width, uint32_t height)

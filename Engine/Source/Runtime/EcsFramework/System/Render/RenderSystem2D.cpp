@@ -64,7 +64,7 @@ namespace HEngine
 
 		// Draw sprites
 		{
-			auto group = mLevel->mRegistry.group<TransformComponent>(entt::get<SpriteRendererComponent>);
+			auto group = mLevel->mRegistry.view<TransformComponent, SpriteRendererComponent>();
 			for (auto entity : group)
 			{
 				auto [transform, sprite] = group.get<TransformComponent, SpriteRendererComponent>(entity);

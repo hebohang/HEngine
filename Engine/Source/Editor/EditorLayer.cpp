@@ -2,6 +2,7 @@
 #include "Runtime/EcsFramework/Serializer/SceneSerializer.h"
 #include "Runtime/Utils/PlatformUtils.h"
 #include "Runtime/Utils/MathUtils/MathUtils.h"
+#include "Runtime/Resource/ModeManager/ModeManager.h"
 #include "Runtime/Resource/ConfigManager/ConfigManager.h"
 #include "Runtime/Resource/AssetManager/AssetManager.h"
 
@@ -156,6 +157,8 @@ namespace HEngine
 
     void EditorLayer::OnImGuiRender()
     {
+		static bool bChangeDim = false;
+
 		// ----DockSpace Begin----
         static bool dockspaceOpen = true;
         static bool opt_fullscreen = true;
@@ -290,6 +293,15 @@ namespace HEngine
 		{
 			ImGui::Begin("Settings", &bShowSettings);
 			ImGui::Checkbox("Show physics colliders", &mShowPhysicsColliders);
+			const char* modes[] = { "2D", "3D" };
+			int lastMode = ModeManager::b3DMode;
+			if (ImGui::Combo("Mode", &ModeManager::b3DMode, modes, IM_ARRAYSIZE(modes)))
+			{
+				if (lastMode != ModeManager::b3DMode)
+				{
+					bChangeDim = true;
+				}
+			}
 			ImGui::End();
 		}
 		if (bShowViewport)
@@ -410,6 +422,12 @@ namespace HEngine
 
         ImGui::End(); 
 		// ----DockSpace End----
+
+		if (bChangeDim)
+		{
+			mActiveScene->ChangeDimMode();
+			bChangeDim = false;
+		}
     }
 
 	void EditorLayer::UI_Toolbar()

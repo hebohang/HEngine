@@ -257,6 +257,6 @@ namespace HEngine
 	template<>
 	void Level::OnComponentAdded<StaticMeshComponent>(Entity entity, StaticMeshComponent& component)
 	{
-		component.mesh = Model(component.path);
+		component.Mesh = Model(component.Path.string());
 	}
 }

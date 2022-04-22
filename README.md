@@ -74,5 +74,5 @@ cmake --build build --parallel 4
 2.3 Visual Studio: Open Folder, then choose HEngine folder)
 
 ## Credits
-* Cherno Hazel
-* BoomingTech Pilot
+* Cherno [Hazel](https://github.com/TheCherno/Hazel)
+* BoomingTech [Pilot](https://github.com/BoomingTech/Pilot)

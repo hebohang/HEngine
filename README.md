@@ -1,5 +1,9 @@
 # HEngine
-HEngine
+HEngine: Hbh Game Engine
+
+[![License: APACHE](https://img.shields.io/hexpm/l/apa)](https://opensource.org/licenses/MIT)
+[![Language](https://img.shields.io/badge/language-C++-blue.svg)](https://isocpp.org/)
+[![Standard](https://img.shields.io/badge/c%2B%2B-20-blue.svg)](https://en.wikipedia.org/wiki/C%2B%2B20)
 
 Now only support platform Windows
 

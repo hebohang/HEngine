@@ -6,8 +6,8 @@ namespace HEngine
 {
 	void Model::Draw(const glm::mat4& transform, Ref<Shader>& shader, int entityID)
 	{
-		for (unsigned int i = 0; i < m_Meshes.size(); ++i)
-			m_Meshes[i].Draw(transform, shader, entityID);
+		for (unsigned int i = 0; i < mMeshes.size(); ++i)
+			mMeshes[i].Draw(transform, shader, entityID);
 	}
 
 	void Model::LoadModel(const std::string& path)
@@ -21,7 +21,7 @@ namespace HEngine
 			return;
 		}
 
-		m_directory = path.substr(0, path.find_last_not_of('/'));
+		mDirectory = path.substr(0, path.find_last_not_of('/') + 1);
 
 		ProcessNode(scene->mRootNode, scene);
 	}
@@ -31,7 +31,7 @@ namespace HEngine
 		for (uint32_t i = 0; i < node->mNumMeshes; ++i)
 		{
 			aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
-			m_Meshes.push_back(ProcessMesh(mesh, scene));
+			mMeshes.push_back(ProcessMesh(mesh, scene));
 		}
 
 		for (uint32_t i = 0; i < node->mNumChildren; ++i)

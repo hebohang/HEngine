@@ -27,11 +27,14 @@ target_link_libraries(HEngineRuntime PUBLIC glfw
     PUBLIC ${OPENGL_LIBRARIES}
     PUBLIC yaml-cpp
     PUBLIC spdlog
-    PUBLIC headers
     PUBLIC Box2D
     PUBLIC stb
     PUBLIC ImGuizmo
     PUBLIC assimp
+    PUBLIC shaderc
+    PUBLIC spirv-cross-core
+    PUBLIC spirv-cross-glsl
+    PUBLIC headers
 )
 
 

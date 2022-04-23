@@ -145,9 +145,31 @@ if(NOT TARGET assimp)
     NoWarning(assimp)
 endif()
 
+if(NOT TARGET spirv-cross)
+    add_subdirectory(SPIRV-Cross)
+    set_target_properties(spirv-cross PROPERTIES FOLDER ${ThirdPartyFolder}/SPIRV-Cross)
+endif()
+
+# Learned from https://github.com/Mike-Leo-Smith/LearnVulkan/blob/master/CMakeLists.txt
+add_subdirectory(SPIRV-Headers)
+add_subdirectory(SPIRV-Tools)
+add_subdirectory(glslang)
+
+if(NOT TARGET shaderc)
+    set(SHADERC_SKIP_TESTS ON CACHE BOOL "" FORCE)
+    set(SHADERC_SKIP_EXAMPLES ON CACHE BOOL "" FORCE)
+    set(SHADERC_SKIP_COPYRIGHT_CHECK ON CACHE BOOL "" FORCE)
+    set(SHADERC_ENABLE_SHARED_CRT ON CACHE BOOL "" FORCE)
+    add_subdirectory(shaderc)
+    set_target_properties(shaderc PROPERTIES FOLDER ${ThirdPartyFolder}/shaderc)
+    set_target_properties(shaderc_combined_genfile PROPERTIES EXCLUDE_FROM_ALL ON) # Problematic on M1 Macs
+endif()
+
 if(NOT TARGET headers)
     add_library(headers INTERFACE)
+    target_include_directories(headers INTERFACE "${ThirdPartyDir}")
     target_include_directories(headers INTERFACE "${ThirdPartyDir}/entt/include")
     target_include_directories(headers INTERFACE "${ThirdPartyDir}/assimp/include")
+    target_include_directories(headers INTERFACE "${ThirdPartyDir}/SPIRV-Cross")
     NoWarningInterface(headers)
 endif()

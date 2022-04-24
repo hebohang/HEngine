@@ -19,6 +19,10 @@ if (WIN32)
     add_definitions(-DNOMINMAX -D_USE_MATH_DEFINES)
 endif()
 
+if(MSVC)
+    add_compile_options("/MP")
+endif()
+
 if (NOT MSVC)
     find_program(CCACHE_PROGRAM ccache)
     if (CCACHE_PROGRAM)

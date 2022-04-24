@@ -4,9 +4,11 @@
 #include "Runtime/EcsFramework/Component/Basic/IDComponent.h"
 #include "Runtime/EcsFramework/Component/Basic/TagComponent.h"
 #include "Runtime/EcsFramework/Component/Camera/CameraComponent.h"
-#include "Runtime/EcsFramework/Component/Physics/BoxCollider2DComponent.h"
-#include "Runtime/EcsFramework/Component/Physics/CircleCollider2DComponent.h"
-#include "Runtime/EcsFramework/Component/Physics/Rigidbody2DComponent.h"
+#include "Runtime/EcsFramework/Component/Physics/2D/BoxCollider2DComponent.h"
+#include "Runtime/EcsFramework/Component/Physics/2D/CircleCollider2DComponent.h"
+#include "Runtime/EcsFramework/Component/Physics/2D/Rigidbody2DComponent.h"
+#include "Runtime/EcsFramework/Component/Physics/3D/BoxCollider3DComponent.h"
+#include "Runtime/EcsFramework/Component/Physics/3D/Rigidbody3DComponent.h"
 #include "Runtime/EcsFramework/Component/Script/NativeScriptComponent.h"
 #include "Runtime/EcsFramework/Component/Shape/CircleRendererComponent.h"
 #include "Runtime/EcsFramework/Component/Shape/SpriteRendererComponent.h"
@@ -31,5 +33,5 @@ namespace HEngine
 
     using AllComponents = ComponentGroup<TransformComponent, CircleRendererComponent, SpriteRendererComponent,
         CameraComponent, NativeScriptComponent, Rigidbody2DComponent, BoxCollider2DComponent, 
-        CircleCollider2DComponent, StaticMeshComponent>;
+        CircleCollider2DComponent, Rigidbody3DComponent, BoxCollider3DComponent, StaticMeshComponent>;
 }

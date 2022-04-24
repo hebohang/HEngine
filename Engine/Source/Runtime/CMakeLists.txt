@@ -31,6 +31,13 @@ target_link_libraries(HEngineRuntime PUBLIC glfw
     PUBLIC stb
     PUBLIC ImGuizmo
     PUBLIC assimp
+    PUBLIC BulletSoftBody
+    PUBLIC Bullet3Dynamics 
+    PUBLIC BulletDynamics 
+    PUBLIC Bullet3Collision 
+    PUBLIC BulletCollision 
+    PUBLIC Bullet3Common 
+    PUBLIC LinearMath 
     PUBLIC shaderc
     PUBLIC spirv-cross-core
     PUBLIC spirv-cross-glsl

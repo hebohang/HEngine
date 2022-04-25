@@ -3,7 +3,7 @@
 #include "Runtime/Core/Timestep.h"
 #include "Runtime/Core/UUID.h"
 #include "Runtime/Core/Base/Base.h"
-#include "Runtime/Renderer/EditorCamera.h"
+#include "Runtime/Camera/EditorCamera.h"
 
 #include <entt.hpp>
 #include <unordered_map>

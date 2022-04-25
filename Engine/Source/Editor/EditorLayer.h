@@ -4,7 +4,7 @@
 #include "Panels/SceneHierarchyPanel.h"
 #include "Panels/ContentBrowserPanel.h"
 
-#include "Runtime/Renderer/EditorCamera.h"
+#include "Runtime/Camera/EditorCamera.h"
 
 namespace HEngine
 {

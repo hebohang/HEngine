@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Runtime/Renderer/EditorCamera.h"
+#include "Runtime/Camera/EditorCamera.h"
 #include "Runtime/EcsFramework/Component/Mesh/StaticMeshComponent.h"
 
 namespace HEngine

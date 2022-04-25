@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Runtime/EcsFramework/Component/ComponentBase.h"
-#include "Runtime/Scene/SceneCamera.h"
+#include "Runtime/Camera/SceneCamera.h"
 
 namespace HEngine
 {

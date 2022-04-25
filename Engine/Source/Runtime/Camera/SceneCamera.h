@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Runtime/Renderer/Camera.h"
+#include "Runtime/Camera/Camera.h"
 
 namespace HEngine
 {

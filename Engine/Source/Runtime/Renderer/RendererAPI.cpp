@@ -3,5 +3,5 @@
 
 namespace HEngine
 {
-    RendererAPI::API RendererAPI::s_API = RendererAPI::API::OpenGL;
+    RendererAPI::RendererAPIType RendererAPI::sCurrentRendererAPI = RendererAPI::RendererAPIType::OpenGL;
 }

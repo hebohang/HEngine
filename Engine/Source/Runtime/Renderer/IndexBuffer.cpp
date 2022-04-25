@@ -9,10 +9,10 @@ namespace HEngine
 {
     Ref<IndexBuffer> IndexBuffer::Create(uint32_t count)
     {
-        switch (Renderer::GetAPI())
+        switch (RendererAPI::Current())
         {
-        case RendererAPI::API::None:    return nullptr;
-        case RendererAPI::API::OpenGL:  return CreateRef<OpenGLIndexBuffer>(count);
+        case RendererAPI::RendererAPIType::None:    return nullptr;
+        case RendererAPI::RendererAPIType::OpenGL:  return CreateRef<OpenGLIndexBuffer>(count);
         }
         HE_CORE_ASSERT(false, "Unknown RendererAPI");
         return nullptr;
@@ -20,10 +20,10 @@ namespace HEngine
 
     Ref<IndexBuffer> IndexBuffer::Create(uint32_t* indices, uint32_t count)
     {
-        switch (Renderer::GetAPI())
+        switch (RendererAPI::Current())
         {
-        case RendererAPI::API::None:    return nullptr;
-        case RendererAPI::API::OpenGL:  return CreateRef<OpenGLIndexBuffer>(indices, count);
+        case RendererAPI::RendererAPIType::None:    return nullptr;
+        case RendererAPI::RendererAPIType::OpenGL:  return CreateRef<OpenGLIndexBuffer>(indices, count);
         }
         HE_CORE_ASSERT(false, "Unknown RendererAPI!");
         return nullptr;

@@ -8,18 +8,19 @@
 
 namespace HEngine
 {
-    class HENGINE_API ImGuiLayer : public Layer
+    class ImGuiLayer : public Layer
     {
     public:
         ImGuiLayer();
+        ImGuiLayer(const std::string& name);
         ~ImGuiLayer();
 
-        virtual void OnAttach() override;
-        virtual void OnDetach() override;
         virtual void OnEvent(Event& e) override;
 
-        void Begin();
-        void End();
+        virtual void Begin() {};
+        virtual void End() {};
+
+        static ImGuiLayer* Create();
 
         void BlockEvents(bool block) { mBlockEvents = block; }
 

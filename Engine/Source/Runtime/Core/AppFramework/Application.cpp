@@ -54,7 +54,7 @@ namespace HEngine
 		mWindow = Window::Create(WindowProps(name));
 		mWindow->SetEventCallback(HE_BIND_EVENT_FN(Application::OnEvent));
 
-		mImGuiLayer = new ImGuiLayer();
+		mImGuiLayer = ImGuiLayer::Create();
 		PushOverlay(mImGuiLayer);
 
 		Renderer::Init();

@@ -5,7 +5,10 @@
 
 layout(location = 0) in vec3 a_Position;
 
-uniform mat4 u_ViewProjection;
+layout(std140, binding = 0) uniform Camera
+{
+	mat4 u_ViewProjection;
+};
 uniform mat4 u_Transform;
 
 void main()

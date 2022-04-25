@@ -7,7 +7,10 @@ layout(location = 2) in vec3 a_Tangent;
 layout(location = 3) in vec2 a_TexCoord;
 layout(location = 4) in int a_EntityID;
 
-uniform mat4 u_ViewProjection;
+layout(std140, binding = 0) uniform Camera
+{
+	mat4 u_ViewProjection;
+};
 uniform mat4 u_Model;
 
 out vec3 v_Normal;

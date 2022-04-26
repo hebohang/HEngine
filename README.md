@@ -80,3 +80,5 @@ cmake --build build --parallel 4
 ## Credits
 * Cherno [Hazel](https://github.com/TheCherno/Hazel)
 * BoomingTech [Pilot](https://github.com/BoomingTech/Pilot)
+* [MoravaEngine](https://github.com/dtrajko/MoravaEngine)
+* [Pixel](https://github.com/pixel-Teee/Pixel)

@@ -26,8 +26,8 @@ struct VertexOutput
 	float Fade;
 };
 
-out VertexOutput Output;
-out flat int v_EntityID;
+layout(location = 0) out VertexOutput Output;
+layout(location = 4) out flat int v_EntityID;
 
 void main()
 {
@@ -55,8 +55,8 @@ struct VertexOutput
 	float Fade;
 };
 
-in VertexOutput Output;
-in flat int v_EntityID;
+layout(location = 0) in VertexOutput Output;
+layout(location = 4) in flat int v_EntityID;
 
 void main()
 {

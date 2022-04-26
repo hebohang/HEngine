@@ -20,8 +20,8 @@ struct VertexOutput
 	vec4 Color;
 };
 
-out VertexOutput Output;
-out flat int v_EntityID;
+layout(location = 0) out VertexOutput Output;
+layout(location = 1) out flat int v_EntityID;
 
 void main()
 {
@@ -42,8 +42,8 @@ struct VertexOutput
 	vec4 Color;
 };
 
-in VertexOutput Output;
-in flat int v_EntityID;
+layout(location = 0) in VertexOutput Output;
+layout(location = 1) in flat int v_EntityID;
 
 void main()
 {

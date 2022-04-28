@@ -1,8 +1,8 @@
 #pragma once
 
-#include <glm/glm.hpp>
-
 #include "Runtime/Renderer/VertexArray.h"
+
+#include <glm/glm.hpp>
 
 namespace HEngine
 {
@@ -26,6 +26,6 @@ namespace HEngine
 
         [[nodiscard]] static RendererAPIType Current() { return sCurrentRendererAPI; }
     private:
-        static RendererAPIType sCurrentRendererAPI;
+        static inline RendererAPIType sCurrentRendererAPI = RendererAPIType::OpenGL;
     };
 }

@@ -46,5 +46,8 @@ target_link_libraries(HEngineRuntime PUBLIC glfw
     PUBLIC ${vulkan_lib}
 )
 
-
+# if (DirectX11_FOUND)
+#     target_link_libraries(HEngineRuntime PUBLIC ${DirectX11_LIBRARIES})
+#     target_include_directories(HEngineRuntime PUBLIC ${DirectX11_INCLUDE_DIRS})
+# endif()
 

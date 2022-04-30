@@ -1,6 +1,6 @@
 set(ThirdPartyFolder "ThirdParty")
 
-include(${CMAKE_SOURCE_DIR}/cmake/Tools.cmake)
+include(${CMAKE_SOURCE_DIR}/CMake/Tools.cmake)
 
 if(NOT TARGET Glad)
     include(Glad.cmake)

@@ -30,6 +30,6 @@ namespace HEngine
 
         [[nodiscard]] static RendererAPIType Current() { return sCurrentRendererAPI; }
     private:
-        static inline RendererAPIType sCurrentRendererAPI = RendererAPIType::Vulkan;
+        static inline RendererAPIType sCurrentRendererAPI = RendererAPIType::OpenGL;
     };
 }

@@ -19,7 +19,7 @@ if (WIN32)
     add_definitions(-DNOMINMAX -D_USE_MATH_DEFINES)
 endif()
 
-if(MSVC)
+if (MSVC)
     add_compile_options("/MP")
 endif()
 
@@ -34,7 +34,7 @@ endif()
 
 find_package(OpenGL 4.5 REQUIRED)
 
-if(OPENGL_FOUND)
+if (OPENGL_FOUND)
     message("Found OpenGL")
 else()
     message("Not Found OpenGL")

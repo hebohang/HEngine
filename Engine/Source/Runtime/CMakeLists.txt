@@ -8,6 +8,7 @@ add_library(HEngineRuntime STATIC ${RuntimeHeaderFiles} ${RuntimeSourceFiles})
 target_include_directories(HEngineRuntime 
     PRIVATE "${EngineSourceDir}"
     PRIVATE "${EngineRuntimeDir}" # make sure we can directly include "hepch.h"
+    PUBLIC ${vulkan_include}
 )
 
 target_compile_definitions(HEngineRuntime
@@ -42,6 +43,7 @@ target_link_libraries(HEngineRuntime PUBLIC glfw
     PUBLIC spirv-cross-core
     PUBLIC spirv-cross-glsl
     PUBLIC headers
+    PUBLIC ${vulkan_lib}
 )
 
 

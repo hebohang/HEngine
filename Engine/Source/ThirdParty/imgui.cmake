@@ -16,14 +16,18 @@ file(GLOB ImGuiSrc
 
 # Still some bugs
 file(GLOB ImGuiImpl CONFIGURE_DEPENDS  
-"${imgui_SOURCE_DIR_}/backends/imgui_impl_glfw.cpp" 
-"${imgui_SOURCE_DIR_}/backends/imgui_impl_glfw.h"
-"${imgui_SOURCE_DIR_}/backends/imgui_impl_opengl3.cpp" 
-"${imgui_SOURCE_DIR_}/backends/imgui_impl_opengl3.h")
+"${ImguiSourceDir}/backends/imgui_impl_glfw.cpp" 
+"${ImguiSourceDir}/backends/imgui_impl_glfw.h"
+"${ImguiSourceDir}/backends/imgui_impl_opengl3.cpp" 
+"${ImguiSourceDir}/backends/imgui_impl_opengl3.h"
+"${ImguiSourceDir}/backends/imgui_impl_vulkan.cpp" 
+"${ImguiSourceDir}/backends/imgui_impl_vulkan.h"
+)
 
 add_library(imgui STATIC ${ImGuiSrc} ${ImGuiImpl})
-target_include_directories(imgui PUBLIC
-    "${ThirdPartyDir}"
-    "${ImguiSourceDir}"
+target_include_directories(imgui 
+    PUBLIC "${ThirdPartyDir}"
+    PUBLIC "${ImguiSourceDir}"
+    PUBLIC "${vulkan_include}"
 )
 target_link_libraries(imgui PUBLIC glfw Glad ${OPENGL_LIBRARIES})

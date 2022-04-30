@@ -11,7 +11,11 @@ namespace HEngine
     public:
         enum class RendererAPIType
         {
-            None = 0, OpenGL = 1,
+            None = 0, 
+            OpenGL, 
+            Vulkan,
+            DX11,
+            DX12,
         };
     public:
         virtual void Init() = 0;

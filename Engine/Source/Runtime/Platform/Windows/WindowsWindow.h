@@ -16,21 +16,22 @@ namespace HEngine
 
 		void OnUpdate() override;
 
-		inline uint32_t GetWidth() const override { return mData.Width; }
-		inline uint32_t GetHeight() const override { return mData.Height; }
+		uint32_t GetWidth() const override { return mData.Width; }
+		uint32_t GetHeight() const override { return mData.Height; }
 
 		// Window attributes
-		inline void SetEventCallback(const EventCallbackFn& callback) override { mData.EventCallback = callback; }
+		void SetEventCallback(const EventCallbackFn& callback) override { mData.EventCallback = callback; }
 		void SetVSync(bool enabled) override;
 		bool IsVSync() const override;
 
-		inline virtual void* GetNativeWindow() const { return mWindow; }
+		virtual void* GetNativeWindow() const { return mWindow; }
+		virtual Ref<GraphicsContext> GetGraphicsContext() const { return mContext; };
 	private:
 		virtual void Init(const WindowProps& props);
 		virtual void Shutdown();
 	private:
 		GLFWwindow* mWindow;
-		Scope<GraphicsContext> mContext;
+		Ref<GraphicsContext> mContext;
 
 		struct WindowData
 		{

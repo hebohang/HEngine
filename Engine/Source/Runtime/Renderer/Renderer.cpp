@@ -1,9 +1,11 @@
 #include "hepch.h"
-#include "Renderer.h"
 
-#include "Platform/OpenGL/OpenGLShader.h"
+#include "Runtime/Renderer/Renderer.h"
 #include "Runtime/Renderer/Renderer2D.h"
 #include "Runtime/Renderer/Renderer3D.h"
+#include "Runtime/Platform/OpenGL/OpenGLShader.h"
+
+#include "Runtime/Core/AppFramework/Application.h"
 
 namespace HEngine
 {
@@ -39,5 +41,10 @@ namespace HEngine
 
         vertexArray->Bind();
         RenderCommand::DrawIndexed(vertexArray);
+    }
+
+    Ref<GraphicsContext> Renderer::GetContext()
+    {
+        return Application::GetInstance().GetWindow().GetGraphicsContext();
     }
 }

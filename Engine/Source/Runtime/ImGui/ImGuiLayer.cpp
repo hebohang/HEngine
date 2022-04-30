@@ -38,6 +38,9 @@ namespace HEngine
         {
         case RendererAPI::RendererAPIType::None:    return nullptr;
         case RendererAPI::RendererAPIType::OpenGL:  return new OpenGLImGuiLayer("OpenGLImGuiLayer");
+        case RendererAPI::RendererAPIType::Vulkan:  return nullptr;
+        case RendererAPI::RendererAPIType::DX11:    return nullptr;
+        case RendererAPI::RendererAPIType::DX12:    return nullptr;
         }
 
         HE_CORE_ASSERT(false, "Unknown RendererAPI!");

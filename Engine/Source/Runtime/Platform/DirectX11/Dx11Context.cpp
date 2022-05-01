@@ -121,6 +121,68 @@ namespace HEngine
 
     void Dx11Context::SwapBuffers()
     {
-        glfwSwapBuffers(mWindowHandle);
+		HR(pSwap->Present(1, 0)); // Present with vsync
+		//HR(pSwap->Present(0, 0)); // Present without vsync
     }
+
+	void Dx11Context::OnResize()
+	{
+		// 释放渲染管线输出用到的相关资源
+		pTarget.Reset();
+		pDSV.Reset();
+		pDepthStencilBuffer.Reset();
+
+		// 重设交换链并且重新创建渲染目标视图
+		ComPtr<ID3D11Texture2D> backBuffer;
+		Application& app = Application::GetInstance();
+		HR(pSwap->ResizeBuffers(1, app.GetWindow().GetWidth(), app.GetWindow().GetHeight(), DXGI_FORMAT_B8G8R8A8_UNORM, 0));	// 注意此处DXGI_FORMAT_B8G8R8A8_UNORM
+		HR(pSwap->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(backBuffer.GetAddressOf())));
+		HR(pDevice->CreateRenderTargetView(backBuffer.Get(), nullptr, pTarget.GetAddressOf()));
+
+		backBuffer.Reset();
+
+
+		D3D11_TEXTURE2D_DESC depthStencilDesc;
+
+		depthStencilDesc.Width = app.GetWindow().GetWidth();
+		depthStencilDesc.Height = app.GetWindow().GetHeight();
+		depthStencilDesc.MipLevels = 1;
+		depthStencilDesc.ArraySize = 1;
+		depthStencilDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+
+		// 要使用 4X MSAA?
+		if (bEnable4xMsaa)
+		{
+			depthStencilDesc.SampleDesc.Count = 4;
+			depthStencilDesc.SampleDesc.Quality = m4xMsaaQuality - 1;
+		}
+		else
+		{
+			depthStencilDesc.SampleDesc.Count = 1;
+			depthStencilDesc.SampleDesc.Quality = 0;
+		}
+
+
+		depthStencilDesc.Usage = D3D11_USAGE_DEFAULT;
+		depthStencilDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+		depthStencilDesc.CPUAccessFlags = 0;
+		depthStencilDesc.MiscFlags = 0;
+
+		// 创建深度缓冲区以及深度模板视图
+		HR(pDevice->CreateTexture2D(&depthStencilDesc, nullptr, pDepthStencilBuffer.GetAddressOf()));
+		HR(pDevice->CreateDepthStencilView(pDepthStencilBuffer.Get(), nullptr, pDSV.GetAddressOf()));
+
+		// 将渲染目标视图和深度/模板缓冲区结合到管线
+		pContext->OMSetRenderTargets(1, pTarget.GetAddressOf(), pDSV.Get());
+
+		// 设置视口变换
+		ScreenViewport.TopLeftX = 0;
+		ScreenViewport.TopLeftY = 0;
+		ScreenViewport.Width = static_cast<float>(app.GetWindow().GetWidth());
+		ScreenViewport.Height = static_cast<float>(app.GetWindow().GetHeight());
+		ScreenViewport.MinDepth = 0.0f;
+		ScreenViewport.MaxDepth = 1.0f;
+
+		pContext->RSSetViewports(1, &ScreenViewport);
+	}
 }

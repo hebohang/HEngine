@@ -4,6 +4,7 @@
 #include "Runtime/Renderer/RendererAPI.h"
 #include "Runtime/Platform/OpenGL/OpenGLImGuiLayer.h"
 #include "Runtime/Platform/Vulkan/VulkanImGuiLayer.h"
+#include "Runtime/Platform/DirectX11/Dx11ImGuiLayer.h"
 
 #include <imgui.h>
 
@@ -40,7 +41,7 @@ namespace HEngine
         case RendererAPI::RendererAPIType::None:    return nullptr;
         case RendererAPI::RendererAPIType::OpenGL:  return new OpenGLImGuiLayer("OpenGLImGuiLayer");
         case RendererAPI::RendererAPIType::Vulkan:  return new VulkanImGuiLayer("VulkanImGuiLayer");
-        case RendererAPI::RendererAPIType::DX11:    return nullptr;
+        case RendererAPI::RendererAPIType::DX11:    return new Dx11ImGuiLayer("Dx11ImGuiLayer");
         case RendererAPI::RendererAPIType::DX12:    return nullptr;
         }
 

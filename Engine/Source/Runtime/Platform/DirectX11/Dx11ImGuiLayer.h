@@ -6,12 +6,12 @@
 
 namespace HEngine
 {
-	class OpenGLImGuiLayer : public ImGuiLayer
+	class Dx11ImGuiLayer : public ImGuiLayer
 	{
 	public:
-		OpenGLImGuiLayer() = default;
-		OpenGLImGuiLayer(const std::string& name) : ImGuiLayer(name) {}
-		virtual ~OpenGLImGuiLayer();
+		Dx11ImGuiLayer() = default;
+		Dx11ImGuiLayer(const std::string& name) : ImGuiLayer(name) {}
+		virtual ~Dx11ImGuiLayer();
 
 		virtual void Begin() override;
 		virtual void End() override;

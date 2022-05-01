@@ -57,7 +57,7 @@ namespace HEngine
 		mImGuiLayer = ImGuiLayer::Create();
 		PushOverlay(mImGuiLayer);
 
-		//Renderer::Init();
+		Renderer::Init();
 	}
 
 	void Application::Run()
@@ -85,7 +85,7 @@ namespace HEngine
 
 	void Application::Clean()
 	{
-		//Renderer::Shutdown();
+		Renderer::Shutdown();
 	}
 
 	bool Application::OnWindowClose(WindowCloseEvent& e)

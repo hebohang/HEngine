@@ -11,6 +11,6 @@ namespace HEngine
 	void MyAppInitialize(Application& app)
 	{
 		app.Init("HEngine Editor");
-		//app.PushLayer(new EditorLayer());
+		app.PushLayer(new EditorLayer());
 	}
 }

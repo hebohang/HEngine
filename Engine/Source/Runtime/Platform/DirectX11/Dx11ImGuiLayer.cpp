@@ -1,25 +1,32 @@
 #include "hepch.h"
 
 #include "Runtime/Core/AppFramework/Application.h"
-#include "Runtime/Platform/OpenGL/OpenGLImGuiLayer.h"
+#include "Runtime/Platform/DirectX11/Dx11ImGuiLayer.h"
+#include "Runtime/Platform/DirectX11/Dx11ContextWrapper.h"
 #include "Runtime/Resource/AssetManager/AssetManager.h"
+#include "Runtime/Platform/DirectX11/DXTrace.h"
 
 #include <GLFW/glfw3.h>
-#include <glad/glad.h>
+
+#define GLFW_EXPOSE_NATIVE_WIN32 1
+#include <GLFW/glfw3native.h>
 
 #include <imgui.h>
 #include <backends/imgui_impl_glfw.h>
-#include <backends/imgui_impl_opengl3.h>
+#include <backends/imgui_impl_win32.h>
+#include <backends/imgui_impl_dx11.h>
+
+#include <d3d11.h>
 
 #include <ImGuizmo.h>
 
 namespace HEngine
 {
-	OpenGLImGuiLayer::~OpenGLImGuiLayer()
-	{
-	}
+    Dx11ImGuiLayer::~Dx11ImGuiLayer()
+    {
+    }
 
-    void OpenGLImGuiLayer::OnAttach()
+    void Dx11ImGuiLayer::OnAttach()
     {
         // Setup Dear ImGui context
         IMGUI_CHECKVERSION();
@@ -52,34 +59,43 @@ namespace HEngine
 
         Application& app = Application::GetInstance();
         GLFWwindow* window = static_cast<GLFWwindow*>(app.GetWindow().GetNativeWindow());
+        HWND hWnd = glfwGetWin32Window(window);
 
         // Setup Platform/Renderer backends
-        ImGui_ImplGlfw_InitForOpenGL(window, true);
-        ImGui_ImplOpenGL3_Init("#version 410");
+        ImGui_ImplGlfw_InitForOther(window, true);
+        //ImGui_ImplWin32_Init(hWnd);
+        ImGui_ImplDX11_Init(Dx11ContextWrapper::GetDevice().Get(), Dx11ContextWrapper::GetContext().Get());
+
+        Dx11ContextWrapper::OnResize();
     }
 
-    void OpenGLImGuiLayer::OnDetach()
+    void Dx11ImGuiLayer::OnDetach()
     {
         // Cleanup
-        ImGui_ImplOpenGL3_Shutdown();
+        ImGui_ImplDX11_Shutdown();
+        //ImGui_ImplWin32_Shutdown();
         ImGui_ImplGlfw_Shutdown();
         ImGui::DestroyContext();
     }
 
-    void OpenGLImGuiLayer::OnImGuiRender()
+    void Dx11ImGuiLayer::OnImGuiRender()
     {
+        static bool pOpen = true;
+        ImGui::ShowDemoWindow(&pOpen);
     }
 
-    void OpenGLImGuiLayer::Begin()
+    void Dx11ImGuiLayer::Begin()
     {
         // Start the Dear ImGui frame
-        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplDX11_NewFrame();
+        //ImGui_ImplWin32_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
+
         ImGuizmo::BeginFrame();
     }
 
-    void OpenGLImGuiLayer::End()
+    void Dx11ImGuiLayer::End()
     {
         ImGuiIO& io = ImGui::GetIO();
         Application& app = Application::GetInstance();
@@ -87,7 +103,10 @@ namespace HEngine
 
         // Rendering
         ImGui::Render();
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
+        //Dx11ContextWrapper::GetContext()->OMSetRenderTargets(1, Dx11ContextWrapper::GetRTV().GetAddressOf(), NULL);
+        ImDrawData* main_draw_data = ImGui::GetDrawData();
+        ImGui_ImplDX11_RenderDrawData(main_draw_data);
 
         if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
         {

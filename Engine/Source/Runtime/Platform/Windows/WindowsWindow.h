@@ -24,8 +24,8 @@ namespace HEngine
 		void SetVSync(bool enabled) override;
 		bool IsVSync() const override;
 
-		virtual void* GetNativeWindow() const { return mWindow; }
-		virtual Ref<GraphicsContext> GetGraphicsContext() const { return mContext; };
+		virtual void* GetNativeWindow() const override { return mWindow; }
+		virtual Ref<GraphicsContext> GetGraphicsContext() const override { return mContext; };
 	private:
 		virtual void Init(const WindowProps& props);
 		virtual void Shutdown();

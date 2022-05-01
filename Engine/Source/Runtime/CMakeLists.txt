@@ -46,6 +46,11 @@ target_link_libraries(HEngineRuntime PUBLIC glfw
     PUBLIC ${vulkan_lib}
 )
 
+if (WIN32)
+    target_link_libraries(HEngineRuntime PUBLIC d3d11.lib dxgi.lib dxguid.lib D3DCompiler.lib d2d1.lib dwrite.lib winmm.lib)
+endif()
+
+# sometime will have bugs, why?
 # if (DirectX11_FOUND)
 #     target_link_libraries(HEngineRuntime PUBLIC ${DirectX11_LIBRARIES})
 #     target_include_directories(HEngineRuntime PUBLIC ${DirectX11_INCLUDE_DIRS})

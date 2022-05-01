@@ -22,6 +22,10 @@ file(GLOB ImGuiImpl CONFIGURE_DEPENDS
 "${ImguiSourceDir}/backends/imgui_impl_opengl3.h"
 "${ImguiSourceDir}/backends/imgui_impl_vulkan.cpp" 
 "${ImguiSourceDir}/backends/imgui_impl_vulkan.h"
+"${ImguiSourceDir}/backends/imgui_impl_win32.cpp"
+"${ImguiSourceDir}/backends/imgui_impl_win32.h"
+"${ImguiSourceDir}/backends/imgui_impl_dx11.cpp"
+"${ImguiSourceDir}/backends/imgui_impl_dx11.h"
 )
 
 add_library(imgui STATIC ${ImGuiSrc} ${ImGuiImpl})

@@ -19,6 +19,7 @@ namespace HEngine
 
         virtual void Begin() {};
         virtual void End() {};
+        virtual void OnImGuiRender() {}
 
         static ImGuiLayer* Create();
 

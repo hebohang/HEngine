@@ -23,15 +23,14 @@ endif()
 
 add_subdirectory(ThirdParty)
 
-list(APPEND CMAKE_MODULE_PATH 
-  "${PROJECT_SOURCE_DIR}/CMake"
-  "${PROJECT_SOURCE_DIR}/CMake/Utils"
-  "${PROJECT_SOURCE_DIR}/CMake/Packages"
-)
-
-if (WIN32)
-    find_package(DirectX11)
-endif()
+# list(APPEND CMAKE_MODULE_PATH 
+#   "${PROJECT_SOURCE_DIR}/CMake"
+#   "${PROJECT_SOURCE_DIR}/CMake/Packages"
+# )
+# 
+# if (WIN32)
+#     find_package(DirectX11)
+# endif()
 
 add_subdirectory(Runtime)
 add_subdirectory(Editor)

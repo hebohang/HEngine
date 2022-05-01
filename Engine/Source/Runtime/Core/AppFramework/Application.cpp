@@ -54,10 +54,10 @@ namespace HEngine
 		mWindow = Window::Create(WindowProps(name));
 		mWindow->SetEventCallback(HE_BIND_EVENT_FN(Application::OnEvent));
 
-		mImGuiLayer = ImGuiLayer::Create();
-		PushOverlay(mImGuiLayer);
+		//mImGuiLayer = ImGuiLayer::Create();
+		//PushOverlay(mImGuiLayer);
 
-		Renderer::Init();
+		//Renderer::Init();
 	}
 
 	void Application::Run()
@@ -73,10 +73,10 @@ namespace HEngine
 				for (Layer* layer : mLayerStack)
 					layer->OnUpdate(timestep);
 
-				mImGuiLayer->Begin();
-				for (Layer* layer : mLayerStack)
-					layer->OnImGuiRender();
-				mImGuiLayer->End();
+				//mImGuiLayer->Begin();
+				//for (Layer* layer : mLayerStack)
+				//	layer->OnImGuiRender();
+				//mImGuiLayer->End();
 			}
 
 			mWindow->OnUpdate();
@@ -85,7 +85,7 @@ namespace HEngine
 
 	void Application::Clean()
 	{
-		Renderer::Shutdown();
+		//Renderer::Shutdown();
 	}
 
 	bool Application::OnWindowClose(WindowCloseEvent& e)

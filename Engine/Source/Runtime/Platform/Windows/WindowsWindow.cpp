@@ -52,6 +52,7 @@ namespace HEngine
 		}
 
 		{
+			glfwWindowHint(GLFW_SAMPLES, 4);
 			mWindow = glfwCreateWindow((int)props.Width, (int)props.Height, mData.Title.c_str(), nullptr, nullptr);
 			++s_GLFWWindowCount;
 		}

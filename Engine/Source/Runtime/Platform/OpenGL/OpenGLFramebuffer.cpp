@@ -14,13 +14,9 @@ namespace HEngine
 			return multisampled ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D;
 		}
 
-		static void BindTexture(bool multisampled, uint32_t id)
+		static void AttachColorTexture(uint32_t& id, int samples, GLenum internalFormat, GLenum format, uint32_t width, uint32_t height, int index)
 		{
-			glBindTexture(TextureTarget(multisampled), id);
-		}
-
-		static void AttachColorTexture(uint32_t id, int samples, GLenum internalFormat, GLenum format, uint32_t width, uint32_t height, int index)
-		{
+			glGenTextures(1, &id);
 			bool multisampled = samples > 1;
 			if (multisampled)
 			{
@@ -30,6 +26,7 @@ namespace HEngine
 			}
 			else
 			{
+				glBindTexture(GL_TEXTURE_2D, id);
 				glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, width, height, 0, format, GL_UNSIGNED_BYTE, nullptr);
 
 				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -37,6 +34,8 @@ namespace HEngine
 				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+				glBindTexture(GL_TEXTURE_2D, 0);
 			}
 
 			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + index, TextureTarget(multisampled), id, 0);
@@ -62,8 +61,9 @@ namespace HEngine
 			glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + index, GL_RENDERBUFFER, id);
 		}
 
-		static void AttachDepthTexture(uint32_t id, int samples, GLenum format, GLenum attachmentType, uint32_t width, uint32_t height)
+		static void AttachDepthTexture(uint32_t& id, int samples, GLenum format, GLenum attachmentType, uint32_t width, uint32_t height)
 		{
+			glGenTextures(1, &id);
 			bool multisampled = samples > 1;
 			if (multisampled)
 			{
@@ -73,6 +73,7 @@ namespace HEngine
 			}
 			else
 			{
+				glBindTexture(GL_TEXTURE_2D, id);
 				glTexStorage2D(GL_TEXTURE_2D, 1, format, width, height);
 
 				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -80,6 +81,8 @@ namespace HEngine
 				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+				glBindTexture(GL_TEXTURE_2D, 0);
 			}
 
 			glFramebufferTexture2D(GL_FRAMEBUFFER, attachmentType, TextureTarget(multisampled), id, 0);
@@ -163,16 +166,14 @@ namespace HEngine
 
 			for (size_t i = 0; i < mColorAttachments.size(); i++)
 			{
-				glGenTextures(1, &mColorAttachments[i]);
-				Utils::BindTexture(multisample, mColorAttachments[i]);
 				switch (mColorAttachmentSpecifications[i].TextureFormat)
 				{
 				case FramebufferTextureFormat::RGBA8:
 					Utils::AttachColorTexture(mColorAttachments[i], mSpecification.Samples, GL_RGBA8, GL_RGBA, mSpecification.Width, mSpecification.Height, i);
 					break;
 				case FramebufferTextureFormat::RED_INTEGER:
-					//Utils::AttachColorTexture(mColorAttachments[i], mSpecification.Samples, GL_R32I, GL_RED_INTEGER, mSpecification.Width, mSpecification.Height, i);
-					Utils::AttachColorRenderBuffer(mColorAttachments[i], mSpecification.Samples, GL_R32I, mSpecification.Width, mSpecification.Height, i);
+					Utils::AttachColorTexture(mColorAttachments[i], mSpecification.Samples, GL_R32I, GL_RED_INTEGER, mSpecification.Width, mSpecification.Height, i);
+					//Utils::AttachColorRenderBuffer(mColorAttachments[i], mSpecification.Samples, GL_R32I, mSpecification.Width, mSpecification.Height, i);
 					break;
 				}
 			}
@@ -249,7 +250,8 @@ namespace HEngine
 		switch (spec.TextureFormat)
 		{
 		case FramebufferTextureFormat::RED_INTEGER:
-			glClearBufferiv(GL_COLOR, attachmentIndex, &value);
+			glClearTexImage(mColorAttachments[attachmentIndex], 0, GL_RED_INTEGER, GL_INT, &value);
+			//glClearBufferiv(GL_COLOR, attachmentIndex, &value);
 			break;
 		case FramebufferTextureFormat::RGBA8:
 			glClearTexImage(mColorAttachments[attachmentIndex], 0, GL_RGBA8, GL_INT, &value);

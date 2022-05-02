@@ -45,6 +45,10 @@ namespace HEngine
 		fbSpec.Samples = 1;
         mFramebuffer = Framebuffer::Create(fbSpec);
 
+		RenderPassSpecification rpSpec = { mFramebuffer, "MainPass" };
+		mRenderPass = CreateRef<RenderPass>(rpSpec);
+		mRenderPass->AddPostProcessing(PostProcessingType::MSAA);
+
         mActiveScene = CreateRef<Level>();
 
 		mEditorCamera = EditorCamera(30.0f, 1.778f, 0.1f, 1000.0f);
@@ -323,6 +327,7 @@ namespace HEngine
 			mViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
 
 			uint32_t textureID = mFramebuffer->GetColorAttachmentRendererID();
+			//textureID = mRenderPass->ExcuteAndReturnFinalTex();
 			ImGui::Image((void*)(intptr_t)textureID, ImVec2{ mViewportSize.x, mViewportSize.y }, ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
 
 			if (ImGui::BeginDragDropTarget())

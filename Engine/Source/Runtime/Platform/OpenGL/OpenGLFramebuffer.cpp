@@ -1,5 +1,6 @@
 #include "hepch.h"
-#include "OpenGLFramebuffer.h"
+
+#include "Runtime/Platform/OpenGL/OpenGLFramebuffer.h"
 
 #include <glad/glad.h>
 
@@ -172,8 +173,8 @@ namespace HEngine
 					Utils::AttachColorTexture(mColorAttachments[i], mSpecification.Samples, GL_RGBA8, GL_RGBA, mSpecification.Width, mSpecification.Height, i);
 					break;
 				case FramebufferTextureFormat::RED_INTEGER:
-					Utils::AttachColorTexture(mColorAttachments[i], mSpecification.Samples, GL_R32I, GL_RED_INTEGER, mSpecification.Width, mSpecification.Height, i);
-					//Utils::AttachColorRenderBuffer(mColorAttachments[i], mSpecification.Samples, GL_R32I, mSpecification.Width, mSpecification.Height, i);
+					//Utils::AttachColorTexture(mColorAttachments[i], mSpecification.Samples, GL_R32I, GL_RED_INTEGER, mSpecification.Width, mSpecification.Height, i);
+					Utils::AttachColorRenderBuffer(mColorAttachments[i], mSpecification.Samples, GL_R32I, mSpecification.Width, mSpecification.Height, i);
 					break;
 				}
 			}
@@ -217,6 +218,16 @@ namespace HEngine
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
+	void OpenGLFramebuffer::BindReadFramebuffer()
+	{
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, mRendererID);
+	}
+
+	void OpenGLFramebuffer::BindDrawFramebuffer()
+	{
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, mRendererID);
+	}
+
     void OpenGLFramebuffer::Resize(uint32_t width, uint32_t height)
     {
         if (width == 0 || height == 0 || width > s_MaxFramebufferSize || height > s_MaxFramebufferSize)
@@ -233,8 +244,12 @@ namespace HEngine
 	int OpenGLFramebuffer::ReadPixel(uint32_t attachmentIndex, int x, int y)
 	{
 		HE_CORE_ASSERT(attachmentIndex < mColorAttachments.size());
-		glBindFramebuffer(GL_READ_FRAMEBUFFER, mRendererID);
+		//glBindFramebuffer(GL_FRAMEBUFFER, mRendererID);
+		//glBindFramebuffer(GL_READ_FRAMEBUFFER, mRendererID);
+		//glBindFramebuffer(GL_DRAW_FRAMEBUFFER, mRendererID);
 		glReadBuffer(GL_COLOR_ATTACHMENT0 + attachmentIndex);
+		//return -1;
+		//glNamedFramebufferReadBuffer(mRendererID, GL_COLOR_ATTACHMENT0 + attachmentIndex);
 		int pixelData;
 		glReadPixels(x, y, 1, 1, GL_RED_INTEGER, GL_INT, &pixelData);
 		return pixelData;
@@ -250,8 +265,8 @@ namespace HEngine
 		switch (spec.TextureFormat)
 		{
 		case FramebufferTextureFormat::RED_INTEGER:
-			glClearTexImage(mColorAttachments[attachmentIndex], 0, GL_RED_INTEGER, GL_INT, &value);
-			//glClearBufferiv(GL_COLOR, attachmentIndex, &value);
+			//glClearTexImage(mColorAttachments[attachmentIndex], 0, GL_R32I, GL_INT, &value);
+			glClearBufferiv(GL_COLOR, attachmentIndex, &value);
 			break;
 		case FramebufferTextureFormat::RGBA8:
 			glClearTexImage(mColorAttachments[attachmentIndex], 0, GL_RGBA8, GL_INT, &value);

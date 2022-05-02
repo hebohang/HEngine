@@ -6,6 +6,7 @@ namespace HEngine
 {
     class OpenGLFramebuffer : public Framebuffer
     {
+        friend class OpenGLPostProcessing;
     public:
         OpenGLFramebuffer(const FramebufferSpecification& spec);
         virtual ~OpenGLFramebuffer();
@@ -14,6 +15,8 @@ namespace HEngine
 
         virtual void Bind() override;
         virtual void Unbind() override;
+        virtual void BindReadFramebuffer() override;
+        virtual void BindDrawFramebuffer() override;
 
         virtual void Resize(uint32_t width, uint32_t height) override;
 		virtual int ReadPixel(uint32_t attachmentIndex, int x, int y) override;

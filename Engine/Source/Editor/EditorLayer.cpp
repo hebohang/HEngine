@@ -42,7 +42,7 @@ namespace HEngine
 		fbSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RED_INTEGER, FramebufferTextureFormat::Depth };
         fbSpec.Width = 1280;
         fbSpec.Height = 720;
-		fbSpec.Samples = 1;
+		fbSpec.Samples = 4;
         mFramebuffer = Framebuffer::Create(fbSpec);
 
 		RenderPassSpecification rpSpec = { mFramebuffer, "MainPass" };
@@ -327,7 +327,7 @@ namespace HEngine
 			mViewportSize = { viewportPanelSize.x, viewportPanelSize.y };
 
 			uint32_t textureID = mFramebuffer->GetColorAttachmentRendererID();
-			//textureID = mRenderPass->ExcuteAndReturnFinalTex();
+			textureID = mRenderPass->ExcuteAndReturnFinalTex();
 			ImGui::Image((void*)(intptr_t)textureID, ImVec2{ mViewportSize.x, mViewportSize.y }, ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
 
 			if (ImGui::BeginDragDropTarget())

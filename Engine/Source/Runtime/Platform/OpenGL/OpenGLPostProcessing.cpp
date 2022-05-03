@@ -22,13 +22,20 @@ namespace HEngine
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, screenTexture, 0);	// we only need a color buffer
 
+        //unsigned int tempTex;
+        //glGenTextures(1, &tempTex);
+        //glBindTexture(GL_TEXTURE_2D, tempTex);
+        //glTexImage2D(GL_TEXTURE_2D, 0, GL_R32I, width, height, 0, GL_RED_INTEGER, GL_UNSIGNED_BYTE, NULL);
+        //glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        //glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        //glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, tempTex, 0);	// we only need a color buffer
+
         unsigned int tempTex;
-        glGenTextures(1, &tempTex);
-        glBindTexture(GL_TEXTURE_2D, tempTex);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_R32I, width, height, 0, GL_RED_INTEGER, GL_UNSIGNED_BYTE, NULL);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, tempTex, 0);	// we only need a color buffer
+        glGenRenderbuffers(1, &tempTex);
+        glBindRenderbuffer(GL_RENDERBUFFER, tempTex);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_R32I, width, height);
+        glBindRenderbuffer(GL_RENDERBUFFER, 0);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + 1, GL_RENDERBUFFER, tempTex);
 
         fb->BindReadFramebuffer();
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, intermediateFBO);
@@ -38,7 +45,9 @@ namespace HEngine
         glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 
-        glBindTexture(GL_TEXTURE_2D, screenTexture);
+        //glDrawBuffer(intermediateFBO);
+        //glReadBuffer(intermediateFBO);
+        //glBindTexture(GL_TEXTURE_2D, screenTexture);
 
         return screenTexture;
     }

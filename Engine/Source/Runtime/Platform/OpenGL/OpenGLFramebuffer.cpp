@@ -245,6 +245,8 @@ namespace HEngine
 	{
 		HE_CORE_ASSERT(attachmentIndex < mColorAttachments.size());
 
+		// TODO: Remove the intermediate code
+		// First, Copy the framebuffer to the intermediateFBO (must do this if multisample)
 		uint32_t width = mSpecification.Width;
 		uint32_t height = mSpecification.Height;
 		unsigned int intermediateFBO;
@@ -256,18 +258,18 @@ namespace HEngine
 		glBindRenderbuffer(GL_RENDERBUFFER, tempTex);
 		glRenderbufferStorage(GL_RENDERBUFFER, GL_R32I, width, height);
 		glBindRenderbuffer(GL_RENDERBUFFER, 0);
-		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_RENDERBUFFER, tempTex);
+		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + attachmentIndex, GL_RENDERBUFFER, tempTex);
 
 		glBindFramebuffer(GL_FRAMEBUFFER, mRendererID);
-		glReadBuffer(GL_COLOR_ATTACHMENT1);
+		glReadBuffer(GL_COLOR_ATTACHMENT0 + attachmentIndex);
 
 		glBindFramebuffer(GL_FRAMEBUFFER, intermediateFBO);
-		glDrawBuffer(GL_COLOR_ATTACHMENT1);
+		glDrawBuffer(GL_COLOR_ATTACHMENT0 + attachmentIndex);
 
 		glBindFramebuffer(GL_READ_FRAMEBUFFER, mRendererID);
 		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, intermediateFBO);
-		glNamedFramebufferReadBuffer(mRendererID, GL_COLOR_ATTACHMENT1);
-		glNamedFramebufferDrawBuffer(intermediateFBO, GL_COLOR_ATTACHMENT1);
+		glNamedFramebufferReadBuffer(mRendererID, GL_COLOR_ATTACHMENT0 + attachmentIndex);
+		glNamedFramebufferDrawBuffer(intermediateFBO, GL_COLOR_ATTACHMENT0 + attachmentIndex);
 		glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
 
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -276,15 +278,12 @@ namespace HEngine
 
 		glBindFramebuffer(GL_FRAMEBUFFER, mRendererID);
 		glReadBuffer(GL_COLOR_ATTACHMENT0);
-		//glDrawBuffer(GL_COLOR_ATTACHMENT0);
 
 		glBindFramebuffer(GL_READ_FRAMEBUFFER, intermediateFBO);
-		//glNamedFramebufferReadBuffer(intermediateFBO, GL_COLOR_ATTACHMENT1);
 		glReadBuffer(GL_COLOR_ATTACHMENT0 + attachmentIndex);
 		int pixelData;
 		glReadPixels(x, y, 1, 1, GL_RED_INTEGER, GL_INT, &pixelData);
 		glReadBuffer(GL_COLOR_ATTACHMENT0);
-		//glDrawBuffer(GL_COLOR_ATTACHMENT0);
 		return pixelData;
 	}
 

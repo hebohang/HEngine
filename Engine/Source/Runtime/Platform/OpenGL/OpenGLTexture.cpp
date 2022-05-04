@@ -1,7 +1,9 @@
 #include "hepch.h"
-#include "OpenGLTexture.h"
 
-#include "stb_image.h"
+#include "Runtime/Resource/AssetManager/AssetManager.h"
+#include "Runtime/Platform/OpenGL/OpenGLTexture.h"
+
+#include <stb_image.h>
 
 #include <glad/glad.h>
 
@@ -28,7 +30,7 @@ namespace HEngine
     {
         int width, height, channels;
         stbi_set_flip_vertically_on_load(1);
-        stbi_uc* data =  stbi_load(path.c_str(), &width, &height, &channels, 0);
+        stbi_uc* data =  stbi_load(AssetManager::GetInstance().GetFullPath(path).string().c_str(), &width, &height, &channels, 0);
         
 		if (data)
 		{
@@ -84,5 +86,62 @@ namespace HEngine
     void OpenGLTexture2D::Bind(uint32_t slot) const
     {
         glBindTextureUnit(slot, mRendererID);
+    }
+
+    void OpenGLTexture2D::UnBind() const
+    {
+        glBindTexture(GL_TEXTURE, 0);
+    }
+
+    // refer to https://learnopengl-cn.github.io/04%20Advanced%20OpenGL/06%20Cubemaps/
+    OpenGLCubeMapTexture::OpenGLCubeMapTexture(std::vector<std::string>& paths)
+        : mPaths(paths)
+    {
+        glDeleteTextures(1, &mRendererID);
+        glGenTextures(1, &mRendererID);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, mRendererID);
+
+        int width, height, nrChannels;
+        for (unsigned int i = 0; i < paths.size(); i++)
+        {
+            unsigned char* data = stbi_load(paths[i].c_str(), &width, &height, &nrChannels, 0);
+            if (data)
+            {
+                glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i,
+                    0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data
+                );
+                stbi_image_free(data);
+            }
+            else
+            {
+                HE_CORE_ERROR("Cubemap don't loaded correctly!");
+                stbi_image_free(data);
+            }
+        }
+
+        mWidth = width;
+        mHeight = height;
+
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    }
+
+    OpenGLCubeMapTexture::~OpenGLCubeMapTexture()
+    {
+        glDeleteTextures(1, &mRendererID);
+    }
+
+    void OpenGLCubeMapTexture::Bind(uint32_t slot) const
+    {
+        glActiveTexture(GL_TEXTURE0 + slot);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, mRendererID);
+    }
+
+    void OpenGLCubeMapTexture::UnBind() const
+    {
+        glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
     }
 }

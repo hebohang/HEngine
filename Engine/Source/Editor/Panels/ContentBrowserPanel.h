@@ -13,7 +13,12 @@ namespace HEngine
 
 		void OnImGuiRender(bool* pOpen);
 	private:
+		void DrawTree();
+		void DrawTreeRecursive(std::filesystem::path currentPath);
+		void DrawContent();
+	private:
 		std::filesystem::path mCurrentDirectory;
+		std::optional<std::filesystem::path> mSelectedDirectory;
 
 		Ref<Texture2D> mDirectoryIcon;
 		Ref<Texture2D> mFileIcon;

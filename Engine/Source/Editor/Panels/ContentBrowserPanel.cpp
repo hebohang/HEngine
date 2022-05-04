@@ -37,6 +37,13 @@ namespace HEngine
 
 		ImGui::Columns(2);
 
+		static bool init = true;
+		if (init)
+		{
+			ImGui::SetColumnWidth(0, 200.0f);
+			init = false;
+		}
+
 		if (ImGui::BeginChild("CONTENT_BROWSER_TREE"))
 		{
 			DrawTree();
@@ -117,7 +124,7 @@ namespace HEngine
 
 		mCurrentDirectory = *mSelectedDirectory;
 
-		static float padding = 16.0f;
+		static float padding = 8.0f;
 		static float thumbnailSize = 128.0f;
 		float cellSize = thumbnailSize + padding;
 
@@ -130,6 +137,8 @@ namespace HEngine
 
 		for (auto& directoryEntry : std::filesystem::directory_iterator(mCurrentDirectory))
 		{
+			ImGui::BeginGroup();
+
 			const auto& path = directoryEntry.path();
 			auto relativePath = std::filesystem::relative(path, ConfigManager::GetInstance().GetAssetsFolder());
 			std::string filenameString = relativePath.filename().string();
@@ -155,7 +164,14 @@ namespace HEngine
 					mSelectedDirectory = mCurrentDirectory;
 				}
 			}
+
+			ImVec2 text_size = ImGui::CalcTextSize(filenameString.c_str());
+			ImVec2 pos = ImGui::GetCursorPos();
+			pos.x += (thumbnailSize - text_size.x) * 0.5f;
+			ImGui::SetCursorPos(pos);
 			ImGui::TextWrapped(filenameString.c_str());
+
+			ImGui::EndGroup();
 
 			ImGui::NextColumn();
 
@@ -164,7 +180,7 @@ namespace HEngine
 
 		ImGui::Columns(1);
 
-		ImGui::SliderFloat("Thumbnail Size", &thumbnailSize, 16, 512);
-		ImGui::SliderFloat("Padding", &padding, 0, 32);
+		//ImGui::SliderFloat("Thumbnail Size", &thumbnailSize, 16, 512);
+		//ImGui::SliderFloat("Padding", &padding, 0, 32);
 	}
 }

@@ -61,7 +61,7 @@ namespace HEngine
 		DrawTreeRecursive(ConfigManager::GetInstance().GetAssetsFolder());
 	}
 
-	void ContentBrowserPanel::DrawTreeRecursive(std::filesystem::path currentPath)
+	void ContentBrowserPanel::DrawTreeRecursive(const std::filesystem::path& currentPath)
 	{
 		const ImGuiTreeNodeFlags baseFlags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick |
 			ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_SpanFullWidth;
@@ -80,7 +80,12 @@ namespace HEngine
 			bNeedOpen = false;
 		}
 
+		//std::string label = "##" + currentPath.filename().string();
 		bool nodeOpen = ImGui::TreeNodeEx(currentPath.filename().string().c_str(), nodeFlags);
+		//ImGui::SameLine();
+		//ImGui::ImageButton((ImTextureID)mDirectoryIcon->GetRendererID(), { 20.0f, 20.0f }, { 0, 1 }, { 1, 0 });
+		//ImGui::SameLine();
+		//ImGui::Text(currentPath.filename().string().c_str());
 
 		if (ImGui::IsItemClicked())
 		{
@@ -89,9 +94,9 @@ namespace HEngine
 
 		if (nodeOpen && bNeedOpen)
 		{
-			for (auto p : std::filesystem::directory_iterator(currentPath))
+			for (auto& p : std::filesystem::directory_iterator(currentPath))
 			{
-				auto path = p.path();
+				const auto& path = p.path();
 				if (!std::filesystem::is_directory(path))
 				{
 					continue;

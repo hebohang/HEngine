@@ -8,14 +8,24 @@ namespace HEngine
 {
     static uint32_t DoMSAA(const Ref<Framebuffer>& fb)
     {
+        static bool bInit = true;
+
+        static unsigned int intermediateFBO;
+        static unsigned int screenTexture;
+        static unsigned int tempTex;
+
+        if (bInit)
+        {
+            glGenFramebuffers(1, &intermediateFBO);
+            glGenTextures(1, &screenTexture);
+            glGenRenderbuffers(1, &tempTex);
+            bInit = false;
+        }
         uint32_t width = fb->GetSpecification().Width;
         uint32_t height = fb->GetSpecification().Height;
-        unsigned int intermediateFBO;
-        glGenFramebuffers(1, &intermediateFBO);
         glBindFramebuffer(GL_FRAMEBUFFER, intermediateFBO);
+
         // create a color attachment texture
-        unsigned int screenTexture;
-        glGenTextures(1, &screenTexture);
         glBindTexture(GL_TEXTURE_2D, screenTexture);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -30,8 +40,6 @@ namespace HEngine
         //glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         //glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, tempTex, 0);	// we only need a color buffer
 
-        unsigned int tempTex;
-        glGenRenderbuffers(1, &tempTex);
         glBindRenderbuffer(GL_RENDERBUFFER, tempTex);
         glRenderbufferStorage(GL_RENDERBUFFER, GL_R32I, width, height);
         glBindRenderbuffer(GL_RENDERBUFFER, 0);

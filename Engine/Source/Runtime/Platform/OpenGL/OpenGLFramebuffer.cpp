@@ -249,12 +249,20 @@ namespace HEngine
 		// First, Copy the framebuffer to the intermediateFBO (must do this if multisample)
 		uint32_t width = mSpecification.Width;
 		uint32_t height = mSpecification.Height;
-		unsigned int intermediateFBO;
-		glGenFramebuffers(1, &intermediateFBO);
+
+		static bool bInit = true;
+		static unsigned int intermediateFBO;
+		static unsigned int tempTex;
+
+		if (bInit)
+		{
+			glGenFramebuffers(1, &intermediateFBO);
+			glGenRenderbuffers(1, &tempTex);
+			bInit = false;
+		}
+
 		glBindFramebuffer(GL_FRAMEBUFFER, intermediateFBO);
 
-		unsigned int tempTex;
-		glGenRenderbuffers(1, &tempTex);
 		glBindRenderbuffer(GL_RENDERBUFFER, tempTex);
 		glRenderbufferStorage(GL_RENDERBUFFER, GL_R32I, width, height);
 		glBindRenderbuffer(GL_RENDERBUFFER, 0);

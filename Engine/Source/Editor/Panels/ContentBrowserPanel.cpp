@@ -22,6 +22,19 @@ namespace HEngine
 			return;
 		}
 
+		ImGui::Columns(2);
+
+		if (ImGui::BeginChild("CONTENT_BROWSER_TREE"))
+		{
+
+		}
+		ImGui::EndChild();
+
+		ImGui::NextColumn();
+		ImGui::Separator();
+
+		ImGui::BeginChild("CONTENT_BROWSER_CONTENT");
+
 		if (mCurrentDirectory != std::filesystem::path(ConfigManager::GetInstance().GetAssetsFolder()))
 		{
 			if (ImGui::Button("<-"))
@@ -77,6 +90,10 @@ namespace HEngine
 
 		ImGui::SliderFloat("Thumbnail Size", &thumbnailSize, 16, 512);
 		ImGui::SliderFloat("Padding", &padding, 0, 32);
+
+		ImGui::EndChild();
+
+		ImGui::Columns(1);
 
 		// TODO: status bar
 		ImGui::End();

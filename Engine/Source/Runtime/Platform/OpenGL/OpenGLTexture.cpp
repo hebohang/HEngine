@@ -126,7 +126,9 @@ namespace HEngine
     {
         glBindTexture(GL_TEXTURE_CUBE_MAP, mRendererID);
 
-        int width, height, nrChannels;
+        int width = 0;
+        int height = 0;
+        int nrChannels = 0;
         for (unsigned int i = 0; i < mPaths.size(); i++)
         {
             unsigned char* data = stbi_load(AssetManager::GetInstance().GetFullPath(mPaths[i]).string().c_str(), &width, &height, &nrChannels, 0);

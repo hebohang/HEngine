@@ -40,7 +40,7 @@ namespace HEngine
 		static bool init = true;
 		if (init)
 		{
-			ImGui::SetColumnWidth(0, 200.0f);
+			ImGui::SetColumnWidth(0, 240.0f);
 			init = false;
 		}
 
@@ -87,17 +87,18 @@ namespace HEngine
 			bNeedOpen = false;
 		}
 
-		//std::string label = "##" + currentPath.filename().string();
-		bool nodeOpen = ImGui::TreeNodeEx(currentPath.filename().string().c_str(), nodeFlags);
-		//ImGui::SameLine();
-		//ImGui::ImageButton((ImTextureID)mDirectoryIcon->GetRendererID(), { 20.0f, 20.0f }, { 0, 1 }, { 1, 0 });
-		//ImGui::SameLine();
-		//ImGui::Text(currentPath.filename().string().c_str());
+		std::string label = "##" + currentPath.filename().string();
+		bool nodeOpen = ImGui::TreeNodeEx(label.c_str(), nodeFlags);
 
 		if (ImGui::IsItemClicked())
 		{
 			mSelectedDirectory = currentPath;
 		}
+
+		ImGui::SameLine();
+		ImGui::Image((ImTextureID)mDirectoryIcon->GetRendererID(), { 20.0f, 20.0f }, { 0, 1 }, { 1, 0 });
+		ImGui::SameLine();
+		ImGui::Text(currentPath.filename().string().c_str());
 
 		if (nodeOpen && bNeedOpen)
 		{

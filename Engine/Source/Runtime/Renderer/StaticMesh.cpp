@@ -35,6 +35,26 @@ namespace HEngine
 		RenderCommand::DrawIndexed(mVertexArray, mIB->GetCount());
 	}
 
+	void StaticMesh::Draw()
+	{
+		//SetupMesh(EntityID);
+		static bool bInit = true;
+		if (bInit)
+		{
+			bInit = false;
+
+			mVertexArray->Bind();
+
+			mVB->SetData(mVertices.data(), sizeof(Vertex) * mVertices.size());
+			mIB->SetData(mIndices.data(), mIndices.size());
+
+			mVertexArray->Unbind();
+		}
+		mVertexArray->Bind();
+		RenderCommand::DrawIndexed(mVertexArray, mIB->GetCount());
+		mVertexArray->Unbind();
+	}
+
 	void StaticMesh::SetupMesh(int entityID)
 	{
 		if (mEntityID == -1)

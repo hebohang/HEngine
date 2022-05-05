@@ -66,13 +66,18 @@ namespace HEngine
         virtual void SetFloat4(const std::string& name, const glm::vec4& value) = 0;
         virtual void SetMat4(const std::string& name, const glm::mat4& value) = 0;
 
-		virtual void SetUniform(const std::string& fullname, const glm::mat4& value) = 0;
+		virtual void SetUniform(const std::string& fullname, const glm::mat4& value) {};
 
         [[nodiscard]] virtual const std::string& GetName() const = 0;
 
         static Ref<Shader> Create(const std::filesystem::path& filepath);
         static Ref<Shader> Create(const std::string& filepath);
         static Ref<Shader> Create(const std::string& name, const std::string& vertexSrc, const std::string& fragmentSrc);
+		
+		// Use native shader language instead of spir-v
+		static Ref<Shader> CreateNative(const std::filesystem::path& filepath);
+        static Ref<Shader> CreateNative(const std::string& filepath);
+        static Ref<Shader> CreateNative(const std::string& name, const std::string& vertexSrc, const std::string& fragmentSrc);
     };
 
     class ShaderLibrary

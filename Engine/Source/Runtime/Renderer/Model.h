@@ -21,6 +21,8 @@ namespace HEngine
 		}
 
 		void Draw(const glm::mat4& transform, Ref<Shader>& shader, int entityID);
+
+		void Draw();
 	private:
 		void LoadModel(const std::string& path);
 		void ProcessNode(aiNode* node, const aiScene* scene);

@@ -29,6 +29,7 @@ namespace HEngine
 
 	static Ref<CubeMapTexture> mSkyBox;
 	static Ref<Shader> mSkyBoxShader;
+	static Model mBox;
 
 	std::vector<std::string> mPaths{ 
 		"Assets/Textures/Skybox/right.jpg",
@@ -47,6 +48,7 @@ namespace HEngine
 		mSkyBoxShader = Shader::Create(AssetManager::GetInstance().GetFullPath("Shaders/SkyBox.glsl"));
 		mSkyBox = CubeMapTexture::Create(mPaths);
 
+		mBox = Model(AssetManager::GetInstance().GetFullPath("Assets/Models/Box.obj").string());
 	}
 
 	void Renderer3D::Shutdown()
@@ -83,5 +85,22 @@ namespace HEngine
 	Ref<CubeMapTexture> Renderer3D::GetDefaultSkyBox()
 	{
 		return Ref<CubeMapTexture>();
+	}
+
+	void Renderer3D::DrawSkyBox(const EditorCamera& camera)
+	{
+		sData.CameraBuffer.ViewProjection = camera.GetProjection() * glm::mat4(glm::mat3(camera.GetViewMatrix()));
+		sData.CameraUniformBuffer->SetData(&sData.CameraBuffer, sizeof(Renderer3DData::CameraData), 0);
+
+		RenderCommand::Cull(0);
+
+		RenderCommand::DepthFunc(DepthComp::LEQUAL);
+		mSkyBoxShader->Bind();
+
+		mSkyBox->Bind(1);
+		mSkyBoxShader->SetInt("SkyBox", 0);
+		mBox.Draw();
+
+		RenderCommand::DepthFunc(DepthComp::LESS);
 	}
 }

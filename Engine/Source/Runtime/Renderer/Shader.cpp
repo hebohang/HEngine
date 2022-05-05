@@ -3,6 +3,7 @@
 #include "Runtime/Renderer/Shader.h"
 #include "Runtime/Renderer/Renderer.h"
 #include "Platform/OpenGL/OpenGLShader.h"
+#include "Platform/OpenGL/NativeOpenGLShader.h"
 
 namespace HEngine
 {
@@ -32,6 +33,41 @@ namespace HEngine
         {
         case RendererAPI::RendererAPIType::None:    HE_CORE_ASSERT(false, "RendererAPI::None is currently not supported!"); return nullptr;
         case RendererAPI::RendererAPIType::OpenGL:  return std::make_shared<OpenGLShader>(name, vertexSrc, fragmentSrc);
+        case RendererAPI::RendererAPIType::Vulkan:  return nullptr;
+        case RendererAPI::RendererAPIType::DX11:    return nullptr;
+        case RendererAPI::RendererAPIType::DX12:    return nullptr;
+        }
+
+        HE_CORE_ASSERT(false, "Unknown RendererAPI!");
+        return nullptr;
+    }
+
+    Ref<Shader> Shader::CreateNative(const std::filesystem::path& filepath)
+    {
+        return CreateNative(filepath.string());
+    }
+
+    Ref<Shader> Shader::CreateNative(const std::string& filepath)
+    {
+        switch (RendererAPI::Current())
+        {
+        case RendererAPI::RendererAPIType::None:    HE_CORE_ASSERT(false, "RendererAPI::None is currently not supported!"); return nullptr;
+        case RendererAPI::RendererAPIType::OpenGL:  return std::make_shared<NativeOpenGLShader>(filepath);
+        case RendererAPI::RendererAPIType::Vulkan:  return nullptr;
+        case RendererAPI::RendererAPIType::DX11:    return nullptr;
+        case RendererAPI::RendererAPIType::DX12:    return nullptr;
+        }
+
+        HE_CORE_ASSERT(false, "Unknown RendererAPI!");
+        return nullptr;
+    }
+
+    Ref<Shader> Shader::CreateNative(const std::string& name, const std::string& vertexSrc, const std::string& fragmentSrc)
+    {
+        switch (RendererAPI::Current())
+        {
+        case RendererAPI::RendererAPIType::None:    HE_CORE_ASSERT(false, "RendererAPI::None is currently not supported!"); return nullptr;
+        case RendererAPI::RendererAPIType::OpenGL:  return std::make_shared<NativeOpenGLShader>(name, vertexSrc, fragmentSrc);
         case RendererAPI::RendererAPIType::Vulkan:  return nullptr;
         case RendererAPI::RendererAPIType::DX11:    return nullptr;
         case RendererAPI::RendererAPIType::DX12:    return nullptr;

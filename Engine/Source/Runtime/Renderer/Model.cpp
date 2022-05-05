@@ -11,6 +11,12 @@ namespace HEngine
 			mMeshes[i].Draw(transform, shader, entityID);
 	}
 
+	void Model::Draw()
+	{
+		for (unsigned int i = 0; i < mMeshes.size(); ++i)
+			mMeshes[i].Draw();
+	}
+
 	void Model::LoadModel(const std::string& path)
 	{
 		Assimp::Importer importer;

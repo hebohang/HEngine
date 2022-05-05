@@ -18,6 +18,16 @@ namespace HEngine
 			}
 			return false;
 		}
+
+		static bool IsImageFormat(std::string filePath)
+		{
+			std::string extension = filePath.substr(filePath.find_last_of(".") + 1);
+			if (extension == "png" || extension == "jpg" || extension == "bmp")
+			{
+				return true;
+			}
+			return false;
+		}
 	}
 
 	ContentBrowserPanel::ContentBrowserPanel()
@@ -135,18 +145,44 @@ namespace HEngine
 
 		ImGui::Columns(columnCount, 0, false);
 
+		std::vector<std::filesystem::path> sortedDirectory;
+		int directoryEndIndex = -1;
 		for (auto& directoryEntry : std::filesystem::directory_iterator(mCurrentDirectory))
 		{
+			if (!directoryEntry.is_directory())
+			{
+				sortedDirectory.push_back(directoryEntry.path());
+			}
+			else
+			{
+				sortedDirectory.insert(sortedDirectory.begin(), directoryEntry.path());
+				directoryEndIndex++;
+			}
+		}
+
+		for (int i = 0; i < sortedDirectory.size(); i++)
+		{
+
 			ImGui::BeginGroup();
 
-			const auto& path = directoryEntry.path();
+			const auto& path = sortedDirectory[i];
 			auto relativePath = std::filesystem::relative(path, ConfigManager::GetInstance().GetAssetsFolder());
 			std::string filenameString = relativePath.filename().string();
 
 			ImGui::PushID(filenameString.c_str());
-			Ref<Texture2D> icon = directoryEntry.is_directory() ? IconManager::GetInstance().GetDirectoryIcon() : IconManager::GetInstance().GetFileIcon();
+			Ref<Texture2D> icon = i <= directoryEndIndex ? IconManager::GetInstance().GetDirectoryIcon() : IconManager::GetInstance().GetFileIcon();
 			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-			ImGui::ImageButton((ImTextureID)icon->GetRendererID(), { thumbnailSize, thumbnailSize }, { 0, 1 }, { 1, 0 });
+
+			if (Utils::IsImageFormat(path.string()))
+			{
+				std::string texturePath = "Assets\\" + relativePath.string();
+				Ref<Texture2D> img = IconManager::GetInstance().LoadOrFindTexture(texturePath);
+				ImGui::ImageButton((ImTextureID)img->GetRendererID(), { thumbnailSize, thumbnailSize }, { 0, 1 }, { 1, 0 });
+			}
+			else
+			{
+				ImGui::ImageButton((ImTextureID)icon->GetRendererID(), { thumbnailSize, thumbnailSize }, { 0, 1 }, { 1, 0 });
+			}
 
 			if (ImGui::BeginDragDropSource())
 			{
@@ -158,7 +194,7 @@ namespace HEngine
 			ImGui::PopStyleColor();
 			if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
 			{
-				if (directoryEntry.is_directory())
+				if (i <= directoryEndIndex)
 				{
 					mCurrentDirectory /= path.filename();
 					mSelectedDirectory = mCurrentDirectory;

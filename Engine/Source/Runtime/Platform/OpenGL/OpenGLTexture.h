@@ -10,7 +10,7 @@ namespace HEngine
     {
     public:
         OpenGLTexture2D(uint32_t width, uint32_t height);
-        OpenGLTexture2D(const std::string& path);
+        OpenGLTexture2D(const std::filesystem::path& path);
         virtual ~OpenGLTexture2D();
 
         virtual uint32_t GetWidth() const override { return mWidth; };
@@ -29,7 +29,7 @@ namespace HEngine
             return mRendererID == ((OpenGLTexture2D&)other).mRendererID;
         }
     private:
-        std::string mPath;
+        std::filesystem::path mPath;
 		bool mIsLoaded = false;
         uint32_t mWidth, mHeight;
         uint32_t mRendererID;

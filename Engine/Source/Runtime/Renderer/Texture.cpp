@@ -1,7 +1,8 @@
 #include "hepch.h"
 #include "Runtime/Renderer/Texture.h"
+#include "Runtime/Resource/AssetManager/AssetManager.h"
 
-#include "Renderer.h"
+#include "Runtime/Renderer/Renderer.h"
 #include "Platform/OpenGL/OpenGLTexture.h"
 
 namespace HEngine
@@ -23,11 +24,6 @@ namespace HEngine
 
     Ref<Texture2D> Texture2D::Create(const std::filesystem::path& path)
     {
-        return Create(path.string());
-    }
-
-    Ref<Texture2D> Texture2D::Create(const std::string& path)
-    {
         switch (RendererAPI::Current())
         {
         case RendererAPI::RendererAPIType::None:    HE_CORE_ASSERT(false, "RendererAPI::None is currently not supported!"); return nullptr;
@@ -39,6 +35,11 @@ namespace HEngine
 
         HE_CORE_ASSERT(false, "Unknown RendererAPI!");
         return nullptr;
+    }
+
+    Ref<Texture2D> Texture2D::Create(const std::string& path)
+    {
+        return Create(AssetManager::GetInstance().GetFullPath(path));
     }
 
     Ref<CubeMapTexture> CubeMapTexture::Create(std::vector<std::string>& paths)

@@ -19,7 +19,7 @@ namespace HEngine
         Ref<Texture> mLeft;
         Ref<Texture> mTop;
         Ref<Texture> mBottom;
-        Ref<Texture> mBack;
         Ref<Texture> mFront;
+        Ref<Texture> mBack;
     };
 }

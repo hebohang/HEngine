@@ -37,7 +37,7 @@ namespace HEngine
 		"Assets/Textures/Skybox/top.jpg",
 		"Assets/Textures/Skybox/bottom.jpg",
 		"Assets/Textures/Skybox/front.jpg",
-		"Assets/Textures/Skybox/back.jpg"
+		"Assets/Textures/Skybox/back.jpg",
 	};
 
 	void Renderer3D::Init()
@@ -98,7 +98,7 @@ namespace HEngine
 		RenderCommand::DepthFunc(DepthComp::LEQUAL);
 		sSkyBoxShader->Bind();
 
-		sSkyBox->Bind(1);
+		sSkyBox->Bind(0);
 		sSkyBoxShader->SetInt("SkyBox", 0);
 		sBox.Draw();
 

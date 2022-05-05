@@ -6,6 +6,8 @@
 
 #include <imgui/imgui.h>
 
+#include <regex>
+
 namespace HEngine 
 {
     SceneSettingsPanel::SceneSettingsPanel()
@@ -17,10 +19,11 @@ namespace HEngine
         mLeft   = mDefaultTexture;
         mTop    = mDefaultTexture;
         mBottom = mDefaultTexture;
-        mBack   = mDefaultTexture;
         mFront  = mDefaultTexture;
+        mBack   = mDefaultTexture;
     }
 
+	// Still some bugs (top bottom inverse?), see https://stackoverflow.com/questions/55558241/opengl-cubemap-face-order-sampling-issue
     void SceneSettingsPanel::OnImGuiRender(bool* pOpen)
     {
         if (!ImGui::Begin("Scene Settings", pOpen))
@@ -29,93 +32,42 @@ namespace HEngine
             return;
         }
 
+		const auto& SkyBoxTreeNode = [&mPaths = mPaths](const char* nodeName, Ref<Texture>& tex, uint32_t pathIndex) {
+			if (ImGui::TreeNode(nodeName))
+			{
+				ImGui::Image((ImTextureID)tex->GetRendererID(), ImVec2(64, 64), ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
+				if (ImGui::BeginDragDropTarget())
+				{
+					if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+					{
+						auto path = (const wchar_t*)payload->Data;
+						std::string relativePath = (std::filesystem::path("Assets") / path).string();
+						std::filesystem::path texturePath = ConfigManager::GetInstance().GetAssetsFolder() / path;
+						mPaths[pathIndex] = texturePath.string();
+						relativePath = std::regex_replace(relativePath, std::regex("\\\\"), "/");
+						tex = IconManager::GetInstance().LoadOrFindTexture(relativePath);
+						Renderer3D::GetSkyBox()->SetFace((FaceTarget)pathIndex, relativePath);
+					}
+					ImGui::EndDragDropTarget();
+				}
+				ImGui::TreePop();
+			}
+		};
+
 		//Sky Box
 		if (ImGui::TreeNode("SkyBox"))
 		{
-			ImGui::Text("Right +X");
-			ImGui::Image((ImTextureID)mRight->GetRendererID(), ImVec2(64, 64));
-			if (ImGui::BeginDragDropTarget())
+			if (ImGui::Button("Update"))
 			{
-				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
-				{
-					const wchar_t* path = (const wchar_t*)payload->Data;
-					std::filesystem::path texturePath = ConfigManager::GetInstance().GetAssetsFolder() / path;
-					mPaths[0] = texturePath.string();
-					mRight = Texture2D::Create(texturePath.string());
-					Renderer3D::GetSkyBox()->SetFace(FaceTarget::Right, texturePath.string());
-				}
-				ImGui::EndDragDropTarget();
+				Renderer3D::GetSkyBox()->Generate();
 			}
-			ImGui::Text("Left -X");
-			ImGui::Image((ImTextureID)mLeft->GetRendererID(), ImVec2(64, 64));
-			if (ImGui::BeginDragDropTarget())
-			{
-				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
-				{
-					const wchar_t* path = (const wchar_t*)payload->Data;
-					std::filesystem::path texturePath = ConfigManager::GetInstance().GetAssetsFolder() / path;
-					mPaths[1] = texturePath.string();
-					mLeft = Texture2D::Create(texturePath.string());
-					Renderer3D::GetSkyBox()->SetFace(FaceTarget::Left, texturePath.string());
-				}
-				ImGui::EndDragDropTarget();
-			}
-			ImGui::Text("Top +Y");
-			ImGui::Image((ImTextureID)mTop->GetRendererID(), ImVec2(64, 64));
-			if (ImGui::BeginDragDropTarget())
-			{
-				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
-				{
-					const wchar_t* path = (const wchar_t*)payload->Data;
-					std::filesystem::path texturePath = ConfigManager::GetInstance().GetAssetsFolder() / path;
-					mPaths[2] = texturePath.string();
-					mTop = Texture2D::Create(texturePath.string());
-					Renderer3D::GetSkyBox()->SetFace(FaceTarget::Top, texturePath.string());
-				}
-				ImGui::EndDragDropTarget();
-			}
-			ImGui::Text("Bottom -Y");
-			ImGui::Image((ImTextureID)mBottom->GetRendererID(), ImVec2(64, 64));
-			if (ImGui::BeginDragDropTarget())
-			{
-				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
-				{
-					const wchar_t* path = (const wchar_t*)payload->Data;
-					std::filesystem::path texturePath = ConfigManager::GetInstance().GetAssetsFolder() / path;
-					mPaths[3] = texturePath.string();
-					mBottom = Texture2D::Create(texturePath.string());
-					Renderer3D::GetSkyBox()->SetFace(FaceTarget::Bottom, texturePath.string());
-				}
-				ImGui::EndDragDropTarget();
-			}
-			ImGui::Text("Back +Z");
-			ImGui::Image((ImTextureID)mBack->GetRendererID(), ImVec2(64, 64));
-			if (ImGui::BeginDragDropTarget())
-			{
-				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
-				{
-					const wchar_t* path = (const wchar_t*)payload->Data;
-					std::filesystem::path texturePath = ConfigManager::GetInstance().GetAssetsFolder() / path;
-					mPaths[4] = texturePath.string();
-					mBack = Texture2D::Create(texturePath.string());
-					Renderer3D::GetSkyBox()->SetFace(FaceTarget::Back, texturePath.string());
-				}
-				ImGui::EndDragDropTarget();
-			}
-			ImGui::Text("Front -Z");
-			ImGui::Image((ImTextureID)mFront->GetRendererID(), ImVec2(64, 64));
-			if (ImGui::BeginDragDropTarget())
-			{
-				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
-				{
-					const wchar_t* path = (const wchar_t*)payload->Data;
-					std::filesystem::path texturePath = ConfigManager::GetInstance().GetAssetsFolder() / path;
-					mPaths[5] = texturePath.string();
-					mFront = Texture2D::Create(texturePath.string());
-					Renderer3D::GetSkyBox()->SetFace(FaceTarget::Front, texturePath.string());
-				}
-				ImGui::EndDragDropTarget();
-			}
+
+			SkyBoxTreeNode("Right +X",  mRight,  0);
+			SkyBoxTreeNode("Left -X",   mLeft,   1);
+			SkyBoxTreeNode("Top +Y",    mTop,    2);
+			SkyBoxTreeNode("Bottom -Y", mBottom, 3);
+			SkyBoxTreeNode("Front +Z",  mFront,  4);
+			SkyBoxTreeNode("Back -Z",   mBack,   5);
 
 			ImGui::TreePop();
 		}

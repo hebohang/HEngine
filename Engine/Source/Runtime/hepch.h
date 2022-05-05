@@ -7,6 +7,7 @@
 #include <utility>
 #include <algorithm>
 #include <functional>
+#include <regex>
 
 #include <string>
 #include <sstream>

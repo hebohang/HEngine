@@ -1,6 +1,7 @@
 #include "ContentBrowserPanel.h"
 #include "Runtime/Resource/ConfigManager/ConfigManager.h"
 #include "Runtime/Resource/AssetManager/AssetManager.h"
+#include "Editor/IconManager/IconManager.h"
 
 #include <imgui/imgui.h>
 
@@ -22,8 +23,6 @@ namespace HEngine
 	ContentBrowserPanel::ContentBrowserPanel()
 		: mCurrentDirectory(ConfigManager::GetInstance().GetAssetsFolder())
 	{
-		mDirectoryIcon = Texture2D::Create(AssetManager::GetInstance().GetFullPath("Resources/Icons/ContentBrowser/DirectoryIcon.png").string());
-		mFileIcon = Texture2D::Create(AssetManager::GetInstance().GetFullPath("Resources/Icons/ContentBrowser/FileIcon.png").string());
 	}
 
 	void ContentBrowserPanel::OnImGuiRender(bool* pOpen)
@@ -96,7 +95,7 @@ namespace HEngine
 		}
 
 		ImGui::SameLine();
-		ImGui::Image((ImTextureID)mDirectoryIcon->GetRendererID(), { 20.0f, 20.0f }, { 0, 1 }, { 1, 0 });
+		ImGui::Image((ImTextureID)IconManager::GetInstance().GetDirectoryIcon()->GetRendererID(), {20.0f, 20.0f}, {0, 1}, {1, 0});
 		ImGui::SameLine();
 		ImGui::Text(currentPath.filename().string().c_str());
 
@@ -145,7 +144,7 @@ namespace HEngine
 			std::string filenameString = relativePath.filename().string();
 
 			ImGui::PushID(filenameString.c_str());
-			Ref<Texture2D> icon = directoryEntry.is_directory() ? mDirectoryIcon : mFileIcon;
+			Ref<Texture2D> icon = directoryEntry.is_directory() ? IconManager::GetInstance().GetDirectoryIcon() : IconManager::GetInstance().GetFileIcon();
 			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
 			ImGui::ImageButton((ImTextureID)icon->GetRendererID(), { thumbnailSize, thumbnailSize }, { 0, 1 }, { 1, 0 });
 

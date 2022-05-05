@@ -1,10 +1,11 @@
-#include "SceneHierarchyPanel.h"
+#include "Editor/ImGuiWrapper/ImGuiWrapper.h"
+#include "Editor/Panels/SceneHierarchyPanel.h"
+#include "Editor/IconManager/IconManager.h"
 
 #include "Runtime/EcsFramework/Component/ComponentGroup.h"
 #include "Runtime/Renderer/Texture.h"
 #include "Runtime/Resource/ConfigManager/ConfigManager.h"
 #include "Runtime/Utils/PlatformUtils.h"
-#include "Editor/ImGuiWrapper/ImGuiWrapper.h"
 
 #include <imgui/imgui.h>
 #include <imgui/imgui_internal.h>
@@ -200,7 +201,8 @@ namespace HEngine
             bool open = ImGui::TreeNodeEx((void*)typeid(T).hash_code(), treeNodeFlags, name.c_str());
             ImGui::PopStyleVar();
             ImGui::SameLine(contentRegionAvailable.x - lineHeight * 0.5f);
-            if (ImGui::Button("+", ImVec2{ lineHeight, lineHeight }))
+			
+            if (ImGui::ImageButton((ImTextureID)IconManager::GetInstance().GetSettingIcon()->GetRendererID(), ImVec2{lineHeight - 7.0f, lineHeight - 7.0f}))
             {
                 ImGui::OpenPopup("ComponentSettings");
             }

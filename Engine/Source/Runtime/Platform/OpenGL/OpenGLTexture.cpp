@@ -134,6 +134,11 @@ namespace HEngine
         glDeleteTextures(1, &mRendererID);
     }
 
+    void OpenGLCubeMapTexture::SetFace(FaceTarget faceIndex, const std::string& path)
+    {
+        mPaths[(uint32_t)faceIndex] = path;
+    }
+
     void OpenGLCubeMapTexture::Bind(uint32_t slot) const
     {
         glActiveTexture(GL_TEXTURE0 + slot);

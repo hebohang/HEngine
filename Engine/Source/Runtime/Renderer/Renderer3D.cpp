@@ -13,7 +13,7 @@
 
 namespace HEngine
 {
-	static Ref<Shader> mShader;
+	static Ref<Shader> sShader;
 
 	struct Renderer3DData
 	{
@@ -27,11 +27,11 @@ namespace HEngine
 
 	static Renderer3DData sData;
 
-	static Ref<CubeMapTexture> mSkyBox;
-	static Ref<Shader> mSkyBoxShader;
-	static Model mBox;
+	static Ref<CubeMapTexture> sSkyBox;
+	static Ref<Shader> sSkyBoxShader;
+	static Model sBox;
 
-	std::vector<std::string> mPaths{ 
+	std::vector<std::string> sPaths{ 
 		"Assets/Textures/Skybox/right.jpg",
 		"Assets/Textures/Skybox/left.jpg",
 		"Assets/Textures/Skybox/top.jpg",
@@ -42,13 +42,13 @@ namespace HEngine
 
 	void Renderer3D::Init()
 	{
-		mShader = Shader::Create(AssetManager::GetInstance().GetFullPath("Shaders/Common.glsl"));
+		sShader = Shader::Create(AssetManager::GetInstance().GetFullPath("Shaders/Common.glsl"));
 		sData.CameraUniformBuffer = UniformBuffer::Create(sizeof(Renderer3DData::CameraData), 1);
 
-		mSkyBoxShader = Shader::Create(AssetManager::GetInstance().GetFullPath("Shaders/SkyBox.glsl"));
-		mSkyBox = CubeMapTexture::Create(mPaths);
+		sSkyBoxShader = Shader::Create(AssetManager::GetInstance().GetFullPath("Shaders/SkyBox.glsl"));
+		sSkyBox = CubeMapTexture::Create(sPaths);
 
-		mBox = Model(AssetManager::GetInstance().GetFullPath("Assets/Models/Box.obj").string());
+		sBox = Model(AssetManager::GetInstance().GetFullPath("Assets/Models/Box.obj").string());
 	}
 
 	void Renderer3D::Shutdown()
@@ -57,7 +57,7 @@ namespace HEngine
 
 	void Renderer3D::DrawModel(const glm::mat4& transform, StaticMeshComponent& MeshComponent, int EntityID)
 	{
-		MeshComponent.Mesh.Draw(transform, mShader, EntityID);
+		MeshComponent.Mesh.Draw(transform, sShader, EntityID);
 	}
 
 	void Renderer3D::BeginScene(const Camera& camera, const glm::mat4& transform)
@@ -74,17 +74,18 @@ namespace HEngine
 
 	void Renderer3D::EndScene()
 	{
-		mShader->Unbind();
+		sShader->Unbind();
 	}
 
 	Ref<CubeMapTexture> Renderer3D::GetSkyBox()
 	{
-		return Ref<CubeMapTexture>();
+		return sSkyBox;
 	}
 
 	Ref<CubeMapTexture> Renderer3D::GetDefaultSkyBox()
 	{
-		return Ref<CubeMapTexture>();
+		sSkyBox = CubeMapTexture::Create(sPaths);
+		return sSkyBox;
 	}
 
 	void Renderer3D::DrawSkyBox(const EditorCamera& camera)
@@ -95,11 +96,11 @@ namespace HEngine
 		RenderCommand::Cull(0);
 
 		RenderCommand::DepthFunc(DepthComp::LEQUAL);
-		mSkyBoxShader->Bind();
+		sSkyBoxShader->Bind();
 
-		mSkyBox->Bind(1);
-		mSkyBoxShader->SetInt("SkyBox", 0);
-		mBox.Draw();
+		sSkyBox->Bind(1);
+		sSkyBoxShader->SetInt("SkyBox", 0);
+		sBox.Draw();
 
 		RenderCommand::DepthFunc(DepthComp::LESS);
 	}

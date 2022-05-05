@@ -34,9 +34,20 @@ namespace HEngine
         static Ref<Texture2D> Create(const std::string& path);
     };
 
+    enum class FaceTarget : uint32_t
+    {
+        Right = 0,
+        Left,
+        Top,
+        Bottom,
+        Back,
+        Front
+    };
+
     class CubeMapTexture : public Texture
     {
     public:
+        virtual void SetFace(FaceTarget faceIndex, const std::string& path) = 0;
         static Ref<CubeMapTexture> Create(std::vector<std::string>& paths);
     };
 }

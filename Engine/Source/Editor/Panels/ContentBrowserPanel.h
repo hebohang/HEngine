@@ -1,7 +1,5 @@
 #pragma once
 
-#include "Runtime/Renderer/Texture.h"
-
 #include <filesystem>
 
 namespace HEngine
@@ -19,8 +17,5 @@ namespace HEngine
 	private:
 		std::filesystem::path mCurrentDirectory;
 		std::optional<std::filesystem::path> mSelectedDirectory;
-
-		Ref<Texture2D> mDirectoryIcon;
-		Ref<Texture2D> mFileIcon;
 	};
 }

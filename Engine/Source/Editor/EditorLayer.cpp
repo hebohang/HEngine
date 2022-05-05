@@ -313,6 +313,8 @@ namespace HEngine
 		}
 		if (bShowSceneSettings)
 		{
+			mSceneSettingsPanel.OnImGuiRender(&bShowSceneSettings);
+
 			ImGui::Begin("Scene Settings", &bShowSceneSettings);
 
 			ImGui::End();

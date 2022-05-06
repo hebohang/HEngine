@@ -52,9 +52,10 @@ layout (location = 3) in flat int v_EntityID;
 layout(location = 0) out vec4 color;
 layout(location = 1) out int color2;
 
+layout(binding = 0) uniform sampler2D texture_diffuse;
 
 void main()
 {
-	color = vec4(1.0f, 0.2f, 0.3f, 1.0f);
+	color = texture(texture_diffuse, Input.TexCoord);
 	color2 = v_EntityID;
 }

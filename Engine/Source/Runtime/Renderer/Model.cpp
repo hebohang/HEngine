@@ -57,7 +57,7 @@ namespace HEngine
 	{
 		std::vector<Vertex> vertices;
 		std::vector<uint32_t> indices;
-		std::vector<Texture2D> textures;
+		std::vector<MaterialTexture> textures;
 
 		for (uint32_t i = 0; i < mesh->mNumVertices; ++i)
 		{
@@ -110,11 +110,76 @@ namespace HEngine
 			}
 		}
 
-		return StaticMesh(vertices, indices);
+		// process materials
+		aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];
+		// we assume a convention for sampler names in the shaders. Each diffuse texture should be named
+		// as 'texture_diffuseN' where N is a sequential number ranging from 1 to MAX_SAMPLER_NUMBER. 
+		// Same applies to other texture as the following list summarizes:
+		// diffuse: texture_diffuseN
+		// specular: texture_specularN
+		// normal: texture_normalN
+
+		// 1. diffuse maps
+		auto diffuseMaps = loadMaterialTextures(material, aiTextureType_DIFFUSE);
+		if (diffuseMaps) textures.insert(textures.end(), diffuseMaps.value().begin(), diffuseMaps.value().end());
+		// 2. specular maps
+		auto specularMaps = loadMaterialTextures(material, aiTextureType_SPECULAR);
+		if (specularMaps) textures.insert(textures.end(), specularMaps.value().begin(), specularMaps.value().end());
+		// 3. normal maps
+		auto normalMaps = loadMaterialTextures(material, aiTextureType_HEIGHT);
+		if (normalMaps) textures.insert(textures.end(), normalMaps.value().begin(), normalMaps.value().end());
+		// 4. height maps
+		auto heightMaps = loadMaterialTextures(material, aiTextureType_AMBIENT);
+		if (heightMaps) textures.insert(textures.end(), heightMaps.value().begin(), heightMaps.value().end());
+
+		return StaticMesh(vertices, indices, textures);
 	}
 
-	std::vector<Texture2D> Model::loadMaterialTextures(aiMaterial* mat, aiTextureType type, std::string typeName)
+	std::optional<std::vector<MaterialTexture>> Model::loadMaterialTextures(aiMaterial* mat, aiTextureType type)
 	{
-		return std::vector<Texture2D>();
+		std::vector<MaterialTexture> textures;
+		for (unsigned int i = 0; i < mat->GetTextureCount(type); i++)
+		{
+			aiString str;
+			mat->GetTexture(type, i, &str);
+
+			// check if texture was loaded before and if so, continue to next iteration: skip loading a new texture
+			bool skip = false;
+			for (unsigned int j = 0; j < mMaterial->mTextures.size(); j++)
+			{
+				if (std::strcmp(mMaterial->mTextures[j].path.data(), str.C_Str()) == 0)
+				{
+					textures.push_back(mMaterial->mTextures[j]);
+					skip = true; // a texture with the same filepath has already been loaded, continue to next one. (optimization)
+					break;
+				}
+			}
+			if (!skip)
+			{   // if texture hasn't been loaded already, load it
+				MaterialTexture texture;
+
+				std::string filename = std::string(str.C_Str());
+				filename = mDirectory + '/' + filename;
+				texture.texture2d = Texture2D::Create(filename);
+
+				switch (type)
+				{
+				case aiTextureType_DIFFUSE:
+					texture.type = TextureType::Albedo;
+				case aiTextureType_SPECULAR:
+					texture.type = TextureType::Specular;
+				case aiTextureType_HEIGHT:
+					texture.type = TextureType::Height;
+				case aiTextureType_AMBIENT:
+					texture.type = TextureType::AmbientOcclusion;
+				}
+				texture.path = str.C_Str();
+				textures.push_back(texture);
+				mMaterial->mTextures.push_back(texture);  // store it as texture loaded for entire model, to ensure we won't unnecesery load duplicate textures.
+			}
+		}
+
+		if (textures.empty()) return {};
+		return textures;
 	}
 }

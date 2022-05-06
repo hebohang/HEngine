@@ -4,6 +4,7 @@
 #include "Runtime/Renderer/VertexBuffer.h"
 #include "Runtime/Renderer/IndexBuffer.h"
 #include "Runtime/Renderer/Shader.h"
+#include "Runtime/Renderer/Material.h"
 
 namespace HEngine 
 {
@@ -22,6 +23,7 @@ namespace HEngine
 	{
 	public:
 		StaticMesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t> indices);
+		StaticMesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t> indices, const std::vector<MaterialTexture>& textures);
 
 		void Draw(const glm::mat4& transform, const Ref<Shader>& shader, int entityID);
 
@@ -29,6 +31,7 @@ namespace HEngine
 	private:
 		void SetupMesh(int entityID);
 	private:
+		std::vector<MaterialTexture> mTextures;
 		std::vector<Vertex> mVertices;
 		std::vector<uint32_t> mIndices;
 

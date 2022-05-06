@@ -3,6 +3,8 @@
 #include "Runtime/Renderer/StaticMesh.h"
 #include "Runtime/Renderer/RenderCommand.h"
 
+#include <Glad/glad.h>
+
 namespace HEngine 
 {
 	StaticMesh::StaticMesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t> indices)
@@ -26,12 +28,40 @@ namespace HEngine
 		mVertexArray->SetIndexBuffer(mIB);
 	}
 
+	StaticMesh::StaticMesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t> indices, const std::vector<MaterialTexture>& textures)
+		: mVertices(vertices), mIndices(indices), mTextures(textures)
+	{
+		mVertexArray = VertexArray::Create();
+
+		mVB = VertexBuffer::Create(sizeof(Vertex) * vertices.size());
+		mVB->SetLayout({
+					{ ShaderDataType::Float3, "a_Pos"},
+					{ ShaderDataType::Float3, "a_Normal"},
+					{ ShaderDataType::Float3, "a_Tangent"},
+					{ ShaderDataType::Float2, "a_TexCoord"},
+					{ ShaderDataType::Int,	  "a_EntityID"},
+			});
+
+		mVertexArray->AddVertexBuffer(mVB);
+
+		mIB = IndexBuffer::Create(indices.size());
+
+		mVertexArray->SetIndexBuffer(mIB);
+	}
+
 	void StaticMesh::Draw(const glm::mat4& transform, const Ref<Shader>& shader, int entityID)
 	{
+		glActiveTexture(GL_TEXTURE0);
+
 		SetupMesh(entityID);
 		shader->Bind();
 		shader->SetMat4("u_Model.Transform", (transform));
 		mVertexArray->Bind();
+
+		// Temp
+		mTextures[0].texture2d->Bind();
+		shader->SetInt("texture_diffuse", 0);
+
 		RenderCommand::DrawIndexed(mVertexArray, mIB->GetCount());
 	}
 

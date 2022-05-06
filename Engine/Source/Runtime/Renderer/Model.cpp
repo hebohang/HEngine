@@ -5,7 +5,13 @@
 
 namespace HEngine 
 {
-	void Model::Draw(const glm::mat4& transform, Ref<Shader>& shader, int entityID)
+	void Model::Draw(const glm::mat4& transform, int entityID)
+	{
+		for (unsigned int i = 0; i < mMeshes.size(); ++i)
+			mMeshes[i].Draw(transform, mMaterial->GetShader(), entityID);
+	}
+
+	void Model::Draw(const glm::mat4& transform, Ref<Shader> shader, int entityID)
 	{
 		for (unsigned int i = 0; i < mMeshes.size(); ++i)
 			mMeshes[i].Draw(transform, shader, entityID);
@@ -20,7 +26,7 @@ namespace HEngine
 	void Model::LoadModel(const std::string& path)
 	{
 		Assimp::Importer importer;
-		const aiScene* scene = importer.ReadFile(AssetManager::GetInstance().GetFullPath(path).string(), aiProcess_Triangulate | aiProcess_FlipUVs);
+		const aiScene* scene = importer.ReadFile(AssetManager::GetFullPath(path).string(), aiProcess_Triangulate | aiProcess_FlipUVs);
 
 		if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
 		{
@@ -51,6 +57,7 @@ namespace HEngine
 	{
 		std::vector<Vertex> vertices;
 		std::vector<uint32_t> indices;
+		std::vector<Texture2D> textures;
 
 		for (uint32_t i = 0; i < mesh->mNumVertices; ++i)
 		{
@@ -64,10 +71,13 @@ namespace HEngine
 			vertex.Pos = vector;
 
 			//normal
-			vector.x = mesh->mNormals[i].x;
-			vector.y = mesh->mNormals[i].y;
-			vector.z = mesh->mNormals[i].z;
-			vertex.Normal = vector;
+			if (mesh->HasNormals())
+			{
+				vector.x = mesh->mNormals[i].x;
+				vector.y = mesh->mNormals[i].y;
+				vector.z = mesh->mNormals[i].z;
+				vertex.Normal = vector;
+			}
 
 			//tangent
 			//vector.x = mesh->mTangents[i].x;
@@ -83,6 +93,8 @@ namespace HEngine
 				vec.y = mesh->mTextureCoords[0][i].y;
 				vertex.TexCoord = vec;
 			}
+			else
+				vertex.TexCoord = glm::vec2(0.0f, 0.0f);
 
 			vertex.EntityID = -1;
 
@@ -99,5 +111,10 @@ namespace HEngine
 		}
 
 		return StaticMesh(vertices, indices);
+	}
+
+	std::vector<Texture2D> Model::loadMaterialTextures(aiMaterial* mat, aiTextureType type, std::string typeName)
+	{
+		return std::vector<Texture2D>();
 	}
 }

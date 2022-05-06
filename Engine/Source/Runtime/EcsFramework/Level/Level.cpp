@@ -262,12 +262,10 @@ namespace HEngine
 	template<>
 	void Level::OnComponentAdded<CircleCollider2DComponent>(Entity entity, CircleCollider2DComponent& component)
 	{
-
 	}
 
 	template<>
 	void Level::OnComponentAdded<StaticMeshComponent>(Entity entity, StaticMeshComponent& component)
 	{
-		component.Mesh = Model(component.Path.string());
 	}
 }

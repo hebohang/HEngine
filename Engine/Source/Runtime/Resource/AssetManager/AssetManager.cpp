@@ -4,7 +4,7 @@
 
 namespace HEngine
 {
-    std::filesystem::path AssetManager::GetFullPath(const std::string& RelativePath) const
+    std::filesystem::path AssetManager::GetFullPath(const std::string& RelativePath)
     {
         return ConfigManager::GetInstance().GetRootFolder() / RelativePath;
     }

@@ -9,13 +9,11 @@ namespace HEngine
     class ConfigManager final : public PublicSingleton<ConfigManager>
     {
     public:
+        ConfigManager();
         ConfigManager(const ConfigManager&) = delete;
         ConfigManager& operator=(const ConfigManager&) = delete;
-        ConfigManager() = default;
 
     public:
-        void Initialize();
-
         void Clear();
 
         [[nodiscard]] const std::filesystem::path& GetRootFolder() const;

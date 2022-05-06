@@ -54,7 +54,7 @@ namespace HEngine
 
 		static void CreateCacheDirectoryIfNeeded()
 		{
-			std::string cacheDirectory = AssetManager::GetInstance().GetFullPath(GetCacheDirectory()).string();
+			std::string cacheDirectory = AssetManager::GetFullPath(GetCacheDirectory()).string();
 			if (!std::filesystem::exists(cacheDirectory))
 				std::filesystem::create_directories(cacheDirectory);
 		}
@@ -199,7 +199,7 @@ namespace HEngine
 		if (optimize)
 			options.SetOptimizationLevel(shaderc_optimization_level_performance);
 
-		std::filesystem::path cacheDirectory = AssetManager::GetInstance().GetFullPath(Utils::GetCacheDirectory());
+		std::filesystem::path cacheDirectory = AssetManager::GetFullPath(Utils::GetCacheDirectory());
 
 		auto& shaderData = mVulkanSPIRV;
 		shaderData.clear();
@@ -258,7 +258,7 @@ namespace HEngine
 		if (optimize)
 			options.SetOptimizationLevel(shaderc_optimization_level_performance);
 
-		std::filesystem::path cacheDirectory = AssetManager::GetInstance().GetFullPath(Utils::GetCacheDirectory());
+		std::filesystem::path cacheDirectory = AssetManager::GetFullPath(Utils::GetCacheDirectory());
 
 		shaderData.clear();
 		mOpenGLSourceCode.clear();

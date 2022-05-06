@@ -266,7 +266,7 @@ namespace HEngine
 			out << YAML::BeginMap;
 
 			auto& staticMeshComponent = entity.GetComponent<StaticMeshComponent>();
-			out << YAML::Key << "Path" << YAML::Value << staticMeshComponent.Path.string().c_str();
+			out << YAML::Key << "Path" << YAML::Value << staticMeshComponent.Path.c_str();
 
 			out << YAML::EndMap;
 		}

@@ -59,6 +59,7 @@ https://docs.unrealengine.com/4.27/zh-CN/ProductionPipelines/DevelopmentSetup/Co
 1. 如果是类内部成员变量，在前面加小写字母m
 1. 如果是bool类型变量，在前面加小写字母b
 1. 类内成员统一放在类的最末尾（方法置于前）
+1. 默认情况下 std::string 为相对路径，而 std::filesystem::path 为绝对路径，相对路径到绝对路径需要由
 
 ## Getting Started
 **1. Downloading the repository**

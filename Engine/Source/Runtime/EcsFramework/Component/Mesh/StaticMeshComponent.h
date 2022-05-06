@@ -13,15 +13,15 @@ namespace HEngine
 		StaticMeshComponent() = default;
 		StaticMeshComponent(const StaticMeshComponent&) = default;
 		StaticMeshComponent(const std::string & path)
-			: Path(path)
+			: Path(path), Mesh(path)
 		{
 		}
-		StaticMeshComponent(const std::filesystem::path& path)
-			: Path(path)
-		{
-		}
+		//StaticMeshComponent(const std::filesystem::path& path)
+		//	: Path(path)
+		//{
+		//}
 
+		std::string Path;
 		Model Mesh;
-		std::filesystem::path Path;
     };
 }

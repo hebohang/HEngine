@@ -3,7 +3,7 @@
 
 namespace HEngine
 {
-    void ConfigManager::Initialize()
+    ConfigManager::ConfigManager()
     {
         mRootFolder = { HE_XSTRINGIFY_MACRO(ENGINE_ROOT_DIR) };
         mAssetsFolder = mRootFolder / "Assets";

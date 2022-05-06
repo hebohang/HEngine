@@ -49,7 +49,6 @@ namespace HEngine
 	void Application::Init(const std::string& name)
 	{
 		Log::Init();
-		ConfigManager::GetInstance().Initialize();
 
 		mWindow = Window::Create(WindowProps(name));
 		mWindow->SetEventCallback(HE_BIND_EVENT_FN(Application::OnEvent));

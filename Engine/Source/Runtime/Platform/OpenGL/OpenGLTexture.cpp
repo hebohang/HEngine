@@ -131,7 +131,7 @@ namespace HEngine
         int nrChannels = 0;
         for (unsigned int i = 0; i < mPaths.size(); i++)
         {
-            unsigned char* data = stbi_load(AssetManager::GetInstance().GetFullPath(mPaths[i]).string().c_str(), &width, &height, &nrChannels, 0);
+            unsigned char* data = stbi_load(AssetManager::GetFullPath(mPaths[i]).string().c_str(), &width, &height, &nrChannels, 0);
             if (data)
             {
                 glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i,

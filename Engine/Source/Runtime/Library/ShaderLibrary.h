@@ -12,7 +12,7 @@ namespace HEngine
     public:
         ShaderLibrary();
 
-        static Ref<Shader> GetDefaultShader() { return ShaderLibrary::GetInstance().Get("Common"); }
+        static Ref<Shader> GetDefaultShader();
 
         void Add(const std::string& name, const Ref<Shader>& shader);
         void Add(const Ref<Shader>& shader);

@@ -32,8 +32,8 @@ namespace HEngine
 		}
 
 		void SetShader(Ref<Shader> shader) { mMaterial->SetShader(shader); };
-		void Draw(const glm::mat4& transform, int entityID);
-		void Draw(const glm::mat4& transform, Ref<Shader> shader, int entityID);
+		void Draw(const glm::mat4& transform, const glm::vec3& cameraPos, int entityID);
+		void Draw(const glm::mat4& transform, const glm::vec3& cameraPos, Ref<Shader> shader, int entityID);
 
 		void Draw();
 	private:

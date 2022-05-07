@@ -49,10 +49,10 @@ struct VertexOutput
 layout (location = 0) in VertexOutput Input;
 layout (location = 3) in flat int v_EntityID;
 
-layout(location = 0) out vec4 color;
-layout(location = 1) out int color2;
-
-layout(binding = 0) uniform sampler2D texture_diffuse;
+layout (location = 0) out vec4 color;
+layout (location = 1) out int color2;
+	   
+layout (binding = 0) uniform sampler2D texture_diffuse;
 
 void main()
 {

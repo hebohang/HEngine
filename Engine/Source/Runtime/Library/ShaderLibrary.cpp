@@ -1,6 +1,6 @@
 #include "hepch.h"
 
-#include "Runtime/Renderer/ShaderLibrary.h"
+#include "Runtime/Library/ShaderLibrary.h"
 #include "Runtime/Resource/AssetManager/AssetManager.h"
 
 namespace HEngine
@@ -8,6 +8,12 @@ namespace HEngine
     ShaderLibrary::ShaderLibrary()
     {
         Add("Common", AssetManager::GetFullPath("Shaders/Common.glsl"));
+        Add("BasePBR", AssetManager::GetFullPath("Shaders/BasePBR.glsl"));
+    }
+
+    Ref<Shader> ShaderLibrary::GetDefaultShader()
+    {
+        return ShaderLibrary::GetInstance().Get("BasePBR");
     }
 
     void ShaderLibrary::Add(const std::string& name, const Ref<Shader>& shader)

@@ -262,6 +262,9 @@ namespace HEngine
 
 		shaderData.clear();
 		mOpenGLSourceCode.clear();
+
+		int binding = 0;
+
 		for (auto&& [stage, spirv] : mVulkanSPIRV)
 		{
 			spirv_cross::CompilerGLSL glslCompiler(spirv);
@@ -285,7 +288,7 @@ namespace HEngine
 			{
 				// from https://github.com/KhronosGroup/SPIRV-Cross/issues/887
 				auto resources = glslCompiler.get_shader_resources();
-				glslCompiler.set_decoration(resources.push_constant_buffers.front().id, spv::DecorationLocation, 0);
+				glslCompiler.set_decoration(resources.push_constant_buffers.front().id, spv::DecorationLocation, binding);
 				// end from
 
 				mOpenGLSourceCode[stage] = glslCompiler.compile();
@@ -308,7 +311,10 @@ namespace HEngine
 					out.flush();
 					out.close();
 				}
+
+				binding++;
 			}
+
 		}
 
 		// Get uniform locations

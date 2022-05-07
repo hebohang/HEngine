@@ -25,7 +25,7 @@ namespace HEngine
 		StaticMesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t> indices);
 		StaticMesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t> indices, const std::vector<MaterialTexture>& textures);
 
-		void Draw(const glm::mat4& transform, const Ref<Shader>& shader, int entityID);
+		void Draw(const glm::mat4& transform, const glm::vec3& cameraPos, const Ref<Shader>& shader, int entityID);
 
 		void Draw();
 	private:

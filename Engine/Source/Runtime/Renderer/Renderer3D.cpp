@@ -6,7 +6,7 @@
 #include "Runtime/Renderer/Shader.h"
 #include "Runtime/Renderer/RenderCommand.h"
 #include "Runtime/Renderer/UniformBuffer.h"
-#include "Runtime/Renderer/ShaderLibrary.h"
+#include "Runtime/Library/ShaderLibrary.h"
 
 #include "Runtime/Resource/AssetManager/AssetManager.h"
 
@@ -53,9 +53,9 @@ namespace HEngine
 	{
 	}
 
-	void Renderer3D::DrawModel(const glm::mat4& transform, StaticMeshComponent& MeshComponent, int EntityID)
+	void Renderer3D::DrawModel(const glm::mat4& transform, const glm::vec3& cameraPos, StaticMeshComponent& MeshComponent, int EntityID)
 	{
-		MeshComponent.Mesh.Draw(transform, EntityID);
+		MeshComponent.Mesh.Draw(transform, cameraPos, EntityID);
 	}
 
 	void Renderer3D::BeginScene(const Camera& camera, const glm::mat4& transform)

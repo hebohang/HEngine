@@ -2,7 +2,7 @@
 
 #include "Runtime/Renderer/Texture.h"
 #include "Runtime/Renderer/Shader.h"
-#include "Runtime/Renderer/ShaderLibrary.h"
+#include "Runtime/Library/ShaderLibrary.h"
 
 #include <unordered_map>
 
@@ -21,13 +21,13 @@ namespace HEngine
     enum class TextureType
     {
         Albedo = 0,
-        Normal = 1,
-        Specular = 2,
-        Metalness = 3,
-        Roughness = 4,
-        AmbientOcclusion = 5,
-        Height = 6,
-        Emission = 7,
+        Normal,
+        Metalness,
+        Roughness,
+        AmbientOcclusion,
+        Specular,
+        Height,
+        Emission,
     };
 
     struct MaterialTexture

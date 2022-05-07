@@ -35,7 +35,6 @@ namespace HEngine
 
     void EditorLayer::OnAttach()
     {
-        mCheckerboardTexture = Texture2D::Create(AssetManager::GetFullPath("Assets/textures/Checkerboard.png"));
         mIconPlay = Texture2D::Create(AssetManager::GetFullPath("Resources/Icons/PlayButton.png"));
         mIconStop = Texture2D::Create(AssetManager::GetFullPath("Resources/Icons/StopButton.png"));
 

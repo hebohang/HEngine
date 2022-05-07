@@ -66,8 +66,6 @@ namespace HEngine
 
 		EditorCamera mEditorCamera;
 
-        Ref<Texture2D> mCheckerboardTexture;
-
         bool mViewportFocused = false, mViewportHovered = false;
         glm::vec2 mViewportSize = { 0.0f, 0.0f };
 		glm::vec2 mViewportBounds[2];

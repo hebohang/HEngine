@@ -69,6 +69,10 @@ namespace HEngine
 
 			stbi_image_free(data);
 		}
+        else
+        {
+            throw "Load Texture Failed!";
+        }
     }
 
     OpenGLTexture2D::~OpenGLTexture2D()

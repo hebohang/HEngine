@@ -3,8 +3,6 @@
 #include "Runtime/Renderer/StaticMesh.h"
 #include "Runtime/Renderer/RenderCommand.h"
 
-#include <Glad/glad.h>
-
 namespace HEngine 
 {
 	StaticMesh::StaticMesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t> indices)
@@ -51,15 +49,14 @@ namespace HEngine
 
 	void StaticMesh::Draw(const glm::mat4& transform, const Ref<Shader>& shader, int entityID)
 	{
-		glActiveTexture(GL_TEXTURE0);
-
 		SetupMesh(entityID);
 		shader->Bind();
 		shader->SetMat4("u_Model.Transform", (transform));
 		mVertexArray->Bind();
 
 		// Temp
-		mTextures[0].texture2d->Bind();
+		if (!mTextures.empty())
+			mTextures[0].texture2d->Bind();
 		shader->SetInt("texture_diffuse", 0);
 
 		RenderCommand::DrawIndexed(mVertexArray, mIB->GetCount());

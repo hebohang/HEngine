@@ -160,7 +160,15 @@ namespace HEngine
 
 				std::string filename = std::string(str.C_Str());
 				filename = mDirectory + '/' + filename;
-				texture.texture2d = Texture2D::Create(filename);
+				try
+				{
+					texture.texture2d = Texture2D::Create(filename);
+				}
+				catch (...)
+				{
+					HE_CORE_WARN("Load Texture failed!");
+					texture.texture2d = Texture2D::Create(AssetManager::GetFullPath("Assets/Textures/DefaultTexture.png"));
+				}
 
 				switch (type)
 				{

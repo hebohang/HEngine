@@ -25,12 +25,14 @@ namespace HEngine
 		{
 			mSystems.emplace_back(CreateScope<RenderSystem3D>(this));
 			mSystems.emplace_back(CreateScope<PhysicSystem3D>(this));
+			mSystems.emplace_back(CreateScope<EnvironmentSystem>(this));
 		}
 		else
 		{
 			mSystems.emplace_back(CreateScope<PhysicSystem2D>(this));
 			mSystems.emplace_back(CreateScope<NativeScriptSystem>(this));
 			mSystems.emplace_back(CreateScope<RenderSystem2D>(this));
+			mSystems.emplace_back(CreateScope<EnvironmentSystem>(this));
 		}
     }
 
@@ -111,6 +113,7 @@ namespace HEngine
 			mSystems.clear();
 			mSystems.emplace_back(CreateScope<RenderSystem3D>(this));
 			mSystems.emplace_back(CreateScope<PhysicSystem3D>(this));
+			mSystems.emplace_back(CreateScope<EnvironmentSystem>(this));
 		}
 		else
 		{
@@ -118,6 +121,7 @@ namespace HEngine
 			mSystems.emplace_back(CreateScope<PhysicSystem2D>(this));
 			mSystems.emplace_back(CreateScope<NativeScriptSystem>(this));
 			mSystems.emplace_back(CreateScope<RenderSystem2D>(this));
+			mSystems.emplace_back(CreateScope<EnvironmentSystem>(this));
 		}
 	}
 

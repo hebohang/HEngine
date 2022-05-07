@@ -1,5 +1,7 @@
 #include "Editor/Panels/SceneSettingsPanel.h"
 #include "Editor/IconManager/IconManager.h"
+#include "Editor/ImGuiWrapper/ImGuiWrapper.h"
+#include "Runtime/Resource/ModeManager/ModeManager.h"
 #include "Runtime/Resource/ConfigManager/ConfigManager.h"
 #include "Runtime/Resource/AssetManager/AssetManager.h"
 #include "Runtime/Renderer/Renderer3D.h"
@@ -32,6 +34,14 @@ namespace HEngine
             return;
         }
 
+		const char* modes[] = { "None", "Environment Hdr", "Sky Box" };
+		ImGui::Text("Mode");
+		ImGui::SameLine();
+		if (ImGui::Combo("##Mode", (int*)(&ModeManager::mSceneMode), modes, IM_ARRAYSIZE(modes)))
+		{
+
+		}
+
 		const auto& SkyBoxTreeNode = [&mPaths = mPaths](const char* nodeName, Ref<Texture>& tex, uint32_t pathIndex) {
 			if (ImGui::TreeNode(nodeName))
 			{
@@ -55,7 +65,7 @@ namespace HEngine
 		};
 
 		//Sky Box
-		if (ImGui::TreeNode("SkyBox"))
+		if (ImGuiWrapper::TreeNodeExStyle1((void*)"SkyBox", "SkyBox"))
 		{
 			if (ImGui::Button("Update"))
 			{

@@ -62,7 +62,5 @@ namespace HEngine
 		}
 
 		Renderer3D::EndScene();
-
-		Renderer3D::DrawSkyBox(camera);
 	}
 }

@@ -3,6 +3,8 @@
 #include "Runtime/Resource/AssetManager/AssetManager.h"
 #include "Runtime/Renderer/Model.h"
 
+#include <regex>
+
 namespace HEngine 
 {
 	void Model::Draw(const glm::mat4& transform, const glm::vec3& cameraPos, int entityID)
@@ -34,7 +36,8 @@ namespace HEngine
 			return;
 		}
 
-		mDirectory = path.substr(0, path.find_last_not_of('/') + 1);
+		std::string standardPath = std::regex_replace(path, std::regex("\\\\"), "/");
+		mDirectory = standardPath.substr(0, standardPath.find_last_of('/'));
 
 		ProcessNode(scene->mRootNode, scene);
 	}
@@ -119,18 +122,15 @@ namespace HEngine
 		// specular: texture_specularN
 		// normal: texture_normalN
 
-		// 1. diffuse maps
-		auto diffuseMaps = loadMaterialTextures(material, aiTextureType_DIFFUSE);
-		if (diffuseMaps) textures.insert(textures.end(), diffuseMaps.value().begin(), diffuseMaps.value().end());
-		// 2. specular maps
-		auto specularMaps = loadMaterialTextures(material, aiTextureType_SPECULAR);
-		if (specularMaps) textures.insert(textures.end(), specularMaps.value().begin(), specularMaps.value().end());
-		// 3. normal maps
-		auto normalMaps = loadMaterialTextures(material, aiTextureType_HEIGHT);
-		if (normalMaps) textures.insert(textures.end(), normalMaps.value().begin(), normalMaps.value().end());
-		// 4. height maps
-		auto heightMaps = loadMaterialTextures(material, aiTextureType_AMBIENT);
-		if (heightMaps) textures.insert(textures.end(), heightMaps.value().begin(), heightMaps.value().end());
+		const auto& loadTexture = [&](aiTextureType type) {
+			auto maps = loadMaterialTextures(material, type);
+			if (maps) textures.insert(textures.end(), maps.value().begin(), maps.value().end());
+		};
+
+		for (uint32_t type = aiTextureType_NONE; type < aiTextureType_TRANSMISSION; type++)
+		{
+			loadTexture(static_cast<aiTextureType>(type));
+		}
 
 		return StaticMesh(vertices, indices, textures);
 	}
@@ -174,12 +174,34 @@ namespace HEngine
 				{
 				case aiTextureType_DIFFUSE:
 					texture.type = TextureType::Albedo;
+					break;
 				case aiTextureType_SPECULAR:
 					texture.type = TextureType::Specular;
+					break;
 				case aiTextureType_HEIGHT:
 					texture.type = TextureType::Height;
+					break;
 				case aiTextureType_AMBIENT:
 					texture.type = TextureType::AmbientOcclusion;
+					break;
+				case aiTextureType_BASE_COLOR:
+					texture.type = TextureType::Albedo;
+					break;
+				case aiTextureType_NORMAL_CAMERA:
+					texture.type = TextureType::Normal;
+					break;
+				case aiTextureType_EMISSION_COLOR:
+					texture.type = TextureType::Emission;
+					break;
+				case aiTextureType_METALNESS:
+					texture.type = TextureType::Metalness;
+					break;
+				case aiTextureType_DIFFUSE_ROUGHNESS:
+					texture.type = TextureType::Roughness;
+					break;
+				case aiTextureType_AMBIENT_OCCLUSION:
+					texture.type = TextureType::AmbientOcclusion;
+					break;
 				}
 				texture.path = str.C_Str();
 				textures.push_back(texture);

@@ -146,6 +146,7 @@ if(NOT TARGET assimp)
 endif()
 
 if(NOT TARGET bullet3)
+    OPTION(BUILD_CPU_DEMOS "Build original Bullet CPU examples" OFF)
     add_subdirectory(bullet3)
 endif()
 

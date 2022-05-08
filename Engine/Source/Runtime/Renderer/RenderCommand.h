@@ -43,64 +43,76 @@ namespace HEngine
 		}
 
 		//Open/Close Depth Write
-		inline static void DepthMask(int32_t MaskBit)
+		static void DepthMask(int32_t MaskBit)
 		{
 			sRendererAPI->DepthMask(MaskBit);
 		}
 
 		//Open/Close Depth Test
-		inline static void DepthTest(int32_t Bit)
+		static void DepthTest(int32_t Bit)
 		{
 			sRendererAPI->DepthTest(Bit);
 		}
 
-		inline static void DepthFunc(DepthComp comp)
+		static void DepthFunc(DepthComp comp)
 		{
 			sRendererAPI->DepthFunc(comp);
 		}
 
 		//blend
-		inline static void Blend(int32_t Bit)
+		static void Blend(int32_t Bit)
 		{
 			sRendererAPI->Blend(Bit);
 		}
 
-		inline static void BindTexture(int32_t slot, uint32_t textureID)
+		static void BindTexture(int32_t slot, uint32_t textureID)
 		{
 			sRendererAPI->BindTexture(slot, textureID);
 		}
 
 		//stencil
-		inline static void StencilTest(int32_t Bit)
+		static void StencilTest(int32_t Bit)
 		{
 			sRendererAPI->StencilTest(Bit);
 		}
 
-		inline static void SetStencilFunc(StencilFunc stencilFunc, int32_t ref, int32_t mask)
+		static void SetStencilFunc(StencilFunc stencilFunc, int32_t ref, int32_t mask)
 		{
 			sRendererAPI->SetStencilFunc(stencilFunc, ref, mask);
 		}
 
-		inline static void SetFrontOrBackStencilOp(int32_t FrontOrBack, StencilOp stencilFail, StencilOp depthFail, StencilOp depthSuccess)
+		static void SetFrontOrBackStencilOp(int32_t FrontOrBack, StencilOp stencilFail, StencilOp depthFail, StencilOp depthSuccess)
 		{
 			sRendererAPI->SetFrontOrBackStencilOp(FrontOrBack, stencilFail, depthFail, depthSuccess);
 		}
 
-		inline static void ClearStencil()
+		static void ClearStencil()
 		{
 			sRendererAPI->ClearStencil();
 		}
 
 		//cull
-		inline static void Cull(int32_t Bit)
+		static void Cull(int32_t Bit)
 		{
 			sRendererAPI->Cull(Bit);
 		}
 
-		inline static void CullFrontOrBack(int32_t Bit)
+		static void CullFrontOrBack(int32_t Bit)
 		{
 			sRendererAPI->CullFrontOrBack(Bit);
 		}
+		
+		// framebuffer
+		[[nodiscard]] static int GetDrawFrameBuffer()
+		{
+			return sRendererAPI->GetDrawFrameBuffer();
+		}
+
+		static void BindFrameBuffer(uint32_t framebufferID)
+		{
+			sRendererAPI->BindFrameBuffer(framebufferID);
+		}
+
     private:
         static Scope<RendererAPI> sRendererAPI;
     };

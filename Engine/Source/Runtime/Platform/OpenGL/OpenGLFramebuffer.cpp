@@ -345,4 +345,9 @@ namespace HEngine
 		//return mColorAttachments[index];
 		return screenTexture;
 	}
+
+	void OpenGLFramebuffer::FramebufferTexture2D(uint32_t cubemapIndex, uint32_t cubemapID, uint32_t slot)
+	{
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + slot, GL_TEXTURE_CUBE_MAP_POSITIVE_X + cubemapIndex, cubemapID, 0);
+	}
 }

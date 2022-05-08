@@ -121,46 +121,34 @@ namespace HEngine
 
 		Ref<CubeMapTexture> envCubemap = Library<CubeMapTexture>::GetInstance().Get("EnvironmentHdr");
 
-		unsigned int captureFBO;
-		unsigned int captureRBO;
-		glGenFramebuffers(1, &captureFBO);
-		glGenRenderbuffers(1, &captureRBO);
+		int framebufferOld = 0;
+		framebufferOld = RenderCommand::GetDrawFrameBuffer();
 
-		glBindFramebuffer(GL_FRAMEBUFFER, captureFBO);
-		glBindRenderbuffer(GL_RENDERBUFFER, captureRBO);
-		glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, 512, 512);
-		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, captureRBO);
-
-		//FramebufferSpecification fbSpec;
-		//fbSpec.Attachments = { FramebufferTextureFormat::Depth };
-		//fbSpec.Width = 512;
-		//fbSpec.Height = 512;
-		//static Ref<Framebuffer> captureFBO = Framebuffer::Create(fbSpec);
-		//glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, captureRBO);
+		FramebufferSpecification fbSpec;
+		fbSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::Depth };
+		fbSpec.Width = 512;
+		fbSpec.Height = 512;
+		static Ref<Framebuffer> captureFBO = Framebuffer::Create(fbSpec);
 
 		hdrTex->Bind();
-		//captureFBO->Bind();
-		glBindFramebuffer(GL_FRAMEBUFFER, captureFBO);
+		captureFBO->Bind();
 		RenderCommand::SetViewport(0, 0, envCubemap->GetWidth(), envCubemap->GetHeight());
-		//captureFBO->Bind();
-		//captureFBO->BindDrawFramebuffer();
 		for (unsigned int i = 0; i < 6; ++i)
 		{
 			equirectangularToCubemapShader->SetMat4("view", captureViews[i]);
-			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, envCubemap->GetRendererID(), 0);
+			captureFBO->FramebufferTexture2D(i, envCubemap->GetRendererID());
 			RenderCommand::Clear();
 
 			Library<Model>::GetInstance().Get("Box")->Draw();
 		}
-		//captureFBO->Unbind();
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		captureFBO->Unbind();
 
 		RenderCommand::SetViewport(0, 0, ConfigManager::mViewportSize.x, ConfigManager::mViewportSize.y);
 
 		envCubemap->Bind(0);
-		glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
+		envCubemap->GenerateMipmap();
 
-		glBindFramebuffer(GL_FRAMEBUFFER, 1);
+		RenderCommand::BindFrameBuffer(framebufferOld);
 		RenderCommand::DepthFunc(DepthComp::LEQUAL);
 		Library<Shader>::GetInstance().GetSkyBoxShader()->Bind();
 		Library<Shader>::GetInstance().GetSkyBoxShader()->SetInt("SkyBox", 0);

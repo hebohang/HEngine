@@ -69,7 +69,11 @@ namespace HEngine
         virtual void Cull(int32_t Bit) = 0;
         virtual void CullFrontOrBack(int32_t Bit) = 0;
 
+        [[nodiscard]] virtual int GetDrawFrameBuffer() = 0;
+
         [[nodiscard]] static RendererAPIType Current() { return sCurrentRendererAPI; }
+
+        virtual void BindFrameBuffer(uint32_t framebufferID) = 0;
     private:
         static inline RendererAPIType sCurrentRendererAPI = RendererAPIType::OpenGL;
     };

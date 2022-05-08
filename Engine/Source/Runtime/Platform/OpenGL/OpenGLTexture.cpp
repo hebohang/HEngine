@@ -137,6 +137,11 @@ namespace HEngine
         mPaths[(uint32_t)faceIndex] = path;
     }
 
+    void OpenGLCubeMapTexture::GenerateMipmap()
+    {
+        glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
+    }
+
     void OpenGLCubeMapTexture::Bind(uint32_t slot) const
     {
         glActiveTexture(GL_TEXTURE0 + slot);

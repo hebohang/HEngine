@@ -48,6 +48,7 @@ namespace HEngine
     {
     public:
         virtual void SetFace(FaceTarget faceIndex, const std::string& path) = 0;
+        virtual void GenerateMipmap() = 0;
         static Ref<CubeMapTexture> Create(std::vector<std::string>& paths);
         static Ref<CubeMapTexture> Create();
 

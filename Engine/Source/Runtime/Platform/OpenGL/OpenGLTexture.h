@@ -48,6 +48,7 @@ namespace HEngine
         virtual uint32_t GetRendererID() const override { return mRendererID; }
 
         virtual void SetFace(FaceTarget faceIndex, const std::string& path) override;
+        virtual void GenerateMipmap() override;
 
         virtual void Bind(uint32_t slot = 0) const override;
         virtual void UnBind() const override;

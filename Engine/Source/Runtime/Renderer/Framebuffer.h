@@ -66,6 +66,8 @@ namespace HEngine
 
 		[[nodiscard]] virtual const FramebufferSpecification& GetSpecification() const = 0;
 
+		virtual void FramebufferTexture2D(uint32_t cubemapIndex, uint32_t cubemapID, uint32_t slot = 0) = 0;
+
         static Ref<Framebuffer> Create(const FramebufferSpecification& spec);
     };
 }

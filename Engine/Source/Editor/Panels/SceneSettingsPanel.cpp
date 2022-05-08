@@ -4,17 +4,18 @@
 #include "Runtime/Resource/ModeManager/ModeManager.h"
 #include "Runtime/Resource/ConfigManager/ConfigManager.h"
 #include "Runtime/Resource/AssetManager/AssetManager.h"
-#include "Runtime/Library/Library.h"
+#include "Runtime/Library/TextureLibrary.h"
 
 #include <imgui/imgui.h>
 
 #include <regex>
+#include <filesystem>
 
 namespace HEngine 
 {
     SceneSettingsPanel::SceneSettingsPanel()
     {
-		Ref<Texture> mDefaultTexture = IconManager::GetInstance().GetNullTexture();
+		Ref<Texture2D> mDefaultTexture = IconManager::GetInstance().GetNullTexture();
 
         mPaths = std::vector<std::string>(6);
         mRight  = mDefaultTexture;
@@ -42,7 +43,7 @@ namespace HEngine
 
 		}
 
-		const auto& SkyBoxTreeNode = [&mPaths = mPaths](const char* nodeName, Ref<Texture>& tex, uint32_t pathIndex) {
+		const auto& SkyBoxTreeNode = [&mPaths = mPaths](const char* nodeName, Ref<Texture2D>& tex, uint32_t pathIndex) {
 			if (ImGui::TreeNode(nodeName))
 			{
 				ImGui::Image((ImTextureID)tex->GetRendererID(), ImVec2(64, 64), ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
@@ -64,22 +65,48 @@ namespace HEngine
 			}
 		};
 
-		//Sky Box
-		if (ImGuiWrapper::TreeNodeExStyle1((void*)"SkyBox", "SkyBox"))
+		if (ModeManager::mSceneMode == SceneMode::SkyBox)
 		{
-			if (ImGui::Button("Update"))
+			//Sky Box
+			if (ImGuiWrapper::TreeNodeExStyle1((void*)"SkyBox", "SkyBox"))
 			{
-				Library<CubeMapTexture>::GetInstance().Get("SkyBoxTexture")->Generate();
+				if (ImGui::Button("Update"))
+				{
+					Library<CubeMapTexture>::GetInstance().Get("SkyBoxTexture")->Generate();
+				}
+
+				SkyBoxTreeNode("Right +X", mRight, 0);
+				SkyBoxTreeNode("Left -X", mLeft, 1);
+				SkyBoxTreeNode("Top +Y", mTop, 2);
+				SkyBoxTreeNode("Bottom -Y", mBottom, 3);
+				SkyBoxTreeNode("Front +Z", mFront, 4);
+				SkyBoxTreeNode("Back -Z", mBack, 5);
+
+				ImGui::TreePop();
 			}
+		}
+		else if (ModeManager::mSceneMode == SceneMode::EnvironmentHdr)
+		{
+			if (ImGuiWrapper::TreeNodeExStyle1((void*)"Environment Hdr", "Environment Hdr"))
+			{
+				ImGui::Image((ImTextureID)Library<Texture2D>::GetInstance().Get("DefaultHdr")->GetRendererID(), ImVec2(64, 64), ImVec2{0, 1}, ImVec2{1, 0});
+				if (ImGui::BeginDragDropTarget())
+				{
+					if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+					{
+						auto path = (const wchar_t*)payload->Data;
+						std::string relativePath = (std::filesystem::path("Assets") / path).string();
+						std::filesystem::path texturePath = ConfigManager::GetInstance().GetAssetsFolder() / path;
+						relativePath = std::regex_replace(relativePath, std::regex("\\\\"), "/");
+						Library<Texture2D>::GetInstance().Set("DefaultHdr", IconManager::GetInstance().LoadOrFindTexture(relativePath));
+					}
+					ImGui::EndDragDropTarget();
+				}
+				ImGui::SameLine();
+				ImGui::Checkbox("Use", &ModeManager::bHdrUse);
 
-			SkyBoxTreeNode("Right +X",  mRight,  0);
-			SkyBoxTreeNode("Left -X",   mLeft,   1);
-			SkyBoxTreeNode("Top +Y",    mTop,    2);
-			SkyBoxTreeNode("Bottom -Y", mBottom, 3);
-			SkyBoxTreeNode("Front +Z",  mFront,  4);
-			SkyBoxTreeNode("Back -Z",   mBack,   5);
-
-			ImGui::TreePop();
+				ImGui::TreePop();
+			}
 		}
 
         ImGui::End();

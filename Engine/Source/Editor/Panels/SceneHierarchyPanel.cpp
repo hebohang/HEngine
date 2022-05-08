@@ -83,12 +83,13 @@ namespace HEngine
 
         ImGuiTreeNodeFlags flags = ((mSelectionContext == entity) ? ImGuiTreeNodeFlags_Selected : 0) | ImGuiTreeNodeFlags_OpenOnArrow;
         flags |= ImGuiTreeNodeFlags_SpanAvailWidth;
-        bool opened = ImGui::TreeNodeEx((void*)(uint64_t)(uint32_t)entity, flags, name);
+
+		std::string label = std::string("##") + std::string(name);
+        bool opened = ImGui::TreeNodeEx((void*)(uint64_t)(uint32_t)entity, flags, "");
         if (ImGui::IsItemClicked())
         {
             mSelectionContext = entity;
         }
-
         bool entityDeleted = false;
         if (ImGui::BeginPopupContextItem())
         {
@@ -97,13 +98,16 @@ namespace HEngine
 
             ImGui::EndPopup();
         }
+		float lineHeight = GImGui->Font->FontSize + GImGui->Style.FramePadding.y * 2.0f;
+		ImGui::SameLine();
+		ImGui::PushStyleColor(ImGuiCol_Button, (ImVec4)ImColor(1.0f, 1.0f, 1.0f, 0.0f));
+		ImGui::Image((ImTextureID)IconManager::GetInstance().Get("EntityIcon")->GetRendererID(), ImVec2{lineHeight - 5.0f, lineHeight - 5.0f}, { 0, 1 }, { 1, 0 });
+		ImGui::PopStyleColor(1);
+		ImGui::SameLine();
+		ImGui::Text(name);
 
         if (opened)
         {
-            ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
-            bool opened = ImGui::TreeNodeEx((void*)231313, flags, name);  // just test
-            if (opened)
-                ImGui::TreePop();
             ImGui::TreePop();
         }
 

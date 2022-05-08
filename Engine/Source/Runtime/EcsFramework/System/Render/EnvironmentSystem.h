@@ -16,5 +16,6 @@ namespace HEngine
 		void OnUpdateEditor(Timestep ts, EditorCamera& camera) override;
 	private:
 		void DrawSkyBox(const glm::mat4& ViewMatrix, const glm::mat4& ProjectMatrix);
+		void DrawEnvironmentHdr(const glm::mat4& ViewMatrix, const glm::mat4& ProjectMatrix);
 	};
 }

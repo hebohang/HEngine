@@ -3,6 +3,8 @@
 
 namespace HEngine
 {
+    glm::vec2 ConfigManager::mViewportSize = { 0.0f, 0.0f };
+
     ConfigManager::ConfigManager()
     {
         mRootFolder = { HE_XSTRINGIFY_MACRO(ENGINE_ROOT_DIR) };

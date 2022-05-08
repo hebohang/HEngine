@@ -10,16 +10,16 @@ namespace HEngine
         SceneSettingsPanel();
 
         void OnImGuiRender(bool* pOpen);
-
+        
     private:
         std::vector<std::string> mPaths;
 
-        //Visualization
-        Ref<Texture> mRight;
-        Ref<Texture> mLeft;
-        Ref<Texture> mTop;
-        Ref<Texture> mBottom;
-        Ref<Texture> mFront;
-        Ref<Texture> mBack;
+        // SkyBox
+        Ref<Texture2D> mRight;
+        Ref<Texture2D> mLeft;
+        Ref<Texture2D> mTop;
+        Ref<Texture2D> mBottom;
+        Ref<Texture2D> mFront;
+        Ref<Texture2D> mBack;
     };
 }

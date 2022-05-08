@@ -3,6 +3,7 @@
 #include "Runtime/Core/Base/PublicSingleton.h"
 
 #include <filesystem>
+#include <glm/glm.hpp>
 
 namespace HEngine
 {
@@ -21,6 +22,7 @@ namespace HEngine
         [[nodiscard]] const std::filesystem::path& GetShadersFolder() const;
         [[nodiscard]] const std::filesystem::path& GetResourcesFolder() const;
 
+        static glm::vec2 mViewportSize;
     private:
         std::filesystem::path mRootFolder;
         std::filesystem::path mAssetsFolder;

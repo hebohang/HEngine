@@ -1,23 +1,23 @@
 #pragma once 
 
-#include "Runtime/Core/Base/PublicSingleton.h"
 #include "Runtime/Renderer/UniformBuffer.h"
+#include "Runtime/Library/Library.h"
 
-#include <unordered_map>
+#include <glm/glm.hpp>
 
 namespace HEngine
 {
-    class UniformBufferLibrary : public PublicSingleton<UniformBufferLibrary>
+    struct CameraData
+    {
+        glm::mat4 ViewProjection;
+    };
+
+    template<>
+    class Library<UniformBuffer> : public LibraryBase<Library, UniformBuffer>
     {
     public:
-        UniformBufferLibrary();
+        Library();
 
-        void AddUniformBuffer(const std::string& name, const Ref<UniformBuffer>& texture);
-
-        [[nodiscard]] Ref<UniformBuffer> GetUniformBuffer(const std::string& name);
-
-        [[nodiscard]] Ref<UniformBuffer> GetCameraUniformBuffer() { return mUniformBufferLibrary["CameraUniform"]; }
-    private:
-        std::unordered_map<std::string, Ref<UniformBuffer>> mUniformBufferLibrary;
+        [[nodiscard]] Ref<UniformBuffer> GetCameraUniformBuffer();
     };
 }

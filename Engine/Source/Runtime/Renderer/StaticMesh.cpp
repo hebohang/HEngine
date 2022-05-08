@@ -73,19 +73,19 @@ namespace HEngine
 				switch (textureNeeded[i])
 				{
 				case TextureType::Albedo:
-					TextureLibrary::GetInstance().GetDefaultTexture()->Bind(i);
+					Library<Texture2D>::GetInstance().GetDefaultTexture()->Bind(i);
 					break;
 				case TextureType::Normal:
-					TextureLibrary::GetInstance().GetTexture("DefaultNormal")->Bind(i);
+					Library<Texture2D>::GetInstance().Get("DefaultNormal")->Bind(i);
 					break;
 				case TextureType::Metalness:
-					TextureLibrary::GetInstance().GetTexture("DefaultMetallicRoughness")->Bind(i);
+					Library<Texture2D>::GetInstance().Get("DefaultMetallicRoughness")->Bind(i);
 					break;
 				case TextureType::Roughness:
-					TextureLibrary::GetInstance().GetTexture("DefaultMetallicRoughness")->Bind(i);
+					Library<Texture2D>::GetInstance().Get("DefaultMetallicRoughness")->Bind(i);
 					break;
 				case TextureType::AmbientOcclusion:
-					TextureLibrary::GetInstance().GetTexture("WhiteTexture")->Bind(i);
+					Library<Texture2D>::GetInstance().Get("WhiteTexture")->Bind(i);
 					break;
 				default:
 					break;

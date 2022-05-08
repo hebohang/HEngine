@@ -147,6 +147,8 @@ endif()
 
 if(NOT TARGET bullet3)
     OPTION(BUILD_CPU_DEMOS "Build original Bullet CPU examples" OFF)
+    OPTION(BUILD_BULLET2_DEMOS "Set when you want to build the Bullet 2 demos" OFF)
+    OPTION(BUILD_UNIT_TESTS "Build Unit Tests"	OFF)
     add_subdirectory(bullet3)
 endif()
 

@@ -178,7 +178,7 @@ namespace HEngine
         sData.QuadShader->SetIntArray("u_Textures", samplers, sData.MaxTextureSlots);
 
         // Set all texture slots to 0
-        sData.TextureSlots[0] = TextureLibrary::GetInstance().GetTexture("WhiteTexture");
+        sData.TextureSlots[0] = Library<Texture2D>::GetInstance().Get("WhiteTexture");
 
         sData.QuadVertexPositions[0] = { -0.5f, -0.5f, 0.0f, 1.0f };
         sData.QuadVertexPositions[1] = {  0.5f, -0.5f, 0.0f, 1.0f };
@@ -193,7 +193,7 @@ namespace HEngine
 
     void Renderer2D::BeginScene(const Camera& camera, const glm::mat4& transform)
     {
-        Ref<UniformBuffer> cameraUniform = UniformBufferLibrary::GetInstance().GetCameraUniformBuffer();
+        Ref<UniformBuffer> cameraUniform = Library<UniformBuffer>::GetInstance().GetCameraUniformBuffer();
         glm::mat4 ViewProjection = camera.GetProjection() * glm::inverse(transform);
         cameraUniform->SetData(&ViewProjection, sizeof(ViewProjection));
 
@@ -202,7 +202,7 @@ namespace HEngine
 
 	void Renderer2D::BeginScene(const EditorCamera& camera)
 	{
-        Ref<UniformBuffer> cameraUniform = UniformBufferLibrary::GetInstance().GetCameraUniformBuffer();
+        Ref<UniformBuffer> cameraUniform = Library<UniformBuffer>::GetInstance().GetCameraUniformBuffer();
         glm::mat4 ViewProjection = camera.GetViewProjection();
         cameraUniform->SetData(&ViewProjection, sizeof(ViewProjection));
 

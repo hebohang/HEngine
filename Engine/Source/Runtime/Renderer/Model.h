@@ -6,6 +6,7 @@
 #include "Runtime/Renderer/StaticMesh.h"
 #include "Runtime/Renderer/Texture.h"
 #include "Runtime/Renderer/Material.h"
+#include "Runtime/Library/ShaderLibrary.h"
 
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
@@ -20,7 +21,7 @@ namespace HEngine
 	public:
 		Model() = default;
 		Model(const std::string& path)
-			: mMaterial(CreateRef<Material>(ShaderLibrary::GetDefaultShader()))
+			: mMaterial(CreateRef<Material>(Library<Shader>::GetInstance().GetDefaultShader()))
 		{
 			LoadModel(path);
 		}		

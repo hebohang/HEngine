@@ -17,12 +17,5 @@ namespace HEngine
         static void BeginScene(const Camera& camera, const glm::mat4& transform);
         static void BeginScene(const EditorCamera& camera);
         static void EndScene();
-
-        // give to Editor SceneSettingsPanel to use
-        static Ref<CubeMapTexture> GetSkyBox();
-        static Ref<CubeMapTexture> GetDefaultSkyBox();
-
-        // TODO: Move to Environment System
-        static void DrawSkyBox(const EditorCamera& camera);
     };
 }

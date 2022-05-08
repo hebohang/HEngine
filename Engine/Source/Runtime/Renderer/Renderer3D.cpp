@@ -16,22 +16,8 @@
 
 namespace HEngine
 {
-	static Ref<CubeMapTexture> sSkyBox;
-	static Ref<Shader> sSkyBoxShader;
-
-	std::vector<std::string> sPaths{ 
-		"Assets/Textures/Skybox/right.jpg",
-		"Assets/Textures/Skybox/left.jpg",
-		"Assets/Textures/Skybox/top.jpg",
-		"Assets/Textures/Skybox/bottom.jpg",
-		"Assets/Textures/Skybox/front.jpg",
-		"Assets/Textures/Skybox/back.jpg",
-	};
-
 	void Renderer3D::Init()
 	{
-		sSkyBoxShader = Shader::Create(AssetManager::GetFullPath("Shaders/SkyBox.glsl"));
-		sSkyBox = CubeMapTexture::Create(sPaths);
 	}
 
 	void Renderer3D::Shutdown()
@@ -59,34 +45,5 @@ namespace HEngine
 
 	void Renderer3D::EndScene()
 	{
-	}
-
-	Ref<CubeMapTexture> Renderer3D::GetSkyBox()
-	{
-		return sSkyBox;
-	}
-
-	Ref<CubeMapTexture> Renderer3D::GetDefaultSkyBox()
-	{
-		sSkyBox = CubeMapTexture::Create(sPaths);
-		return sSkyBox;
-	}
-
-	void Renderer3D::DrawSkyBox(const EditorCamera& camera)
-	{
-		Ref<UniformBuffer> cameraUniform = Library<UniformBuffer>::GetInstance().GetCameraUniformBuffer();
-		glm::mat4 ViewProjection = camera.GetProjection() * glm::mat4(glm::mat3(camera.GetViewMatrix()));
-		cameraUniform->SetData(&ViewProjection, sizeof(ViewProjection));
-
-		RenderCommand::Cull(0);
-
-		RenderCommand::DepthFunc(DepthComp::LEQUAL);
-		sSkyBoxShader->Bind();
-
-		sSkyBox->Bind(0);
-		sSkyBoxShader->SetInt("SkyBox", 0);
-		Library<Model>::GetInstance().Get("Box")->Draw();
-
-		RenderCommand::DepthFunc(DepthComp::LESS);
 	}
 }

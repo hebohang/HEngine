@@ -15,6 +15,6 @@ namespace HEngine
 		void OnUpdateRuntime(Timestep ts) override;
 		void OnUpdateEditor(Timestep ts, EditorCamera& camera) override;
 	private:
-		void DrawSkyBox(const glm::mat4& ViewMatrix, const glm::mat4& ProjectMatrix, Ref<UniformBuffer> CameraUniformBuffer);
+		void DrawSkyBox(const glm::mat4& ViewMatrix, const glm::mat4& ProjectMatrix);
 	};
 }

@@ -133,6 +133,7 @@ namespace HEngine
         int width = 0;
         int height = 0;
         int nrChannels = 0;
+        stbi_set_flip_vertically_on_load(false);
         for (unsigned int i = 0; i < mPaths.size(); i++)
         {
             unsigned char* data = stbi_load(AssetManager::GetFullPath(mPaths[i]).string().c_str(), &width, &height, &nrChannels, 0);

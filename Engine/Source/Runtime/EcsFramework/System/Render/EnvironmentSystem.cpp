@@ -19,6 +19,9 @@
 
 namespace HEngine
 {
+	static uint32_t id = 0;
+	static uint32_t oldId = 0;
+
 	void EnvironmentSystem::OnUpdateRuntime(Timestep ts)
 	{
 		Camera* mainCamera = nullptr;
@@ -113,42 +116,51 @@ namespace HEngine
 			glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f,  0.0f, -1.0f), glm::vec3(0.0f, -1.0f,  0.0f))
 		};
 
+		oldId = id;
 		Ref<Texture2D> hdrTex = Library<Texture2D>::GetInstance().Get("DefaultHdr");
-		Ref<Shader> equirectangularToCubemapShader = Library<Shader>::GetInstance().Get("IBL_equirectangularToCubemap");
-		equirectangularToCubemapShader->Bind();
-		equirectangularToCubemapShader->SetInt("equirectangularMap", 0);
-		equirectangularToCubemapShader->SetMat4("projection", captureProjection);
+		id = hdrTex->GetRendererID();
 
 		Ref<CubeMapTexture> envCubemap = Library<CubeMapTexture>::GetInstance().Get("EnvironmentHdr");
 
-		int framebufferOld = 0;
-		framebufferOld = RenderCommand::GetDrawFrameBuffer();
-
-		FramebufferSpecification fbSpec;
-		fbSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::Depth };
-		fbSpec.Width = 512;
-		fbSpec.Height = 512;
-		static Ref<Framebuffer> captureFBO = Framebuffer::Create(fbSpec);
-
-		hdrTex->Bind();
-		captureFBO->Bind();
-		RenderCommand::SetViewport(0, 0, envCubemap->GetWidth(), envCubemap->GetHeight());
-		for (unsigned int i = 0; i < 6; ++i)
+		if (id != oldId)
 		{
-			equirectangularToCubemapShader->SetMat4("view", captureViews[i]);
-			captureFBO->FramebufferTexture2D(i, envCubemap->GetRendererID());
-			RenderCommand::Clear();
+			Ref<Shader> equirectangularToCubemapShader = Library<Shader>::GetInstance().Get("IBL_equirectangularToCubemap");
+			equirectangularToCubemapShader->Bind();
+			equirectangularToCubemapShader->SetInt("equirectangularMap", 0);
+			equirectangularToCubemapShader->SetMat4("projection", captureProjection);
 
-			Library<Model>::GetInstance().Get("Box")->Draw();
+			int framebufferOld = 0;
+			framebufferOld = RenderCommand::GetDrawFrameBuffer();
+
+			FramebufferSpecification fbSpec;
+			fbSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::Depth };
+			fbSpec.Width = 512;
+			fbSpec.Height = 512;
+			static Ref<Framebuffer> captureFBO = Framebuffer::Create(fbSpec);
+
+			hdrTex->Bind();
+			captureFBO->Bind();
+			RenderCommand::SetViewport(0, 0, envCubemap->GetWidth(), envCubemap->GetHeight());
+			for (unsigned int i = 0; i < 6; ++i)
+			{
+				equirectangularToCubemapShader->SetMat4("view", captureViews[i]);
+				captureFBO->FramebufferTexture2D(i, envCubemap->GetRendererID());
+				RenderCommand::Clear();
+
+				Library<Model>::GetInstance().Get("Box")->Draw();
+			}
+			captureFBO->Unbind();
+
+			envCubemap->Bind(0);
+			envCubemap->GenerateMipmap();
+
+			RenderCommand::BindFrameBuffer(framebufferOld);
 		}
-		captureFBO->Unbind();
+
+		envCubemap->Bind(0);
 
 		RenderCommand::SetViewport(0, 0, ConfigManager::mViewportSize.x, ConfigManager::mViewportSize.y);
 
-		envCubemap->Bind(0);
-		envCubemap->GenerateMipmap();
-
-		RenderCommand::BindFrameBuffer(framebufferOld);
 		RenderCommand::DepthFunc(DepthComp::LEQUAL);
 		Library<Shader>::GetInstance().GetSkyBoxShader()->Bind();
 		Library<Shader>::GetInstance().GetSkyBoxShader()->SetInt("SkyBox", 0);

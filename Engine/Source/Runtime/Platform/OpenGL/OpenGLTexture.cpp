@@ -14,7 +14,7 @@ namespace HEngine
     {
         mInternalFormat = GL_RGBA8;
         mDataFormat = GL_RGBA;
-        
+
         glCreateTextures(GL_TEXTURE_2D, 1, &mRendererID);
         glTextureStorage2D(mRendererID, 1, mInternalFormat, mWidth, mHeight);
 
@@ -30,45 +30,45 @@ namespace HEngine
     {
         int width, height, channels;
         stbi_set_flip_vertically_on_load(1);
-        stbi_uc* data =  stbi_load(path.string().c_str(), &width, &height, &channels, 0);
-        
-		if (data)
-		{
-			mIsLoaded = true;
+        stbi_uc* data = stbi_load(path.string().c_str(), &width, &height, &channels, 0);
 
-			mWidth = width;
-			mHeight = height;
+        if (data)
+        {
+            mIsLoaded = true;
 
-			GLenum internalFormat = 0, dataFormat = 0;
-			if (channels == 4)
-			{
-				internalFormat = GL_RGBA8;
-				dataFormat = GL_RGBA;
-			}
-			else if (channels == 3)
-			{
-				internalFormat = GL_RGB8;
-				dataFormat = GL_RGB;
-			}
+            mWidth = width;
+            mHeight = height;
 
-			mInternalFormat = internalFormat;
-			mDataFormat = dataFormat;
+            GLenum internalFormat = 0, dataFormat = 0;
+            if (channels == 4)
+            {
+                internalFormat = GL_RGBA8;
+                dataFormat = GL_RGBA;
+            }
+            else if (channels == 3)
+            {
+                internalFormat = GL_RGB8;
+                dataFormat = GL_RGB;
+            }
 
-			HE_CORE_ASSERT(internalFormat & dataFormat, "Format not supported!");
+            mInternalFormat = internalFormat;
+            mDataFormat = dataFormat;
 
-			glCreateTextures(GL_TEXTURE_2D, 1, &mRendererID);
-			glTextureStorage2D(mRendererID, 1, internalFormat, mWidth, mHeight);
+            HE_CORE_ASSERT(internalFormat & dataFormat, "Format not supported!");
 
-			glTextureParameteri(mRendererID, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-			glTextureParameteri(mRendererID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glCreateTextures(GL_TEXTURE_2D, 1, &mRendererID);
+            glTextureStorage2D(mRendererID, 1, internalFormat, mWidth, mHeight);
 
-			glTextureParameteri(mRendererID, GL_TEXTURE_WRAP_S, GL_REPEAT);
-			glTextureParameteri(mRendererID, GL_TEXTURE_WRAP_T, GL_REPEAT);
+            glTextureParameteri(mRendererID, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTextureParameteri(mRendererID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-			glTextureSubImage2D(mRendererID, 0, 0, 0, mWidth, mHeight, dataFormat, GL_UNSIGNED_BYTE, data);
+            glTextureParameteri(mRendererID, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTextureParameteri(mRendererID, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
-			stbi_image_free(data);
-		}
+            glTextureSubImage2D(mRendererID, 0, 0, 0, mWidth, mHeight, dataFormat, GL_UNSIGNED_BYTE, data);
+
+            stbi_image_free(data);
+        }
         else
         {
             throw "Load Texture Failed!";

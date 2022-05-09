@@ -13,7 +13,6 @@ namespace HEngine
 		RED_INTEGER,
 
 		// Depth/stencil
-		DEPTH,
 		DEPTH24STENCIL8,
 
 		// Defaults
@@ -64,7 +63,6 @@ namespace HEngine
 		virtual void ClearAttachment(uint32_t attachmentIndex, int value) = 0;
 
 		[[nodiscard]] virtual uint32_t GetColorAttachmentRendererID(uint32_t index = 0) const = 0;
-		[[nodiscard]] virtual uint32_t GetDepthAttachmentRendererID() const = 0;
 
 		[[nodiscard]] virtual const FramebufferSpecification& GetSpecification() const = 0;
 

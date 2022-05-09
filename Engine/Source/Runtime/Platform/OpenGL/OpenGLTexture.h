@@ -22,15 +22,15 @@ namespace HEngine
         virtual void Bind(uint32_t slot = 0) const override;
         virtual void UnBind() const override;
 
-		virtual bool IsLoaded() const override { return mIsLoaded; }
-        
+        virtual bool IsLoaded() const override { return mIsLoaded; }
+
         virtual bool operator==(const Texture& other) const override
         {
             return mRendererID == ((OpenGLTexture2D&)other).mRendererID;
         }
     private:
         std::filesystem::path mPath;
-		bool mIsLoaded = false;
+        bool mIsLoaded = false;
         uint32_t mWidth, mHeight;
         uint32_t mRendererID;
         GLenum mInternalFormat, mDataFormat;

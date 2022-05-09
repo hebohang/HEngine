@@ -6,7 +6,7 @@
 #include "Runtime/Renderer/Model.h"
 #include "Runtime/Resource/ModeManager/ModeManager.h"
 
-namespace HEngine 
+namespace HEngine
 {
 	StaticMesh::StaticMesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t> indices)
 		: mVertices(vertices), mIndices(indices)

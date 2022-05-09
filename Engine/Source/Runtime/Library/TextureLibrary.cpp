@@ -7,8 +7,8 @@ namespace HEngine
 {
     Library<Texture2D>::Library()
     {
-        Add("DefaultTexture",           Texture2D::Create(std::string("Assets/Textures/DefaultTexture.png")));
-        Add("DefaultNormal",            Texture2D::Create(std::string("Assets/Textures/DefaultNormal.png")));
+        Add("DefaultTexture", Texture2D::Create(std::string("Assets/Textures/DefaultTexture.png")));
+        Add("DefaultNormal", Texture2D::Create(std::string("Assets/Textures/DefaultNormal.png")));
         Add("DefaultMetallicRoughness", Texture2D::Create(std::string("Assets/Textures/DefaultMetallicRoughness.png")));
         Add("DefaultHdr", Texture2D::Create(std::string("Assets/Textures/DefaultTexture.png")));
         Add("BRDF_LUT", Texture2D::Create(std::string("Assets/Textures/BRDF_LUT.tga")));

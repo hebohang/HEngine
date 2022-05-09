@@ -52,13 +52,13 @@ namespace HEngine
 	{
 		Renderer3D::BeginScene(camera);
 
-		auto group = mLevel->mRegistry.group<TransformComponent>(entt::get<StaticMeshComponent>);
+		auto view = mLevel->mRegistry.view<TransformComponent, StaticMeshComponent>();
 
-		for (auto e : group)
+		for (auto e : view)
 		{
 			Entity entity = { e, mLevel };
-			auto transform = entity.GetComponent<TransformComponent>();
-			auto mesh = entity.GetComponent<StaticMeshComponent>();
+			auto& transform = entity.GetComponent<TransformComponent>();
+			auto& mesh = entity.GetComponent<StaticMeshComponent>();
 
 			Renderer3D::DrawModel(transform.GetTransform(), camera.GetPosition(), mesh, (int)e);
 		}

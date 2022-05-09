@@ -50,7 +50,7 @@ namespace HEngine
 		mVertexArray->SetIndexBuffer(mIB);
 	}
 
-	void StaticMesh::Draw(const glm::mat4& transform, const glm::vec3& cameraPos, const glm::mat4& viewMatrix, const Ref<Shader>& shader, int entityID, Model* model)
+	void StaticMesh::Draw(const glm::mat4& transform, const glm::vec3& cameraPos, const Ref<Shader>& shader, int entityID, Model* model)
 	{
 		SetupMesh(entityID);
 

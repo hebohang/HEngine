@@ -40,7 +40,7 @@ namespace HEngine
 				{
 					auto [transform, mesh] = view.get<TransformComponent, StaticMeshComponent>(entity);
 
-					Renderer3D::DrawModel(transform.GetTransform(), cameraPos, glm::inverse(cameraTransform), mesh, (int)entity);
+					Renderer3D::DrawModel(transform.GetTransform(), cameraPos, mesh, (int)entity);
 				}
 			}
 
@@ -57,10 +57,10 @@ namespace HEngine
 		for (auto e : group)
 		{
 			Entity entity = { e, mLevel };
-			auto& transform = entity.GetComponent<TransformComponent>();
-			auto& mesh = entity.GetComponent<StaticMeshComponent>();
+			auto transform = entity.GetComponent<TransformComponent>();
+			auto mesh = entity.GetComponent<StaticMeshComponent>();
 
-			Renderer3D::DrawModel(transform.GetTransform(), camera.GetPosition(), camera.GetViewMatrix(), mesh, (int)e);
+			Renderer3D::DrawModel(transform.GetTransform(), camera.GetPosition(), mesh, (int)e);
 		}
 
 		Renderer3D::EndScene();

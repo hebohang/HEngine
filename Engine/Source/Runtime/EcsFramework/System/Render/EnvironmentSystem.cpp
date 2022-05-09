@@ -104,7 +104,7 @@ namespace HEngine
 		Ref<UniformBuffer> cameraUniform = Library<UniformBuffer>::GetInstance().GetCameraUniformBuffer();
 		glm::mat4 ViewProjection = ProjectMatrix * glm::mat4(glm::mat3(ViewMatrix));
 		cameraUniform->SetData(&ViewProjection, sizeof(ViewProjection));
-
+		
 		glm::mat4 captureProjection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
 		glm::mat4 captureViews[] =
 		{
@@ -121,7 +121,7 @@ namespace HEngine
 		id = hdrTex->GetRendererID();
 
 		Ref<CubeMapTexture> envCubemap = Library<CubeMapTexture>::GetInstance().Get("EnvironmentHdr");
-
+		
 		if (id != oldId)
 		{
 			Ref<Shader> equirectangularToCubemapShader = Library<Shader>::GetInstance().Get("IBL_equirectangularToCubemap");
@@ -185,8 +185,6 @@ namespace HEngine
 			Ref<CubeMapTexture> irradianceMap = Library<CubeMapTexture>::GetInstance().Get("EnvironmentIrradiance");
 			Ref<Shader> irradianceShader = Library<Shader>::GetInstance().Get("IBL_irradiance");
 
-
-			
 			//Temp
 			// pbr: create an irradiance cubemap, and re-scale capture FBO to irradiance scale.
 			// --------------------------------------------------------------------------------
@@ -321,7 +319,7 @@ namespace HEngine
 
 			RenderCommand::BindFrameBuffer(framebufferOld);
 		}
-
+		
 		envCubemap->Bind(0);
 
 		RenderCommand::SetViewport(0, 0, ConfigManager::mViewportSize.x, ConfigManager::mViewportSize.y);

@@ -12,7 +12,7 @@ namespace HEngine
         static void Init();
         static void Shutdown();
 
-        static void DrawModel(const glm::mat4& transform, const glm::vec3& cameraPos, const glm::mat4& viewMatrix, StaticMeshComponent& MeshComponent, int EntityID);
+        static void DrawModel(const glm::mat4& transform, const glm::vec3& cameraPos, StaticMeshComponent& MeshComponent, int EntityID);
 
         static void BeginScene(const Camera& camera, const glm::mat4& transform);
         static void BeginScene(const EditorCamera& camera);

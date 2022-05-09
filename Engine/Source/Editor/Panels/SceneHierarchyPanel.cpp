@@ -51,6 +51,13 @@ namespace HEngine
 					if (ImGui::MenuItem("Create Empty Entity"))
 						mContext->CreateEntity("Empty Entity");
 
+					if (ImGui::MenuItem("Create Point Light"))
+					{
+						auto entity = mContext->CreateEntity("Light");
+						entity.AddComponent<LightComponent>();
+						SetSelectedEntity(entity);
+					}
+
 					ImGui::EndPopup();
 				}
 			}
@@ -332,6 +339,15 @@ namespace HEngine
 				}
 			}
 
+			if (!mSelectionContext.HasComponent<LightComponent>())
+			{
+				if (ImGui::MenuItem("Point Light"))
+				{
+					mSelectionContext.AddComponent<LightComponent>();
+					ImGui::CloseCurrentPopup();
+				}
+			}
+
             ImGui::EndPopup();
         }
 
@@ -593,6 +609,13 @@ namespace HEngine
 
 					ImGui::TreePop();
 				}
+			});
+
+		DrawComponent<LightComponent>("Point Light", entity, [](auto& component)
+			{
+				ImGui::Text("Light Color");
+				ImGui::SameLine();
+				ImGui::DragFloat3("##Light Color", (float*)& component.LightColor, 2.0f, 0.0f, 10000.0f, "%.1f");
 			});
     }
 }

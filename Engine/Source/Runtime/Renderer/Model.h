@@ -7,6 +7,7 @@
 #include "Runtime/Renderer/Texture.h"
 #include "Runtime/Renderer/Material.h"
 #include "Runtime/Library/ShaderLibrary.h"
+#include "Runtime/Library/TextureLibrary.h"
 
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
@@ -42,6 +43,12 @@ namespace HEngine
 		void ProcessNode(aiNode* node, const aiScene* scene);
 		StaticMesh ProcessMesh(aiMesh* mesh, const aiScene* scene);
 		std::optional<std::vector<MaterialTexture>> loadMaterialTextures(aiMaterial* mat, aiTextureType type);
+	public:
+		Ref<Texture2D> mAlbedoMap = Library<Texture2D>::GetInstance().GetDefaultTexture();
+		Ref<Texture2D> mNormalMap = Library<Texture2D>::GetInstance().Get("DefaultNormal");
+		Ref<Texture2D> mMetallicMap = Library<Texture2D>::GetInstance().Get("DefaultMetallicRoughness");
+		Ref<Texture2D> mRoughnessMap = Library<Texture2D>::GetInstance().Get("DefaultMetallicRoughness");
+		Ref<Texture2D> mAoMap = Library<Texture2D>::GetInstance().Get("WhiteTexture");
 	private:
 		Ref<Material> mMaterial = CreateRef<Material>();
 		std::vector<StaticMesh> mMeshes;

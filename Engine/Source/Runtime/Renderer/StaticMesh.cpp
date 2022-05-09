@@ -3,7 +3,8 @@
 #include "Runtime/Renderer/StaticMesh.h"
 #include "Runtime/Renderer/RenderCommand.h"
 #include "Runtime/Library/TextureLibrary.h"
-	
+#include "Runtime/Renderer/Model.h"
+
 namespace HEngine 
 {
 	StaticMesh::StaticMesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t> indices)
@@ -48,50 +49,18 @@ namespace HEngine
 		mVertexArray->SetIndexBuffer(mIB);
 	}
 
-	void StaticMesh::Draw(const glm::mat4& transform, const glm::vec3& cameraPos, const Ref<Shader>& shader, int entityID)
+	void StaticMesh::Draw(const glm::mat4& transform, const glm::vec3& cameraPos, const Ref<Shader>& shader, int entityID, Model* model)
 	{
 		SetupMesh(entityID);
 		shader->Bind();
 		shader->SetMat4("u_Model.Transform", (transform));
 		mVertexArray->Bind();
 
-		std::vector<TextureType> textureNeeded = { TextureType::Albedo, TextureType::Normal, TextureType::Metalness, TextureType::Roughness, TextureType::AmbientOcclusion };
-		for (size_t i = 0; i < textureNeeded.size(); i++)
-		{
-			bool bFindInTextures = false;
-			for (auto& materialTexture : mTextures)
-			{
-				if (materialTexture.type == textureNeeded[i])
-				{
-					materialTexture.texture2d->Bind(i);
-					bFindInTextures = true;
-					break;
-				}
-			}
-			if (!bFindInTextures)
-			{
-				switch (textureNeeded[i])
-				{
-				case TextureType::Albedo:
-					Library<Texture2D>::GetInstance().GetDefaultTexture()->Bind(i);
-					break;
-				case TextureType::Normal:
-					Library<Texture2D>::GetInstance().Get("DefaultNormal")->Bind(i);
-					break;
-				case TextureType::Metalness:
-					Library<Texture2D>::GetInstance().Get("DefaultMetallicRoughness")->Bind(i);
-					break;
-				case TextureType::Roughness:
-					Library<Texture2D>::GetInstance().Get("DefaultMetallicRoughness")->Bind(i);
-					break;
-				case TextureType::AmbientOcclusion:
-					Library<Texture2D>::GetInstance().Get("WhiteTexture")->Bind(i);
-					break;
-				default:
-					break;
-				}
-			}
-		}
+		model->mAlbedoMap->Bind(0);
+		model->mNormalMap->Bind(1);
+		model->mMetallicMap->Bind(2);
+		model->mRoughnessMap->Bind(3);
+		model->mAoMap->Bind(4);
 
 		shader->SetInt("albedoMap", 0);
 		shader->SetInt("normalMap", 1);

@@ -508,7 +508,7 @@ namespace HEngine
 
 			});
 
-		DrawComponent<StaticMeshComponent>("Static Mesh Renderer", entity, [](auto& component)
+		DrawComponent<StaticMeshComponent>("Static Mesh Renderer", entity, [](StaticMeshComponent& component)
 			{
 				ImGui::Text("Mesh Path");
 				ImGui::SameLine();
@@ -533,6 +533,65 @@ namespace HEngine
 						component.Mesh = Model(filepath);
 						component.Path = filepath;
 					}
+				}
+
+				if (ImGui::TreeNode((void*)"Material", "Material"))
+				{
+					const auto& materialNode = [](const char* name, Ref<Texture2D>& tex,void(*func)()) {
+						if (ImGui::TreeNode((void*)name, name))
+						{
+							ImGui::Image((ImTextureID)tex->GetRendererID(), ImVec2(64, 64), ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
+							static bool use = false;
+							if (ImGui::BeginDragDropTarget())
+							{
+								if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+								{
+									auto path = (const wchar_t*)payload->Data;
+									std::string relativePath = (std::filesystem::path("Assets") / path).string();
+									std::filesystem::path texturePath = ConfigManager::GetInstance().GetAssetsFolder() / path;
+									relativePath = std::regex_replace(relativePath, std::regex("\\\\"), "/");
+									tex = IconManager::GetInstance().LoadOrFindTexture(relativePath);
+								}
+								ImGui::EndDragDropTarget();
+							}
+
+							func();
+
+							ImGui::TreePop();
+						}
+					};
+
+					materialNode("Albedo", component.Mesh.mAlbedoMap, []() {
+						static bool use = false;
+						ImGui::SameLine();
+						ImGui::Checkbox("Use", &use);
+						});
+
+					materialNode("Normal", component.Mesh.mNormalMap, []() {
+						static bool use = false;
+						ImGui::SameLine();
+						ImGui::Checkbox("Use", &use);
+						});
+
+					materialNode("Metallic", component.Mesh.mMetallicMap, []() {
+						static bool use = false;
+						ImGui::SameLine();
+						ImGui::Checkbox("Use", &use);
+						});
+
+					materialNode("Roughness", component.Mesh.mRoughnessMap, []() {
+						static bool use = false;
+						ImGui::SameLine();
+						ImGui::Checkbox("Use", &use);
+						});
+
+					materialNode("Ambient Occlusion", component.Mesh.mAoMap, []() {
+						static bool use = false;
+						ImGui::SameLine();
+						ImGui::Checkbox("Use", &use);
+						});
+
+					ImGui::TreePop();
 				}
 			});
     }

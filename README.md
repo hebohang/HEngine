@@ -5,6 +5,8 @@ HEngine: Hbh Game Engine
 [![Language](https://img.shields.io/badge/language-C++-blue.svg)](https://isocpp.org/)
 [![Standard](https://img.shields.io/badge/c%2B%2B-20-blue.svg)](https://en.wikipedia.org/wiki/C%2B%2B20)
 
+![Screenshot](https://user-images.githubusercontent.com/60227429/167453635-f2c1e98e-1863-47c5-ab39-f3e5db26f558.png)
+
 Now only support platform Windows
 
 OpenGL 4.5
@@ -14,52 +16,52 @@ D3D11
 D3D12
 Vulkan
 
-## ÃüÃû¹æ·¶
+## å‘½åè§„èŒƒ
 
-### ÃüÃû·¨
-Í³Ò»²ÉÓÃPascalÃüÃû·¨£¨ÎÄ¼ş¼Ğ¡¢ÀàÃûµÈ£©£¬µÚÈı·½¿â³ıÍâ
+### å‘½åæ³•
+ç»Ÿä¸€é‡‡ç”¨Pascalå‘½åæ³•ï¼ˆæ–‡ä»¶å¤¹ã€ç±»åç­‰ï¼‰ï¼Œç¬¬ä¸‰æ–¹åº“é™¤å¤–
 
-CMakeLists.txt µÄ±äÁ¿ÃüÃûÒ²²ÉÓÃ Pascal ÃüÃû·¨£¬±ÈÈç£º
+CMakeLists.txt çš„å˜é‡å‘½åä¹Ÿé‡‡ç”¨ Pascal å‘½åæ³•ï¼Œæ¯”å¦‚ï¼š
 ```
 set(ProjectRootDir "${CMAKE_CURRENT_SOURCE_DIR}")
 ```
-ÕâÀï±äÁ¿ ProjectRootDir ²ÉÓÃ Pascal ÃüÃû·¨£¬Óë CMAKE ×Ô´ø±äÁ¿Çø·Ö£¨±ÈÈç CMAKE_CURRENT_SOURCE_DIR £©
+è¿™é‡Œå˜é‡ ProjectRootDir é‡‡ç”¨ Pascal å‘½åæ³•ï¼Œä¸ CMAKE è‡ªå¸¦å˜é‡åŒºåˆ†ï¼ˆæ¯”å¦‚ CMAKE_CURRENT_SOURCE_DIR ï¼‰
 
-### include ÒªÇó
-#### Ë³Ğò
-Ê×ÏÈincludeÍ¬¼¶ÎÄ¼ş£¬Æä´ÎÊÇÍ¬SourceÎÄ¼ş£¬ÔÙ´ÎÎªµÚÈı·½ÒÀÀµ£¬×îºóÎªstl¿â£¨È·±£ÒÀÀµË³Ğò£©
+### include è¦æ±‚
+#### é¡ºåº
+é¦–å…ˆincludeåŒçº§æ–‡ä»¶ï¼Œå…¶æ¬¡æ˜¯åŒSourceæ–‡ä»¶ï¼Œå†æ¬¡ä¸ºç¬¬ä¸‰æ–¹ä¾èµ–ï¼Œæœ€åä¸ºstlåº“ï¼ˆç¡®ä¿ä¾èµ–é¡ºåºï¼‰
 
-ÇÒ±Ë´ËÖ±½ÓĞèÒªÒÔ¿Õ¸ñ¸ô¿ª
+ä¸”å½¼æ­¤ç›´æ¥éœ€è¦ä»¥ç©ºæ ¼éš”å¼€
 
-±ÈÈç Editor ÖĞ£º
+æ¯”å¦‚ Editor ä¸­ï¼š
 ```
-// Í¬¼¶ÎÄ¼ş£¨Í¬ÊôÓÚ Editor £©
+// åŒçº§æ–‡ä»¶ï¼ˆåŒå±äº Editor ï¼‰
 #include "EditorLayer.h"
 
-// Í¬SourceÎÄ¼ş£¨Î»ÓÚ Runtime ÖĞ£©
+// åŒSourceæ–‡ä»¶ï¼ˆä½äº Runtime ä¸­ï¼‰
 #include <HEngine.h>
 #include <Runtime/Core/EntryPoint.h>	 
 
-// µÚÈı·½ÒÀÀµ
+// ç¬¬ä¸‰æ–¹ä¾èµ–
 #include <imgui/imgui.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 ```
-#### Â·¾¶
-Ò»ÂÉÒÔ Source ÆğµÄÂ·¾¶¿ªÍ·£¨µÚÈı·½ÒÀÀµ³ıÍâ£©£¬±ÈÈç "Runtime/..."
+#### è·¯å¾„
+ä¸€å¾‹ä»¥ Source èµ·çš„è·¯å¾„å¼€å¤´ï¼ˆç¬¬ä¸‰æ–¹ä¾èµ–é™¤å¤–ï¼‰ï¼Œæ¯”å¦‚ "Runtime/..."
 
-### ´úÂë¹æ·¶
-HEngine µÄ´úÂë¹æ·¶Æ«Unreal£¬¿É²Î¿¼£º
+### ä»£ç è§„èŒƒ
+HEngine çš„ä»£ç è§„èŒƒåUnrealï¼Œå¯å‚è€ƒï¼š
 https://docs.unrealengine.com/4.27/zh-CN/ProductionPipelines/DevelopmentSetup/CodingStandard/
 
-Ô­Ôò£º£¨ºóÃæµÄ¹æÔòÓÅÏÈ¼¶¸ßÓÚÇ°ÃæµÄ¹æÔò£©
-1. ¾¡Á¿²»Ê¹ÓÃÏÂ»®Ïß
-1. ±äÁ¿Ò»ÂÉĞ¡Ğ´×ÖÄ¸¿ªÍ·
-1. ·ÇÀàÄÚ¾²Ì¬±äÁ¿£¨È«¾Ö±äÁ¿¡¢¾Ö²¿±äÁ¿£©£¬ÔÚÇ°Ãæ¼ÓĞ¡Ğ´×ÖÄ¸s
-1. Èç¹ûÊÇÀàÄÚ²¿³ÉÔ±±äÁ¿£¬ÔÚÇ°Ãæ¼ÓĞ¡Ğ´×ÖÄ¸m
-1. Èç¹ûÊÇboolÀàĞÍ±äÁ¿£¬ÔÚÇ°Ãæ¼ÓĞ¡Ğ´×ÖÄ¸b
-1. ÀàÄÚ³ÉÔ±Í³Ò»·ÅÔÚÀàµÄ×îÄ©Î²£¨·½·¨ÖÃÓÚÇ°£©
-1. Ä¬ÈÏÇé¿öÏÂ std::string ÎªÏà¶ÔÂ·¾¶£¬¶ø std::filesystem::path Îª¾ø¶ÔÂ·¾¶£¬Ïà¶ÔÂ·¾¶µ½¾ø¶ÔÂ·¾¶ĞèÒªÓÉ AssetManager::GetFullPath() È¥»ñÈ¡
+åŸåˆ™ï¼šï¼ˆåé¢çš„è§„åˆ™ä¼˜å…ˆçº§é«˜äºå‰é¢çš„è§„åˆ™ï¼‰
+1. å°½é‡ä¸ä½¿ç”¨ä¸‹åˆ’çº¿
+1. å˜é‡ä¸€å¾‹å°å†™å­—æ¯å¼€å¤´
+1. éç±»å†…é™æ€å˜é‡ï¼ˆå…¨å±€å˜é‡ã€å±€éƒ¨å˜é‡ï¼‰ï¼Œåœ¨å‰é¢åŠ å°å†™å­—æ¯s
+1. å¦‚æœæ˜¯ç±»å†…éƒ¨æˆå‘˜å˜é‡ï¼Œåœ¨å‰é¢åŠ å°å†™å­—æ¯m
+1. å¦‚æœæ˜¯boolç±»å‹å˜é‡ï¼Œåœ¨å‰é¢åŠ å°å†™å­—æ¯b
+1. ç±»å†…æˆå‘˜ç»Ÿä¸€æ”¾åœ¨ç±»çš„æœ€æœ«å°¾ï¼ˆæ–¹æ³•ç½®äºå‰ï¼‰
+1. é»˜è®¤æƒ…å†µä¸‹ std::string ä¸ºç›¸å¯¹è·¯å¾„ï¼Œè€Œ std::filesystem::path ä¸ºç»å¯¹è·¯å¾„ï¼Œç›¸å¯¹è·¯å¾„åˆ°ç»å¯¹è·¯å¾„éœ€è¦ç”± AssetManager::GetFullPath() å»è·å–
 
 ## Getting Started
 **1. Downloading the repository**
@@ -81,6 +83,7 @@ cmake --build build --parallel 4
 ## Credits
 * Cherno [Hazel](https://github.com/TheCherno/Hazel)
 * BoomingTech [Pilot](https://github.com/BoomingTech/Pilot)
+* [LearnOpenGL](https://github.com/JoeyDeVries/LearnOpenGL)
 * [MoravaEngine](https://github.com/dtrajko/MoravaEngine)
 * [Ogre](https://github.com/OGRECave/ogre)
 * [Pixel](https://github.com/pixel-Teee/Pixel)

@@ -8,16 +8,16 @@
 
 namespace HEngine 
 {
-	void Model::Draw(const glm::mat4& transform, const glm::vec3& cameraPos, int entityID)
+	void Model::Draw(const glm::mat4& transform, const glm::vec3& cameraPos, const glm::mat4& viewMatrix, int entityID)
 	{
 		for (unsigned int i = 0; i < mMeshes.size(); ++i)
-			mMeshes[i].Draw(transform, cameraPos, mMaterial->GetShader(), entityID, this);
+			mMeshes[i].Draw(transform, cameraPos, viewMatrix, mMaterial->GetShader(), entityID, this);
 	}
 
-	void Model::Draw(const glm::mat4& transform, const glm::vec3& cameraPos, Ref<Shader> shader, int entityID)
+	void Model::Draw(const glm::mat4& transform, const glm::vec3& cameraPos, const glm::mat4& viewMatrix, Ref<Shader> shader, int entityID)
 	{
 		for (unsigned int i = 0; i < mMeshes.size(); ++i)
-			mMeshes[i].Draw(transform, cameraPos, shader, entityID, this);
+			mMeshes[i].Draw(transform, cameraPos, viewMatrix, shader, entityID, this);
 	}
 
 	void Model::Draw()

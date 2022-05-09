@@ -11,6 +11,7 @@ namespace HEngine
         Add("DefaultNormal",            Texture2D::Create(std::string("Assets/Textures/DefaultNormal.png")));
         Add("DefaultMetallicRoughness", Texture2D::Create(std::string("Assets/Textures/DefaultMetallicRoughness.png")));
         Add("DefaultHdr", Texture2D::Create(std::string("Assets/Textures/DefaultTexture.png")));
+        Add("BRDF_LUT", Texture2D::Create(std::string("Assets/Textures/BRDF_LUT.tga")));
 
         Ref<Texture2D> whiteTexture = Texture2D::Create(1, 1);
         uint32_t whiteTextureData = 0xffffffff;

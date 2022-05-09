@@ -89,24 +89,24 @@ namespace HEngine
 			glFramebufferTexture2D(GL_FRAMEBUFFER, attachmentType, TextureTarget(multisampled), id, 0);
 		}
 
-		static void AttachDepthRenderBuffer(uint32_t id, int samples, GLenum format, GLenum attachmentType, uint32_t width, uint32_t height)
+		static void AttachDepthRenderBuffer(uint32_t& id, int samples, GLenum format, GLenum attachmentType, uint32_t width, uint32_t height)
 		{
 			glGenRenderbuffers(1, &id);
 			bool multisampled = samples > 1;
 			if (multisampled)
 			{
 				glBindRenderbuffer(GL_RENDERBUFFER, id);
-				glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, GL_DEPTH24_STENCIL8, width, height);
+				glRenderbufferStorageMultisample(GL_RENDERBUFFER, samples, format, width, height);
 				glBindRenderbuffer(GL_RENDERBUFFER, 0);
 			}
 			else
 			{
 				glBindRenderbuffer(GL_RENDERBUFFER, id);
-				glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, width, height);
+				glRenderbufferStorage(GL_RENDERBUFFER, format, width, height);
 				glBindRenderbuffer(GL_RENDERBUFFER, 0);
 			}
 
-			glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, id);
+			glFramebufferRenderbuffer(GL_FRAMEBUFFER, attachmentType, GL_RENDERBUFFER, id);
 		}
 
 		static bool IsDepthFormat(FramebufferTextureFormat format)
@@ -155,7 +155,7 @@ namespace HEngine
 			mDepthAttachment = 0;
         }
 
-        glCreateFramebuffers(1, &mRendererID);
+		glGenFramebuffers(1, &mRendererID);
         glBindFramebuffer(GL_FRAMEBUFFER, mRendererID);
 
 		bool multisample = mSpecification.Samples > 1;
@@ -184,6 +184,9 @@ namespace HEngine
 		{
 			switch (mDepthAttachmentSpecification.TextureFormat)
 			{
+			case FramebufferTextureFormat::DEPTH:
+				Utils::AttachDepthRenderBuffer(mDepthAttachment, mSpecification.Samples, GL_DEPTH_COMPONENT24, GL_DEPTH_ATTACHMENT, mSpecification.Width, mSpecification.Height);
+				break;
 			case FramebufferTextureFormat::DEPTH24STENCIL8:
 				Utils::AttachDepthRenderBuffer(mDepthAttachment, mSpecification.Samples, GL_DEPTH24_STENCIL8, GL_DEPTH_STENCIL_ATTACHMENT, mSpecification.Width, mSpecification.Height);
 				break;
@@ -210,7 +213,7 @@ namespace HEngine
     void OpenGLFramebuffer::Bind()
     {
         glBindFramebuffer(GL_FRAMEBUFFER, mRendererID);
-        glViewport(0, 0, mSpecification.Width, mSpecification.Height);
+        //glViewport(0, 0, mSpecification.Width, mSpecification.Height);
     }
 
     void OpenGLFramebuffer::Unbind()
@@ -313,37 +316,11 @@ namespace HEngine
 			break;
 		case FramebufferTextureFormat::DEPTH24STENCIL8:
 			glClearBufferiv(GL_DEPTH24_STENCIL8, attachmentIndex, &value);
+			break;
+		case FramebufferTextureFormat::DEPTH:
+			glClearBufferiv(GL_DEPTH_COMPONENT24, attachmentIndex, &value);
+			break;
 		}
-	}
-
-	uint32_t OpenGLFramebuffer::GetColorAttachmentRendererID(uint32_t index) const
-	{
-		HE_CORE_ASSERT(index < mColorAttachments.size()); return mColorAttachments[index];
-
-		//configure second post-processing framebuffer
-		unsigned int intermediateFBO;
-		glGenFramebuffers(1, &intermediateFBO);
-		glBindFramebuffer(GL_FRAMEBUFFER, intermediateFBO);
-		// create a color attachment texture
-		unsigned int screenTexture;
-		glGenTextures(1, &screenTexture);
-		glBindTexture(GL_TEXTURE_2D, screenTexture);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, mSpecification.Width, mSpecification.Height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, screenTexture, 0);	// we only need a color buffer
-
-		glBindFramebuffer(GL_READ_FRAMEBUFFER, mRendererID);
-		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, intermediateFBO);
-		glBlitFramebuffer(0, 0, mSpecification.Width, mSpecification.Height, 0, 0, mSpecification.Width, mSpecification.Height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
-		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-		//glBindTexture(GL_TEXTURE_2D, 0);
-
-		//return mColorAttachments[index];
-		return screenTexture;
 	}
 
 	void OpenGLFramebuffer::FramebufferTexture2D(uint32_t cubemapIndex, uint32_t cubemapID, uint32_t slot)

@@ -1,32 +1,42 @@
 #type vertex
 #version 450 core
-layout (location = 0) in vec3 aPos;
-layout (location = 1) in vec3 aNormal;
-layout (location = 2) in vec2 aTexCoords;
+
+layout(location = 0) in vec3 a_Pos;
+layout(location = 1) in vec3 a_Normal;
+layout(location = 2) in vec3 a_Tangent;
+layout(location = 3) in vec2 a_TexCoord;
+layout(location = 4) in int a_EntityID;
 
 out vec2 TexCoords;
 out vec3 WorldPos;
 out vec3 Normal;
+out flat int v_EntityID;
 
-uniform mat4 projection;
-uniform mat4 view;
+layout(std140, binding = 0) uniform Camera
+{
+	mat4 u_ViewProjection;
+};
+
 uniform mat4 model;
 
 void main()
 {
-    TexCoords = aTexCoords;
-    WorldPos = vec3(model * vec4(aPos, 1.0));
-    Normal = mat3(model) * aNormal;   
+    TexCoords = a_TexCoord;
+    WorldPos = vec3(model * vec4(a_Pos, 1.0));
+    Normal = mat3(model) * a_Normal;
+    v_EntityID = a_EntityID;
 
-    gl_Position =  projection * view * vec4(WorldPos, 1.0);
+    gl_Position =  u_ViewProjection * vec4(WorldPos, 1.0);
 }
 
 #type fragment
 #version 450 core
 out vec4 FragColor;
+out int color2;
 in vec2 TexCoords;
 in vec3 WorldPos;
 in vec3 Normal;
+in flat int v_EntityID;
 
 // material parameters
 uniform sampler2D albedoMap;
@@ -196,4 +206,6 @@ void main()
     color = pow(color, vec3(1.0/2.2)); 
 
     FragColor = vec4(color , 1.0);
+
+    color2 = v_EntityID;
 }

@@ -1,8 +1,8 @@
 #include "hepch.h"
 
+#include "Runtime/EcsFramework/System/Render/EnvironmentSystem.h"
 #include "Runtime/Resource/ModeManager/ModeManager.h"
 #include "Runtime/Resource/ConfigManager/ConfigManager.h"
-#include "Runtime/EcsFramework/System/Render/EnvironmentSystem.h"
 #include "Runtime/EcsFramework/Component/ComponentGroup.h"
 #include "Runtime/EcsFramework/Entity/Entity.h"
 #include "Runtime/Renderer/RenderCommand.h"
@@ -132,27 +132,192 @@ namespace HEngine
 			int framebufferOld = 0;
 			framebufferOld = RenderCommand::GetDrawFrameBuffer();
 
-			FramebufferSpecification fbSpec;
-			fbSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::Depth };
-			fbSpec.Width = 512;
-			fbSpec.Height = 512;
-			static Ref<Framebuffer> captureFBO = Framebuffer::Create(fbSpec);
+			// Temp
+			unsigned int captureFBO;
+			unsigned int captureRBO;
+			glGenFramebuffers(1, &captureFBO);
+			glGenRenderbuffers(1, &captureRBO);
+
+			glBindFramebuffer(GL_FRAMEBUFFER, captureFBO);
+			glBindRenderbuffer(GL_RENDERBUFFER, captureRBO);
+			glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, 512, 512);
+			glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, captureRBO);
 
 			hdrTex->Bind();
-			captureFBO->Bind();
+			glBindFramebuffer(GL_FRAMEBUFFER, captureFBO);
 			RenderCommand::SetViewport(0, 0, envCubemap->GetWidth(), envCubemap->GetHeight());
 			for (unsigned int i = 0; i < 6; ++i)
 			{
 				equirectangularToCubemapShader->SetMat4("view", captureViews[i]);
-				captureFBO->FramebufferTexture2D(i, envCubemap->GetRendererID());
+				glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, envCubemap->GetRendererID(), 0);
 				RenderCommand::Clear();
 
 				Library<Model>::GetInstance().Get("Box")->Draw();
 			}
-			captureFBO->Unbind();
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+			// End temp
+
+			//FramebufferSpecification fbSpec;
+			//fbSpec.Attachments = { FramebufferTextureFormat::DEPTH24STENCIL8 };
+			//fbSpec.Width = 512;
+			//fbSpec.Height = 512;
+			//static Ref<Framebuffer> captureFBO = Framebuffer::Create(fbSpec);
+
+			//hdrTex->Bind();
+			//captureFBO->Bind();
+			//captureFBO->BindDrawFramebuffer();
+			//RenderCommand::SetViewport(0, 0, envCubemap->GetWidth(), envCubemap->GetHeight());
+			//for (unsigned int i = 0; i < 6; ++i)
+			//{
+			//	equirectangularToCubemapShader->SetMat4("view", captureViews[i]);
+			//	captureFBO->FramebufferTexture2D(i, envCubemap->GetRendererID());
+			//	RenderCommand::Clear();
+
+			//	Library<Model>::GetInstance().Get("Box")->Draw();
+			//}
+			//captureFBO->Unbind();
+			
 
 			envCubemap->Bind(0);
 			envCubemap->GenerateMipmap();
+
+			// irradiance map
+			Ref<CubeMapTexture> irradianceMap = Library<CubeMapTexture>::GetInstance().Get("EnvironmentIrradiance");
+			Ref<Shader> irradianceShader = Library<Shader>::GetInstance().Get("IBL_irradiance");
+
+
+			
+			//Temp
+			// pbr: create an irradiance cubemap, and re-scale capture FBO to irradiance scale.
+			// --------------------------------------------------------------------------------
+			glBindTexture(GL_TEXTURE_CUBE_MAP, irradianceMap->GetRendererID());
+			for (unsigned int i = 0; i < 6; ++i)
+			{
+				glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB16F, 32, 32, 0, GL_RGB, GL_FLOAT, nullptr);
+			}
+			glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+			glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+			glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+			glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+			glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+			glBindFramebuffer(GL_FRAMEBUFFER, captureFBO);
+			glBindRenderbuffer(GL_RENDERBUFFER, captureRBO);
+			glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, 32, 32);
+
+			// pbr: solve diffuse integral by convolution to create an irradiance (cube)map.
+			// -----------------------------------------------------------------------------
+			irradianceShader->Bind();
+			irradianceShader->SetInt("environmentMap", 0);
+			irradianceShader->SetMat4("projection", captureProjection);
+			glActiveTexture(GL_TEXTURE0);
+			glBindTexture(GL_TEXTURE_CUBE_MAP, envCubemap->GetRendererID());
+
+			glViewport(0, 0, 32, 32); // don't forget to configure the viewport to the capture dimensions.
+			glBindFramebuffer(GL_FRAMEBUFFER, captureFBO);
+			for (unsigned int i = 0; i < 6; ++i)
+			{
+				irradianceShader->SetMat4("view", captureViews[i]);
+				glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, irradianceMap->GetRendererID(), 0);
+				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+				Library<Model>::GetInstance().Get("Box")->Draw();
+			}
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+			//end temp
+			
+			
+			//captureFBO->Bind();
+			//glBindRenderbuffer(GL_RENDERBUFFER, captureFBO->GetDepthAttachmentRendererID());
+			//glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, 32, 32);
+
+			//irradianceShader->Bind();
+			//irradianceShader->SetInt("environmentMap", 0);
+			//irradianceShader->SetMat4("projection", captureProjection);
+			//envCubemap->Bind(0);
+
+			//RenderCommand::SetViewport(0, 0, 32, 32); // don't forget to configure the viewport to the capture dimensions.
+			//captureFBO->Bind();
+			//for (unsigned int i = 0; i < 6; ++i)
+			//{
+			//	irradianceShader->SetMat4("view", captureViews[i]);
+			//	captureFBO->FramebufferTexture2D(i, irradianceMap->GetRendererID());
+			//	RenderCommand::Clear();
+
+			//	//glDrawBuffer(GL_COLOR_ATTACHMENT0);
+			//	Library<Model>::GetInstance().Get("Box")->Draw();
+			//}
+			//captureFBO->Unbind();
+			Library<CubeMapTexture>::GetInstance().Set("EnvironmentIrradiance", irradianceMap);
+
+			// prefilter map
+			Ref<CubeMapTexture> prefilterMap = Library<CubeMapTexture>::GetInstance().Get("EnvironmentPrefilter");
+			Ref<Shader> prefilterShader = Library<Shader>::GetInstance().Get("IBL_prefilter");
+			prefilterMap->Bind();
+			prefilterMap->GenerateMipmap();
+			prefilterShader->Bind();
+			prefilterShader->SetInt("environmentMap", 0);
+			prefilterShader->SetMat4("projection", captureProjection);
+			envCubemap->Bind(0);
+
+			// Temp
+			glBindFramebuffer(GL_FRAMEBUFFER, captureFBO);
+			unsigned int maxMipLevels = 5;
+			for (unsigned int mip = 0; mip < maxMipLevels; ++mip)
+			{
+				// reisze framebuffer according to mip-level size.
+				unsigned int mipWidth = static_cast<unsigned int>(128 * std::pow(0.5, mip));
+				unsigned int mipHeight = static_cast<unsigned int>(128 * std::pow(0.5, mip));
+				glBindRenderbuffer(GL_RENDERBUFFER, captureRBO);
+				glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, mipWidth, mipHeight);
+				glViewport(0, 0, mipWidth, mipHeight);
+
+				float roughness = (float)mip / (float)(maxMipLevels - 1);
+				prefilterShader->SetFloat("roughness", roughness);
+				for (unsigned int i = 0; i < 6; ++i)
+				{
+					prefilterShader->SetMat4("view", captureViews[i]);
+					glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, prefilterMap->GetRendererID(), mip);
+
+					RenderCommand::Clear();
+					Library<Model>::GetInstance().Get("Box")->Draw();
+				}
+			}
+			glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+			// End temp
+
+
+			//prefilterShader->Bind();
+			//prefilterShader->SetInt("environmentMap", 0);
+			//prefilterShader->SetMat4("projection", captureProjection);
+			//envCubemap->Bind(0);
+			//captureFBO->Bind();
+			//unsigned int maxMipLevels = 5;
+			//for (unsigned int mip = 0; mip < maxMipLevels; ++mip)
+			//{
+			//	// reisze framebuffer according to mip-level size.
+			//	unsigned int mipWidth = static_cast<unsigned int>(128 * std::pow(0.5, mip));
+			//	unsigned int mipHeight = static_cast<unsigned int>(128 * std::pow(0.5, mip));
+			//	
+			//	glBindRenderbuffer(GL_RENDERBUFFER, captureFBO->GetDepthAttachmentRendererID());
+			//	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, mipWidth, mipHeight);
+			//	RenderCommand::SetViewport(0, 0, mipWidth, mipHeight);
+
+			//	float roughness = (float)mip / (float)(maxMipLevels - 1);
+			//	prefilterShader->SetFloat("roughness", roughness);
+			//	for (unsigned int i = 0; i < 6; ++i)
+			//	{
+			//		prefilterShader->SetMat4("view", captureViews[i]);
+			//		captureFBO->FramebufferTexture2D(i, prefilterMap->GetRendererID());
+
+			//		RenderCommand::Clear();
+			//		Library<Model>::GetInstance().Get("Box")->Draw();
+			//	}
+			//}
+			//captureFBO->Unbind();
+			Library<CubeMapTexture>::GetInstance().Set("EnvironmentPrefilter", prefilterMap);
+			
 
 			RenderCommand::BindFrameBuffer(framebufferOld);
 		}

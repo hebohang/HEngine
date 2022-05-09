@@ -4,6 +4,7 @@
 #include "Runtime/Renderer/RenderCommand.h"
 #include "Runtime/Library/TextureLibrary.h"
 #include "Runtime/Renderer/Model.h"
+#include "Runtime/Resource/ModeManager/ModeManager.h"
 
 namespace HEngine 
 {
@@ -49,25 +50,54 @@ namespace HEngine
 		mVertexArray->SetIndexBuffer(mIB);
 	}
 
-	void StaticMesh::Draw(const glm::mat4& transform, const glm::vec3& cameraPos, const Ref<Shader>& shader, int entityID, Model* model)
+	void StaticMesh::Draw(const glm::mat4& transform, const glm::vec3& cameraPos, const glm::mat4& viewMatrix, const Ref<Shader>& shader, int entityID, Model* model)
 	{
 		SetupMesh(entityID);
-		shader->Bind();
-		shader->SetMat4("u_Model.Transform", (transform));
-		mVertexArray->Bind();
 
-		model->mAlbedoMap->Bind(0);
-		model->mNormalMap->Bind(1);
-		model->mMetallicMap->Bind(2);
-		model->mRoughnessMap->Bind(3);
-		model->mAoMap->Bind(4);
+		if (ModeManager::bHdrUse)
+		{
+			shader->Bind();
+			shader->SetMat4("model", transform);
+			shader->SetFloat3("camPos", cameraPos);
 
-		shader->SetInt("albedoMap", 0);
-		shader->SetInt("normalMap", 1);
-		shader->SetInt("metallicMap", 2);
-		shader->SetInt("roughnessMap", 3);
-		shader->SetInt("aoMap", 4);
-		shader->SetFloat3("u_Uniform.camPos", cameraPos);
+			Library<CubeMapTexture>::GetInstance().Get("EnvironmentIrradiance")->Bind(0);
+			Library<CubeMapTexture>::GetInstance().Get("EnvironmentPrefilter")->Bind(1);
+			Library<Texture2D>::GetInstance().Get("BRDF_LUT")->Bind(2);
+
+			model->mAlbedoMap->Bind(3);
+			model->mNormalMap->Bind(4);
+			model->mMetallicMap->Bind(5);
+			model->mRoughnessMap->Bind(6);
+			model->mAoMap->Bind(7);
+
+			shader->SetInt("irradianceMap", 0);
+			shader->SetInt("prefilterMap", 1);
+			shader->SetInt("brdfLUT", 2);
+			shader->SetInt("albedoMap", 3);
+			shader->SetInt("normalMap", 4);
+			shader->SetInt("metallicMap", 5);
+			shader->SetInt("roughnessMap", 6);
+			shader->SetInt("aoMap", 7);
+		}
+		else
+		{
+			shader->Bind();
+			shader->SetMat4("u_Model.Transform", (transform));
+			mVertexArray->Bind();
+
+			model->mAlbedoMap->Bind(0);
+			model->mNormalMap->Bind(1);
+			model->mMetallicMap->Bind(2);
+			model->mRoughnessMap->Bind(3);
+			model->mAoMap->Bind(4);
+
+			shader->SetInt("albedoMap", 0);
+			shader->SetInt("normalMap", 1);
+			shader->SetInt("metallicMap", 2);
+			shader->SetInt("roughnessMap", 3);
+			shader->SetInt("aoMap", 4);
+			shader->SetFloat3("u_Uniform.camPos", cameraPos);
+		}
 
 		RenderCommand::DrawIndexed(mVertexArray, mIB->GetCount());
 	}

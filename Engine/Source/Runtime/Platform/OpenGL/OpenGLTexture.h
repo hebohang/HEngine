@@ -40,6 +40,7 @@ namespace HEngine
     {
     public:
         OpenGLCubeMapTexture();
+        OpenGLCubeMapTexture(uint32_t width, uint32_t height);
         OpenGLCubeMapTexture(std::vector<std::string>& paths);
         virtual ~OpenGLCubeMapTexture();
 

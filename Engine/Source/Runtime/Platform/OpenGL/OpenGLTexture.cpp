@@ -50,6 +50,11 @@ namespace HEngine
                 internalFormat = GL_RGB8;
                 dataFormat = GL_RGB;
             }
+            else if (channels == 1)
+            {
+                internalFormat = GL_RGB;
+                dataFormat = GL_UNSIGNED_BYTE;
+            }
 
             mInternalFormat = internalFormat;
             mDataFormat = dataFormat;

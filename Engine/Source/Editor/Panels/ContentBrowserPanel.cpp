@@ -22,7 +22,7 @@ namespace HEngine
 		static bool IsImageFormat(std::string filePath)
 		{
 			std::string extension = filePath.substr(filePath.find_last_of(".") + 1);
-			if (extension == "png" || extension == "jpg" || extension == "bmp" || extension == "hdr")
+			if (extension == "png" || extension == "jpg" || extension == "bmp" || extension == "hdr" || extension == "tga")
 			{
 				return true;
 			}

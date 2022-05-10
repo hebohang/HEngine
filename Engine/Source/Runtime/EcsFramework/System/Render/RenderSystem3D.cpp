@@ -76,10 +76,24 @@ namespace HEngine
 				iblPbr->SetFloat3("lightColors[" + std::to_string(i) + "]", lightColor);				
 				
 				defaultPbr->Bind();
-				defaultPbr->SetFloat3("lightPositions[" + std::to_string(i) + "]", lightPos);
-				defaultPbr->SetFloat3("lightColors[" + std::to_string(i) + "]", lightColor);
+				defaultPbr->SetFloat3("u_Uniform.lightPositions[" + std::to_string(i) + "]", lightPos);
+				defaultPbr->SetFloat3("u_Uniform.lightColors[" + std::to_string(i) + "]", lightColor);
 
 				i++;
+			}
+			if (i == 0)
+			{
+				Ref<Shader> iblPbr = Library<Shader>::GetInstance().Get("IBL_pbr");
+				Ref<Shader> defaultPbr = Library<Shader>::GetInstance().GetDefaultShader();
+
+				for (size_t i = 0; i < 4; i++)
+				{
+					iblPbr->Bind();
+					iblPbr->SetFloat3("lightColors[" + std::to_string(i) + "]", glm::vec3{ -1.0f } );
+
+					defaultPbr->Bind();
+					defaultPbr->SetFloat3("u_Uniform.lightColors[" + std::to_string(i) + "]", glm::vec3{ -1.0f });
+				}
 			}
 		}
 

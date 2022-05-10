@@ -64,11 +64,30 @@ namespace HEngine
 			Library<CubeMapTexture>::GetInstance().Get("EnvironmentPrefilter")->Bind(1);
 			Library<Texture2D>::GetInstance().Get("BRDF_LUT")->Bind(2);
 
-			model->mAlbedoMap->Bind(3);
-			model->mNormalMap->Bind(4);
-			model->mMetallicMap->Bind(5);
-			model->mRoughnessMap->Bind(6);
-			model->mAoMap->Bind(7);
+			if (model->bUseAlbedoMap)
+				model->mAlbedoMap->Bind(3);
+			else
+				model->albedoRGBA->Bind(3);
+
+			if (model->bUseNormalMap)
+				model->mNormalMap->Bind(4);
+			else
+				Library<Texture2D>::GetInstance().GetWhiteTexture()->Bind(4);
+
+			if (model->bUseMetallicMap)
+				model->mMetallicMap->Bind(5);
+			else
+				model->metallicRGBA->Bind(5);
+
+			if (model->bUseRoughnessMap)
+				model->mRoughnessMap->Bind(6);
+			else
+				model->roughnessRGBA->Bind(6);
+
+			if (model->bUseAoMap)
+				model->mAoMap->Bind(7);
+			else
+				Library<Texture2D>::GetInstance().GetWhiteTexture()->Bind(7);
 
 			shader->SetInt("irradianceMap", 0);
 			shader->SetInt("prefilterMap", 1);
@@ -85,11 +104,30 @@ namespace HEngine
 			shader->SetMat4("u_Model.Transform", (transform));
 			mVertexArray->Bind();
 
-			model->mAlbedoMap->Bind(0);
-			model->mNormalMap->Bind(1);
-			model->mMetallicMap->Bind(2);
-			model->mRoughnessMap->Bind(3);
-			model->mAoMap->Bind(4);
+			if (model->bUseAlbedoMap)
+				model->mAlbedoMap->Bind(0);
+			else
+				model->albedoRGBA->Bind(0);
+
+			if (model->bUseNormalMap)
+				model->mNormalMap->Bind(1);
+			else
+				Library<Texture2D>::GetInstance().GetWhiteTexture()->Bind(1);
+
+			if (model->bUseMetallicMap)
+				model->mMetallicMap->Bind(2);
+			else
+				model->metallicRGBA->Bind(2);
+
+			if (model->bUseRoughnessMap)
+				model->mRoughnessMap->Bind(3);
+			else
+				model->roughnessRGBA->Bind(3);
+
+			if (model->bUseAoMap)
+				model->mAoMap->Bind(4);
+			else
+				Library<Texture2D>::GetInstance().GetWhiteTexture()->Bind(4);
 
 			shader->SetInt("albedoMap", 0);
 			shader->SetInt("normalMap", 1);

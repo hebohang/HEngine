@@ -44,11 +44,24 @@ namespace HEngine
 		StaticMesh ProcessMesh(aiMesh* mesh, const aiScene* scene);
 		std::optional<std::vector<MaterialTexture>> loadMaterialTextures(aiMaterial* mat, aiTextureType type);
 	public:
+		bool bUseAlbedoMap = false;
+		Ref<Texture2D> albedoRGBA = Texture2D::Create(1, 1);
 		Ref<Texture2D> mAlbedoMap = Library<Texture2D>::GetInstance().GetDefaultTexture();
+
+		bool bUseNormalMap = false;
 		Ref<Texture2D> mNormalMap = Library<Texture2D>::GetInstance().Get("DefaultNormal");
+
+		bool bUseMetallicMap = false;
+		Ref<Texture2D> metallicRGBA = Texture2D::Create(1, 1);
 		Ref<Texture2D> mMetallicMap = Library<Texture2D>::GetInstance().Get("DefaultMetallicRoughness");
+
+		bool bUseRoughnessMap = false;
+		Ref<Texture2D> roughnessRGBA = Texture2D::Create(1, 1);
 		Ref<Texture2D> mRoughnessMap = Library<Texture2D>::GetInstance().Get("DefaultMetallicRoughness");
-		Ref<Texture2D> mAoMap = Library<Texture2D>::GetInstance().Get("WhiteTexture");
+
+		bool bUseAoMap = false;
+		Ref<Texture2D> mAoMap = Library<Texture2D>::GetInstance().GetWhiteTexture();
+
 	private:
 		Ref<Material> mMaterial = CreateRef<Material>();
 		std::vector<StaticMesh> mMeshes;

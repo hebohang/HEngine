@@ -23,4 +23,9 @@ namespace HEngine
     {
         return mLibrary["DefaultTexture"];
     }
+
+    Ref<Texture2D> Library<Texture2D>::GetWhiteTexture()
+    {
+        return mLibrary["WhiteTexture"];
+    }
 }

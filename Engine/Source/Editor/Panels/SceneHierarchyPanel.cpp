@@ -553,7 +553,7 @@ namespace HEngine
 
 				if (ImGui::TreeNode((void*)"Material", "Material"))
 				{
-					const auto& materialNode = [](const char* name, Ref<Texture2D>& tex,void(*func)()) {
+					const auto& materialNode = [&model = component.Mesh](const char* name, Ref<Texture2D>& tex, void(*func)(Model& model)) {
 						if (ImGui::TreeNode((void*)name, name))
 						{
 							ImGui::Image((ImTextureID)tex->GetRendererID(), ImVec2(64, 64), ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
@@ -571,41 +571,102 @@ namespace HEngine
 								ImGui::EndDragDropTarget();
 							}
 
-							func();
-
+							func(model);
+							
 							ImGui::TreePop();
 						}
 					};
 
-					materialNode("Albedo", component.Mesh.mAlbedoMap, []() {
-						static bool use = false;
+					materialNode("Albedo", component.Mesh.mAlbedoMap, [](Model& model) {
 						ImGui::SameLine();
-						ImGui::Checkbox("Use", &use);
-						});
+						ImGui::Checkbox("Use", &model.bUseAlbedoMap);
 
-					materialNode("Normal", component.Mesh.mNormalMap, []() {
-						static bool use = false;
-						ImGui::SameLine();
-						ImGui::Checkbox("Use", &use);
-						});
+						static float col[4]; // 0 ~ 1
+						if (ImGui::ColorEdit4("##albedo", col))
+						{
+							if (!model.bUseAlbedoMap)
+							{
+								unsigned char data[4];
+								for (size_t i = 0; i < 4; i++)
+								{
+									data[i] = (unsigned char)(col[i] * 255.0f);
+								}
+								model.albedoRGBA->SetData(data, sizeof(unsigned char) * 4);
+							}
+						}
+					});
 
-					materialNode("Metallic", component.Mesh.mMetallicMap, []() {
-						static bool use = false;
+					materialNode("Normal", component.Mesh.mNormalMap, [](Model& model) {
 						ImGui::SameLine();
-						ImGui::Checkbox("Use", &use);
-						});
+						ImGui::Checkbox("Use", &model.bUseNormalMap);
+					});
 
-					materialNode("Roughness", component.Mesh.mRoughnessMap, []() {
-						static bool use = false;
+					materialNode("Metallic", component.Mesh.mMetallicMap, [](Model& model) {
 						ImGui::SameLine();
-						ImGui::Checkbox("Use", &use);
-						});
 
-					materialNode("Ambient Occlusion", component.Mesh.mAoMap, []() {
-						static bool use = false;
+						if (ImGui::BeginTable("Metallic", 1))
+						{
+							ImGui::TableNextRow();
+							ImGui::TableNextColumn();
+
+							ImGui::Checkbox("Use", &model.bUseMetallicMap);
+
+							ImGui::TableNextRow();
+							ImGui::TableNextColumn();
+							static float Metallic = 0.0f;
+							if (ImGui::SliderFloat("##Metallic", &Metallic, 0.0f, 1.0f))
+							{
+								if (!model.bUseMetallicMap)
+								{
+									unsigned char data[4];
+									for (size_t i = 0; i < 3; i++)
+									{
+										data[i] = (unsigned char)(Metallic * 255.0f);
+									}
+									data[4] = (unsigned char)255.0f;
+									model.metallicRGBA->SetData(data, sizeof(unsigned char) * 4);
+								}
+							}
+
+							ImGui::EndTable();
+						}
+					});
+
+					materialNode("Roughness", component.Mesh.mRoughnessMap, [](Model& model) {
 						ImGui::SameLine();
-						ImGui::Checkbox("Use", &use);
-						});
+						
+						if (ImGui::BeginTable("Roughness", 1))
+						{
+							ImGui::TableNextRow();
+							ImGui::TableNextColumn();
+
+							ImGui::Checkbox("Use", &model.bUseRoughnessMap);
+
+							ImGui::TableNextRow();
+							ImGui::TableNextColumn();
+							static float Roughness = 0.0f;
+							if (ImGui::SliderFloat("##Roughness", &Roughness, 0.0f, 1.0f))
+							{
+								if (!model.bUseRoughnessMap)
+								{
+									unsigned char data[4];
+									for (size_t i = 0; i < 3; i++)
+									{
+										data[i] = (unsigned char)(Roughness * 255.0f);
+									}
+									data[4] = (unsigned char)255.0f;
+									model.roughnessRGBA->SetData(data, sizeof(unsigned char) * 4);
+								}
+							}
+
+							ImGui::EndTable();
+						}
+					});
+
+					materialNode("Ambient Occlusion", component.Mesh.mAoMap, [](Model& model) {
+						ImGui::SameLine();
+						ImGui::Checkbox("Use", &model.bUseAoMap);
+					});
 
 					ImGui::TreePop();
 				}

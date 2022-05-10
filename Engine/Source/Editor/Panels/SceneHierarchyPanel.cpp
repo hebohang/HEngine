@@ -581,15 +581,14 @@ namespace HEngine
 						ImGui::SameLine();
 						ImGui::Checkbox("Use", &model.bUseAlbedoMap);
 
-						static float col[4]; // 0 ~ 1
-						if (ImGui::ColorEdit4("##albedo", col))
+						if (ImGui::ColorEdit4("##albedo", model.col))
 						{
 							if (!model.bUseAlbedoMap)
 							{
 								unsigned char data[4];
 								for (size_t i = 0; i < 4; i++)
 								{
-									data[i] = (unsigned char)(col[i] * 255.0f);
+									data[i] = (unsigned char)(model.col[i] * 255.0f);
 								}
 								model.albedoRGBA->SetData(data, sizeof(unsigned char) * 4);
 							}
@@ -613,15 +612,14 @@ namespace HEngine
 
 							ImGui::TableNextRow();
 							ImGui::TableNextColumn();
-							static float Metallic = 0.0f;
-							if (ImGui::SliderFloat("##Metallic", &Metallic, 0.0f, 1.0f))
+							if (ImGui::SliderFloat("##Metallic", &model.metallic, 0.0f, 1.0f))
 							{
 								if (!model.bUseMetallicMap)
 								{
 									unsigned char data[4];
 									for (size_t i = 0; i < 3; i++)
 									{
-										data[i] = (unsigned char)(Metallic * 255.0f);
+										data[i] = (unsigned char)(model.metallic * 255.0f);
 									}
 									data[4] = (unsigned char)255.0f;
 									model.metallicRGBA->SetData(data, sizeof(unsigned char) * 4);
@@ -644,15 +642,14 @@ namespace HEngine
 
 							ImGui::TableNextRow();
 							ImGui::TableNextColumn();
-							static float Roughness = 0.0f;
-							if (ImGui::SliderFloat("##Roughness", &Roughness, 0.0f, 1.0f))
+							if (ImGui::SliderFloat("##Roughness", &model.roughness, 0.0f, 1.0f))
 							{
 								if (!model.bUseRoughnessMap)
 								{
 									unsigned char data[4];
 									for (size_t i = 0; i < 3; i++)
 									{
-										data[i] = (unsigned char)(Roughness * 255.0f);
+										data[i] = (unsigned char)(model.roughness * 255.0f);
 									}
 									data[4] = (unsigned char)255.0f;
 									model.roughnessRGBA->SetData(data, sizeof(unsigned char) * 4);

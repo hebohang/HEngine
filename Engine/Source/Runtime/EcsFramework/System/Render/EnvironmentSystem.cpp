@@ -21,6 +21,7 @@ namespace HEngine
 {
 	static uint32_t id = 0;
 	static uint32_t oldId = 0;
+	EnvironmentHdrSettings EnvironmentSystem::environmentSettings;
 
 	void EnvironmentSystem::OnUpdateRuntime(Timestep ts)
 	{
@@ -328,9 +329,13 @@ namespace HEngine
 
 		RenderCommand::DepthFunc(DepthComp::LEQUAL);
 
+		Library<Shader>::GetInstance().Get("IBL_pbr")->SetFloat("exposure", environmentSettings.exposure);
+
 		Ref<Shader> backgroundShader = Library<Shader>::GetInstance().Get("IBL_background");
 		backgroundShader->Bind();
 		backgroundShader->SetInt("environmentMap", 0);
+		backgroundShader->SetFloat("SkyBoxLod", environmentSettings.SkyBoxLod);
+		backgroundShader->SetFloat("exposure", environmentSettings.exposure);
 
 		Library<Model>::GetInstance().Get("Box")->Draw();
 		RenderCommand::DepthFunc(DepthComp::LESS);

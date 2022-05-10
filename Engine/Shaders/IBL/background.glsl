@@ -29,13 +29,15 @@ out int o_EntityID;
 in vec3 WorldPos;
 
 uniform samplerCube environmentMap;
+uniform float SkyBoxLod;
+uniform float exposure;
 
 void main()
 {		
-    vec3 envColor = textureLod(environmentMap, WorldPos, 0.0).rgb;
+    vec3 envColor = textureLod(environmentMap, WorldPos, SkyBoxLod).rgb;
     
     // HDR tonemap and gamma correct
-    envColor = envColor / (envColor + vec3(1.0));
+    envColor = vec3(1.0) - exp(-envColor * exposure);
     envColor = pow(envColor, vec3(1.0/2.2)); 
     
     FragColor = vec4(envColor, 1.0);

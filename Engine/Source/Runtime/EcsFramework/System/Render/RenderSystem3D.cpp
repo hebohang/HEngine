@@ -83,7 +83,6 @@ namespace HEngine
 			}
 		}
 
-
 		auto view = mLevel->mRegistry.view<TransformComponent, StaticMeshComponent>();
 		for (auto e : view)
 		{

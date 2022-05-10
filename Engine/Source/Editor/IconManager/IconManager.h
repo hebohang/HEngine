@@ -33,16 +33,13 @@ namespace HEngine
             return iconLibrary[name];
         }
 
-        [[nodiscard]] Ref<Texture2D> GetNullTexture() { return mNullTexture; }
-        [[nodiscard]] Ref<Texture2D> GetDirectoryIcon() { return mDirectoryIcon; }
-        [[nodiscard]] Ref<Texture2D> GetFileIcon() { return mFileIcon; }
-        [[nodiscard]] Ref<Texture2D> GetSettingIcon() { return mSettingIcon; }
+        [[nodiscard]] Ref<Texture2D> GetNullTexture() { return Get("NullTextrue"); }
+        [[nodiscard]] Ref<Texture2D> GetDirectoryIcon() { return Get("DirectoryIcon"); }
+        [[nodiscard]] Ref<Texture2D> GetFileIcon() { return Get("FileIcon"); }
+        [[nodiscard]] Ref<Texture2D> GetSettingIcon() { return Get("SettingIcon"); }
+        [[nodiscard]] Ref<Texture2D> GetPlayIcon() { return Get("PlayIcon"); }
+        [[nodiscard]] Ref<Texture2D> GetStopIcon() { return Get("StopIcon"); }
     private:
         std::unordered_map<std::string, Ref<Texture2D>> iconLibrary;
-
-        Ref<Texture2D> mNullTexture;
-        Ref<Texture2D> mDirectoryIcon;
-        Ref<Texture2D> mFileIcon;
-        Ref<Texture2D> mSettingIcon;
     };
 }

@@ -1,5 +1,6 @@
 #include "Editor/EditorLayer.h"
 #include "Editor/ImGuiWrapper/ImGuiWrapper.h"
+#include "Editor/IconManager/IconManager.h"
 #include "Runtime/EcsFramework/Serializer/SceneSerializer.h"
 #include "Runtime/Utils/PlatformUtils.h"
 #include "Runtime/Utils/MathUtils/MathUtils.h"
@@ -36,9 +37,6 @@ namespace HEngine
 
     void EditorLayer::OnAttach()
     {
-        mIconPlay = Texture2D::Create(AssetManager::GetFullPath("Resources/Icons/PlayButton.png"));
-        mIconStop = Texture2D::Create(AssetManager::GetFullPath("Resources/Icons/StopButton.png"));
-
         FramebufferSpecification fbSpec;
 		fbSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RED_INTEGER, FramebufferTextureFormat::Depth };
         fbSpec.Width = 1280;
@@ -471,7 +469,7 @@ namespace HEngine
 		ImGui::Begin("##toolbar", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
 		float size = ImGui::GetWindowHeight() - 4.0f;
-		Ref<Texture2D> icon = ModeManager::IsEditState() ? mIconPlay : mIconStop;
+		Ref<Texture2D> icon = ModeManager::IsEditState() ? IconManager::GetInstance().GetPlayIcon() : IconManager::GetInstance().GetStopIcon();
 		ImGui::SetCursorPosX((ImGui::GetWindowContentRegionMax().x * 0.5f) - (size * 0.5f));
 		if (ImGui::ImageButton((ImTextureID)icon->GetRendererID(), ImVec2(size, size), ImVec2(0, 0), ImVec2(1, 1), 0))
 		{

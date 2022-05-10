@@ -1,6 +1,7 @@
 #include "hepch.h"
 
 #include "Runtime/Resource/ModeManager/ModeManager.h"
+#include "Runtime/Resource/ConfigManager/ConfigManager.h"
 
 #include "Runtime/EcsFramework/Entity/Entity.h"
 #include "Runtime/EcsFramework/Level/Level.h"
@@ -81,9 +82,6 @@ namespace HEngine
 	Ref<Level> Level::Copy(Ref<Level> scene)
 	{
 		Ref<Level> newScene = CreateRef<Level>();
-
-		newScene->mViewportWidth = scene->mViewportWidth;
-		newScene->mViewportHeight = scene->mViewportHeight;
 
 		std::unordered_map<UUID, entt::entity> enttMap;
 
@@ -179,9 +177,6 @@ namespace HEngine
 
     void Level::OnViewportResize(uint32_t width, uint32_t height)
     {
-        mViewportWidth = width;
-        mViewportHeight = height;
-
         // Resize our non-FixedAspectRatio cameras
         auto view = mRegistry.view<CameraComponent>();
         for (auto entity : view)
@@ -229,8 +224,8 @@ namespace HEngine
     template<>
     void Level::OnComponentAdded<CameraComponent>(Entity entity, CameraComponent& component)
     {
-		if (mViewportWidth > 0 && mViewportHeight > 0)
-			component.Camera.SetViewportSize(mViewportWidth, mViewportHeight);
+		if (ConfigManager::mViewportSize.x > 0 && ConfigManager::mViewportSize.y > 0)
+			component.Camera.SetViewportSize(ConfigManager::mViewportSize.x, ConfigManager::mViewportSize.y);
     }
 
     template<>

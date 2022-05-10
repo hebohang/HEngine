@@ -5,11 +5,12 @@ namespace HEngine
 {
     IconManager::IconManager()
     {
-        mNullTexture = Texture2D::Create(AssetManager::GetFullPath("Assets/Textures/DefaultTexture.png"));
-        mDirectoryIcon = Texture2D::Create(AssetManager::GetFullPath("Resources/Icons/ContentBrowser/DirectoryIcon.png"));
-        mFileIcon = Texture2D::Create(AssetManager::GetFullPath("Resources/Icons/ContentBrowser/FileIcon.png"));
-        mSettingIcon = Texture2D::Create(AssetManager::GetFullPath("Resources/Icons/Setting.png"));
-
         Add("EntityIcon", Texture2D::Create(AssetManager::GetFullPath("Resources/Icons/Entity.png")));
+        Add("NullTextrue", Texture2D::Create(AssetManager::GetFullPath("Assets/Textures/DefaultTexture.png")));
+        Add("SettingIcon", Texture2D::Create(std::string(("Resources/Icons/Setting.png"))));
+        Add("DirectoryIcon", Texture2D::Create(std::string(("Resources/Icons/ContentBrowser/DirectoryIcon.png"))));
+        Add("FileIcon", Texture2D::Create(std::string(("Resources/Icons/ContentBrowser/FileIcon.png"))));
+        Add("PlayIcon", Texture2D::Create(std::string(("Resources/Icons/PlayButton.png"))));
+        Add("StopIcon", Texture2D::Create(std::string(("Resources/Icons/StopButton.png"))));
     }
 }

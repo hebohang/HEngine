@@ -9,17 +9,12 @@ namespace HEngine
 	class BoxCollider3DComponent : public ComponentBase
 	{
 	public:
-		glm::vec3 Size = { 0.5f, 0.5f, 0.5f };
-		glm::vec3 inertia = { 0.0, 0.0, 0.0 };
+		glm::vec3 Size = { 1.0f, 1.0f, 1.0f };
 
-		// TODO: move into physics material in the future maybe 
 		float linearDamping = 0.0f;
 		float angularDamping = 0.0f;
-		float restitution = 0.5f;
-		float friction = 0.5f;
-
-		// Storage for runtime
-		void* RuntimeFixture = nullptr;
+		float restitution = 1.0f;
+		float friction = 1.0f;
 
 		BoxCollider3DComponent() = default;
 		BoxCollider3DComponent(const BoxCollider3DComponent&) = default;

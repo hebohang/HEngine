@@ -260,6 +260,39 @@ namespace HEngine
 			out << YAML::EndMap; // CircleCollider2DComponent
 		}
 
+		if (entity.HasComponent<Rigidbody3DComponent>())
+		{
+			out << YAML::Key << "Rigidbody3DComponent";
+			out << YAML::BeginMap;
+
+			auto& rb3dComponent = entity.GetComponent<Rigidbody3DComponent>();
+			out << YAML::Key << "mass" << YAML::Value << rb3dComponent.mass;
+
+			out << YAML::EndMap;
+		}
+
+		if (entity.HasComponent<BoxCollider3DComponent>())
+		{
+			out << YAML::Key << "BoxCollider3DComponent";
+			out << YAML::BeginMap;
+
+			auto& bc3dComponent = entity.GetComponent<BoxCollider3DComponent>();
+			//out << YAML::Key << "Mass" << YAML::Value << bc3dComponent.mass;
+
+			out << YAML::EndMap;
+		}
+
+		if (entity.HasComponent<SphereCollider3DComponent>())
+		{
+			out << YAML::Key << "SphereCollider3DComponent";
+			out << YAML::BeginMap;
+
+			auto& sc3dComponent = entity.GetComponent<SphereCollider3DComponent>();
+			//out << YAML::Key << "Mass" << YAML::Value << sc3dComponent.mass;
+
+			out << YAML::EndMap;
+		}
+
 		if (entity.HasComponent<StaticMeshComponent>())
 		{
 			out << YAML::Key << "StaticMeshComponent";
@@ -421,6 +454,25 @@ namespace HEngine
 					cc2d.Friction = circleCollider2DComponent["Friction"].as<float>();
 					cc2d.Restitution = circleCollider2DComponent["Restitution"].as<float>();
 					cc2d.RestitutionThreshold = circleCollider2DComponent["RestitutionThreshold"].as<float>();
+				}
+
+				auto rigidbody3DComponent = entity["Rigidbody3DComponent"];
+				if (rigidbody3DComponent)
+				{
+					auto& rb3d = deserializedEntity.AddComponent<Rigidbody3DComponent>();
+					rb3d.mass = rigidbody3DComponent["mass"].as<float>();
+				}
+
+				auto boxCollider3DComponent = entity["BoxCollider3DComponent"];
+				if (boxCollider3DComponent)
+				{
+					auto& bc3d = deserializedEntity.AddComponent<BoxCollider3DComponent>();
+				}
+
+				auto sphereCollider3DComponent = entity["SphereCollider3DComponent"];
+				if (sphereCollider3DComponent)
+				{
+					auto& sc3d = deserializedEntity.AddComponent<SphereCollider3DComponent>();
 				}
 
 				auto staticMeshComponent = entity["StaticMeshComponent"];

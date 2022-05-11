@@ -339,6 +339,15 @@ namespace HEngine
 				}
 			}
 
+			if (!mSelectionContext.HasComponent<SphereCollider3DComponent>())
+			{
+				if (ImGui::MenuItem("Sphere Collider 3D"))
+				{
+					mSelectionContext.AddComponent<SphereCollider3DComponent>();
+					ImGui::CloseCurrentPopup();
+				}
+			}
+
 			if (!mSelectionContext.HasComponent<LightComponent>())
 			{
 				if (ImGui::MenuItem("Point Light"))
@@ -502,7 +511,7 @@ namespace HEngine
 				const char* currentBodyTypeString = bodyTypeStrings[(int)component.Type];
 				if (ImGui::BeginCombo("Body Type", currentBodyTypeString))
 				{
-					for (int i = 0; i < 2; i++)
+					for (int i = 0; i < 3; i++)
 					{
 						bool isSelected = currentBodyTypeString == bodyTypeStrings[i];
 						if (ImGui::Selectable(bodyTypeStrings[i], isSelected))
@@ -517,11 +526,46 @@ namespace HEngine
 
 					ImGui::EndCombo();
 				}
+
+				ImGui::Text("mass");
+				ImGui::SameLine();
+				ImGui::SliderFloat("##masas", &component.mass, 0.0f, 10.0f, "%.2f");
 			});
 
 		DrawComponent<BoxCollider3DComponent>("Box Collider 3D", entity, [](auto& component)
 			{
+				const auto& floatValueUI = [](const char* name, float& value) {
+					ImGui::Columns(2, nullptr, false);
+					ImGui::SetColumnWidth(0, 100.0f);
+					ImGui::Text(name);
+					ImGui::NextColumn();
+					std::string label = std::string("##") + std::string(name);
+					ImGui::SliderFloat(label.c_str(), &value, 0.0f, 1.0f, "%.2f");
+					ImGui::EndColumns();
+				};
 
+				floatValueUI("linearDamping", component.linearDamping);
+				floatValueUI("angularDamping", component.angularDamping);
+				floatValueUI("restitution", component.restitution);
+				floatValueUI("friction", component.friction);
+			});
+
+		DrawComponent<SphereCollider3DComponent>("Sphere Collider 3D", entity, [](auto& component)
+			{
+				const auto& floatValueUI = [](const char* name, float& value) {
+					ImGui::Columns(2, nullptr, false);
+					ImGui::SetColumnWidth(0, 100.0f);
+					ImGui::Text(name);
+					ImGui::NextColumn();
+					std::string label = std::string("##") + std::string(name);
+					ImGui::SliderFloat(label.c_str(), &value, 0.0f, 1.0f, "%.2f");
+					ImGui::EndColumns();
+				};
+
+				floatValueUI("linearDamping", component.linearDamping);
+				floatValueUI("angularDamping", component.angularDamping);
+				floatValueUI("restitution", component.restitution);
+				floatValueUI("friction", component.friction);
 			});
 
 		DrawComponent<StaticMeshComponent>("Static Mesh Renderer", entity, [](StaticMeshComponent& component)

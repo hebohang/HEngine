@@ -625,7 +625,7 @@ namespace HEngine
 						ImGui::SameLine();
 						ImGui::Checkbox("Use", &model.bUseAlbedoMap);
 
-						if (ImGui::ColorEdit4("##albedo", model.col))
+						if (ImGui::ColorEdit4("##albedo", glm::value_ptr(model.col)))
 						{
 							if (!model.bUseAlbedoMap)
 							{

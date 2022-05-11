@@ -308,6 +308,21 @@ namespace HEngine
 			auto& staticMeshComponent = entity.GetComponent<StaticMeshComponent>();
 			out << YAML::Key << "Path" << YAML::Value << staticMeshComponent.Path.c_str();
 
+			// Material 
+			out << YAML::Key << "bUseAlbedoMap" << YAML::Value << staticMeshComponent.Mesh.bUseAlbedoMap;
+			out << YAML::Key << "col" << YAML::Value << staticMeshComponent.Mesh.col;
+
+			out << YAML::Key << "bUseNormalMap" << YAML::Value << staticMeshComponent.Mesh.bUseNormalMap;
+
+			out << YAML::Key << "bUseMetallicMap" << YAML::Value << staticMeshComponent.Mesh.bUseMetallicMap;
+			out << YAML::Key << "metallic" << YAML::Value << staticMeshComponent.Mesh.metallic;
+
+			out << YAML::Key << "bUseRoughnessMap" << YAML::Value << staticMeshComponent.Mesh.bUseRoughnessMap;
+			out << YAML::Key << "roughness" << YAML::Value << staticMeshComponent.Mesh.roughness;
+
+			out << YAML::Key << "bUseAoMap" << YAML::Value << staticMeshComponent.Mesh.bUseRoughnessMap;
+			// End Material
+
 			out << YAML::EndMap;
 		}
 
@@ -491,7 +506,18 @@ namespace HEngine
 				if (staticMeshComponent)
 				{
 					std::string str = staticMeshComponent["Path"].as<std::string>();
-					auto& src = deserializedEntity.AddComponent<StaticMeshComponent>(str);
+					auto& sm = deserializedEntity.AddComponent<StaticMeshComponent>(str);
+
+					// Material
+					sm.Mesh.bUseAlbedoMap = staticMeshComponent["bUseAlbedoMap"].as<bool>();
+					sm.Mesh.col = staticMeshComponent["col"].as<glm::vec4>();
+					sm.Mesh.bUseNormalMap = staticMeshComponent["bUseNormalMap"].as<bool>();
+					sm.Mesh.bUseMetallicMap = staticMeshComponent["bUseMetallicMap"].as<bool>();
+					sm.Mesh.metallic = staticMeshComponent["metallic"].as<float>();
+					sm.Mesh.bUseRoughnessMap = staticMeshComponent["bUseRoughnessMap"].as<bool>();
+					sm.Mesh.roughness = staticMeshComponent["roughness"].as<float>();
+					sm.Mesh.bUseAoMap = staticMeshComponent["bUseAoMap"].as<bool>();
+					// End Material
 				}
 
 				auto lightComponent = entity["LightComponent"];

@@ -45,7 +45,7 @@ namespace HEngine
 		std::optional<std::vector<MaterialTexture>> loadMaterialTextures(aiMaterial* mat, aiTextureType type);
 	public:
 		bool bUseAlbedoMap = false;
-		float col[4] = { 1.0f, 1.0f, 1.0f, 1.0f }; // 0 ~ 1
+		glm::vec4 col = { 1.0f, 1.0f, 1.0f, 1.0f }; // 0 ~ 1
 		Ref<Texture2D> albedoRGBA = Texture2D::Create(1, 1);
 		Ref<Texture2D> mAlbedoMap = Library<Texture2D>::GetInstance().GetDefaultTexture();
 

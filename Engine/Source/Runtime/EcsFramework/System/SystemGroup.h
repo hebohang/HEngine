@@ -6,3 +6,4 @@
 #include "Runtime/EcsFramework/System/Render/RenderSystem2D.h"
 #include "Runtime/EcsFramework/System/Render/RenderSystem3D.h"
 #include "Runtime/EcsFramework/System/Render/EnvironmentSystem.h"
+#include "Runtime/EcsFramework/System/Script/PythonScriptSystem.h"

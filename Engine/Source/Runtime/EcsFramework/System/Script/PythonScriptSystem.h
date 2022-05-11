@@ -8,9 +8,12 @@ namespace HEngine
 	class PythonScriptSystem : public System
 	{
 	public:
-		PythonScriptSystem(Level* level) : System(level) {}
+		PythonScriptSystem(Level* level);
 		virtual ~PythonScriptSystem() = default;
 	public:
 		void OnUpdateRuntime(Timestep ts) override;
+		void OnUpdateEditor(Timestep ts, EditorCamera& camera) override;
+	private:
+		bool bLoadPython = false;
 	};
 }

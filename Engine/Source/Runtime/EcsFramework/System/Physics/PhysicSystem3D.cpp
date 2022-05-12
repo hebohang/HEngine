@@ -138,17 +138,18 @@ namespace HEngine
 
 	void PhysicSystem3D::OnRuntimeStop()
 	{
-		auto view = mLevel->mRegistry.view<Rigidbody3DComponent>();
-		for (auto e : view)
-		{
-			Entity entity = { e, mLevel };
-			auto& rb3d = entity.GetComponent<Rigidbody3DComponent>();
+		//auto view = mLevel->mRegistry.view<Rigidbody3DComponent>();
+		//for (auto e : view)
+		//{
+		//	Entity entity = { e, mLevel };
+		//	auto& rb3d = entity.GetComponent<Rigidbody3DComponent>();
 
-			// it seems when you delete the btRigidBody,
-			// the motion and the shape will also be deleted
-			delete (btRigidBody*)rb3d.RuntimeBody; 
-		}
+		//	// it seems when you delete the btRigidBody,
+		//	// the motion and the shape will also be deleted
+		//	delete (btRigidBody*)rb3d.RuntimeBody; 
+		//}
 
+		// it seems we only need to delete the DynamicsWorld
 		delete mDynamicsWorld;
 		delete mSolver;
 		delete mDispatcher;

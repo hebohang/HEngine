@@ -72,6 +72,41 @@ namespace HEngine
 			else if (Input::IsMouseButtonPressed(Mouse::ButtonRight))
 				MouseZoom(delta.y);
 		}
+		else if (Input::IsMouseButtonPressed(Mouse::ButtonRight))
+		{
+			glm::vec2 deltaMove = { 0.0f, 0.0f };
+
+			if (Input::IsKeyPressed(HE_KEY_A))
+				deltaMove.x += mCameraSpeed;
+			if (Input::IsKeyPressed(HE_KEY_D))
+				deltaMove.x -= mCameraSpeed;
+			if (Input::IsKeyPressed(HE_KEY_W))
+				mFocalPoint += GetForwardDirection() * mCameraSpeed;
+			if (Input::IsKeyPressed(HE_KEY_S))
+				mFocalPoint -= GetForwardDirection() * mCameraSpeed;
+			if (Input::IsKeyPressed(HE_KEY_Q))
+				deltaMove.y -= mCameraSpeed;
+			if (Input::IsKeyPressed(HE_KEY_E))
+				deltaMove.y += mCameraSpeed;
+
+			MousePan(deltaMove);
+
+			const glm::vec2& mouse{ Input::GetMouseX(), Input::GetMouseY() };
+			glm::vec2 deltaRotate = (mouse - mInitialMousePosition) * 0.003f;
+			if (bInit)
+				deltaRotate = { 0.0f, 0.0f };
+			mInitialMousePosition = mouse;
+
+			if (Input::IsMouseButtonPressed(Mouse::ButtonRight))
+			{
+				bInit = false;
+				MouseRotate(deltaRotate);
+			}
+		}
+		else if (Input::IsMouseButtonReleased(Mouse::ButtonRight))
+		{
+			bInit = true;
+		}
 
 		UpdateView();
 	}

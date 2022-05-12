@@ -49,6 +49,8 @@ namespace HEngine
 		std::pair<float, float> PanSpeed() const;
 		float RotationSpeed() const;
 		float ZoomSpeed() const;
+	public:
+		float mCameraSpeed = 1.0f;
 	private:
 		float mFOV = 45.0f, mAspectRatio = 1.778f, mNearClip = 0.1f, mFarClip = 1000.0f;
 
@@ -62,5 +64,7 @@ namespace HEngine
 		float mPitch = 0.0f, mYaw = 0.0f;
 
 		float mViewportWidth = 1280, mViewportHeight = 720;
+
+		bool bInit = true;
 	};
 }

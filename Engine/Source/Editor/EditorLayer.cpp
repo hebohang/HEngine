@@ -16,6 +16,34 @@
 
 namespace HEngine
 {
+	namespace Utils
+	{
+		// from https://github.com/Acmen-Team/Epoch/tree/dev
+		template<typename UIFunction>
+		static void SceneToolbar(ImGuiDockNode* node, const float DISTANCE, int* corner, UIFunction uiFunc)
+		{
+			ImGuiIO& io = ImGui::GetIO();
+			ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
+
+			ImVec2 work_area_pos = node->Pos;
+			ImVec2 work_area_size = node->Size;
+
+			if (*corner != -1)
+			{
+				window_flags |= ImGuiWindowFlags_NoMove;
+				ImGuiViewport* viewport = ImGui::GetMainViewport();
+
+				ImVec2 window_pos = ImVec2((*corner & 1) ? (work_area_pos.x + work_area_size.x - DISTANCE) : (work_area_pos.x + DISTANCE), (*corner & 2) ? (work_area_pos.y + work_area_size.y - DISTANCE) : (work_area_pos.y + DISTANCE));
+				ImVec2 window_pos_pivot = ImVec2((*corner & 1) ? 1.0f : 0.0f, (*corner & 2) ? 1.0f : 0.0f);
+				ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always, window_pos_pivot);
+				ImGui::SetNextWindowViewport(node->ID);
+			}
+			ImGui::SetNextWindowBgAlpha(0.0f); // Transparent background
+
+			uiFunc(corner, work_area_size, window_flags);
+		}
+	}
+
 	// Window
 	static bool bShowViewport = true;
 	static bool bShowContentBrowser = true;
@@ -24,6 +52,7 @@ namespace HEngine
 	static bool bShowStats = false;
 	static bool bShowEngineSettings = true;
 	static bool bShowSceneSettings = true;
+	static bool bShowSRT = true;
 
 	// Help
 	static bool bShowTutorial = false;
@@ -300,8 +329,10 @@ namespace HEngine
 
 			const char* modes[] = { "2D", "3D" };
 			int lastMode = ModeManager::b3DMode;
+			ImGui::Columns(2, nullptr, false);
+			ImGui::SetColumnWidth(0, 100.0f);
 			ImGui::Text("Mode");
-			ImGui::SameLine();
+			ImGui::NextColumn();
 			if (ImGui::Combo("##Mode", &ModeManager::b3DMode, modes, IM_ARRAYSIZE(modes)))
 			{
 				if (lastMode != ModeManager::b3DMode)
@@ -309,6 +340,14 @@ namespace HEngine
 					bChangeDim = true;
 				}
 			}
+			ImGui::EndColumns();
+
+			ImGui::Columns(2, nullptr, false);
+			ImGui::SetColumnWidth(0, 100.0f);
+			ImGui::Text("Camera Speed");
+			ImGui::NextColumn();
+			ImGui::SliderFloat("##Camera Speed", &mEditorCamera.mCameraSpeed, 0.1f, 5.0f);
+			ImGui::EndColumns();
 
 			bool open = ImGuiWrapper::TreeNodeExStyle1((void*)"Physics Settings", "Physics Settings");
 
@@ -323,15 +362,12 @@ namespace HEngine
 		if (bShowSceneSettings)
 		{
 			mSceneSettingsPanel.OnImGuiRender(&bShowSceneSettings);
-
-			ImGui::Begin("Scene Settings", &bShowSceneSettings);
-
-			ImGui::End();
 		}
 		if (bShowViewport)
 		{
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{ 0, 0 });
 			ImGui::Begin("Viewport");
+
 			auto viewportMinRegion = ImGui::GetWindowContentRegionMin();
 			auto viewportMaxRegion = ImGui::GetWindowContentRegionMax();
 			auto viewportOffset = ImGui::GetWindowPos();
@@ -408,6 +444,43 @@ namespace HEngine
 				}
 			}
 
+			static int transCorner = 1;
+			ImGuiDockNode* node = ImGui::GetWindowDockNode();
+			node->LocalFlags |= ImGuiDockNodeFlags_NoTabBar;
+
+			Utils::SceneToolbar(node, 10.0f, &transCorner, [&](int* corner, const ImVec2& work_area_size, const ImGuiWindowFlags m_window_flags) {
+
+				ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+
+				if (ImGui::Begin("SRT Toolbar", &bShowSRT, m_window_flags))
+				{
+					ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{ 0.0f, 0.0f, 0.0f, 0.0f });
+					ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4{ 0.1f, 0.1f, 0.1f, 0.5f });
+					ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4{ 0.0f, 0.0f, 0.0f, 0.0f });
+
+					if (ImGui::ImageButton((void*)IconManager::GetInstance().Get("TransIcon")->GetRendererID(), ImVec2(30.0f, 30.0f), ImVec2(0, 1), ImVec2(1, 0), 0.0f, ImVec4(0.0f, 0.0f, 0.0f, 0.0f), mGizmoType == ImGuizmo::OPERATION::TRANSLATE ? ImVec4(1.0f, 1.0f, 0.0f, 0.9f) : ImVec4(1.0f, 1.0f, 0.0f, 0.2f)))
+					{
+						mGizmoType = ImGuizmo::OPERATION::TRANSLATE;
+					}
+					ImGui::SameLine();
+					if (ImGui::ImageButton((void*)IconManager::GetInstance().Get("RotateIcon")->GetRendererID(), ImVec2(30.0f, 30.0f), ImVec2(0, 1), ImVec2(1, 0), 0.0f, ImVec4(0.0f, 0.0f, 0.0f, 0.0f), mGizmoType == ImGuizmo::OPERATION::ROTATE ? ImVec4(1.0f, 1.0f, 0.0f, 0.9f) : ImVec4(1.0f, 1.0f, 0.0f, 0.2f)))
+					{
+						mGizmoType = ImGuizmo::OPERATION::ROTATE;
+					}
+					ImGui::SameLine();
+					if (ImGui::ImageButton((void*)IconManager::GetInstance().Get("ScaleIcon")->GetRendererID(), ImVec2(30.0f, 30.0f), ImVec2(0, 1), ImVec2(1, 0), 0.0f, ImVec4(0.0f, 0.0f, 0.0f, 0.0f), mGizmoType == ImGuizmo::OPERATION::SCALE ? ImVec4(1.0f, 1.0f, 0.0f, 0.9f) : ImVec4(1.0f, 1.0f, 0.0f, 0.2f)))
+					{
+						mGizmoType = ImGuizmo::OPERATION::SCALE;
+					}
+
+					ImGui::PopStyleColor(3);
+
+				}
+
+				ImGui::End();
+				ImGui::PopStyleVar();
+				});
+
 			ImGui::End();
 			ImGui::PopStyleVar();
 		}
@@ -467,6 +540,8 @@ namespace HEngine
 		ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(buttonActive.x, buttonActive.y, buttonActive.z, 0.5f));
 
 		ImGui::Begin("##toolbar", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+		ImGuiDockNode* node = ImGui::GetWindowDockNode();
+		node->LocalFlags |= ImGuiDockNodeFlags_NoTabBar;
 
 		float size = ImGui::GetWindowHeight() - 4.0f;
 		Ref<Texture2D> icon = ModeManager::IsEditState() ? IconManager::GetInstance().GetPlayIcon() : IconManager::GetInstance().GetStopIcon();

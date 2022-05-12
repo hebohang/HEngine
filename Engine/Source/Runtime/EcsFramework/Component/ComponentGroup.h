@@ -11,6 +11,7 @@
 #include "Runtime/EcsFramework/Component/Physics/3D/SphereCollider3DComponent.h"
 #include "Runtime/EcsFramework/Component/Physics/3D/Rigidbody3DComponent.h"
 #include "Runtime/EcsFramework/Component/Script/NativeScriptComponent.h"
+#include "Runtime/EcsFramework/Component/Script/PythonScriptComponent.h"
 #include "Runtime/EcsFramework/Component/Shape/CircleRendererComponent.h"
 #include "Runtime/EcsFramework/Component/Shape/SpriteRendererComponent.h"
 #include "Runtime/EcsFramework/Component/Transform/TransformComponent.h" 
@@ -34,7 +35,7 @@ namespace HEngine
     };
 
     using AllComponents = ComponentGroup<TransformComponent, CircleRendererComponent, SpriteRendererComponent,
-        CameraComponent, NativeScriptComponent, Rigidbody2DComponent, BoxCollider2DComponent, 
+        CameraComponent, NativeScriptComponent, PythonScriptComponent, Rigidbody2DComponent, BoxCollider2DComponent,
         CircleCollider2DComponent, Rigidbody3DComponent, SphereCollider3DComponent, BoxCollider3DComponent, 
         StaticMeshComponent, LightComponent>;
 }

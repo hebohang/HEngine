@@ -8,12 +8,12 @@
 
 namespace HEngine
 {
-	Mesh::Mesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t> indices)
+	Mesh::Mesh(const std::vector<StaticVertex>& vertices, const std::vector<uint32_t> indices)
 		: mStaticVertices(vertices), mIndices(indices)
 	{
 		mVertexArray = VertexArray::Create();
 
-		mVB = VertexBuffer::Create(sizeof(Vertex) * vertices.size());
+		mVB = VertexBuffer::Create(sizeof(StaticVertex) * vertices.size());
 		mVB->SetLayout({
 					{ ShaderDataType::Float3, "a_Pos"},
 					{ ShaderDataType::Float3, "a_Normal"},
@@ -30,12 +30,56 @@ namespace HEngine
 		mVertexArray->SetIndexBuffer(mIB);
 	}
 
-	Mesh::Mesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t> indices, const std::vector<MaterialTexture>& textures)
+	Mesh::Mesh(const std::vector<StaticVertex>& vertices, const std::vector<uint32_t> indices, const std::vector<MaterialTexture>& textures)
 		: mStaticVertices(vertices), mIndices(indices), mTextures(textures)
 	{
 		mVertexArray = VertexArray::Create();
 
-		mVB = VertexBuffer::Create(sizeof(Vertex) * vertices.size());
+		mVB = VertexBuffer::Create(sizeof(StaticVertex) * vertices.size());
+		mVB->SetLayout({
+					{ ShaderDataType::Float3, "a_Pos"},
+					{ ShaderDataType::Float3, "a_Normal"},
+					{ ShaderDataType::Float2, "a_TexCoord"},
+					{ ShaderDataType::Float3, "a_Tangent"},
+					{ ShaderDataType::Float3, "a_Bitangent"},
+					{ ShaderDataType::Int,	  "a_EntityID"},
+			});
+
+		mVertexArray->AddVertexBuffer(mVB);
+
+		mIB = IndexBuffer::Create(indices.size());
+
+		mVertexArray->SetIndexBuffer(mIB);
+	}
+
+	Mesh::Mesh(const std::vector<SkinnedVertex>& vertices, const std::vector<uint32_t> indices)
+		: mSkinnedVertices(vertices), mIndices(indices)
+	{
+		mVertexArray = VertexArray::Create();
+
+		mVB = VertexBuffer::Create(sizeof(SkinnedVertex) * vertices.size());
+		mVB->SetLayout({
+					{ ShaderDataType::Float3, "a_Pos"},
+					{ ShaderDataType::Float3, "a_Normal"},
+					{ ShaderDataType::Float2, "a_TexCoord"},
+					{ ShaderDataType::Float3, "a_Tangent"},
+					{ ShaderDataType::Float3, "a_Bitangent"},
+					{ ShaderDataType::Int,	  "a_EntityID"},
+			});
+
+		mVertexArray->AddVertexBuffer(mVB);
+
+		mIB = IndexBuffer::Create(indices.size());
+
+		mVertexArray->SetIndexBuffer(mIB);
+	}
+
+	Mesh::Mesh(const std::vector<SkinnedVertex>& vertices, const std::vector<uint32_t> indices, const std::vector<MaterialTexture>& textures)
+		: mSkinnedVertices(vertices), mIndices(indices), mTextures(textures)
+	{
+		mVertexArray = VertexArray::Create();
+
+		mVB = VertexBuffer::Create(sizeof(SkinnedVertex) * vertices.size());
 		mVB->SetLayout({
 					{ ShaderDataType::Float3, "a_Pos"},
 					{ ShaderDataType::Float3, "a_Normal"},
@@ -152,7 +196,7 @@ namespace HEngine
 
 			mVertexArray->Bind();
 
-			mVB->SetData(mStaticVertices.data(), sizeof(Vertex) * mStaticVertices.size());
+			mVB->SetData(mStaticVertices.data(), sizeof(StaticVertex) * mStaticVertices.size());
 			mIB->SetData(mIndices.data(), mIndices.size());
 
 			mVertexArray->Unbind();
@@ -174,7 +218,7 @@ namespace HEngine
 				mStaticVertices[i].EntityID = entityID;
 			}
 
-			mVB->SetData(mStaticVertices.data(), sizeof(Vertex) * mStaticVertices.size());
+			mVB->SetData(mStaticVertices.data(), sizeof(StaticVertex) * mStaticVertices.size());
 
 			mIB->SetData(mIndices.data(), mIndices.size());
 

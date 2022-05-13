@@ -41,6 +41,8 @@ namespace HEngine
 	private:
 		void LoadModel(const std::string& path);
 		void ProcessNode(aiNode* node, const aiScene* scene);
+
+		template <typename Vertex>
 		Mesh ProcessMesh(aiMesh* mesh, const aiScene* scene);
 		std::optional<std::vector<MaterialTexture>> loadMaterialTextures(aiMaterial* mat, aiTextureType type);
 	public:
@@ -69,5 +71,8 @@ namespace HEngine
 		Ref<Material> mMaterial = CreateRef<Material>();
 		std::vector<Mesh> mMeshes;
 		std::string mDirectory;
+
+		// Animation
+		bool bAnimated = false;
 	};
 }

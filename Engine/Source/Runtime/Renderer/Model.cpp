@@ -40,6 +40,9 @@ namespace HEngine
 		std::string standardPath = std::regex_replace(path, std::regex("\\\\"), "/");
 		mDirectory = standardPath.substr(0, standardPath.find_last_of('/'));
 
+		if (scene->HasAnimations())
+			bAnimated = true;
+
 		ProcessNode(scene->mRootNode, scene);
 	}
 
@@ -48,7 +51,12 @@ namespace HEngine
 		for (uint32_t i = 0; i < node->mNumMeshes; ++i)
 		{
 			aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
-			mMeshes.push_back(ProcessMesh(mesh, scene));
+			//mMeshes.push_back(ProcessMesh<StaticVertex>(mesh, scene));
+
+			if (bAnimated)
+				mMeshes.push_back(ProcessMesh<SkinnedVertex>(mesh, scene));
+			else
+				mMeshes.push_back(ProcessMesh<StaticVertex>(mesh, scene));
 		}
 
 		for (uint32_t i = 0; i < node->mNumChildren; ++i)
@@ -57,6 +65,7 @@ namespace HEngine
 		}
 	}
 
+	template <typename Vertex>
 	Mesh Model::ProcessMesh(aiMesh* mesh, const aiScene* scene)
 	{
 		std::vector<Vertex> vertices;
@@ -82,12 +91,6 @@ namespace HEngine
 				vector.z = mesh->mNormals[i].z;
 				vertex.Normal = vector;
 			}
-
-			//tangent
-			//vector.x = mesh->mTangents[i].x;
-			//vector.y = mesh->mTangents[i].y;
-			//vector.z = mesh->mTangents[i].z;
-			//vertex.Tangent = vector;
 
 			//tex coord
 			if (mesh->mTextureCoords[0])
@@ -151,6 +154,9 @@ namespace HEngine
 		{
 			loadTexture(static_cast<aiTextureType>(type));
 		}
+
+		//if (bAnimated)
+		//	return Mesh((std::vector<SkinnedVertex>)vertices, indices, textures);
 
 		return Mesh(vertices, indices, textures);
 	}

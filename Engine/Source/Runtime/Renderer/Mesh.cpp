@@ -1,6 +1,6 @@
 #include "hepch.h"
 
-#include "Runtime/Renderer/StaticMesh.h"
+#include "Runtime/Renderer/Mesh.h"
 #include "Runtime/Renderer/RenderCommand.h"
 #include "Runtime/Library/TextureLibrary.h"
 #include "Runtime/Renderer/Model.h"
@@ -8,8 +8,8 @@
 
 namespace HEngine
 {
-	StaticMesh::StaticMesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t> indices)
-		: mVertices(vertices), mIndices(indices)
+	Mesh::Mesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t> indices)
+		: mStaticVertices(vertices), mIndices(indices)
 	{
 		mVertexArray = VertexArray::Create();
 
@@ -17,8 +17,9 @@ namespace HEngine
 		mVB->SetLayout({
 					{ ShaderDataType::Float3, "a_Pos"},
 					{ ShaderDataType::Float3, "a_Normal"},
-					{ ShaderDataType::Float3, "a_Tangent"},
 					{ ShaderDataType::Float2, "a_TexCoord"},
+					{ ShaderDataType::Float3, "a_Tangent"},
+					{ ShaderDataType::Float3, "a_Bitangent"},
 					{ ShaderDataType::Int,	  "a_EntityID"},
 			});
 
@@ -29,8 +30,8 @@ namespace HEngine
 		mVertexArray->SetIndexBuffer(mIB);
 	}
 
-	StaticMesh::StaticMesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t> indices, const std::vector<MaterialTexture>& textures)
-		: mVertices(vertices), mIndices(indices), mTextures(textures)
+	Mesh::Mesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t> indices, const std::vector<MaterialTexture>& textures)
+		: mStaticVertices(vertices), mIndices(indices), mTextures(textures)
 	{
 		mVertexArray = VertexArray::Create();
 
@@ -38,8 +39,9 @@ namespace HEngine
 		mVB->SetLayout({
 					{ ShaderDataType::Float3, "a_Pos"},
 					{ ShaderDataType::Float3, "a_Normal"},
-					{ ShaderDataType::Float3, "a_Tangent"},
 					{ ShaderDataType::Float2, "a_TexCoord"},
+					{ ShaderDataType::Float3, "a_Tangent"},
+					{ ShaderDataType::Float3, "a_Bitangent"},
 					{ ShaderDataType::Int,	  "a_EntityID"},
 			});
 
@@ -50,7 +52,7 @@ namespace HEngine
 		mVertexArray->SetIndexBuffer(mIB);
 	}
 
-	void StaticMesh::Draw(const glm::mat4& transform, const glm::vec3& cameraPos, const Ref<Shader>& shader, int entityID, Model* model)
+	void Mesh::Draw(const glm::mat4& transform, const glm::vec3& cameraPos, const Ref<Shader>& shader, int entityID, Model* model)
 	{
 		SetupMesh(entityID);
 
@@ -140,7 +142,7 @@ namespace HEngine
 		RenderCommand::DrawIndexed(mVertexArray, mIB->GetCount());
 	}
 
-	void StaticMesh::Draw()
+	void Mesh::Draw()
 	{
 		//SetupMesh(EntityID);
 		static bool bInit = true;
@@ -150,7 +152,7 @@ namespace HEngine
 
 			mVertexArray->Bind();
 
-			mVB->SetData(mVertices.data(), sizeof(Vertex) * mVertices.size());
+			mVB->SetData(mStaticVertices.data(), sizeof(Vertex) * mStaticVertices.size());
 			mIB->SetData(mIndices.data(), mIndices.size());
 
 			mVertexArray->Unbind();
@@ -160,19 +162,19 @@ namespace HEngine
 		mVertexArray->Unbind();
 	}
 
-	void StaticMesh::SetupMesh(int entityID)
+	void Mesh::SetupMesh(int entityID)
 	{
 		if (mEntityID == -1)
 		{
 			mEntityID = entityID;
 			mVertexArray->Bind();
 
-			for (int i = 0; i < mVertices.size(); ++i)
+			for (int i = 0; i < mStaticVertices.size(); ++i)
 			{
-				mVertices[i].EntityID = entityID;
+				mStaticVertices[i].EntityID = entityID;
 			}
 
-			mVB->SetData(mVertices.data(), sizeof(Vertex) * mVertices.size());
+			mVB->SetData(mStaticVertices.data(), sizeof(Vertex) * mStaticVertices.size());
 
 			mIB->SetData(mIndices.data(), mIndices.size());
 

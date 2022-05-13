@@ -3,7 +3,7 @@
 #include "Runtime/Core/Base/Base.h"
 
 #include "Runtime/Renderer/Shader.h"
-#include "Runtime/Renderer/StaticMesh.h"
+#include "Runtime/Renderer/Mesh.h"
 #include "Runtime/Renderer/Texture.h"
 #include "Runtime/Renderer/Material.h"
 #include "Runtime/Library/ShaderLibrary.h"
@@ -41,7 +41,7 @@ namespace HEngine
 	private:
 		void LoadModel(const std::string& path);
 		void ProcessNode(aiNode* node, const aiScene* scene);
-		StaticMesh ProcessMesh(aiMesh* mesh, const aiScene* scene);
+		Mesh ProcessMesh(aiMesh* mesh, const aiScene* scene);
 		std::optional<std::vector<MaterialTexture>> loadMaterialTextures(aiMaterial* mat, aiTextureType type);
 	public:
 		bool bUseAlbedoMap = false;
@@ -67,7 +67,7 @@ namespace HEngine
 
 	private:
 		Ref<Material> mMaterial = CreateRef<Material>();
-		std::vector<StaticMesh> mMeshes;
+		std::vector<Mesh> mMeshes;
 		std::string mDirectory;
 	};
 }

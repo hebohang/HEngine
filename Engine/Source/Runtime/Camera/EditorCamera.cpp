@@ -92,9 +92,9 @@ namespace HEngine
 			if (Input::IsKeyPressed(HE_KEY_S))
 				mFocalPoint -= GetForwardDirection() * mCameraSpeed * 0.05f;
 			if (Input::IsKeyPressed(HE_KEY_Q))
-				mFocalPoint -= GetUpDirection() * mCameraSpeed * 0.05f;
+				mFocalPoint -= glm::vec3(0.0f, 1.0f, 0.0f) * mCameraSpeed * 0.05f;
 			if (Input::IsKeyPressed(HE_KEY_E))
-				mFocalPoint += GetUpDirection() * mCameraSpeed * 0.05f;
+				mFocalPoint += glm::vec3(0.0f, 1.0f, 0.0f) * mCameraSpeed * 0.05f;
 
 			const glm::vec2& mouse{ Input::GetMouseX(), Input::GetMouseY() };
 			glm::vec2 deltaRotate = (mouse - mInitialMousePosition) * 0.003f;

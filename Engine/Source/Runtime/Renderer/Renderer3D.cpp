@@ -28,7 +28,12 @@ namespace HEngine
 	void Renderer3D::DrawModel(const glm::mat4& transform, const glm::vec3& cameraPos, MeshComponent& MeshComponent, int EntityID)
 	{
 		if (ModeManager::bHdrUse)
-			MeshComponent.mMesh->Draw(transform, cameraPos, Library<Shader>::GetInstance().Get("IBL_pbr"), EntityID);
+		{
+			if (MeshComponent.mMesh->bAnimated)
+				MeshComponent.mMesh->Draw(transform, cameraPos, Library<Shader>::GetInstance().Get("IBL_pbr_anim"), EntityID);
+			else
+				MeshComponent.mMesh->Draw(transform, cameraPos, Library<Shader>::GetInstance().Get("IBL_pbr_static"), EntityID);
+		}
 		else
 			MeshComponent.mMesh->Draw(transform, cameraPos, EntityID);
 	}

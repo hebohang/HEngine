@@ -20,30 +20,30 @@ namespace HEngine
 
 		Animator(Animation* animation)
 		{
-			m_CurrentTime = 0.0;
-			m_CurrentAnimation = animation;
+			mCurrentTime = 0.0;
+			mCurrentAnimation = animation;
 
-			m_FinalBoneMatrices.reserve(100);
+			mFinalBoneMatrices.reserve(100);
 
 			for (int i = 0; i < 100; i++)
-				m_FinalBoneMatrices.push_back(glm::mat4(1.0f));
+				mFinalBoneMatrices.push_back(glm::mat4(1.0f));
 		}
 
 		void UpdateAnimation(float dt)
 		{
-			m_DeltaTime = dt;
-			if (m_CurrentAnimation)
+			mDeltaTime = dt;
+			if (mCurrentAnimation)
 			{
-				m_CurrentTime += m_CurrentAnimation->GetTicksPerSecond() * dt;
-				m_CurrentTime = fmod(m_CurrentTime, m_CurrentAnimation->GetDuration());
-				CalculateBoneTransform(&m_CurrentAnimation->GetRootNode(), glm::mat4(1.0f));
+				mCurrentTime += mCurrentAnimation->GetTicksPerSecond() * dt;
+				mCurrentTime = fmod(mCurrentTime, mCurrentAnimation->GetDuration());
+				CalculateBoneTransform(&mCurrentAnimation->GetRootNode(), glm::mat4(1.0f));
 			}
 		}
 
 		void PlayAnimation(Animation* pAnimation)
 		{
-			m_CurrentAnimation = pAnimation;
-			m_CurrentTime = 0.0f;
+			mCurrentAnimation = pAnimation;
+			mCurrentTime = 0.0f;
 		}
 
 		void CalculateBoneTransform(const AssimpNodeData* node, glm::mat4 parentTransform)
@@ -51,22 +51,22 @@ namespace HEngine
 			std::string nodeName = node->name;
 			glm::mat4 nodeTransform = node->transformation;
 
-			Bone* Bone = m_CurrentAnimation->FindBone(nodeName);
+			Bone* Bone = mCurrentAnimation->FindBone(nodeName);
 
 			if (Bone)
 			{
-				Bone->Update(m_CurrentTime);
+				Bone->Update(mCurrentTime);
 				nodeTransform = Bone->GetLocalTransform();
 			}
 
 			glm::mat4 globalTransformation = parentTransform * nodeTransform;
 
-			auto boneInfoMap = m_CurrentAnimation->GetBoneIDMap();
+			auto boneInfoMap = mCurrentAnimation->GetBoneIDMap();
 			if (boneInfoMap.find(nodeName) != boneInfoMap.end())
 			{
 				int index = boneInfoMap[nodeName].id;
 				glm::mat4 offset = boneInfoMap[nodeName].offset;
-				m_FinalBoneMatrices[index] = globalTransformation * offset;
+				mFinalBoneMatrices[index] = globalTransformation * offset;
 			}
 
 			for (int i = 0; i < node->childrenCount; i++)
@@ -75,14 +75,14 @@ namespace HEngine
 
 		std::vector<glm::mat4> GetFinalBoneMatrices()
 		{
-			return m_FinalBoneMatrices;
+			return mFinalBoneMatrices;
 		}
 
 	private:
-		std::vector<glm::mat4> m_FinalBoneMatrices;
-		Animation* m_CurrentAnimation;
-		float m_CurrentTime;
-		float m_DeltaTime;
+		std::vector<glm::mat4> mFinalBoneMatrices;
+		Animation* mCurrentAnimation;
+		float mCurrentTime;
+		float mDeltaTime;
 
 	};
 }

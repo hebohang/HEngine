@@ -24,6 +24,7 @@ namespace HEngine
 	{
 	public:
 		Model() = default;
+		Model(const Model&) = default;
 		Model(const std::string& path)
 			: mMaterial(CreateRef<Material>(Library<Shader>::GetInstance().GetDefaultShader()))
 		{

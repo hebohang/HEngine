@@ -47,23 +47,23 @@ namespace HEngine
 
 		Bone* FindBone(const std::string& name)
 		{
-			auto iter = std::find_if(m_Bones.begin(), m_Bones.end(),
+			auto iter = std::find_if(mBones.begin(), mBones.end(),
 				[&](const Bone& Bone)
 				{
 					return Bone.GetBoneName() == name;
 				}
 			);
-			if (iter == m_Bones.end()) return nullptr;
+			if (iter == mBones.end()) return nullptr;
 			else return &(*iter);
 		}
 
 
-		inline float GetTicksPerSecond() { return m_TicksPerSecond; }
-		inline float GetDuration() { return m_Duration; }
-		inline const AssimpNodeData& GetRootNode() { return m_RootNode; }
+		inline float GetTicksPerSecond() { return mTicksPerSecond; }
+		inline float GetDuration() { return mDuration; }
+		inline const AssimpNodeData& GetRootNode() { return mRootNode; }
 		inline const std::map<std::string, BoneInfo>& GetBoneIDMap()
 		{
-			return m_BoneInfoMap;
+			return mBoneInfoMap;
 		}
 
 	private:
@@ -72,10 +72,10 @@ namespace HEngine
 
 		void ReadHeirarchyData(AssimpNodeData& dest, const aiNode* src);
 
-		float m_Duration;
-		int m_TicksPerSecond;
-		std::vector<Bone> m_Bones;
-		AssimpNodeData m_RootNode;
-		std::map<std::string, BoneInfo> m_BoneInfoMap;
+		float mDuration;
+		int mTicksPerSecond;
+		std::vector<Bone> mBones;
+		AssimpNodeData mRootNode;
+		std::map<std::string, BoneInfo> mBoneInfoMap;
 	};
 }

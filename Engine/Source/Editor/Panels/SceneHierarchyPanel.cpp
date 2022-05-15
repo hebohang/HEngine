@@ -518,7 +518,12 @@ namespace HEngine
 			{
 				const char* bodyTypeStrings[] = { "Static", "Dynamic", "Kinematic" };
 				const char* currentBodyTypeString = bodyTypeStrings[(int)component.Type];
-				if (ImGui::BeginCombo("Body Type", currentBodyTypeString))
+
+				ImGui::Columns(2, nullptr, false);
+				ImGui::SetColumnWidth(0, 100.0f);
+				ImGui::Text("Body Type");
+				ImGui::NextColumn();
+				if (ImGui::BeginCombo("##Body Type", currentBodyTypeString))
 				{
 					for (int i = 0; i < 3; i++)
 					{
@@ -535,10 +540,12 @@ namespace HEngine
 
 					ImGui::EndCombo();
 				}
+				ImGui::EndColumns();
 
-				ImGui::Text("mass");
-				ImGui::SameLine();
-				ImGui::SliderFloat("##masas", &component.mass, 0.0f, 10.0f, "%.2f");
+				ImGuiWrapper::DrawTwoUI(
+					[]() { ImGui::Text("mass"); }, 
+					[&component = component]() { ImGui::SliderFloat("##masas", &component.mass, 0.0f, 10.0f, "%.2f"); }
+				);
 			});
 
 		DrawComponent<BoxCollider3DComponent>("Box Collider 3D", entity, [](auto& component)
@@ -579,10 +586,13 @@ namespace HEngine
 
 		DrawComponent<MeshComponent>("Static Mesh Renderer", entity, [](MeshComponent& component)
 			{
+				ImGui::Columns(2, nullptr, false);
+				ImGui::SetColumnWidth(0, 100.0f);
 				ImGui::Text("Mesh Path");
-				ImGui::SameLine();
+				ImGui::NextColumn();
 
-				ImGui::Text(component.Path.c_str());
+				std::string standardPath = std::regex_replace(component.Path, std::regex("\\\\"), "/");
+				ImGui::Text(standardPath.substr(standardPath.find_last_of("/") + 1, standardPath.length()).c_str());
 
 				ImGui::SameLine();
 				if (ImGui::Button("..."))
@@ -604,6 +614,7 @@ namespace HEngine
 						component.Path = filepath;
 					}
 				}
+				ImGui::EndColumns();
 
 				if (ImGui::TreeNode((void*)"Material", "Material"))
 				{

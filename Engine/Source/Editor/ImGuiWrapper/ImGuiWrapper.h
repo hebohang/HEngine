@@ -9,7 +9,7 @@ namespace HEngine::ImGuiWrapper
     bool TreeNodeExStyle1(const void* str_id, const std::string& name, ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_AllowItemOverlap | ImGuiTreeNodeFlags_FramePadding);
 
     template<typename UIFunc1, typename UIFunc2>
-    void DrawTwoUI(float ColumnWidth, UIFunc1 func1, UIFunc2 func2)
+    void DrawTwoUI(UIFunc1 func1, UIFunc2 func2, float ColumnWidth = 100.0f)
     {
         ImGui::Columns(2, nullptr, false);
         ImGui::SetColumnWidth(0, ColumnWidth);

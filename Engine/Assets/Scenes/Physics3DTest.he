@@ -15,7 +15,7 @@ Entities:
       angularDamping: 0
       restitution: 1
       friction: 1
-    StaticMeshComponent:
+    MeshComponent:
       Path: Assets\Models\Sphere.obj
       bUseAlbedoMap: false
       col: [1, 1, 1, 1]
@@ -40,7 +40,7 @@ Entities:
       angularDamping: 0
       restitution: 1
       friction: 1
-    StaticMeshComponent:
+    MeshComponent:
       Path: Assets//Models//Box.obj
       bUseAlbedoMap: false
       col: [1, 1, 1, 1]
@@ -65,7 +65,7 @@ Entities:
       angularDamping: 0
       restitution: 0.25
       friction: 0.419999987
-    StaticMeshComponent:
+    MeshComponent:
       Path: Assets//Models//Box.obj
       bUseAlbedoMap: false
       col: [0, 0.601780295, 0.67181468, 1]
@@ -108,7 +108,7 @@ Entities:
       angularDamping: 0
       restitution: 1
       friction: 1
-    StaticMeshComponent:
+    MeshComponent:
       Path: Assets//Models//Box.obj
       bUseAlbedoMap: false
       col: [1, 1, 1, 1]
@@ -133,7 +133,7 @@ Entities:
       angularDamping: 0
       restitution: 1
       friction: 1
-    StaticMeshComponent:
+    MeshComponent:
       Path: Assets\Models\Sphere.obj
       bUseAlbedoMap: false
       col: [1, 1, 1, 1]

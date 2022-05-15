@@ -13,7 +13,7 @@ namespace HEngine
 		MeshComponent() = default;
 		MeshComponent(const MeshComponent&) = default;
 		MeshComponent(const std::string & path)
-			: Path(path), Mesh(path)
+			: Path(path), mMesh(CreateRef<Mesh>(path))
 		{
 		}
 		//MeshComponent(const std::filesystem::path& path)
@@ -22,6 +22,6 @@ namespace HEngine
 		//}
 
 		std::string Path;
-		Mesh Mesh;
+		Ref<Mesh> mMesh;
     };
 }

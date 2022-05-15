@@ -1,6 +1,6 @@
 // Tencent is pleased to support the open source community by making RapidJSON available.
 // 
-// Copyright (C) 2015 THL A29 Limited, a Tencent company, and Milo Yip.
+// Copyright (C) 2015 THL A29 Limited, a Tencent company, and Milo Yip. All rights reserved.
 //
 // Licensed under the MIT License (the "License"); you may not use this file except
 // in compliance with the License. You may obtain a copy of the License at
@@ -52,19 +52,6 @@ concept Allocator {
 \endcode
 */
 
-
-/*! \def RAPIDJSON_ALLOCATOR_DEFAULT_CHUNK_CAPACITY
-    \ingroup RAPIDJSON_CONFIG
-    \brief User-defined kDefaultChunkCapacity definition.
-
-    User can define this as any \c size that is a power of 2.
-*/
-
-#ifndef RAPIDJSON_ALLOCATOR_DEFAULT_CHUNK_CAPACITY
-#define RAPIDJSON_ALLOCATOR_DEFAULT_CHUNK_CAPACITY (64 * 1024)
-#endif
-
-
 ///////////////////////////////////////////////////////////////////////////////
 // CrtAllocator
 
@@ -77,19 +64,19 @@ public:
     static const bool kNeedFree = true;
     void* Malloc(size_t size) { 
         if (size) //  behavior of malloc(0) is implementation defined.
-            return RAPIDJSON_MALLOC(size);
+            return std::malloc(size);
         else
             return NULL; // standardize to returning NULL.
     }
     void* Realloc(void* originalPtr, size_t originalSize, size_t newSize) {
         (void)originalSize;
         if (newSize == 0) {
-            RAPIDJSON_FREE(originalPtr);
+            std::free(originalPtr);
             return NULL;
         }
-        return RAPIDJSON_REALLOC(originalPtr, newSize);
+        return std::realloc(originalPtr, newSize);
     }
-    static void Free(void *ptr) { RAPIDJSON_FREE(ptr); }
+    static void Free(void *ptr) { std::free(ptr); }
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -261,7 +248,7 @@ private:
             return false;
     }
 
-    static const int kDefaultChunkCapacity = RAPIDJSON_ALLOCATOR_DEFAULT_CHUNK_CAPACITY; //!< Default chunk capacity.
+    static const int kDefaultChunkCapacity = 64 * 1024; //!< Default chunk capacity.
 
     //! Chunk header for perpending to each chunk.
     /*! Chunks are stored as a singly linked list.

@@ -2,7 +2,7 @@
 Open Asset Import Library (assimp)
 ----------------------------------------------------------------------
 
-Copyright (c) 2006-2022, assimp team
+Copyright (c) 2006-2019, assimp team
 
 
 All rights reserved.
@@ -48,7 +48,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <assimp/anim.h>
 #include <vector>
 
-namespace Assimp {
+namespace Assimp    {
+
+
 
 // ---------------------------------------------------------------------------
 /** Helper class to iterate through all keys in an animation channel.
@@ -56,44 +58,55 @@ namespace Assimp {
  *  Missing tracks are interpolated. This is a helper class for
  *  TargetAnimationHelper, but it can be freely used for other purposes.
 */
-class KeyIterator {
+class KeyIterator
+{
 public:
+
+
     // ------------------------------------------------------------------
     /** Constructs a new key iterator
      *
-     *  @param _objPos Object position track. May be nullptr.
-     *  @param _targetObjPos Target object position track. May be nullptr.
+     *  @param _objPos Object position track. May be NULL.
+     *  @param _targetObjPos Target object position track. May be NULL.
      *  @param defaultObjectPos Default object position to be used if
-     *    no animated track is available. May be nullptr.
+     *    no animated track is available. May be NULL.
      *  @param defaultTargetPos Default target position to be used if
-     *    no animated track is available. May be nullptr.
+     *    no animated track is available. May be NULL.
      */
-    KeyIterator(const std::vector<aiVectorKey> *_objPos,
-            const std::vector<aiVectorKey> *_targetObjPos,
-            const aiVector3D *defaultObjectPos = nullptr,
-            const aiVector3D *defaultTargetPos = nullptr);
+    KeyIterator(const std::vector<aiVectorKey>* _objPos,
+        const std::vector<aiVectorKey>* _targetObjPos,
+        const aiVector3D*  defaultObjectPos = NULL,
+        const aiVector3D*  defaultTargetPos = NULL);
 
     // ------------------------------------------------------------------
     /** Returns true if all keys have been processed
      */
-    bool Finished() const { return reachedEnd; }
+    bool Finished() const
+        {return reachedEnd;}
 
     // ------------------------------------------------------------------
     /** Increment the iterator
      */
     void operator++();
-    inline void operator++(int) { return ++(*this); }
+    inline void operator++(int)
+        {return ++(*this);}
+
+
 
     // ------------------------------------------------------------------
     /** Getters to retrieve the current state of the iterator
      */
-    inline const aiVector3D &GetCurPosition() const { return curPosition; }
+    inline const aiVector3D& GetCurPosition() const
+        {return curPosition;}
 
-    inline const aiVector3D &GetCurTargetPosition() const { return curTargetPosition; }
+    inline const aiVector3D& GetCurTargetPosition() const
+        {return curTargetPosition;}
 
-    inline double GetCurTime() const { return curTime; }
+    inline double GetCurTime() const
+        {return curTime;}
 
 private:
+
     //! Did we reach the end?
     bool reachedEnd;
 
@@ -103,10 +116,10 @@ private:
     double curTime;
 
     //! Input tracks and the next key to process
-    const std::vector<aiVectorKey> *objPos, *targetObjPos;
+    const std::vector<aiVectorKey>* objPos,*targetObjPos;
 
     unsigned int nextObjPos, nextTargetObjPos;
-    std::vector<aiVectorKey> defaultObjPos, defaultTargetObjPos;
+    std::vector<aiVectorKey> defaultObjPos,defaultTargetObjPos;
 };
 
 // ---------------------------------------------------------------------------
@@ -117,13 +130,15 @@ private:
  * channel for the camera/spot light itself and a separate position
  * animation channels specifying the position of the camera/spot light
  * look-at target */
-class TargetAnimationHelper {
+class TargetAnimationHelper
+{
 public:
-    TargetAnimationHelper() :
-            targetPositions(nullptr),
-            objectPositions(nullptr) {
-        // empty
-    }
+
+    TargetAnimationHelper()
+        :   targetPositions     (NULL)
+        ,   objectPositions     (NULL)
+    {}
+
 
     // ------------------------------------------------------------------
     /** Sets the target animation channel
@@ -132,30 +147,37 @@ public:
      *  target at a specific position.
      *
      *  @param targetPositions Translation channel*/
-    void SetTargetAnimationChannel(const std::vector<aiVectorKey> *targetPositions);
+    void SetTargetAnimationChannel (const
+        std::vector<aiVectorKey>* targetPositions);
+
 
     // ------------------------------------------------------------------
     /** Sets the main animation channel
      *
      *  @param objectPositions Translation channel */
-    void SetMainAnimationChannel(const std::vector<aiVectorKey> *objectPositions);
+    void SetMainAnimationChannel ( const
+        std::vector<aiVectorKey>* objectPositions);
 
     // ------------------------------------------------------------------
     /** Sets the main animation channel to a fixed value
      *
      *  @param fixed Fixed value for the main animation channel*/
-    void SetFixedMainAnimationChannel(const aiVector3D &fixed);
+    void SetFixedMainAnimationChannel(const aiVector3D& fixed);
+
 
     // ------------------------------------------------------------------
     /** Computes final animation channels
-     * @param distanceTrack Receive camera translation keys ... != nullptr. */
-    void Process(std::vector<aiVectorKey> *distanceTrack);
+     * @param distanceTrack Receive camera translation keys ... != NULL. */
+    void Process( std::vector<aiVectorKey>* distanceTrack );
+
 
 private:
-    const std::vector<aiVectorKey> *targetPositions, *objectPositions;
+
+    const std::vector<aiVectorKey>* targetPositions,*objectPositions;
     aiVector3D fixedMain;
 };
 
-} // namespace Assimp
+
+} // ! end namespace Assimp
 
 #endif // include guard

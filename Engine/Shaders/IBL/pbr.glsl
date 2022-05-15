@@ -7,6 +7,9 @@ layout(location = 2) in vec2 a_TexCoord;
 layout(location = 3) in vec3 a_Tangent;
 layout(location = 4) in vec3 a_Bitangent;
 layout(location = 5) in int a_EntityID;
+// Animation
+layout(location = 6) in ivec4 a_BoneIds; 
+layout(location = 7) in vec4 a_BoneWeights;
 
 out vec2 TexCoords;
 out vec3 WorldPos;
@@ -20,14 +23,31 @@ layout(std140, binding = 0) uniform Camera
 
 uniform mat4 model;
 
+const int MAX_BONES = 100;
+const int MAX_BONE_INFLUENCE = 4;
+uniform mat4 finalBonesMatrices[MAX_BONES];
+
 void main()
 {
+    mat4 finalBoneTransform = mat4(0.0f);
+    for(int i = 0 ; i < MAX_BONE_INFLUENCE ; i++)
+    {
+        if(a_BoneIds[i] == -1) 
+            continue;
+        if(a_BoneIds[i] >=MAX_BONES) 
+        {
+            break;
+        }
+        finalBoneTransform += finalBonesMatrices[a_BoneIds[i]] * a_BoneWeights[i];
+    }
+    vec4 localPosition = finalBoneTransform * vec4(a_Pos, 1.0);
+
     TexCoords = a_TexCoord;
-    WorldPos = vec3(model * vec4(a_Pos, 1.0));
-    Normal = mat3(model) * a_Normal;
+    WorldPos = vec3(model * localPosition);
+    Normal = mat3(finalBoneTransform) * a_Normal;
     v_EntityID = a_EntityID;
 
-    gl_Position =  u_ViewProjection * vec4(WorldPos, 1.0);
+    gl_Position =  u_ViewProjection * model * localPosition;
 }
 
 #type fragment

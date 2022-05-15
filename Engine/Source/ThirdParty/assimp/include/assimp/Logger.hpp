@@ -2,7 +2,8 @@
 Open Asset Import Library (assimp)
 ----------------------------------------------------------------------
 
-Copyright (c) 2006-2022, assimp team
+Copyright (c) 2006-2019, assimp team
+
 
 All rights reserved.
 
@@ -42,7 +43,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /** @file Logger.hpp
  *  @brief Abstract base class 'Logger', base of the logging system.
  */
-#pragma once
 #ifndef INCLUDED_AI_LOGGER_H
 #define INCLUDED_AI_LOGGER_H
 
@@ -73,9 +73,8 @@ public:
      *  @brief  Log severity to describe the granularity of logging.
      */
     enum LogSeverity {
-        NORMAL,     ///< Normal granularity of logging
-        DEBUGGING,  ///< Debug messages will be logged, but not verbose debug messages.
-        VERBOSE     ///< All messages will be logged
+        NORMAL,     //!< Normal granularity of logging
+        VERBOSE     //!< Debug infos will be logged, too
     };
 
     // ----------------------------------------------------------------------
@@ -93,58 +92,34 @@ public:
         Err         = 8     //!< Error log message
     };
 
+public:
+
     /** @brief  Virtual destructor */
     virtual ~Logger();
 
     // ----------------------------------------------------------------------
     /** @brief  Writes a debug message
-     *  @param  message Debug message*/
-    void debug(const char* message);
-
-    template<typename... T>
-    void debug(T&&... args) {
-        debug(formatMessage(std::forward<T>(args)...).c_str());
-    }
-
-    // ----------------------------------------------------------------------
-    /** @brief  Writes a debug message
      *   @param message Debug message*/
-    void verboseDebug(const char* message);
-
-    template<typename... T>
-    void verboseDebug(T&&... args) {
-        verboseDebug(formatMessage(std::forward<T>(args)...).c_str());
-    }
+    void debug(const char* message);
+    void debug(const std::string &message);
 
     // ----------------------------------------------------------------------
     /** @brief  Writes a info message
      *  @param  message Info message*/
     void info(const char* message);
-
-    template<typename... T>
-    void info(T&&... args) {
-        info(formatMessage(std::forward<T>(args)...).c_str());
-    }
+    void info(const std::string &message);
 
     // ----------------------------------------------------------------------
     /** @brief  Writes a warning message
      *  @param  message Warn message*/
     void warn(const char* message);
-
-    template<typename... T>
-    void warn(T&&... args) {
-        warn(formatMessage(std::forward<T>(args)...).c_str());
-    }
+    void warn(const std::string &message);
 
     // ----------------------------------------------------------------------
     /** @brief  Writes an error message
      *  @param  message Error message*/
     void error(const char* message);
-
-    template<typename... T>
-    void error(T&&... args) {
-        error(formatMessage(std::forward<T>(args)...).c_str());
-    }
+    void error(const std::string &message);
 
     // ----------------------------------------------------------------------
     /** @brief  Set a new log severity.
@@ -179,7 +154,7 @@ public:
      *    if the result is 0 the stream is detached from the Logger and
      *    the caller retakes the possession of the stream.
      *  @return true if the stream has been detached, false otherwise.*/
-    virtual bool detachStream(LogStream *pStream,
+    virtual bool detatchStream(LogStream *pStream,
         unsigned int severity = Debugging | Err | Warn | Info) = 0;
 
 protected:
@@ -202,16 +177,6 @@ protected:
      *    the function is left.
      */
     virtual void OnDebug(const char* message)= 0;
-
-    // ----------------------------------------------------------------------
-	/**
-     *  @brief Called as a request to write a specific verbose debug message
-     *  @param  message Debug message. Never longer than
-     *    MAX_LOG_MESSAGE_LENGTH characters (excluding the '0').
-     *  @note  The message string is only valid until the scope of
-     *    the function is left.
-     */
-	virtual void OnVerboseDebug(const char *message) = 0;
 
     // ----------------------------------------------------------------------
     /**
@@ -242,64 +207,99 @@ protected:
      *    the function is left.
      */
     virtual void OnError(const char* message) = 0;
-protected:
-    std::string formatMessage(Assimp::Formatter::format f) {
-        return f;
-    }
-
-    template<typename... T, typename U>
-    std::string formatMessage(Assimp::Formatter::format f, U&& u, T&&... args) {
-        return formatMessage(std::move(f << std::forward<U>(u)), std::forward<T>(args)...);
-    }
 
 protected:
     LogSeverity m_Severity;
 };
 
 // ----------------------------------------------------------------------------------
-inline Logger::Logger() AI_NO_EXCEPT :
-        m_Severity(NORMAL) {
+//  Default constructor
+inline
+Logger::Logger() AI_NO_EXCEPT
+: m_Severity(NORMAL) {
     // empty
 }
 
 // ----------------------------------------------------------------------------------
-inline Logger::~Logger() {
+//  Virtual destructor
+inline
+Logger::~Logger() {
     // empty
 }
 
 // ----------------------------------------------------------------------------------
-inline Logger::Logger(LogSeverity severity) :
-        m_Severity(severity) {
+// Construction with given logging severity
+inline
+Logger::Logger(LogSeverity severity)
+: m_Severity(severity) {
     // empty
 }
 
 // ----------------------------------------------------------------------------------
-inline void Logger::setLogSeverity(LogSeverity log_severity){
+// Log severity setter
+inline
+void Logger::setLogSeverity(LogSeverity log_severity){
     m_Severity = log_severity;
 }
 
 // ----------------------------------------------------------------------------------
 // Log severity getter
-inline Logger::LogSeverity Logger::getLogSeverity() const {
+inline
+Logger::LogSeverity Logger::getLogSeverity() const {
     return m_Severity;
 }
 
-} // Namespace Assimp
+// ----------------------------------------------------------------------------------
+inline
+void Logger::debug(const std::string &message) {
+    return debug(message.c_str());
+}
+
+// ----------------------------------------------------------------------------------
+inline
+void Logger::error(const std::string &message) {
+    return error(message.c_str());
+}
+
+// ----------------------------------------------------------------------------------
+inline
+void Logger::warn(const std::string &message) {
+    return warn(message.c_str());
+}
+
+// ----------------------------------------------------------------------------------
+inline
+void Logger::info(const std::string &message) {
+    return info(message.c_str());
+}
 
 // ------------------------------------------------------------------------------------------------
-#define ASSIMP_LOG_WARN(...) \
-	Assimp::DefaultLogger::get()->warn(__VA_ARGS__)
+#define ASSIMP_LOG_WARN_F(string,...)\
+    DefaultLogger::get()->warn((Formatter::format(string),__VA_ARGS__))
 
-#define ASSIMP_LOG_ERROR(...) \
-	Assimp::DefaultLogger::get()->error(__VA_ARGS__)
+#define ASSIMP_LOG_ERROR_F(string,...)\
+    DefaultLogger::get()->error((Formatter::format(string),__VA_ARGS__))
 
-#define ASSIMP_LOG_DEBUG(...) \
-	Assimp::DefaultLogger::get()->debug(__VA_ARGS__)
+#define ASSIMP_LOG_DEBUG_F(string,...)\
+    DefaultLogger::get()->debug((Formatter::format(string),__VA_ARGS__))
 
-#define ASSIMP_LOG_VERBOSE_DEBUG(...) \
-	Assimp::DefaultLogger::get()->verboseDebug(__VA_ARGS__)
+#define ASSIMP_LOG_INFO_F(string,...)\
+    DefaultLogger::get()->info((Formatter::format(string),__VA_ARGS__))
 
-#define ASSIMP_LOG_INFO(...) \
-	Assimp::DefaultLogger::get()->info(__VA_ARGS__)
+
+#define ASSIMP_LOG_WARN(string)\
+    DefaultLogger::get()->warn(string)
+
+#define ASSIMP_LOG_ERROR(string)\
+    DefaultLogger::get()->error(string)
+
+#define ASSIMP_LOG_DEBUG(string)\
+    DefaultLogger::get()->debug(string)
+
+#define ASSIMP_LOG_INFO(string)\
+    DefaultLogger::get()->info(string)
+
+
+} // Namespace Assimp
 
 #endif // !! INCLUDED_AI_LOGGER_H

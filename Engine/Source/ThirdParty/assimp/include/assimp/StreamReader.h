@@ -3,7 +3,9 @@
 Open Asset Import Library (assimp)
 ---------------------------------------------------------------------------
 
-Copyright (c) 2006-2022, assimp team
+Copyright (c) 2006-2019, assimp team
+
+
 
 All rights reserved.
 
@@ -42,18 +44,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /** @file Defines the StreamReader class which reads data from
  *  a binary stream with a well-defined endianness.
  */
-#pragma once
+
 #ifndef AI_STREAMREADER_H_INCLUDED
 #define AI_STREAMREADER_H_INCLUDED
 
-#ifdef __GNUC__
-#   pragma GCC system_header
-#endif
-
-#include <assimp/ByteSwapper.h>
-#include <assimp/Exceptional.h>
 #include <assimp/IOStream.hpp>
+#include <assimp/Defines.h>
 
+#include "ByteSwapper.h"
+#include "Exceptional.h"
 #include <memory>
 
 namespace Assimp {
@@ -71,8 +70,10 @@ namespace Assimp {
 template <bool SwapEndianess = false, bool RuntimeSwitch = false>
 class StreamReader {
 public:
-    using diff = size_t;
-    using pos = size_t;
+    // FIXME: use these data types throughout the whole library,
+    // then change them to 64 bit values :-)
+    using diff = int;
+    using pos  = unsigned int;
 
     // ---------------------------------------------------------------------
     /** Construction from a given stream with a well-defined endianness.
@@ -86,45 +87,40 @@ public:
      *    stream is in little endian byte order. Otherwise the
      *    endianness information is contained in the @c SwapEndianess
      *    template parameter and this parameter is meaningless.  */
-    StreamReader(std::shared_ptr<IOStream> stream, bool le = false) :
-            mStream(stream),
-            mBuffer(nullptr),
-            mCurrent(nullptr),
-            mEnd(nullptr),
-            mLimit(nullptr),
-            mLe(le) {
+    StreamReader(std::shared_ptr<IOStream> stream, bool le = false)
+        : stream(stream)
+        , le(le)
+    {
         ai_assert(stream);
         InternBegin();
     }
 
     // ---------------------------------------------------------------------
-    StreamReader(IOStream *stream, bool le = false) :
-            mStream(std::shared_ptr<IOStream>(stream)),
-            mBuffer(nullptr),
-            mCurrent(nullptr),
-            mEnd(nullptr),
-            mLimit(nullptr),
-            mLe(le) {
-        ai_assert(nullptr != stream);
+    StreamReader(IOStream* stream, bool le = false)
+        : stream(std::shared_ptr<IOStream>(stream))
+        , le(le)
+    {
+        ai_assert(stream);
         InternBegin();
     }
 
     // ---------------------------------------------------------------------
     ~StreamReader() {
-        delete[] mBuffer;
+        delete[] buffer;
     }
 
     // deprecated, use overloaded operator>> instead
 
     // ---------------------------------------------------------------------
-    /// Read a float from the stream.
-    float GetF4() {
+    /** Read a float from the stream  */
+    float GetF4()
+    {
         return Get<float>();
     }
 
     // ---------------------------------------------------------------------
-    /// Read a double from the stream.
-    double GetF8() {
+    /** Read a double from the stream  */
+    double GetF8()  {
         return Get<double>();
     }
 
@@ -136,7 +132,7 @@ public:
 
     // ---------------------------------------------------------------------
     /** Read a signed 8 bit integer from the stream */
-    int8_t GetI1() {
+    int8_t GetI1()  {
         return Get<int8_t>();
     }
 
@@ -154,66 +150,66 @@ public:
 
     // ---------------------------------------------------------------------
     /** Read a unsigned 16 bit integer from the stream */
-    uint16_t GetU2() {
+    uint16_t GetU2()    {
         return Get<uint16_t>();
     }
 
     // ---------------------------------------------------------------------
-    /// Read a unsigned 8 bit integer from the stream
+    /** Read a unsigned 8 bit integer from the stream */
     uint8_t GetU1() {
         return Get<uint8_t>();
     }
 
     // ---------------------------------------------------------------------
-    /// Read an unsigned 32 bit integer from the stream
-    uint32_t GetU4() {
+    /** Read an unsigned 32 bit integer from the stream */
+    uint32_t GetU4()    {
         return Get<uint32_t>();
     }
 
     // ---------------------------------------------------------------------
-    /// Read a unsigned 64 bit integer from the stream
-    uint64_t GetU8() {
+    /** Read a unsigned 64 bit integer from the stream */
+    uint64_t GetU8()    {
         return Get<uint64_t>();
     }
 
     // ---------------------------------------------------------------------
-    /// Get the remaining stream size (to the end of the stream)
-    size_t GetRemainingSize() const {
-        return (unsigned int)(mEnd - mCurrent);
+    /** Get the remaining stream size (to the end of the stream) */
+    unsigned int GetRemainingSize() const {
+        return (unsigned int)(end - current);
     }
 
     // ---------------------------------------------------------------------
     /** Get the remaining stream size (to the current read limit). The
      *  return value is the remaining size of the stream if no custom
      *  read limit has been set. */
-    size_t GetRemainingSizeToLimit() const {
-        return (unsigned int)(mLimit - mCurrent);
+    unsigned int GetRemainingSizeToLimit() const {
+        return (unsigned int)(limit - current);
     }
 
     // ---------------------------------------------------------------------
     /** Increase the file pointer (relative seeking)  */
-    void IncPtr(intptr_t plus) {
-        mCurrent += plus;
-        if (mCurrent > mLimit) {
+    void IncPtr(intptr_t plus)    {
+        current += plus;
+        if (current > limit) {
             throw DeadlyImportError("End of file or read limit was reached");
         }
     }
 
     // ---------------------------------------------------------------------
     /** Get the current file pointer */
-    int8_t *GetPtr() const {
-        return mCurrent;
+    int8_t* GetPtr() const  {
+        return current;
     }
 
     // ---------------------------------------------------------------------
     /** Set current file pointer (Get it from #GetPtr). This is if you
-     *  prefer to do pointer arithmetic on your own or want to copy
+     *  prefer to do pointer arithmetics on your own or want to copy
      *  large chunks of data at once.
      *  @param p The new pointer, which is validated against the size
      *    limit and buffer boundaries. */
-    void SetPtr(int8_t *p) {
-        mCurrent = p;
-        if (mCurrent > mLimit || mCurrent < mBuffer) {
+    void SetPtr(int8_t* p)  {
+        current = p;
+        if (current > limit || current < buffer) {
             throw DeadlyImportError("End of file or read limit was reached");
         }
     }
@@ -222,20 +218,21 @@ public:
     /** Copy n bytes to an external buffer
      *  @param out Destination for copying
      *  @param bytes Number of bytes to copy */
-    void CopyAndAdvance(void *out, size_t bytes) {
-        int8_t *ur = GetPtr();
-        SetPtr(ur + bytes); // fire exception if eof
+    void CopyAndAdvance(void* out, size_t bytes)    {
+        int8_t* ur = GetPtr();
+        SetPtr(ur+bytes); // fire exception if eof
 
-        ::memcpy(out, ur, bytes);
+        ::memcpy(out,ur,bytes);
     }
 
-    /// @brief Get the current offset from the beginning of the file
-    int GetCurrentPos() const {
-        return (unsigned int)(mCurrent - mBuffer);
+    // ---------------------------------------------------------------------
+    /** Get the current offset from the beginning of the file */
+    int GetCurrentPos() const   {
+        return (unsigned int)(current - buffer);
     }
 
     void SetCurrentPos(size_t pos) {
-        SetPtr(mBuffer + pos);
+        SetPtr(buffer + pos);
     }
 
     // ---------------------------------------------------------------------
@@ -245,15 +242,15 @@ public:
      *    the beginning of the file. Specifying UINT_MAX
      *    resets the limit to the original end of the stream.
      *  Returns the previously set limit. */
-    unsigned int SetReadLimit(unsigned int _limit) {
+    unsigned int SetReadLimit(unsigned int _limit)  {
         unsigned int prev = GetReadLimit();
         if (UINT_MAX == _limit) {
-            mLimit = mEnd;
+            limit = end;
             return prev;
         }
 
-        mLimit = mBuffer + _limit;
-        if (mLimit > mEnd) {
+        limit = buffer + _limit;
+        if (limit > end) {
             throw DeadlyImportError("StreamReader: Invalid read limit");
         }
         return prev;
@@ -262,21 +259,21 @@ public:
     // ---------------------------------------------------------------------
     /** Get the current read limit in bytes. Reading over this limit
      *  accidentally raises an exception.  */
-    unsigned int GetReadLimit() const {
-        return (unsigned int)(mLimit - mBuffer);
+    unsigned int GetReadLimit() const    {
+        return (unsigned int)(limit - buffer);
     }
 
     // ---------------------------------------------------------------------
     /** Skip to the read limit in bytes. Reading over this limit
      *  accidentally raises an exception. */
-    void SkipToReadLimit() {
-        mCurrent = mLimit;
+    void SkipToReadLimit()  {
+        current = limit;
     }
 
     // ---------------------------------------------------------------------
     /** overload operator>> and allow chaining of >> ops. */
     template <typename T>
-    StreamReader &operator>>(T &f) {
+    StreamReader& operator >> (T& f) {
         f = Get<T>();
         return *this;
     }
@@ -285,14 +282,14 @@ public:
     /** Generic read method. ByteSwap::Swap(T*) *must* be defined */
     template <typename T>
     T Get() {
-        if (mCurrent + sizeof(T) > mLimit) {
+        if ( current + sizeof(T) > limit) {
             throw DeadlyImportError("End of file or stream limit was reached");
         }
 
         T f;
-        ::memcpy(&f, mCurrent, sizeof(T));
-        Intern::Getter<SwapEndianess, T, RuntimeSwitch>()(&f, mLe);
-        mCurrent += sizeof(T);
+        ::memcpy (&f, current, sizeof(T));
+        Intern::Getter<SwapEndianess,T,RuntimeSwitch>() (&f,le);
+        current += sizeof(T);
 
         return f;
     }
@@ -300,44 +297,46 @@ public:
 private:
     // ---------------------------------------------------------------------
     void InternBegin() {
-        if (nullptr == mStream) {
+        if (!stream) {
+            // in case someone wonders: StreamReader is frequently invoked with
+            // no prior validation whether the input stream is valid. Since
+            // no one bothers changing the error message, this message here
+            // is passed down to the caller and 'unable to open file'
+            // simply describes best what happened.
             throw DeadlyImportError("StreamReader: Unable to open file");
         }
 
-        const size_t filesize = mStream->FileSize() - mStream->Tell();
-        if (0 == filesize) {
+        const size_t s = stream->FileSize() - stream->Tell();
+        if (!s) {
             throw DeadlyImportError("StreamReader: File is empty or EOF is already reached");
         }
 
-        mCurrent = mBuffer = new int8_t[filesize];
-        const size_t read = mStream->Read(mCurrent, 1, filesize);
+        current = buffer = new int8_t[s];
+        const size_t read = stream->Read(current,1,s);
         // (read < s) can only happen if the stream was opened in text mode, in which case FileSize() is not reliable
-        ai_assert(read <= filesize);
-        mEnd = mLimit = &mBuffer[read - 1] + 1;
+        ai_assert(read <= s);
+        end = limit = &buffer[read-1] + 1;
     }
 
 private:
-    std::shared_ptr<IOStream> mStream;
-    int8_t *mBuffer;
-    int8_t *mCurrent;
-    int8_t *mEnd;
-    int8_t *mLimit;
-    bool mLe;
+    std::shared_ptr<IOStream> stream;
+    int8_t *buffer, *current, *end, *limit;
+    bool le;
 };
 
 // --------------------------------------------------------------------------------------------
 // `static` StreamReaders. Their byte order is fixed and they might be a little bit faster.
 #ifdef AI_BUILD_BIG_ENDIAN
-typedef StreamReader<true> StreamReaderLE;
-typedef StreamReader<false> StreamReaderBE;
+    typedef StreamReader<true>  StreamReaderLE;
+    typedef StreamReader<false> StreamReaderBE;
 #else
-typedef StreamReader<true> StreamReaderBE;
-typedef StreamReader<false> StreamReaderLE;
+    typedef StreamReader<true>  StreamReaderBE;
+    typedef StreamReader<false> StreamReaderLE;
 #endif
 
 // `dynamic` StreamReader. The byte order of the input data is specified in the
 // c'tor. This involves runtime branching and might be a little bit slower.
-typedef StreamReader<true, true> StreamReaderAny;
+typedef StreamReader<true,true> StreamReaderAny;
 
 } // end namespace Assimp
 

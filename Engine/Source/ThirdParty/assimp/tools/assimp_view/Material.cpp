@@ -3,7 +3,7 @@
 Open Asset Import Library (assimp)
 ---------------------------------------------------------------------------
 
-Copyright (c) 2006-2022, assimp team
+Copyright (c) 2006-2019, assimp team
 
 All rights reserved.
 
@@ -210,15 +210,15 @@ int CMaterialManager::SetDefaultTexture(IDirect3DTexture9** p_ppiOut)
         D3DFMT_A8R8G8B8,
         D3DPOOL_MANAGED,
         p_ppiOut,
-        nullptr)))
+        NULL)))
     {
         CLogDisplay::Instance().AddEntry("[ERROR] Unable to create default texture",
             D3DCOLOR_ARGB(0xFF,0xFF,0,0));
 
-        *p_ppiOut = nullptr;
+        *p_ppiOut = NULL;
         return 0;
     }
-    D3DXFillTexture(*p_ppiOut,&FillFunc,nullptr);
+    D3DXFillTexture(*p_ppiOut,&FillFunc,NULL);
     sDefaultTexture = *p_ppiOut;
     sDefaultTexture->AddRef();
 
@@ -272,7 +272,7 @@ bool CMaterialManager::TryLongerPath(char* szTemp,aiString* p_szString)
                             szExtFound - 1 - info.cFileName);
 
                         for (unsigned int i = 0; i < iSizeFound;++i)
-                            info.cFileName[i] = (CHAR)tolower((unsigned char)info.cFileName[i]);
+                            info.cFileName[i] = (CHAR)tolower(info.cFileName[i]);
 
                         if (0 == memcmp(info.cFileName,szFile2, std::min(iSizeFound,iSize)))
                         {
@@ -287,7 +287,7 @@ bool CMaterialManager::TryLongerPath(char* szTemp,aiString* p_szString)
                             size_t iLen2 = iLen+1;
                             iLen2 = iLen2 > MAXLEN ? MAXLEN : iLen2;
                             memcpy(p_szString->data,szTempB,iLen2);
-                            p_szString->length = static_cast<ai_uint32>(iLen);
+                            p_szString->length = iLen;
                             return true;
                         }
                     }
@@ -301,7 +301,7 @@ bool CMaterialManager::TryLongerPath(char* szTemp,aiString* p_szString)
                         size_t iLen2 = iLen+1;
                         iLen2 = iLen2 > MAXLEN ? MAXLEN : iLen2;
                         memcpy(p_szString->data,szTempB,iLen2);
-                        p_szString->length = static_cast<ai_uint32>(iLen);
+                        p_szString->length = iLen;
                         return true;
                     }
                 }
@@ -316,7 +316,7 @@ bool CMaterialManager::TryLongerPath(char* szTemp,aiString* p_szString)
 //-------------------------------------------------------------------------------
 int CMaterialManager::FindValidPath(aiString* p_szString)
 {
-    ai_assert(nullptr != p_szString);
+    ai_assert(NULL != p_szString);
     aiString pcpy = *p_szString;
     if ('*' ==  p_szString->data[0])    {
         // '*' as first character indicates an embedded file
@@ -325,10 +325,9 @@ int CMaterialManager::FindValidPath(aiString* p_szString)
 
     // first check whether we can directly load the file
     FILE* pFile = fopen(p_szString->data,"rb");
-    if (pFile) {
-        fclose(pFile);
-    }
-    else {
+    if (pFile)fclose(pFile);
+    else
+    {
         // check whether we can use the directory of  the asset as relative base
         char szTemp[MAX_PATH*2], tmp2[MAX_PATH*2];
         strcpy(szTemp, g_szFileName);
@@ -355,7 +354,7 @@ int CMaterialManager::FindValidPath(aiString* p_szString)
             for (unsigned int i = 0;;++i)
             {
                 if ('\0' == szTemp[i])break;
-                szTemp[i] = (char)tolower((unsigned char)szTemp[i]);
+                szTemp[i] = (char)tolower(szTemp[i]);
             }
 
             if(TryLongerPath(szTemp,p_szString))return 1;
@@ -390,10 +389,10 @@ int CMaterialManager::FindValidPath(aiString* p_szString)
                     if( !q ) q=strrchr( tmp2,'\\' );
                     if( q ){
                         strcpy( q+1,p+1 );
-                        if((pFile=fopen( tmp2,"r" )) != nullptr){
+                        if((pFile=fopen( tmp2,"r" ))){
                             fclose( pFile );
                             strcpy(p_szString->data,tmp2);
-                            p_szString->length = static_cast<ai_uint32>(strlen(tmp2));
+                            p_szString->length = strlen(tmp2);
                             return 1;
                         }
                     }
@@ -403,22 +402,23 @@ int CMaterialManager::FindValidPath(aiString* p_szString)
         }
         fclose(pFile);
 
-        // copy the result string back to the aiStr
-        const size_t len = strlen(szTemp);
-        size_t len2 = len+1;
-        len2 = len2 > MAXLEN ? MAXLEN : len2;
-        memcpy(p_szString->data, szTemp, len2);
-        p_szString->length = static_cast<ai_uint32>(len);
+        // copy the result string back to the aiString
+        const size_t iLen = strlen(szTemp);
+        size_t iLen2 = iLen+1;
+        iLen2 = iLen2 > MAXLEN ? MAXLEN : iLen2;
+        memcpy(p_szString->data,szTemp,iLen2);
+        p_szString->length = iLen;
+
     }
     return 1;
 }
 //-------------------------------------------------------------------------------
 int CMaterialManager::LoadTexture(IDirect3DTexture9** p_ppiOut,aiString* szPath)
 {
-    ai_assert(nullptr != p_ppiOut);
-    ai_assert(nullptr != szPath);
+    ai_assert(NULL != p_ppiOut);
+    ai_assert(NULL != szPath);
 
-    *p_ppiOut = nullptr;
+    *p_ppiOut = NULL;
 
     const std::string s = szPath->data;
     TextureCache::iterator ff;
@@ -453,7 +453,7 @@ int CMaterialManager::LoadTexture(IDirect3DTexture9** p_ppiOut,aiString* szPath)
                     D3DX_DEFAULT,
                     0,
                     &info,
-                    nullptr,
+                    NULL,
                     p_ppiOut)))
                 {
                     std::string sz = "[ERROR] Unable to load embedded texture (#1): ";
@@ -470,7 +470,7 @@ int CMaterialManager::LoadTexture(IDirect3DTexture9** p_ppiOut,aiString* szPath)
                 if(FAILED(g_piDevice->CreateTexture(
                     g_pcAsset->pcScene->mTextures[iIndex]->mWidth,
                     g_pcAsset->pcScene->mTextures[iIndex]->mHeight,
-                    0,D3DUSAGE_AUTOGENMIPMAP,D3DFMT_A8R8G8B8,D3DPOOL_MANAGED,p_ppiOut,nullptr)))
+                    0,D3DUSAGE_AUTOGENMIPMAP,D3DFMT_A8R8G8B8,D3DPOOL_MANAGED,p_ppiOut,NULL)))
                 {
                     std::string sz = "[ERROR] Unable to load embedded texture (#2): ";
                     sz.append(szPath->data);
@@ -482,7 +482,7 @@ int CMaterialManager::LoadTexture(IDirect3DTexture9** p_ppiOut,aiString* szPath)
 
                 // now copy the data to it ... (assume non pow2 to be supported)
                 D3DLOCKED_RECT sLock;
-                (*p_ppiOut)->LockRect(0,&sLock,nullptr,0);
+                (*p_ppiOut)->LockRect(0,&sLock,NULL,0);
 
                 const aiTexel* pcData = g_pcAsset->pcScene->mTextures[iIndex]->pcData;
 
@@ -524,8 +524,8 @@ int CMaterialManager::LoadTexture(IDirect3DTexture9** p_ppiOut,aiString* szPath)
         D3DX_DEFAULT,
         D3DX_DEFAULT,
         0,
-        nullptr,
-        nullptr,
+        NULL,
+        NULL,
         p_ppiOut)))
     {
         // error ... use the default texture instead
@@ -550,44 +550,44 @@ void CMaterialManager::DeleteMaterial(AssetHelper::MeshHelper* pcIn)
     if (pcIn->piDiffuseTexture)
     {
         pcIn->piDiffuseTexture->Release();
-        pcIn->piDiffuseTexture = nullptr;
+        pcIn->piDiffuseTexture = NULL;
     }
     if (pcIn->piSpecularTexture)
     {
         pcIn->piSpecularTexture->Release();
-        pcIn->piSpecularTexture = nullptr;
+        pcIn->piSpecularTexture = NULL;
     }
     if (pcIn->piEmissiveTexture)
     {
         pcIn->piEmissiveTexture->Release();
-        pcIn->piEmissiveTexture = nullptr;
+        pcIn->piEmissiveTexture = NULL;
     }
     if (pcIn->piAmbientTexture)
     {
         pcIn->piAmbientTexture->Release();
-        pcIn->piAmbientTexture = nullptr;
+        pcIn->piAmbientTexture = NULL;
     }
     if (pcIn->piOpacityTexture)
     {
         pcIn->piOpacityTexture->Release();
-        pcIn->piOpacityTexture = nullptr;
+        pcIn->piOpacityTexture = NULL;
     }
     if (pcIn->piNormalTexture)
     {
         pcIn->piNormalTexture->Release();
-        pcIn->piNormalTexture = nullptr;
+        pcIn->piNormalTexture = NULL;
     }
     if (pcIn->piShininessTexture)
     {
         pcIn->piShininessTexture->Release();
-        pcIn->piShininessTexture = nullptr;
+        pcIn->piShininessTexture = NULL;
     }
     if (pcIn->piLightmapTexture)
     {
         pcIn->piLightmapTexture->Release();
-        pcIn->piLightmapTexture = nullptr;
+        pcIn->piLightmapTexture = NULL;
     }
-    pcIn->piEffect = nullptr;
+    pcIn->piEffect = NULL;
 }
 //-------------------------------------------------------------------------------
 void CMaterialManager::HMtoNMIfNecessary(
@@ -595,8 +595,8 @@ void CMaterialManager::HMtoNMIfNecessary(
     IDirect3DTexture9** piTextureOut,
     bool bWasOriginallyHM)
 {
-    ai_assert(nullptr != piTexture);
-    ai_assert(nullptr != piTextureOut);
+    ai_assert(NULL != piTexture);
+    ai_assert(NULL != piTextureOut);
 
     bool bMustConvert = false;
     uintptr_t iElement = 3;
@@ -617,7 +617,7 @@ void CMaterialManager::HMtoNMIfNecessary(
     D3DLOCKED_RECT sRect;
     D3DSURFACE_DESC sDesc;
     piTexture->GetLevelDesc(0,&sDesc);
-    if (FAILED(piTexture->LockRect(0,&sRect,nullptr,D3DLOCK_READONLY)))
+    if (FAILED(piTexture->LockRect(0,&sRect,NULL,D3DLOCK_READONLY)))
     {
         return;
     }
@@ -627,7 +627,7 @@ void CMaterialManager::HMtoNMIfNecessary(
     {
         union
         {
-            struct {unsigned char b,g,r,a;} data;
+            struct {unsigned char b,g,r,a;};
             char _array[4];
         };
     };
@@ -646,7 +646,7 @@ void CMaterialManager::HMtoNMIfNecessary(
     {
         for (unsigned int x = 0; x <  sDesc.Width;++x)
         {
-            if (pcPointer->data.b != pcPointer->data.r || pcPointer->data.b != pcPointer->data.g)
+            if (pcPointer->b != pcPointer->r || pcPointer->b != pcPointer->g)
             {
                 bIsEqual = false;
                 break;
@@ -705,9 +705,9 @@ void CMaterialManager::HMtoNMIfNecessary(
                     aiColor3D clrColorLine;
                     for (unsigned int x = 0; x <  sDesc.Width;++x)
                     {
-                        clrColorLine.r += pcPointer->data.r;
-                        clrColorLine.g += pcPointer->data.g;
-                        clrColorLine.b += pcPointer->data.b;
+                        clrColorLine.r += pcPointer->r;
+                        clrColorLine.g += pcPointer->g;
+                        clrColorLine.b += pcPointer->b;
                         pcPointer++;
                     }
                     clrColor.r += clrColorLine.r /= (float)sDesc.Width;
@@ -739,17 +739,17 @@ void CMaterialManager::HMtoNMIfNecessary(
     // need to convert it NOW
     if (bMustConvert)
     {
-        D3DSURFACE_DESC sDesc2;
-        piTexture->GetLevelDesc(0, &sDesc2);
+        D3DSURFACE_DESC sDesc;
+        piTexture->GetLevelDesc(0, &sDesc);
 
         IDirect3DTexture9* piTempTexture;
         if(FAILED(g_piDevice->CreateTexture(
-            sDesc2.Width,
-            sDesc2.Height,
+            sDesc.Width,
+            sDesc.Height,
             piTexture->GetLevelCount(),
-            sDesc2.Usage,
-            sDesc2.Format,
-            sDesc2.Pool, &piTempTexture, nullptr)))
+            sDesc.Usage,
+            sDesc.Format,
+            sDesc.Pool, &piTempTexture, NULL)))
         {
             CLogDisplay::Instance().AddEntry(
                 "[ERROR] Unable to create normal map texture",
@@ -764,7 +764,7 @@ void CMaterialManager::HMtoNMIfNecessary(
         else /*if (0 == iElement)*/dwFlags = D3DX_CHANNEL_BLUE;
 
         if(FAILED(D3DXComputeNormalMap(piTempTexture,
-            piTexture,nullptr,0,dwFlags,1.0f)))
+            piTexture,NULL,0,dwFlags,1.0f)))
         {
             CLogDisplay::Instance().AddEntry(
                 "[ERROR] Unable to compute normal map from height map",
@@ -780,12 +780,12 @@ void CMaterialManager::HMtoNMIfNecessary(
 //-------------------------------------------------------------------------------
 bool CMaterialManager::HasAlphaPixels(IDirect3DTexture9* piTexture)
 {
-    ai_assert(nullptr != piTexture);
+    ai_assert(NULL != piTexture);
 
     D3DLOCKED_RECT sRect;
     D3DSURFACE_DESC sDesc;
     piTexture->GetLevelDesc(0,&sDesc);
-    if (FAILED(piTexture->LockRect(0,&sRect,nullptr,D3DLOCK_READONLY)))
+    if (FAILED(piTexture->LockRect(0,&sRect,NULL,D3DLOCK_READONLY)))
     {
         return false;
     }
@@ -823,8 +823,8 @@ bool CMaterialManager::HasAlphaPixels(IDirect3DTexture9* piTexture)
 int CMaterialManager::CreateMaterial(
     AssetHelper::MeshHelper* pcMesh,const aiMesh* pcSource)
 {
-    ai_assert(nullptr != pcMesh);
-    ai_assert(nullptr != pcSource);
+    ai_assert(NULL != pcMesh);
+    ai_assert(NULL != pcSource);
 
     ID3DXBuffer* piBuffer;
 
@@ -1060,29 +1060,29 @@ int CMaterialManager::CreateMaterial(
         }
         AssetHelper::MeshHelper* pc = g_pcAsset->apcMeshes[i];
 
-        if  ((pcMesh->piDiffuseTexture != nullptr ? true : false) !=
-            (pc->piDiffuseTexture != nullptr ? true : false))
+        if  ((pcMesh->piDiffuseTexture != NULL ? true : false) !=
+            (pc->piDiffuseTexture != NULL ? true : false))
             continue;
-        if  ((pcMesh->piSpecularTexture != nullptr ? true : false) !=
-            (pc->piSpecularTexture != nullptr ? true : false))
+        if  ((pcMesh->piSpecularTexture != NULL ? true : false) !=
+            (pc->piSpecularTexture != NULL ? true : false))
             continue;
-        if  ((pcMesh->piAmbientTexture != nullptr ? true : false) !=
-            (pc->piAmbientTexture != nullptr ? true : false))
+        if  ((pcMesh->piAmbientTexture != NULL ? true : false) !=
+            (pc->piAmbientTexture != NULL ? true : false))
             continue;
-        if  ((pcMesh->piEmissiveTexture != nullptr ? true : false) !=
-            (pc->piEmissiveTexture != nullptr ? true : false))
+        if  ((pcMesh->piEmissiveTexture != NULL ? true : false) !=
+            (pc->piEmissiveTexture != NULL ? true : false))
             continue;
-        if  ((pcMesh->piNormalTexture != nullptr ? true : false) !=
-            (pc->piNormalTexture != nullptr ? true : false))
+        if  ((pcMesh->piNormalTexture != NULL ? true : false) !=
+            (pc->piNormalTexture != NULL ? true : false))
             continue;
-        if  ((pcMesh->piOpacityTexture != nullptr ? true : false) !=
-            (pc->piOpacityTexture != nullptr ? true : false))
+        if  ((pcMesh->piOpacityTexture != NULL ? true : false) !=
+            (pc->piOpacityTexture != NULL ? true : false))
             continue;
-        if  ((pcMesh->piShininessTexture != nullptr ? true : false) !=
-            (pc->piShininessTexture != nullptr ? true : false))
+        if  ((pcMesh->piShininessTexture != NULL ? true : false) !=
+            (pc->piShininessTexture != NULL ? true : false))
             continue;
-        if  ((pcMesh->piLightmapTexture != nullptr ? true : false) !=
-            (pc->piLightmapTexture != nullptr ? true : false))
+        if  ((pcMesh->piLightmapTexture != NULL ? true : false) !=
+            (pc->piLightmapTexture != NULL ? true : false))
             continue;
         if ((pcMesh->eShadingMode != aiShadingMode_Gouraud ? true : false) !=
             (pc->eShadingMode != aiShadingMode_Gouraud ? true : false))
@@ -1239,13 +1239,13 @@ int CMaterialManager::CreateMaterial(
         sMacro[iCurrent].Definition = "1";
         ++iCurrent;
     }
-    sMacro[iCurrent].Name = nullptr;
-    sMacro[iCurrent].Definition = nullptr;
+    sMacro[iCurrent].Name = NULL;
+    sMacro[iCurrent].Definition = NULL;
 
     // compile the shader
     if(FAILED( D3DXCreateEffect(g_piDevice,
         g_szMaterialShader.c_str(),(UINT)g_szMaterialShader.length(),
-        (const D3DXMACRO*)sMacro,nullptr,0,nullptr,&pcMesh->piEffect,&piBuffer)))
+        (const D3DXMACRO*)sMacro,NULL,0,NULL,&pcMesh->piEffect,&piBuffer)))
     {
         // failed to compile the shader
         if( piBuffer)
@@ -1333,7 +1333,7 @@ int CMaterialManager::SetupMaterial (
     const aiMatrix4x4& pcCam,
     const aiVector3D& vPos)
 {
-    ai_assert(nullptr != pcMesh);
+    ai_assert(NULL != pcMesh);
     if (!pcMesh->piEffect)return 0;
 
     ID3DXEffect* piEnd = pcMesh->piEffect;
@@ -1476,19 +1476,18 @@ int CMaterialManager::SetupMaterial (
 //-------------------------------------------------------------------------------
 int CMaterialManager::EndMaterial (AssetHelper::MeshHelper* pcMesh)
 {
-    ai_assert(nullptr != pcMesh);
+    ai_assert(NULL != pcMesh);
     if (!pcMesh->piEffect)return 0;
 
     // end the effect
     pcMesh->piEffect->EndPass();
     pcMesh->piEffect->End();
 
-    // re-enable culling if necessary
+    // reenable culling if necessary
     if (pcMesh->twosided && g_sOptions.bCulling) {
         g_piDevice->SetRenderState(D3DRS_CULLMODE,D3DCULL_CCW);
     }
 
     return 1;
 }
-
-} // end namespace AssimpView
+}; // end namespace AssimpView

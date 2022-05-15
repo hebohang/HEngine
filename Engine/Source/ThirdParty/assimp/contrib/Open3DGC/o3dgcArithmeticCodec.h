@@ -75,7 +75,6 @@ OF SUCH DAMAGE.
 
 #include <stdio.h>
 #include "o3dgcCommon.h"
-#include <assimp/defs.h>
 
 namespace o3dgc
 {

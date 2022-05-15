@@ -4,7 +4,7 @@ Open Asset Import Library (assimp)
 ---------------------------------------------------------------------------
 
 Copyright (C) 2016 The Qt Company Ltd.
-Copyright (c) 2006-2022, assimp team
+Copyright (c) 2006-2012, assimp team
 
 All rights reserved.
 
@@ -44,46 +44,42 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace Assimp    {
 
-aiAnimMesh *aiCreateAnimMesh(const aiMesh *mesh, bool needPositions, bool needNormals, bool needTangents, bool needColors, bool needTexCoords)
+aiAnimMesh *aiCreateAnimMesh(const aiMesh *mesh)
 {
     aiAnimMesh *animesh = new aiAnimMesh;
     animesh->mNumVertices = mesh->mNumVertices;
-    if (needPositions && mesh->mVertices) {
+    if (mesh->mVertices) {
         animesh->mVertices = new aiVector3D[animesh->mNumVertices];
         std::memcpy(animesh->mVertices, mesh->mVertices, mesh->mNumVertices * sizeof(aiVector3D));
     }
-    if (needNormals && mesh->mNormals) {
+    if (mesh->mNormals) {
         animesh->mNormals = new aiVector3D[animesh->mNumVertices];
         std::memcpy(animesh->mNormals, mesh->mNormals, mesh->mNumVertices * sizeof(aiVector3D));
     }
-    if (needTangents && mesh->mTangents) {
+    if (mesh->mTangents) {
         animesh->mTangents = new aiVector3D[animesh->mNumVertices];
         std::memcpy(animesh->mTangents, mesh->mTangents, mesh->mNumVertices * sizeof(aiVector3D));
     }
-    if (needTangents && mesh->mBitangents) {
+    if (mesh->mBitangents) {
         animesh->mBitangents = new aiVector3D[animesh->mNumVertices];
         std::memcpy(animesh->mBitangents, mesh->mBitangents, mesh->mNumVertices * sizeof(aiVector3D));
     }
 
-    if (needColors) {
-        for (int i = 0; i < AI_MAX_NUMBER_OF_COLOR_SETS; ++i) {
-            if (mesh->mColors[i]) {
-                animesh->mColors[i] = new aiColor4D[animesh->mNumVertices];
-                std::memcpy(animesh->mColors[i], mesh->mColors[i], mesh->mNumVertices * sizeof(aiColor4D));
-            } else {
-                animesh->mColors[i] = nullptr;
-            }
+    for (int i = 0; i < AI_MAX_NUMBER_OF_COLOR_SETS; ++i) {
+        if (mesh->mColors[i]) {
+            animesh->mColors[i] = new aiColor4D[animesh->mNumVertices];
+            std::memcpy(animesh->mColors[i], mesh->mColors[i], mesh->mNumVertices * sizeof(aiColor4D));
+        } else {
+            animesh->mColors[i] = NULL;
         }
     }
 
-    if (needTexCoords) {
-        for (int i = 0; i < AI_MAX_NUMBER_OF_TEXTURECOORDS; ++i) {
-            if (mesh->mTextureCoords[i]) {
-                animesh->mTextureCoords[i] = new aiVector3D[animesh->mNumVertices];
-                std::memcpy(animesh->mTextureCoords[i], mesh->mTextureCoords[i], mesh->mNumVertices * sizeof(aiVector3D));
-            } else {
-                animesh->mTextureCoords[i] = nullptr;
-            }
+    for (int i = 0; i < AI_MAX_NUMBER_OF_TEXTURECOORDS; ++i) {
+        if (mesh->mTextureCoords[i]) {
+            animesh->mTextureCoords[i] = new aiVector3D[animesh->mNumVertices];
+            std::memcpy(animesh->mTextureCoords[i], mesh->mTextureCoords[i], mesh->mNumVertices * sizeof(aiVector3D));
+        } else {
+            animesh->mTextureCoords[i] = NULL;
         }
     }
     return animesh;

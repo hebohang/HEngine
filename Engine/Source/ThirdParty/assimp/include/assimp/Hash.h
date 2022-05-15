@@ -2,7 +2,8 @@
 Open Asset Import Library (assimp)
 ----------------------------------------------------------------------
 
-Copyright (c) 2006-2022, assimp team
+Copyright (c) 2006-2019, assimp team
+
 
 All rights reserved.
 
@@ -38,13 +39,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ----------------------------------------------------------------------
 */
-#pragma once
+
 #ifndef AI_HASH_H_INCLUDED
 #define AI_HASH_H_INCLUDED
-
-#ifdef __GNUC__
-#   pragma GCC system_header
-#endif
 
 #include <stdint.h>
 #include <string.h>
@@ -75,8 +72,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 inline uint32_t SuperFastHash (const char * data, uint32_t len = 0, uint32_t hash = 0) {
 uint32_t tmp;
 int rem;
-size_t offset;
-    
+
     if (!data) return 0;
     if (!len)len = (uint32_t)::strlen(data);
 
@@ -96,11 +92,7 @@ size_t offset;
     switch (rem) {
         case 3: hash += get16bits (data);
                 hash ^= hash << 16;
-                offset = static_cast<size_t>(sizeof(uint16_t));
-                if (offset < 0) {
-                    return 0;
-                }
-                hash ^= data[offset] << 18;
+                hash ^= data[sizeof (uint16_t)] << 18;
                 hash += hash >> 11;
                 break;
         case 2: hash += get16bits (data);

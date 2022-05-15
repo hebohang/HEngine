@@ -1,6 +1,8 @@
 #pragma once
 
 #include "Runtime/Core/Base/Base.h"
+#include "Runtime/Animation/animdata.h"
+#include "Runtime/Animation/animator.h"
 
 #include "Runtime/Renderer/Shader.h"
 #include "Runtime/Renderer/Mesh.h"
@@ -14,6 +16,7 @@
 #include <assimp/postprocess.h>
 
 #include <optional>
+#include <map>
 
 namespace HEngine 
 {
@@ -38,6 +41,9 @@ namespace HEngine
 		void Draw(const glm::mat4& transform, const glm::vec3& cameraPos, Ref<Shader> shader, int entityID);
 
 		void Draw();
+
+		auto& GetBoneInfoMap() { return mBoneInfoMap; }
+		int& GetBoneCount() { return mBoneCounter; }
 	private:
 		void LoadModel(const std::string& path);
 		void ProcessNode(aiNode* node, const aiScene* scene);
@@ -67,12 +73,17 @@ namespace HEngine
 		bool bUseAoMap = false;
 		Ref<Texture2D> mAoMap = Library<Texture2D>::GetInstance().GetWhiteTexture();
 
+		bool bAnimated = false;
+
+		Animation mAnimation;
+		Animator mAnimator;
 	private:
 		Ref<Material> mMaterial = CreateRef<Material>();
 		std::vector<Mesh> mMeshes;
 		std::string mDirectory;
 
 		// Animation
-		bool bAnimated = false;
+		int mBoneCounter = 0;
+		std::map<std::string, BoneInfo> mBoneInfoMap;
 	};
 }

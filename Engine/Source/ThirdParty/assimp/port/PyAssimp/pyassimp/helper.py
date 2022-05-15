@@ -27,15 +27,13 @@ if os.name=='posix':
     additional_dirs.append('./')
     additional_dirs.append('/usr/lib/')
     additional_dirs.append('/usr/lib/x86_64-linux-gnu/')
-    additional_dirs.append('/usr/lib/aarch64-linux-gnu/')
     additional_dirs.append('/usr/local/lib/')
 
     if 'LD_LIBRARY_PATH' in os.environ:
         additional_dirs.extend([item for item in os.environ['LD_LIBRARY_PATH'].split(':') if item])
 
     # check if running from anaconda.
-    anaconda_keywords = ("conda", "continuum")
-    if any(k in sys.version.lower() for k in anaconda_keywords):
+    if "conda" or "continuum" in sys.version.lower():
       cur_path = get_python_lib()
       pattern = re.compile('.*\/lib\/')
       conda_lib = pattern.match(cur_path).group()
@@ -276,8 +274,8 @@ def hasattr_silent(object, name):
     """
 
     try:
-        if not object:
-            return False
+	    if not object:
+		    return False
         return hasattr(object, name)
     except AttributeError:
         return False

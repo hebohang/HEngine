@@ -2,7 +2,7 @@
 Open Asset Import Library (assimp)
 ----------------------------------------------------------------------
 
-Copyright (c) 2006-2022, assimp team
+Copyright (c) 2006-2019, assimp team
 
 
 All rights reserved.
@@ -47,13 +47,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef AI_PROGRESSHANDLER_H_INC
 #define AI_PROGRESSHANDLER_H_INC
 
-#ifdef __GNUC__
-#   pragma GCC system_header
-#endif
+#include "types.h"
 
-#include <assimp/types.h>
-
-namespace Assimp {
+namespace Assimp    {
 
 // ------------------------------------------------------------------------------------
 /** @brief CPP-API: Abstract interface for custom progress report receivers.
@@ -74,7 +70,6 @@ protected:
 public:
     /// @brief  Virtual destructor.
     virtual ~ProgressHandler () {
-        // empty
     }
 
     // -------------------------------------------------------------------
@@ -92,7 +87,7 @@ public:
      *   occasion (loaders and Assimp are generally allowed to perform
      *   all needed cleanup tasks prior to returning control to the
      *   caller). If the loading is aborted, #Importer::ReadFile()
-     *   returns always nullptr.
+     *   returns always NULL.
      *   */
     virtual bool Update(float percentage = -1.f) = 0;
 

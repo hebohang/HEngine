@@ -1,9 +1,10 @@
+/** Calculates a pose for a given time of an animation */
 /*
 ---------------------------------------------------------------------------
 Open Asset Import Library (assimp)
 ---------------------------------------------------------------------------
 
-Copyright (c) 2006-2022, assimp team
+Copyright (c) 2006-2019, assimp team
 
 All rights reserved.
 
@@ -39,21 +40,15 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ---------------------------------------------------------------------------
 */
 
-#pragma once
 #ifndef AV_ANIMEVALUATOR_H_INCLUDED
 #define AV_ANIMEVALUATOR_H_INCLUDED
 
-/** Calculates a pose for a given time of an animation */
-
 #include <tuple>
 #include <vector>
-#include <assimp/matrix4x4.h>
-
-struct aiAnimation;
 
 namespace AssimpView {
 
-/**
+/** 
  *  @brief  Calculates transformations for a given timestamp from a set of animation tracks. Not directly useful,
  *          better use the AnimPlayer class.
  */
@@ -63,27 +58,26 @@ public:
     /// the object.
     /// @param pAnim    The animation to calculate poses for. Ownership of the animation object stays
     ///                 at the caller, the evaluator just keeps a reference to it as long as it persists.
-    AnimEvaluator(const aiAnimation *pAnim);
+    AnimEvaluator( const aiAnimation* pAnim);
 
     /// @brief  The class destructor.
     ~AnimEvaluator();
 
-    /// @brief Evaluates the animation tracks for a given time stamp.
-    /// The calculated pose can be retrieved as an array of transformation
-    /// matrices afterwards by calling GetTransformations().
-    /// @param pTime    The time for which you want to evaluate the animation, in seconds.
-    ///                 Will be mapped into the animation cycle, so it can get an arbitrary
-    ///                 value. Best use with ever-increasing time stamps.
-    void Evaluate(double pTime);
+    /** Evaluates the animation tracks for a given time stamp. The calculated pose can be retrieved as a
+     * array of transformation matrices afterwards by calling GetTransformations().
+     * @param pTime The time for which you want to evaluate the animation, in seconds. Will be mapped into the animation cycle, so
+     *   it can be an arbitrary value. Best use with ever-increasing time stamps.
+     */
+    void Evaluate( double pTime);
 
-    /// @brief  Returns the transform matrices calculated at the last Evaluate() call.
-    ///         The array matches the mChannels array of the aiAnimation.
-    const std::vector<aiMatrix4x4> &GetTransformations() const { return mTransforms; }
+    /** Returns the transform matrices calculated at the last Evaluate() call. The array matches the mChannels array of
+     * the aiAnimation. */
+    const std::vector<aiMatrix4x4>& GetTransformations() const { return mTransforms; }
 
-private:
-    const aiAnimation *mAnim;
+protected:
+    const aiAnimation* mAnim;
     double mLastTime;
-    std::vector<std::tuple<unsigned int, unsigned int, unsigned int>> mLastPositions;
+    std::vector<std::tuple<unsigned int, unsigned int, unsigned int> > mLastPositions;
     std::vector<aiMatrix4x4> mTransforms;
 };
 

@@ -3,7 +3,7 @@
 Open Asset Import Library (assimp)
 ---------------------------------------------------------------------------
 
-Copyright (c) 2006-2022, assimp team
+Copyright (c) 2006-2019, assimp team
 
 
 
@@ -98,14 +98,12 @@ void DropFaceNormalsProcess::Execute( aiScene* pScene) {
 
 // ------------------------------------------------------------------------------------------------
 // Executes the post processing step on the given imported data.
-bool DropFaceNormalsProcess::DropMeshFaceNormals (aiMesh* mesh) {
-    ai_assert(nullptr != mesh);
-
-    if (nullptr == mesh->mNormals) {
+bool DropFaceNormalsProcess::DropMeshFaceNormals (aiMesh* pMesh) {
+    if (NULL == pMesh->mNormals) {
         return false;
     }
-
-    delete[] mesh->mNormals;
-    mesh->mNormals = nullptr;
+    
+    delete[] pMesh->mNormals;
+    pMesh->mNormals = nullptr;
     return true;
 }

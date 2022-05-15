@@ -65,6 +65,8 @@ namespace HEngine
 					{ ShaderDataType::Float3, "a_Tangent"},
 					{ ShaderDataType::Float3, "a_Bitangent"},
 					{ ShaderDataType::Int,	  "a_EntityID"},
+					{ ShaderDataType::Int4,   "a_BoneIDs"},
+					{ ShaderDataType::Float4, "a_Weights"},
 			});
 
 		mVertexArray->AddVertexBuffer(mVB);
@@ -87,6 +89,8 @@ namespace HEngine
 					{ ShaderDataType::Float3, "a_Tangent"},
 					{ ShaderDataType::Float3, "a_Bitangent"},
 					{ ShaderDataType::Int,	  "a_EntityID"},
+					{ ShaderDataType::Int4,   "a_BoneIDs"},
+					{ ShaderDataType::Float4, "a_Weights"},
 			});
 
 		mVertexArray->AddVertexBuffer(mVB);
@@ -134,6 +138,15 @@ namespace HEngine
 				model->mAoMap->Bind(7);
 			else
 				Library<Texture2D>::GetInstance().GetWhiteTexture()->Bind(7);
+
+			if (model->bAnimated)
+			{
+				model->mAnimator.UpdateAnimation(0.01f);
+
+				auto transforms = model->mAnimator.GetFinalBoneMatrices();
+				for (int i = 0; i < transforms.size(); ++i)
+					shader->SetMat4("finalBonesMatrices[" + std::to_string(i) + "]", transforms[i]);
+			}
 
 			shader->SetInt("irradianceMap", 0);
 			shader->SetInt("prefilterMap", 1);
@@ -195,8 +208,11 @@ namespace HEngine
 			bInit = false;
 
 			mVertexArray->Bind();
-
-			mVB->SetData(mStaticVertices.data(), sizeof(StaticVertex) * mStaticVertices.size());
+			
+			if (mStaticVertices.empty())
+				mVB->SetData(mSkinnedVertices.data(), sizeof(StaticVertex) * mSkinnedVertices.size());
+			else
+				mVB->SetData(mStaticVertices.data(), sizeof(StaticVertex) * mStaticVertices.size());
 			mIB->SetData(mIndices.data(), mIndices.size());
 
 			mVertexArray->Unbind();
@@ -213,12 +229,24 @@ namespace HEngine
 			mEntityID = entityID;
 			mVertexArray->Bind();
 
-			for (int i = 0; i < mStaticVertices.size(); ++i)
+			if (mStaticVertices.empty())
 			{
-				mStaticVertices[i].EntityID = entityID;
-			}
+				for (int i = 0; i < mSkinnedVertices.size(); ++i)
+				{
+					mSkinnedVertices[i].EntityID = entityID;
+				}
 
-			mVB->SetData(mStaticVertices.data(), sizeof(StaticVertex) * mStaticVertices.size());
+				mVB->SetData(mSkinnedVertices.data(), sizeof(SkinnedVertex) * mSkinnedVertices.size());
+			}
+			else
+			{
+				for (int i = 0; i < mStaticVertices.size(); ++i)
+				{
+					mStaticVertices[i].EntityID = entityID;
+				}
+
+				mVB->SetData(mStaticVertices.data(), sizeof(StaticVertex) * mStaticVertices.size());
+			}
 
 			mIB->SetData(mIndices.data(), mIndices.size());
 

@@ -2,7 +2,8 @@
 Open Asset Import Library (assimp)
 ----------------------------------------------------------------------
 
-Copyright (c) 2006-2022, assimp team
+Copyright (c) 2006-2019, assimp team
+
 
 All rights reserved.
 
@@ -39,16 +40,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ----------------------------------------------------------------------
 */
 
-/**
- *  @file Default implementation of IOSystem using the standard C file functions
- */
-#pragma once
+/** @file Default implementation of IOSystem using the standard C file functions */
 #ifndef AI_DEFAULTIOSYSTEM_H_INC
 #define AI_DEFAULTIOSYSTEM_H_INC
-
-#ifdef __GNUC__
-#   pragma GCC system_header
-#endif
 
 #include <assimp/IOSystem.hpp>
 
@@ -60,23 +54,23 @@ class ASSIMP_API DefaultIOSystem : public IOSystem {
 public:
     // -------------------------------------------------------------------
     /** Tests for the existence of a file at the given path. */
-    bool Exists( const char* pFile) const override;
+    bool Exists( const char* pFile) const;
 
     // -------------------------------------------------------------------
     /** Returns the directory separator. */
-    char getOsSeparator() const override;
+    char getOsSeparator() const;
 
     // -------------------------------------------------------------------
     /** Open a new file with a given path. */
-    IOStream* Open( const char* pFile, const char* pMode = "rb") override;
+    IOStream* Open( const char* pFile, const char* pMode = "rb");
 
     // -------------------------------------------------------------------
     /** Closes the given file and releases all resources associated with it. */
-    void Close( IOStream* pFile) override;
+    void Close( IOStream* pFile);
 
     // -------------------------------------------------------------------
     /** Compare two paths */
-    bool ComparePaths (const char* one, const char* second) const override;
+    bool ComparePaths (const char* one, const char* second) const;
 
     /** @brief get the file name of a full filepath
      * example: /tmp/archive.tar.gz -> archive.tar.gz

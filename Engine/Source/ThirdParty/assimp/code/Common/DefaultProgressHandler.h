@@ -2,7 +2,8 @@
 Open Asset Import Library (assimp)
 ----------------------------------------------------------------------
 
-Copyright (c) 2006-2022, assimp team
+Copyright (c) 2006-2019, assimp team
+
 
 All rights reserved.
 
@@ -47,20 +48,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <assimp/ProgressHandler.hpp>
 
-namespace Assimp {
+namespace Assimp    {
 
 // ------------------------------------------------------------------------------------
-/**
- *  @brief Internal default implementation of the #ProgressHandler interface.
- */
+/** @brief Internal default implementation of the #ProgressHandler interface. */
 class DefaultProgressHandler : public ProgressHandler    {
-public:
-    ///	@brief Ignores the update callback.
-    bool Update(float) override {
+
+    virtual bool Update(float /*percentage*/) {
         return false;
     }
-};
 
+
+}; // !class DefaultProgressHandler
 } // Namespace Assimp
 
-#endif // INCLUDED_AI_DEFAULTPROGRESSHANDLER_H
+#endif

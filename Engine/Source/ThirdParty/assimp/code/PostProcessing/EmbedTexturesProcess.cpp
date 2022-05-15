@@ -2,7 +2,8 @@
 Open Asset Import Library (assimp)
 ----------------------------------------------------------------------
 
-Copyright (c) 2006-2022, assimp team
+Copyright (c) 2006-2019, assimp team
+
 
 All rights reserved.
 
@@ -40,8 +41,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 #include "EmbedTexturesProcess.h"
-#include <assimp/IOStream.hpp>
-#include <assimp/IOSystem.hpp>
 #include <assimp/ParsingUtils.h>
 #include "ProcessHelper.h"
 
@@ -49,13 +48,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 using namespace Assimp;
 
-EmbedTexturesProcess::EmbedTexturesProcess() :
-        BaseProcess() {
-    // empty
+EmbedTexturesProcess::EmbedTexturesProcess()
+: BaseProcess() {
 }
 
 EmbedTexturesProcess::~EmbedTexturesProcess() {
-    // empty
 }
 
 bool EmbedTexturesProcess::IsActive(unsigned int pFlags) const {
@@ -65,16 +62,15 @@ bool EmbedTexturesProcess::IsActive(unsigned int pFlags) const {
 void EmbedTexturesProcess::SetupProperties(const Importer* pImp) {
     mRootPath = pImp->GetPropertyString("sourceFilePath");
     mRootPath = mRootPath.substr(0, mRootPath.find_last_of("\\/") + 1u);
-    mIOHandler = pImp->GetIOHandler();
 }
 
 void EmbedTexturesProcess::Execute(aiScene* pScene) {
-    if (pScene == nullptr || pScene->mRootNode == nullptr || mIOHandler == nullptr){
-        return;
-    }
+    if (pScene == nullptr || pScene->mRootNode == nullptr) return;
 
     aiString path;
+
     uint32_t embeddedTexturesCount = 0u;
+
     for (auto matId = 0u; matId < pScene->mNumMaterials; ++matId) {
         auto material = pScene->mMaterials[matId];
 
@@ -89,7 +85,7 @@ void EmbedTexturesProcess::Execute(aiScene* pScene) {
                 // Indeed embed
                 if (addTexture(pScene, path.data)) {
                     auto embeddedTextureId = pScene->mNumTextures - 1u;
-                    path.length = ::ai_snprintf(path.data, 1024, "*%u", embeddedTextureId);
+                    ::ai_snprintf(path.data, 1024, "*%u", embeddedTextureId);
                     material->AddProperty(&path, AI_MATKEY_TEXTURE(tt, texId));
                     embeddedTexturesCount++;
                 }
@@ -97,46 +93,41 @@ void EmbedTexturesProcess::Execute(aiScene* pScene) {
         }
     }
 
-    ASSIMP_LOG_INFO("EmbedTexturesProcess finished. Embedded ", embeddedTexturesCount, " textures." );
+    ASSIMP_LOG_INFO_F("EmbedTexturesProcess finished. Embedded ", embeddedTexturesCount, " textures." );
 }
 
-bool EmbedTexturesProcess::addTexture(aiScene *pScene, const std::string &path) const {
+bool EmbedTexturesProcess::addTexture(aiScene* pScene, std::string path) const {
     std::streampos imageSize = 0;
     std::string    imagePath = path;
 
     // Test path directly
-    if (!mIOHandler->Exists(imagePath)) {
-        ASSIMP_LOG_WARN("EmbedTexturesProcess: Cannot find image: ", imagePath, ". Will try to find it in root folder.");
+    std::ifstream file(imagePath, std::ios::binary | std::ios::ate);
+    if ((imageSize = file.tellg()) == std::streampos(-1)) {
+        ASSIMP_LOG_WARN_F("EmbedTexturesProcess: Cannot find image: ", imagePath, ". Will try to find it in root folder.");
 
         // Test path in root path
         imagePath = mRootPath + path;
-        if (!mIOHandler->Exists(imagePath)) {
+        file.open(imagePath, std::ios::binary | std::ios::ate);
+        if ((imageSize = file.tellg()) == std::streampos(-1)) {
             // Test path basename in root path
             imagePath = mRootPath + path.substr(path.find_last_of("\\/") + 1u);
-            if (!mIOHandler->Exists(imagePath)) {
-                ASSIMP_LOG_ERROR("EmbedTexturesProcess: Unable to embed texture: ", path, ".");
+            file.open(imagePath, std::ios::binary | std::ios::ate);
+            if ((imageSize = file.tellg()) == std::streampos(-1)) {
+                ASSIMP_LOG_ERROR_F("EmbedTexturesProcess: Unable to embed texture: ", path, ".");
                 return false;
             }
         }
     }
-    IOStream* pFile = mIOHandler->Open(imagePath);
-    if (pFile == nullptr) {
-        ASSIMP_LOG_ERROR("EmbedTexturesProcess: Unable to embed texture: ", path, ".");
-        return false;
-    }
-    imageSize = pFile->FileSize();
 
     aiTexel* imageContent = new aiTexel[ 1ul + static_cast<unsigned long>( imageSize ) / sizeof(aiTexel)];
-    pFile->Seek(0, aiOrigin_SET);
-    pFile->Read(reinterpret_cast<char*>(imageContent), imageSize, 1);
-    mIOHandler->Close(pFile);
+    file.seekg(0, std::ios::beg);
+    file.read(reinterpret_cast<char*>(imageContent), imageSize);
 
     // Enlarging the textures table
     unsigned int textureId = pScene->mNumTextures++;
     auto oldTextures = pScene->mTextures;
     pScene->mTextures = new aiTexture*[pScene->mNumTextures];
     ::memmove(pScene->mTextures, oldTextures, sizeof(aiTexture*) * (pScene->mNumTextures - 1u));
-    delete [] oldTextures;
 
     // Add the new texture
     auto pTexture = new aiTexture;
@@ -145,7 +136,7 @@ bool EmbedTexturesProcess::addTexture(aiScene *pScene, const std::string &path) 
     pTexture->pcData = imageContent;
 
     auto extension = path.substr(path.find_last_of('.') + 1u);
-    extension = ai_tolower(extension);
+    std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
     if (extension == "jpeg") {
         extension = "jpg";
     }

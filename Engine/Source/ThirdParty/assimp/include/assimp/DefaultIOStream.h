@@ -2,7 +2,8 @@
 Open Asset Import Library (assimp)
 ----------------------------------------------------------------------
 
-Copyright (c) 2006-2022, assimp team
+Copyright (c) 2006-2019, assimp team
+
 
 All rights reserved.
 
@@ -39,23 +40,16 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ----------------------------------------------------------------------
 */
 
-/**
- *  @file
- *  @brief Default file I/O using fXXX()-family of functions
- */
-#pragma once
+/** @file Default file I/O using fXXX()-family of functions */
 #ifndef AI_DEFAULTIOSTREAM_H_INC
 #define AI_DEFAULTIOSTREAM_H_INC
 
-#ifdef __GNUC__
-#   pragma GCC system_header
-#endif
-
-#include <cstdio>
+#include <stdio.h>
 #include <assimp/IOStream.hpp>
 #include <assimp/importerdesc.h>
+#include <assimp/Defines.h>
 
-namespace Assimp {
+namespace Assimp    {
 
 // ----------------------------------------------------------------------------------
 //! @class  DefaultIOStream
@@ -63,7 +57,8 @@ namespace Assimp {
 //! @note   An instance of this class can exist without a valid file handle
 //!         attached to it. All calls fail, but the instance can nevertheless be
 //!         used with no restrictions.
-class ASSIMP_API DefaultIOStream : public IOStream {
+class ASSIMP_API DefaultIOStream : public IOStream
+{
     friend class DefaultIOSystem;
 #if __ANDROID__
 # if __ANDROID_API__ > 9
@@ -74,12 +69,7 @@ class ASSIMP_API DefaultIOStream : public IOStream {
 #endif // __ANDROID__
 
 protected:
-    /// @brief 
     DefaultIOStream() AI_NO_EXCEPT;
-
-    /// @brief The class constructor with the file name and the stream.
-    /// @param pFile        The file-streaam
-    /// @param strFilename  The file name
     DefaultIOStream(FILE* pFile, const std::string &strFilename);
 
 public:
@@ -88,52 +78,63 @@ public:
 
     // -------------------------------------------------------------------
     /// Read from stream
-    size_t Read(void* pvBuffer, size_t pSize, size_t pCount) override;
+    size_t Read(void* pvBuffer,
+        size_t pSize,
+        size_t pCount);
+
 
     // -------------------------------------------------------------------
     /// Write to stream
-    size_t Write(const void* pvBuffer, size_t pSize, size_t pCount) override;
+    size_t Write(const void* pvBuffer,
+        size_t pSize,
+        size_t pCount);
 
     // -------------------------------------------------------------------
     /// Seek specific position
-    aiReturn Seek(size_t pOffset, aiOrigin pOrigin) override;
+    aiReturn Seek(size_t pOffset,
+        aiOrigin pOrigin);
 
     // -------------------------------------------------------------------
     /// Get current seek position
-    size_t Tell() const override;
+    size_t Tell() const;
 
     // -------------------------------------------------------------------
     /// Get size of file
-    size_t FileSize() const override;
+    size_t FileSize() const;
 
     // -------------------------------------------------------------------
     /// Flush file contents
-    void Flush() override;
+    void Flush();
 
 private:
+    //  File data-structure, using clib
     FILE* mFile;
+    //  Filename
     std::string mFilename;
+    // Cached file size
     mutable size_t mCachedSize;
 };
 
 // ----------------------------------------------------------------------------------
-AI_FORCE_INLINE DefaultIOStream::DefaultIOStream() AI_NO_EXCEPT :
-        mFile(nullptr),
-        mFilename(),
-        mCachedSize(SIZE_MAX) {
+inline
+DefaultIOStream::DefaultIOStream() AI_NO_EXCEPT
+: mFile(nullptr)
+, mFilename("")
+, mCachedSize(SIZE_MAX) {
     // empty
 }
 
 // ----------------------------------------------------------------------------------
-AI_FORCE_INLINE DefaultIOStream::DefaultIOStream (FILE* pFile, const std::string &strFilename) :
-        mFile(pFile),
-        mFilename(strFilename),
-        mCachedSize(SIZE_MAX) {
+inline
+DefaultIOStream::DefaultIOStream (FILE* pFile, const std::string &strFilename)
+: mFile(pFile)
+, mFilename(strFilename)
+, mCachedSize(SIZE_MAX) {
     // empty
 }
-
 // ----------------------------------------------------------------------------------
 
 } // ns assimp
 
 #endif //!!AI_DEFAULTIOSTREAM_H_INC
+

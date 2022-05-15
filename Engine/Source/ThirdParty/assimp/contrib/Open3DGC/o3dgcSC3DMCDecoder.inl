@@ -27,11 +27,6 @@ THE SOFTWARE.
 #include "o3dgcArithmeticCodec.h"
 #include "o3dgcTimer.h"
 
-#ifdef _MSC_VER
-#    pragma warning(push)
-#    pragma warning( disable : 4456)
-#endif // _MSC_VER
-
 //#define DEBUG_VERBOSE
 
 namespace o3dgc
@@ -72,12 +67,9 @@ namespace o3dgc
         unsigned char mask = bstream.ReadUChar(m_iterator, m_streamType);
 
         ifs.SetCCW             ((mask & 1) == 1);
-        // (mask & 2) == 1
-        ifs.SetSolid           (false);
-        // (mask & 4) == 1
-        ifs.SetConvex          (false);
-        // (mask & 8) == 1
-        ifs.SetIsTriangularMesh(false);
+        ifs.SetSolid           ((mask & 2) == 1);
+        ifs.SetConvex          ((mask & 4) == 1);
+        ifs.SetIsTriangularMesh((mask & 8) == 1);
         //bool markerBit0 = (mask & 16 ) == 1;
         //bool markerBit1 = (mask & 32 ) == 1;
         //bool markerBit2 = (mask & 64 ) == 1;
@@ -844,18 +836,15 @@ namespace o3dgc
         }        
         for(unsigned long v = 0; v < numFloatArray; ++v)
         {
-            for(unsigned long d = 0; d < dimFloatArray; ++d) {
-                 floatArray[v * stride + d] = m_quantFloatArray[v * stride + d] * idelta[d] + minFloatArray[d];
+            for(unsigned long d = 0; d < dimFloatArray; ++d)
+            {
+//                floatArray[v * stride + d] = m_quantFloatArray[v * stride + d];
+                floatArray[v * stride + d] = m_quantFloatArray[v * stride + d] * idelta[d] + minFloatArray[d];
             }
         }
         return O3DGC_OK;
     }
-} // namespace o3dgc
-
-#ifdef _MSC_VER
-#    pragma warning( pop )
-#endif // _MSC_VER
-
+}
 #endif // O3DGC_SC3DMC_DECODER_INL
 
 

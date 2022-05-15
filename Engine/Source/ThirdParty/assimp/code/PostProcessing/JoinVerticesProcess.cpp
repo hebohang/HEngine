@@ -3,7 +3,7 @@
 Open Asset Import Library (assimp)
 ---------------------------------------------------------------------------
 
-Copyright (c) 2006-2022, assimp team
+Copyright (c) 2006-2019, assimp team
 
 
 
@@ -100,7 +100,7 @@ void JoinVerticesProcess::Execute( aiScene* pScene)
         if (iNumOldVertices == iNumVertices) {
             ASSIMP_LOG_DEBUG("JoinVerticesProcess finished ");
         } else {
-            ASSIMP_LOG_INFO("JoinVerticesProcess finished | Verts in: ", iNumOldVertices,
+            ASSIMP_LOG_INFO_F("JoinVerticesProcess finished | Verts in: ", iNumOldVertices,
                 " out: ", iNumVertices, " | ~",
                 ((iNumOldVertices - iNumVertices) / (float)iNumOldVertices) * 100.f );
         }
@@ -266,7 +266,7 @@ int JoinVerticesProcess::ProcessMesh( aiMesh* pMesh, unsigned int meshIndex)
     std::vector<unsigned int> replaceIndex( pMesh->mNumVertices, 0xffffffff);
 
     // float posEpsilonSqr;
-    SpatialSort *vertexFinder = nullptr;
+    SpatialSort* vertexFinder = NULL;
     SpatialSort _vertexFinder;
 
     typedef std::pair<SpatialSort,float> SpatPair;
@@ -373,7 +373,7 @@ int JoinVerticesProcess::ProcessMesh( aiMesh* pMesh, unsigned int meshIndex)
     }
 
     if (!DefaultLogger::isNullLogger() && DefaultLogger::get()->getLogSeverity() == Logger::VERBOSE)    {
-        ASSIMP_LOG_VERBOSE_DEBUG(
+        ASSIMP_LOG_DEBUG_F(
             "Mesh ",meshIndex,
             " (",
             (pMesh->mName.length ? pMesh->mName.data : "unnamed"),
@@ -408,7 +408,7 @@ int JoinVerticesProcess::ProcessMesh( aiMesh* pMesh, unsigned int meshIndex)
         std::vector<aiVertexWeight> newWeights;
         newWeights.reserve( bone->mNumWeights);
 
-        if (nullptr != bone->mWeights) {
+        if ( NULL != bone->mWeights ) {
             for ( unsigned int b = 0; b < bone->mNumWeights; b++ ) {
                 const aiVertexWeight& ow = bone->mWeights[ b ];
                 // if the vertex is a unique one, translate it
@@ -420,7 +420,7 @@ int JoinVerticesProcess::ProcessMesh( aiMesh* pMesh, unsigned int meshIndex)
                 }
             }
         } else {
-            ASSIMP_LOG_ERROR( "X-Export: aiBone shall contain weights, but pointer to them is nullptr." );
+            ASSIMP_LOG_ERROR( "X-Export: aiBone shall contain weights, but pointer to them is NULL." );
         }
 
         if (newWeights.size() > 0) {

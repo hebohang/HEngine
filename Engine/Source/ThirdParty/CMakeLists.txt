@@ -141,7 +141,7 @@ if(NOT TARGET assimp)
        OFF
     )
     add_subdirectory(assimp)
-    set_target_properties(ImGuizmo PROPERTIES FOLDER ${ThirdPartyFolder}/assimp)
+    set_target_properties(assimp PROPERTIES FOLDER ${ThirdPartyFolder}/assimp)
     NoWarning(assimp)
 endif()
 

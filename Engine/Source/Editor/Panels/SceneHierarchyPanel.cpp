@@ -587,7 +587,7 @@ namespace HEngine
 				ImGui::SameLine();
 				if (ImGui::Button("..."))
 				{
-					std::string filepath = FileDialogs::OpenFile("Model (*.obj *.fbx)\0*.obj;*.fbx\0");
+					std::string filepath = FileDialogs::OpenFile("Model (*.obj *.fbx *.dae)\0*.obj;*.fbx;*.dae\0");
 					if (filepath.find("Assets") != std::string::npos)
 					{
 						filepath = filepath.substr(filepath.find("Assets"), filepath.length());
@@ -595,7 +595,8 @@ namespace HEngine
 					else
 					{
 						// TODO: Import Model
-						HE_CORE_ASSERT(false, "HEngine Now Only support the model from Assets!");
+						//HE_CORE_ASSERT(false, "HEngine Now Only support the model from Assets!");
+						//filepath = "";
 					}
 					if (!filepath.empty())
 					{
@@ -674,7 +675,7 @@ namespace HEngine
 									{
 										data[i] = (unsigned char)(model.metallic * 255.0f);
 									}
-									data[4] = (unsigned char)255.0f;
+									data[3] = (unsigned char)255.0f;
 									model.metallicRGBA->SetData(data, sizeof(unsigned char) * 4);
 								}
 							}
@@ -704,7 +705,7 @@ namespace HEngine
 									{
 										data[i] = (unsigned char)(model.roughness * 255.0f);
 									}
-									data[4] = (unsigned char)255.0f;
+									data[3] = (unsigned char)255.0f;
 									model.roughnessRGBA->SetData(data, sizeof(unsigned char) * 4);
 								}
 							}

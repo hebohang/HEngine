@@ -353,9 +353,9 @@ namespace o3dgc
                 m_ctfans.PushTriangleIndex(pred);
                 prev = m_tmap[t] + 1;
             }
-            for (long tt = 0; tt < numTriangles; ++tt)
+            for (long t = 0; t < numTriangles; ++t)
             {
-                m_invTMap[m_tmap[tt]] = tt;
+                m_invTMap[m_tmap[t]] = t;
             }
         }
         m_ctfans.Save(bstream, encodeTrianglesOrder, m_streamType);

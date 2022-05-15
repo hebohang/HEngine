@@ -2,7 +2,7 @@
 Open Asset Import Library (assimp)
 ----------------------------------------------------------------------
 
-Copyright (c) 2006-2022, assimp team
+Copyright (c) 2006-2019, assimp team
 
 
 All rights reserved.
@@ -122,7 +122,7 @@ void RemoveUVSeams (aiMesh* mesh, aiVector3D* out)
         const aiFace& face = mesh->mFaces[fidx];
         if (face.mNumIndices < 3) continue; // triangles and polygons only, please
 
-        unsigned int smallV = face.mNumIndices, large = smallV;
+        unsigned int small = face.mNumIndices, large = small;
         bool zero = false, one = false, round_to_zero = false;
 
         // Check whether this face lies on a UV seam. We can just guess,
@@ -133,7 +133,7 @@ void RemoveUVSeams (aiMesh* mesh, aiVector3D* out)
         {
             if (out[face.mIndices[n]].x < LOWER_LIMIT)
             {
-                smallV = n;
+                small = n;
 
                 // If we have a U value very close to 0 we can't
                 // round the others to 0, too.
@@ -151,7 +151,7 @@ void RemoveUVSeams (aiMesh* mesh, aiVector3D* out)
                     one = true;
             }
         }
-        if (smallV != face.mNumIndices && large != face.mNumIndices)
+        if (small != face.mNumIndices && large != face.mNumIndices)
         {
             for (unsigned int n = 0; n < face.mNumIndices;++n)
             {
@@ -354,12 +354,12 @@ void ComputeUVMappingProcess::ComputePlaneMapping(aiMesh* mesh,const aiVector3D&
     }
     else if (axis * base_axis_z >= angle_epsilon)   {
         FindMeshCenter(mesh, center, min, max);
-        diffu = max.x - min.x;
-        diffv = max.y - min.y;
+        diffu = max.y - min.y;
+        diffv = max.z - min.z;
 
         for (unsigned int pnt = 0; pnt < mesh->mNumVertices;++pnt)  {
             const aiVector3D& pos = mesh->mVertices[pnt];
-            out[pnt].Set((pos.x - min.x) / diffu,(pos.y - min.y) / diffv,0.0);
+            out[pnt].Set((pos.y - min.y) / diffu,(pos.x - min.x) / diffv,0.0);
         }
     }
     // slower code path in case the mapping axis is not one of the coordinate system axes

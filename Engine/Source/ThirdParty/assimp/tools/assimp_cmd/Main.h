@@ -3,12 +3,12 @@
 Open Asset Import Library (assimp)
 ---------------------------------------------------------------------------
 
-Copyright (c) 2006-2022, assimp team
+Copyright (c) 2006-2019, assimp team
 
 All rights reserved.
 
-Redistribution and use of this software in source and binary forms,
-with or without modification, are permitted provided that the following
+Redistribution and use of this software in source and binary forms, 
+with or without modification, are permitted provided that the following 
 conditions are met:
 
 * Redistributions of source code must retain the above
@@ -25,16 +25,16 @@ conditions are met:
   derived from this software without specific prior
   written permission of the assimp team.
 
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS 
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT 
 LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT 
 OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT 
 LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY 
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT 
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ---------------------------------------------------------------------------
 */
@@ -96,7 +96,6 @@ struct ImportData {
 		,	showLog (false)
 		,	verbose (false)
 		,	log	    (false)
-        ,   rot     (aiVector3D(0.f, 0.f, 0.f))
 	{}
 
 	/// Post-processing flags
@@ -113,28 +112,6 @@ struct ImportData {
 
 	// Need to log?
 	bool log;
-
-	// Export With Rotation
-	aiVector3D rot;
-};
-
-/// \enum AssimpCmdError
-/// \brief General error codes used among assimp_cmd's utilities.
-enum AssimpCmdError {
-	Success = 0,
-	InvalidNumberOfArguments,
-	UnrecognizedCommand,
-	FailedToLoadInputFile,
-	FailedToOpenOutputFile,
-	NoFileFormatSpecified,
-	UnknownFileFormat,
-	NoFileExtensionSpecified,
-	UnknownFileExtension,
-	ExceptionWasRaised,
-
-	// Add new error codes here...
-
-	LastAssimpCmdError, // Must be last.
 };
 
 // ------------------------------------------------------------------------------
@@ -143,8 +120,8 @@ enum AssimpCmdError {
  *  @param fill Filled by function
  *  @param params Command line parameters to be processed
  *  @param num NUmber of params
- *  @return An #AssimpCmdError value. */
-int ProcessStandardArguments(ImportData& fill,
+ *  @return 0 for success */
+int ProcessStandardArguments(ImportData& fill, 
 	const char* const* params,
 	unsigned int num);
 
@@ -153,7 +130,7 @@ int ProcessStandardArguments(ImportData& fill,
  *  @param imp Import configuration to be used
  *  @param path Path to the file to be read */
 const aiScene* ImportModel(
-	const ImportData& imp,
+	const ImportData& imp, 
 	const std::string& path);
 
 #ifndef ASSIMP_BUILD_NO_EXPORT
@@ -163,8 +140,8 @@ const aiScene* ImportModel(
  *  @param imp Import configuration to be used
  *  @param path Path to the file to be written
  *  @param format Format id*/
-bool ExportModel(const aiScene* pOut,
-	const ImportData& imp,
+bool ExportModel(const aiScene* pOut, 
+	const ImportData& imp, 
 	const std::string& path,
 	const char* pID);
 
@@ -172,101 +149,56 @@ bool ExportModel(const aiScene* pOut,
 
 // ------------------------------------------------------------------------------
 /** assimp_dump utility
- *  @param params Command line parameters to 'assimp dump'
+ *  @param params Command line parameters to 'assimp dumb'
  *  @param Number of params
- *  @return An #AssimpCmdError value.*/
+ *  @return 0 for success*/
 int Assimp_Dump (
-	const char* const* params,
+	const char* const* params, 
 	unsigned int num);
-
-/// \enum AssimpCmdExportError
-/// \brief Error codes used by the 'Export' utility.
-enum AssimpCmdExportError {
-	FailedToImportModel = AssimpCmdError::LastAssimpCmdError,
-	FailedToExportModel,
-
-	// Add new error codes here...
-
-	LastAssimpCmdExportError, // Must be last.
-};
 
 // ------------------------------------------------------------------------------
 /** assimp_export utility
  *  @param params Command line parameters to 'assimp export'
  *  @param Number of params
- *  @return Either an #AssimpCmdError or #AssimpCmdExportError value. */
+ *  @return 0 for success*/
 int Assimp_Export (
-	const char* const* params,
+	const char* const* params, 
 	unsigned int num);
-
-/// \enum AssimpCmdExtractError
-/// \brief Error codes used by the 'Image Extractor' utility.
-enum AssimpCmdExtractError {
-	TextureIndexIsOutOfRange = AssimpCmdError::LastAssimpCmdError,
-	NoAvailableTextureEncoderFound,
-	FailedToExportCompressedTexture,
-
-	// Add new error codes here...
-
-	LastAssimpCmdExtractError, // Must be last.
-};
 
 // ------------------------------------------------------------------------------
 /** assimp_extract utility
  *  @param params Command line parameters to 'assimp extract'
  *  @param Number of params
- *  @return Either an #AssimpCmdError or #AssimpCmdExtractError value. */
+ *  @return 0 for success*/
 int Assimp_Extract (
-	const char* const* params,
+	const char* const* params, 
 	unsigned int num);
-
-/// \enum AssimpCmdCompareDumpError
-/// \brief Error codes used by the 'Compare Dump' utility.
-enum AssimpCmdCompareDumpError {
-	FailedToLoadExpectedInputFile = AssimpCmdError::LastAssimpCmdError,
-	FileComparaisonFailure,
-	UnknownFailure,
-
-	// Add new error codes here...
-
-	LastAssimpCmdCompareDumpError, // Must be last.
-};
 
 // ------------------------------------------------------------------------------
 /** assimp_cmpdump utility
  *  @param params Command line parameters to 'assimp cmpdump'
  *  @param Number of params
- *  @return Either an #AssimpCmdError or #AssimpCmdCompareDumpError. */
+ *  @return 0 for success*/
 int Assimp_CompareDump (
-	const char* const* params,
+	const char* const* params, 
 	unsigned int num);
-
-/// \enum AssimpCmdInfoError
-/// \brief Error codes used by the 'Info' utility.
-enum AssimpCmdInfoError {
-	InvalidCombinaisonOfArguments = AssimpCmdError::LastAssimpCmdError,
-
-	// Add new error codes here...
-
-	LastAssimpCmdInfoError, // Must be last.
-};
 
 // ------------------------------------------------------------------------------
 /** @brief assimp info utility
  *  @param params Command line parameters to 'assimp info'
  *  @param Number of params
- *  @return Either an #AssimpCmdError or #AssimpCmdInfoError value. */
+ *  @return 0 for success */
 int Assimp_Info (
-	const char* const* params,
+	const char* const* params, 
 	unsigned int num);
 
 // ------------------------------------------------------------------------------
 /** @brief assimp testbatchload utility
  *  @param params Command line parameters to 'assimp testbatchload'
  *  @param Number of params
- *  @return An #AssimpCmdError value. */
+ *  @return 0 for success */
 int Assimp_TestBatchLoad (
-	const char* const* params,
+	const char* const* params, 
 	unsigned int num);
 
 

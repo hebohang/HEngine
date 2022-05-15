@@ -3,7 +3,7 @@
 Open Asset Import Library (assimp)
 ---------------------------------------------------------------------------
 
-Copyright (c) 2006-2022, assimp team
+Copyright (c) 2006-2012, assimp team
 
 All rights reserved.
 
@@ -45,151 +45,164 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "AssetHelper.h"
 
-namespace AssimpView {
+namespace AssimpView
+{
 
-//-------------------------------------------------------------------------------
-/* Helper class to create, access and destroy materials
+    //-------------------------------------------------------------------------------
+    /* Helper class to create, access and destroy materials
     */
-//-------------------------------------------------------------------------------
-class CMaterialManager {
-    friend class CDisplay;
+    //-------------------------------------------------------------------------------
+    class CMaterialManager
+    {
+    private:
 
-public:
-    //------------------------------------------------------------------
-    // Singleton accessors
-    inline static CMaterialManager &Instance() {
-        return s_cInstance;
-    }
+        friend class CDisplay;
 
-    //------------------------------------------------------------------
-    // Delete all resources of a given material
-    //
-    // Must be called before CreateMaterial() to prevent memory leaking
-    void DeleteMaterial(AssetHelper::MeshHelper *pcIn);
+        // default constructor
+        CMaterialManager()
+            : m_iShaderCount( 0 ), sDefaultTexture() {}
 
-    /// @brief  Create the material for a mesh.
-    ///
-    /// The function checks whether an identical shader is already in use.
-    /// A shader is considered to be identical if it has the same input
-    /// signature and takes the same number of texture channels.
-    int CreateMaterial(AssetHelper::MeshHelper *pcMesh, const aiMesh *pcSource);
-    
-    ///	@brief  Setup the material for a given mesh.
-    /// @param  pcMesh   Mesh to be rendered
-    /// @param  pcProj   Projection matrix
-    /// @param  aiMe     Current world matrix
-    /// @param  pcCam    Camera matrix
-    /// @param  vPos     Position of the camera
-    /// @return 0 if successful.
-    int SetupMaterial(AssetHelper::MeshHelper *pcMesh,
-            const aiMatrix4x4 &pcProj,
-            const aiMatrix4x4 &aiMe,
-            const aiMatrix4x4 &pcCam,
-            const aiVector3D &vPos);
-
-    //------------------------------------------------------------------
-    // End the material for a given mesh
-    // Called after mesh rendering is complete
-    // pcMesh Mesh object
-    int EndMaterial(AssetHelper::MeshHelper *pcMesh);
-
-    //------------------------------------------------------------------
-    // Recreate all specular materials depending on the current
-    // specularity settings
-    //
-    // Diffuse-only materials are ignored.
-    // Must be called after specular highlights have been toggled
-    int UpdateSpecularMaterials();
-
-    //------------------------------------------------------------------
-    // find a valid path to a texture file
-    //
-    // Handle 8.3 syntax correctly, search the environment of the
-    // executable and the asset for a texture with a name very similar
-    // to a given one
-    int FindValidPath(aiString *p_szString);
-
-    //------------------------------------------------------------------
-    // Load a texture into memory and create a native D3D texture resource
-    //
-    // The function tries to find a valid path for a texture
-    int LoadTexture(IDirect3DTexture9 **p_ppiOut, aiString *szPath);
-
-    //------------------------------------------------------------------
-    // Getter for m_iShaderCount
-    //
-    inline unsigned int GetShaderCount() {
-        return this->m_iShaderCount;
-    }
-
-    //------------------------------------------------------------------
-    // Reset the state of the class
-    // Called whenever a new asset is loaded
-    inline void Reset() {
-        m_iShaderCount = 0;
-        for (auto & sCachedTexture : sCachedTextures) {
-            sCachedTexture.second->Release();
+        ~CMaterialManager() {
+            if( sDefaultTexture ) {
+                sDefaultTexture->Release();
+            }
+            Reset();
         }
-        sCachedTextures.clear();
-    }
 
-private:
-    // The default constructor
-    CMaterialManager() :
-            m_iShaderCount(0),
-            sDefaultTexture() {
-        // empty
-    }
+    public:
 
-    // Destructor, private.
-    ~CMaterialManager() {
-        if (sDefaultTexture) {
-            sDefaultTexture->Release();
+        //------------------------------------------------------------------
+        // Singleton accessors
+        static CMaterialManager s_cInstance;
+        inline static CMaterialManager& Instance()
+        {
+            return s_cInstance;
         }
-        Reset();
-    }
 
-    //------------------------------------------------------------------
-    // find a valid path to a texture file
-    //
-    // Handle 8.3 syntax correctly, search the environment of the
-    // executable and the asset for a texture with a name very similar
-    // to a given one
-    bool TryLongerPath(char *szTemp, aiString *p_szString);
+        //------------------------------------------------------------------
+        // Delete all resources of a given material
+        //
+        // Must be called before CreateMaterial() to prevent memory leaking
+        void DeleteMaterial( AssetHelper::MeshHelper* pcIn );
 
-    //------------------------------------------------------------------
-    // Setup the default texture for a texture channel
-    //
-    // Generates a default checker pattern for a texture
-    int SetDefaultTexture(IDirect3DTexture9 **p_ppiOut);
+        //------------------------------------------------------------------
+        // Create the material for a mesh.
+        //
+        // The function checks whether an identical shader is already in use.
+        // A shader is considered to be identical if it has the same input
+        // signature and takes the same number of texture channels.
+        int CreateMaterial( AssetHelper::MeshHelper* pcMesh,
+            const aiMesh* pcSource );
 
-    //------------------------------------------------------------------
-    // Convert a height map to a normal map if necessary
-    //
-    // The function tries to detect the type of a texture automatically.
-    // However, this won't work in every case.
-    void HMtoNMIfNecessary(IDirect3DTexture9 *piTexture,
-            IDirect3DTexture9 **piTextureOut,
-            bool bWasOriginallyHM = true);
+        //------------------------------------------------------------------
+        // Setup the material for a given mesh
+        // pcMesh Mesh to be rendered
+        // pcProj Projection matrix
+        // aiMe Current world matrix
+        // pcCam Camera matrix
+        // vPos Position of the camera
+        // TODO: Extract camera position from matrix ...
+        //
+        int SetupMaterial( AssetHelper::MeshHelper* pcMesh,
+            const aiMatrix4x4& pcProj,
+            const aiMatrix4x4& aiMe,
+            const aiMatrix4x4& pcCam,
+            const aiVector3D& vPos );
 
-    //------------------------------------------------------------------
-    // Search for non-opaque pixels in a texture
-    //
-    // A pixel is considered to be non-opaque if its alpha value is
-    // less than 255
-    //------------------------------------------------------------------
-    bool HasAlphaPixels(IDirect3DTexture9 *piTexture);
+        //------------------------------------------------------------------
+        // End the material for a given mesh
+        // Called after mesh rendering is complete
+        // pcMesh Mesh object
+        int EndMaterial( AssetHelper::MeshHelper* pcMesh );
 
-private:
-    static CMaterialManager s_cInstance;
+        //------------------------------------------------------------------
+        // Recreate all specular materials depending on the current
+        // specularity settings
+        //
+        // Diffuse-only materials are ignored.
+        // Must be called after specular highlights have been toggled
+        int UpdateSpecularMaterials();
 
-    // Specifies the number of different shaders generated for
-    // the current asset. This number is incremented by CreateMaterial()
-    // each time a shader isn't found in cache and needs to be created
-    unsigned int m_iShaderCount;
-    IDirect3DTexture9 *sDefaultTexture;
-    using TextureCache = std::map<std::string, IDirect3DTexture9 *>;
-    TextureCache sCachedTextures;
-};
+        //------------------------------------------------------------------
+        // find a valid path to a texture file
+        //
+        // Handle 8.3 syntax correctly, search the environment of the
+        // executable and the asset for a texture with a name very similar
+        // to a given one
+        int FindValidPath( aiString* p_szString );
 
-} // namespace AssimpView
+        //------------------------------------------------------------------
+        // Load a texture into memory and create a native D3D texture resource
+        //
+        // The function tries to find a valid path for a texture
+        int LoadTexture( IDirect3DTexture9** p_ppiOut, aiString* szPath );
+
+
+        //------------------------------------------------------------------
+        // Getter for m_iShaderCount
+        //
+        inline unsigned int GetShaderCount()
+        {
+            return this->m_iShaderCount;
+        }
+
+        //------------------------------------------------------------------
+        // Reset the state of the class
+        // Called whenever a new asset is loaded
+        inline void Reset()
+        {
+            this->m_iShaderCount = 0;
+            for( TextureCache::iterator it = sCachedTextures.begin(); it != sCachedTextures.end(); ++it ) {
+                ( *it ).second->Release();
+            }
+            sCachedTextures.clear();
+        }
+
+    private:
+
+        //------------------------------------------------------------------
+        // find a valid path to a texture file
+        //
+        // Handle 8.3 syntax correctly, search the environment of the
+        // executable and the asset for a texture with a name very similar
+        // to a given one
+        bool TryLongerPath( char* szTemp, aiString* p_szString );
+
+        //------------------------------------------------------------------
+        // Setup the default texture for a texture channel
+        //
+        // Generates a default checker pattern for a texture
+        int SetDefaultTexture( IDirect3DTexture9** p_ppiOut );
+
+        //------------------------------------------------------------------
+        // Convert a height map to a normal map if necessary
+        //
+        // The function tries to detect the type of a texture automatically.
+        // However, this won't work in every case.
+        void HMtoNMIfNecessary( IDirect3DTexture9* piTexture,
+            IDirect3DTexture9** piTextureOut,
+            bool bWasOriginallyHM = true );
+
+        //------------------------------------------------------------------
+        // Search for non-opaque pixels in a texture
+        //
+        // A pixel is considered to be non-opaque if its alpha value is
+        // less than 255
+        //------------------------------------------------------------------
+        bool HasAlphaPixels( IDirect3DTexture9* piTexture );
+
+    private:
+
+        //
+        // Specifies the number of different shaders generated for
+        // the current asset. This number is incremented by CreateMaterial()
+        // each time a shader isn't found in cache and needs to be created
+        //
+        unsigned int m_iShaderCount;
+        IDirect3DTexture9* sDefaultTexture;
+
+        typedef std::map<std::string, IDirect3DTexture9*> TextureCache;
+        TextureCache sCachedTextures;
+    };
+
+}

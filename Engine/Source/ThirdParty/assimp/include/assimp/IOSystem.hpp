@@ -3,7 +3,9 @@
 Open Asset Import Library (assimp)
 ---------------------------------------------------------------------------
 
-Copyright (c) 2006-2022, assimp team
+Copyright (c) 2006-2019, assimp team
+
+
 
 All rights reserved.
 
@@ -48,10 +50,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef AI_IOSYSTEM_H_INC
 #define AI_IOSYSTEM_H_INC
 
-#ifdef __GNUC__
-#   pragma GCC system_header
-#endif
-
 #ifndef __cplusplus
 #   error This header requires C++ to be used. aiFileIO.h is the \
     corresponding C interface.
@@ -60,9 +58,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "types.h"
 
 #ifdef _WIN32
-#   include <direct.h>
-#   include <cstdlib>
-#   include <cstdio>
+#   include <direct.h>  
+#   include <stdlib.h>  
+#   include <stdio.h>  
 #else
 #   include <sys/stat.h>
 #   include <sys/types.h>
@@ -73,7 +71,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace Assimp    {
 
-class IOStream;
+    class IOStream;
 
 // ---------------------------------------------------------------------------
 /** @brief CPP-API: Interface to the file system.
@@ -82,7 +80,7 @@ class IOStream;
  *  to the importer library. If you implement this interface, you also want to
  *  supply a custom implementation for IOStream.
  *
- *  @see Importer::SetIOHandler()
+ *  @see Importer::SetIOHandler() 
  */
 class ASSIMP_API IOSystem
 #ifndef SWIG
@@ -224,26 +222,22 @@ public:
      */
     virtual bool ChangeDirectory( const std::string &path );
 
-    // -------------------------------------------------------------------
-    /**
-     *  @brief  Will delete the given file.
-     *  @param file     [in] The filename
-     *  @return true, if the file wase deleted, false if not.
-     */
-    virtual bool DeleteFile(const std::string &file);
+    virtual bool DeleteFile( const std::string &file );
 
 private:
     std::vector<std::string> m_pathStack;
 };
 
 // ----------------------------------------------------------------------------
-AI_FORCE_INLINE IOSystem::IOSystem() AI_NO_EXCEPT :
-        m_pathStack() {
+AI_FORCE_INLINE
+IOSystem::IOSystem() AI_NO_EXCEPT
+: m_pathStack() {
     // empty
 }
 
 // ----------------------------------------------------------------------------
-AI_FORCE_INLINE IOSystem::~IOSystem() {
+AI_FORCE_INLINE
+IOSystem::~IOSystem() {
     // empty
 }
 
@@ -254,7 +248,8 @@ AI_FORCE_INLINE IOSystem::~IOSystem() {
 // ----------------------------------------------------------------------------
 
 // ----------------------------------------------------------------------------
-AI_FORCE_INLINE IOStream* IOSystem::Open(const std::string& pFile, const std::string& pMode) {
+AI_FORCE_INLINE
+IOStream* IOSystem::Open(const std::string& pFile, const std::string& pMode) {
     // NOTE:
     // For compatibility, interface was changed to const char* to
     // avoid crashes between binary incompatible STL versions
@@ -262,7 +257,8 @@ AI_FORCE_INLINE IOStream* IOSystem::Open(const std::string& pFile, const std::st
 }
 
 // ----------------------------------------------------------------------------
-AI_FORCE_INLINE bool IOSystem::Exists( const std::string& pFile) const {
+AI_FORCE_INLINE
+bool IOSystem::Exists( const std::string& pFile) const {
     // NOTE:
     // For compatibility, interface was changed to const char* to
     // avoid crashes between binary incompatible STL versions
@@ -270,7 +266,8 @@ AI_FORCE_INLINE bool IOSystem::Exists( const std::string& pFile) const {
 }
 
 // ----------------------------------------------------------------------------
-AI_FORCE_INLINE bool IOSystem::ComparePaths(const std::string& one, const std::string& second) const {
+AI_FORCE_INLINE
+bool IOSystem::ComparePaths (const std::string& one, const std::string& second) const {
     // NOTE:
     // For compatibility, interface was changed to const char* to
     // avoid crashes between binary incompatible STL versions
@@ -278,7 +275,8 @@ AI_FORCE_INLINE bool IOSystem::ComparePaths(const std::string& one, const std::s
 }
 
 // ----------------------------------------------------------------------------
-AI_FORCE_INLINE bool IOSystem::PushDirectory( const std::string &path ) {
+AI_FORCE_INLINE
+bool IOSystem::PushDirectory( const std::string &path ) {
     if ( path.empty() ) {
         return false;
     }
@@ -289,12 +287,24 @@ AI_FORCE_INLINE bool IOSystem::PushDirectory( const std::string &path ) {
 }
 
 // ----------------------------------------------------------------------------
-AI_FORCE_INLINE size_t IOSystem::StackSize() const {
+AI_FORCE_INLINE
+const std::string &IOSystem::CurrentDirectory() const {
+    if ( m_pathStack.empty() ) {
+        static const std::string Dummy("");
+        return Dummy;
+    }
+    return m_pathStack[ m_pathStack.size()-1 ];
+}
+
+// ----------------------------------------------------------------------------
+AI_FORCE_INLINE
+size_t IOSystem::StackSize() const {
     return m_pathStack.size();
 }
 
 // ----------------------------------------------------------------------------
-AI_FORCE_INLINE bool IOSystem::PopDirectory() {
+AI_FORCE_INLINE
+bool IOSystem::PopDirectory() {
     if ( m_pathStack.empty() ) {
         return false;
     }
@@ -305,7 +315,8 @@ AI_FORCE_INLINE bool IOSystem::PopDirectory() {
 }
 
 // ----------------------------------------------------------------------------
-AI_FORCE_INLINE bool IOSystem::CreateDirectory( const std::string &path ) {
+AI_FORCE_INLINE
+bool IOSystem::CreateDirectory( const std::string &path ) {
     if ( path.empty() ) {
         return false;
     }
@@ -318,7 +329,8 @@ AI_FORCE_INLINE bool IOSystem::CreateDirectory( const std::string &path ) {
 }
 
 // ----------------------------------------------------------------------------
-AI_FORCE_INLINE bool IOSystem::ChangeDirectory( const std::string &path ) {
+AI_FORCE_INLINE
+bool IOSystem::ChangeDirectory( const std::string &path ) {
     if ( path.empty() ) {
         return false;
     }
@@ -332,7 +344,8 @@ AI_FORCE_INLINE bool IOSystem::ChangeDirectory( const std::string &path ) {
 
 
 // ----------------------------------------------------------------------------
-AI_FORCE_INLINE bool IOSystem::DeleteFile( const std::string &file ) {
+AI_FORCE_INLINE
+bool IOSystem::DeleteFile( const std::string &file ) {
     if ( file.empty() ) {
         return false;
     }

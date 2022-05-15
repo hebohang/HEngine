@@ -1,14 +1,14 @@
 #include "hepch.h"
 
-#include "Runtime/Renderer/Mesh.h"
+#include "Runtime/Mesh/SubMesh.h"
 #include "Runtime/Renderer/RenderCommand.h"
 #include "Runtime/Library/TextureLibrary.h"
-#include "Runtime/Renderer/Model.h"
+#include "Runtime/Mesh/Mesh.h"
 #include "Runtime/Resource/ModeManager/ModeManager.h"
 
 namespace HEngine
 {
-	Mesh::Mesh(const std::vector<StaticVertex>& vertices, const std::vector<uint32_t> indices)
+	SubMesh::SubMesh(const std::vector<StaticVertex>& vertices, const std::vector<uint32_t> indices)
 		: mStaticVertices(vertices), mIndices(indices)
 	{
 		mVertexArray = VertexArray::Create();
@@ -30,7 +30,7 @@ namespace HEngine
 		mVertexArray->SetIndexBuffer(mIB);
 	}
 
-	Mesh::Mesh(const std::vector<StaticVertex>& vertices, const std::vector<uint32_t> indices, const std::vector<MaterialTexture>& textures)
+	SubMesh::SubMesh(const std::vector<StaticVertex>& vertices, const std::vector<uint32_t> indices, const std::vector<MaterialTexture>& textures)
 		: mStaticVertices(vertices), mIndices(indices), mTextures(textures)
 	{
 		mVertexArray = VertexArray::Create();
@@ -52,7 +52,7 @@ namespace HEngine
 		mVertexArray->SetIndexBuffer(mIB);
 	}
 
-	Mesh::Mesh(const std::vector<SkinnedVertex>& vertices, const std::vector<uint32_t> indices)
+	SubMesh::SubMesh(const std::vector<SkinnedVertex>& vertices, const std::vector<uint32_t> indices)
 		: mSkinnedVertices(vertices), mIndices(indices)
 	{
 		mVertexArray = VertexArray::Create();
@@ -76,7 +76,7 @@ namespace HEngine
 		mVertexArray->SetIndexBuffer(mIB);
 	}
 
-	Mesh::Mesh(const std::vector<SkinnedVertex>& vertices, const std::vector<uint32_t> indices, const std::vector<MaterialTexture>& textures)
+	SubMesh::SubMesh(const std::vector<SkinnedVertex>& vertices, const std::vector<uint32_t> indices, const std::vector<MaterialTexture>& textures)
 		: mSkinnedVertices(vertices), mIndices(indices), mTextures(textures)
 	{
 		mVertexArray = VertexArray::Create();
@@ -100,7 +100,7 @@ namespace HEngine
 		mVertexArray->SetIndexBuffer(mIB);
 	}
 
-	void Mesh::Draw(const glm::mat4& transform, const glm::vec3& cameraPos, const Ref<Shader>& shader, int entityID, Model* model)
+	void SubMesh::Draw(const glm::mat4& transform, const glm::vec3& cameraPos, const Ref<Shader>& shader, int entityID, Mesh* model)
 	{
 		SetupMesh(entityID);
 
@@ -199,7 +199,7 @@ namespace HEngine
 		RenderCommand::DrawIndexed(mVertexArray, mIB->GetCount());
 	}
 
-	void Mesh::Draw()
+	void SubMesh::Draw()
 	{
 		//SetupMesh(EntityID);
 		static bool bInit = true;
@@ -222,7 +222,7 @@ namespace HEngine
 		mVertexArray->Unbind();
 	}
 
-	void Mesh::SetupMesh(int entityID)
+	void SubMesh::SetupMesh(int entityID)
 	{
 		if (mEntityID == -1)
 		{

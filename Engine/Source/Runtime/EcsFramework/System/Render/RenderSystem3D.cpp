@@ -40,10 +40,10 @@ namespace HEngine
 
 			// Draw model
 			{
-				auto view = mLevel->mRegistry.view<TransformComponent, StaticMeshComponent>();
+				auto view = mLevel->mRegistry.view<TransformComponent, MeshComponent>();
 				for (auto entity : view)
 				{
-					auto [transform, mesh] = view.get<TransformComponent, StaticMeshComponent>(entity);
+					auto [transform, mesh] = view.get<TransformComponent, MeshComponent>(entity);
 
 					Renderer3D::DrawModel(transform.GetTransform(), cameraPos, mesh, (int)entity);
 				}
@@ -97,12 +97,12 @@ namespace HEngine
 			}
 		}
 
-		auto view = mLevel->mRegistry.view<TransformComponent, StaticMeshComponent>();
+		auto view = mLevel->mRegistry.view<TransformComponent, MeshComponent>();
 		for (auto e : view)
 		{
 			Entity entity = { e, mLevel };
 			auto& transform = entity.GetComponent<TransformComponent>();
-			auto& mesh = entity.GetComponent<StaticMeshComponent>();
+			auto& mesh = entity.GetComponent<MeshComponent>();
 
 			Renderer3D::DrawModel(transform.GetTransform(), camera.GetPosition(), mesh, (int)e);
 		}

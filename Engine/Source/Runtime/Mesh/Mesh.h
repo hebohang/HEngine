@@ -5,7 +5,7 @@
 #include "Runtime/Animation/animator.h"
 
 #include "Runtime/Renderer/Shader.h"
-#include "Runtime/Renderer/Mesh.h"
+#include "Runtime/Mesh/SubMesh.h"
 #include "Runtime/Renderer/Texture.h"
 #include "Runtime/Renderer/Material.h"
 #include "Runtime/Library/ShaderLibrary.h"
@@ -20,18 +20,18 @@
 
 namespace HEngine 
 {
-	class Model
+	class Mesh
 	{
 	public:
-		Model() = default;
-		Model(const Model&) = default;
-		Model(const std::string& path)
+		Mesh() = default;
+		Mesh(const Mesh&) = default;
+		Mesh(const std::string& path)
 			: mMaterial(CreateRef<Material>(Library<Shader>::GetInstance().GetDefaultShader()))
 		{
 			LoadModel(path);
 		}		
 		
-		Model(const std::string& path, Ref<Shader> shader)
+		Mesh(const std::string& path, Ref<Shader> shader)
 			: mMaterial(CreateRef<Material>(shader))
 		{
 			LoadModel(path);
@@ -50,7 +50,7 @@ namespace HEngine
 		void ProcessNode(aiNode* node, const aiScene* scene);
 
 		template <typename Vertex>
-		Mesh ProcessMesh(aiMesh* mesh, const aiScene* scene);
+		SubMesh ProcessMesh(aiMesh* mesh, const aiScene* scene);
 		std::optional<std::vector<MaterialTexture>> loadMaterialTextures(aiMaterial* mat, aiTextureType type);
 	public:
 		bool bUseAlbedoMap = false;
@@ -80,7 +80,7 @@ namespace HEngine
 		Animator mAnimator;
 	private:
 		Ref<Material> mMaterial = CreateRef<Material>();
-		std::vector<Mesh> mMeshes;
+		std::vector<SubMesh> mSubMeshes;
 		std::string mDirectory;
 
 		// Animation

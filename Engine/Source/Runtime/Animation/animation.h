@@ -39,7 +39,7 @@ namespace HEngine
 		Animation() = default;
 		Animation(const Animation&) = default;
 
-		Animation(const std::string& animationPath, class Model* model);
+		Animation(const std::string& animationPath, class Mesh* model);
 
 		~Animation()
 		{
@@ -68,7 +68,7 @@ namespace HEngine
 
 	private:
 		// important
-		void ReadMissingBones(const aiAnimation* animation, class Model& model);
+		void ReadMissingBones(const aiAnimation* animation, class Mesh& model);
 
 		void ReadHeirarchyData(AssimpNodeData& dest, const aiNode* src);
 

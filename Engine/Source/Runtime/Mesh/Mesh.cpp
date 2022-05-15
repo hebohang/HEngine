@@ -1,8 +1,8 @@
 #include "hepch.h"
 
 #include "Runtime/Resource/AssetManager/AssetManager.h"
-#include "Runtime/Renderer/Model.h"
-#include "Runtime/Renderer/Mesh.h"
+#include "Runtime/Mesh/Mesh.h"
+#include "Runtime/Mesh/SubMesh.h"
 
 #include <regex>
 
@@ -20,25 +20,25 @@ namespace HEngine
 		}
 	}
 
-	void Model::Draw(const glm::mat4& transform, const glm::vec3& cameraPos, int entityID)
+	void Mesh::Draw(const glm::mat4& transform, const glm::vec3& cameraPos, int entityID)
 	{
-		for (unsigned int i = 0; i < mMeshes.size(); ++i)
-			mMeshes[i].Draw(transform, cameraPos, mMaterial->GetShader(), entityID, this);
+		for (unsigned int i = 0; i < mSubMeshes.size(); ++i)
+			mSubMeshes[i].Draw(transform, cameraPos, mMaterial->GetShader(), entityID, this);
 	}
 
-	void Model::Draw(const glm::mat4& transform, const glm::vec3& cameraPos, Ref<Shader> shader, int entityID)
+	void Mesh::Draw(const glm::mat4& transform, const glm::vec3& cameraPos, Ref<Shader> shader, int entityID)
 	{
-		for (unsigned int i = 0; i < mMeshes.size(); ++i)
-			mMeshes[i].Draw(transform, cameraPos, shader, entityID, this);
+		for (unsigned int i = 0; i < mSubMeshes.size(); ++i)
+			mSubMeshes[i].Draw(transform, cameraPos, shader, entityID, this);
 	}
 
-	void Model::Draw()
+	void Mesh::Draw()
 	{
-		for (unsigned int i = 0; i < mMeshes.size(); ++i)
-			mMeshes[i].Draw();
+		for (unsigned int i = 0; i < mSubMeshes.size(); ++i)
+			mSubMeshes[i].Draw();
 	}
 
-	void Model::LoadModel(const std::string& path)
+	void Mesh::LoadModel(const std::string& path)
 	{
 		Assimp::Importer importer;
 		std::string standardPath = std::regex_replace(path, std::regex("\\\\"), "/");
@@ -64,16 +64,16 @@ namespace HEngine
 			ProcessNode(scene->mRootNode, scene);
 	}
 
-	void Model::ProcessNode(aiNode* node, const aiScene* scene)
+	void Mesh::ProcessNode(aiNode* node, const aiScene* scene)
 	{
 		for (uint32_t i = 0; i < node->mNumMeshes; ++i)
 		{
 			aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
 
 			if (bAnimated)
-				mMeshes.push_back(ProcessMesh<SkinnedVertex>(mesh, scene));
+				mSubMeshes.push_back(ProcessMesh<SkinnedVertex>(mesh, scene));
 			else
-				mMeshes.push_back(ProcessMesh<StaticVertex>(mesh, scene));
+				mSubMeshes.push_back(ProcessMesh<StaticVertex>(mesh, scene));
 		}
 
 		for (uint32_t i = 0; i < node->mNumChildren; ++i)
@@ -83,7 +83,7 @@ namespace HEngine
 	}
 
 	template <typename Vertex>
-	Mesh Model::ProcessMesh(aiMesh* mesh, const aiScene* scene)
+	SubMesh Mesh::ProcessMesh(aiMesh* mesh, const aiScene* scene)
 	{
 		std::vector<Vertex> vertices;
 		std::vector<uint32_t> indices;
@@ -219,10 +219,10 @@ namespace HEngine
 			loadTexture(static_cast<aiTextureType>(type));
 		}
 
-		return Mesh(vertices, indices, textures);
+		return SubMesh(vertices, indices, textures);
 	}
 
-	std::optional<std::vector<MaterialTexture>> Model::loadMaterialTextures(aiMaterial* mat, aiTextureType type)
+	std::optional<std::vector<MaterialTexture>> Mesh::loadMaterialTextures(aiMaterial* mat, aiTextureType type)
 	{
 		std::vector<MaterialTexture> textures;
 		for (unsigned int i = 0; i < mat->GetTextureCount(type); i++)
@@ -277,13 +277,13 @@ namespace HEngine
 				//	texture.type = TextureType::Albedo;
 				//	mAlbedoMap = texture.texture2d;
 				//	break;
-				//case aiTextureType_NORMAL_CAMERA:
-				//	texture.type = TextureType::Normal;
-				//	mNormalMap = texture.texture2d;
-				//	break;
-				//case aiTextureType_EMISSION_COLOR:
-				//	texture.type = TextureType::Emission;
-				//	break;
+				case aiTextureType_NORMALS:
+					texture.type = TextureType::Normal;
+					mNormalMap = texture.texture2d;
+					break;
+				case aiTextureType_EMISSIVE:
+					texture.type = TextureType::Emission;
+					break;
 				//case aiTextureType_METALNESS:
 				//	texture.type = TextureType::Metalness;
 				//	mMetallicMap = texture.texture2d;

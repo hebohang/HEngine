@@ -2,7 +2,7 @@
 
 #include "Runtime/Library/Library.h"
 #include "Runtime/Resource/AssetManager/AssetManager.h"
-#include "Runtime/Renderer/Model.h"
+#include "Runtime/Mesh/Mesh.h"
 #include "Runtime/Renderer/Texture.h"
 #include "UniformBufferLibrary.h"
 
@@ -15,9 +15,9 @@ namespace HEngine
     }
 
     template<>
-    Library<Model>::Library()
+    Library<Mesh>::Library()
     {
-        Add("Box", CreateRef<Model>("Assets/Models/Box.obj"));
+        Add("Box", CreateRef<Mesh>("Assets/Models/Box.obj"));
     }
 
     template<>

@@ -312,11 +312,11 @@ namespace HEngine
 				}
 			}
 
-			if (!mSelectionContext.HasComponent<StaticMeshComponent>())
+			if (!mSelectionContext.HasComponent<MeshComponent>())
 			{
-				if (ImGui::MenuItem("Static Mesh Renderer"))
+				if (ImGui::MenuItem("Mesh Renderer"))
 				{
-					mSelectionContext.AddComponent<StaticMeshComponent>();
+					mSelectionContext.AddComponent<MeshComponent>();
 					ImGui::CloseCurrentPopup();
 				}
 			}
@@ -577,7 +577,7 @@ namespace HEngine
 				floatValueUI("friction", component.friction);
 			});
 
-		DrawComponent<StaticMeshComponent>("Static Mesh Renderer", entity, [](StaticMeshComponent& component)
+		DrawComponent<MeshComponent>("Static Mesh Renderer", entity, [](MeshComponent& component)
 			{
 				ImGui::Text("Mesh Path");
 				ImGui::SameLine();
@@ -594,20 +594,20 @@ namespace HEngine
 					}
 					else
 					{
-						// TODO: Import Model
+						// TODO: Import Mesh
 						//HE_CORE_ASSERT(false, "HEngine Now Only support the model from Assets!");
 						//filepath = "";
 					}
 					if (!filepath.empty())
 					{
-						component.Mesh = Model(filepath);
+						component.Mesh = Mesh(filepath);
 						component.Path = filepath;
 					}
 				}
 
 				if (ImGui::TreeNode((void*)"Material", "Material"))
 				{
-					const auto& materialNode = [&model = component.Mesh](const char* name, Ref<Texture2D>& tex, void(*func)(Model& model)) {
+					const auto& materialNode = [&model = component.Mesh](const char* name, Ref<Texture2D>& tex, void(*func)(Mesh& model)) {
 						if (ImGui::TreeNode((void*)name, name))
 						{
 							ImGui::Image((ImTextureID)tex->GetRendererID(), ImVec2(64, 64), ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
@@ -631,7 +631,7 @@ namespace HEngine
 						}
 					};
 
-					materialNode("Albedo", component.Mesh.mAlbedoMap, [](Model& model) {
+					materialNode("Albedo", component.Mesh.mAlbedoMap, [](Mesh& model) {
 						ImGui::SameLine();
 						ImGui::Checkbox("Use", &model.bUseAlbedoMap);
 
@@ -649,12 +649,12 @@ namespace HEngine
 						}
 					});
 
-					materialNode("Normal", component.Mesh.mNormalMap, [](Model& model) {
+					materialNode("Normal", component.Mesh.mNormalMap, [](Mesh& model) {
 						ImGui::SameLine();
 						ImGui::Checkbox("Use", &model.bUseNormalMap);
 					});
 
-					materialNode("Metallic", component.Mesh.mMetallicMap, [](Model& model) {
+					materialNode("Metallic", component.Mesh.mMetallicMap, [](Mesh& model) {
 						ImGui::SameLine();
 
 						if (ImGui::BeginTable("Metallic", 1))
@@ -684,7 +684,7 @@ namespace HEngine
 						}
 					});
 
-					materialNode("Roughness", component.Mesh.mRoughnessMap, [](Model& model) {
+					materialNode("Roughness", component.Mesh.mRoughnessMap, [](Mesh& model) {
 						ImGui::SameLine();
 						
 						if (ImGui::BeginTable("Roughness", 1))
@@ -714,7 +714,7 @@ namespace HEngine
 						}
 					});
 
-					materialNode("Ambient Occlusion", component.Mesh.mAoMap, [](Model& model) {
+					materialNode("Ambient Occlusion", component.Mesh.mAoMap, [](Mesh& model) {
 						ImGui::SameLine();
 						ImGui::Checkbox("Use", &model.bUseAoMap);
 					});

@@ -74,7 +74,9 @@ namespace HEngine
 		bool bUseAoMap = false;
 		Ref<Texture2D> mAoMap = Library<Texture2D>::GetInstance().GetWhiteTexture();
 
+		// Animation
 		bool bAnimated = false;
+		bool bPlayAnim = false;
 
 		Animation mAnimation;
 		Animator mAnimator;

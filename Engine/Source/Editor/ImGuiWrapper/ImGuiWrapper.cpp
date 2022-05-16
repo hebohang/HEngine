@@ -20,4 +20,13 @@ namespace HEngine::ImGuiWrapper
         ImGui::PopStyleVar();
         return open;
     }
+
+    // SubNode
+    bool TreeNodeExStyle2(const void* str_id, const std::string& name, ImGuiTreeNodeFlags flags)
+    {
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{ 2.0f, 2.0f });
+        bool open = ImGui::TreeNodeEx((void*)str_id, flags, name.c_str());
+        ImGui::PopStyleVar();
+        return open;
+    }
 }

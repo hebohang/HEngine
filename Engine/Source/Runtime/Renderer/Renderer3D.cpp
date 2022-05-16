@@ -29,7 +29,7 @@ namespace HEngine
 	{
 		if (ModeManager::bHdrUse)
 		{
-			if (MeshComponent.mMesh->bAnimated)
+			if (MeshComponent.mMesh->bPlayAnim)
 				MeshComponent.mMesh->Draw(transform, cameraPos, Library<Shader>::GetInstance().Get("IBL_pbr_anim"), EntityID);
 			else
 				MeshComponent.mMesh->Draw(transform, cameraPos, Library<Shader>::GetInstance().Get("IBL_pbr_static"), EntityID);

@@ -616,7 +616,7 @@ namespace HEngine
 				}
 				ImGui::EndColumns();
 
-				if (ImGui::TreeNode((void*)"Material", "Material"))
+				if (ImGuiWrapper::TreeNodeExStyle2((void*)"Material", "Material"))
 				{
 					const auto& materialNode = [&model = component.mMesh](const char* name, Ref<Texture2D>& tex, void(*func)(Ref<Mesh>& model)) {
 						if (ImGui::TreeNode((void*)name, name))
@@ -731,6 +731,29 @@ namespace HEngine
 					});
 
 					ImGui::TreePop();
+				}
+
+				if (component.mMesh->bAnimated)
+				{
+					if (ImGuiWrapper::TreeNodeExStyle2((void*)"Animation", "Animation"))
+					{
+						ImGuiWrapper::DrawTwoUI(
+							[&mesh = component.mMesh]() {
+								static std::string label = "Play";
+								if (ImGui::Button(label.c_str()))
+								{
+									mesh->bPlayAnim = !mesh->bPlayAnim;
+									if (mesh->bPlayAnim)
+										label = "Stop";
+									else
+										label = "Play";
+								}
+							},
+							[]() { ImGui::Button("Pause"); }
+						);
+
+						ImGui::TreePop();
+					}
 				}
 			});
 

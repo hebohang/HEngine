@@ -1,31 +1,5 @@
 Scene: Untitled
 Entities:
-  - Entity: 3790196893551986594
-    TagComponent:
-      Tag: Light
-    TransformComponent:
-      Translation: [0.0838333666, 1.4817996, -32.7113266]
-      Rotation: [0, 0, 0]
-      Scale: [1, 1, 1]
-    LightComponent:
-      Color: [100, 100, 100]
-  - Entity: 15259686778746511975
-    TagComponent:
-      Tag: Gun
-    TransformComponent:
-      Translation: [17.7823391, 1.11936593, -38.9260674]
-      Rotation: [1.51600373, -1.43729281, -1.54166591]
-      Scale: [0.959416687, 0.959418893, 0.959420383]
-    MeshComponent:
-      Path: Assets\Models\dancing-stormtrooper\source\silly_dancing.fbx
-      bUseAlbedoMap: true
-      col: [1, 1, 1, 1]
-      bUseNormalMap: true
-      bUseMetallicMap: false
-      metallic: 0.958999991
-      bUseRoughnessMap: false
-      roughness: 0.991999984
-      bUseAoMap: false
   - Entity: 12552804923778293813
     TagComponent:
       Tag: Camera
@@ -44,3 +18,29 @@ Entities:
         OrthographicFar: 1
       Primary: true
       FixedAspectRatio: false
+  - Entity: 15259686778746511975
+    TagComponent:
+      Tag: Gun
+    TransformComponent:
+      Translation: [-0.372335374, -4.22275209, -14.5396652]
+      Rotation: [0.133393392, -0.0371291824, -1.07175966e-08]
+      Scale: [2.09152508, 2.09153152, 2.09153724]
+    MeshComponent:
+      Path: Assets\Models\dancing-stormtrooper\source\silly_dancing.fbx
+      bUseAlbedoMap: true
+      col: [1, 1, 1, 1]
+      bUseNormalMap: true
+      bUseMetallicMap: false
+      metallic: 0.958999991
+      bUseRoughnessMap: false
+      roughness: 0.991999984
+      bUseAoMap: false
+  - Entity: 3790196893551986594
+    TagComponent:
+      Tag: Light
+    TransformComponent:
+      Translation: [0.0838333666, 1.4817996, -32.7113266]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Color: [100, 100, 100]

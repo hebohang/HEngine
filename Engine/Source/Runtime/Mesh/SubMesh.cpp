@@ -107,7 +107,7 @@ namespace HEngine
 		shader->Bind();
 		if (model->bPlayAnim)
 		{
-			model->mAnimator.UpdateAnimation(0.01f);
+			model->mAnimator.UpdateAnimation(0.01f * model->mAnimPlaySpeed);
 
 			auto transforms = model->mAnimator.GetFinalBoneMatrices();
 			for (int i = 0; i < transforms.size(); ++i)

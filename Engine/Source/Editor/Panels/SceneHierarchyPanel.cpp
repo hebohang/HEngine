@@ -754,6 +754,14 @@ namespace HEngine
 						);
 						ImGui::ProgressBar(component.mMesh->mAnimator.GetProgress(), ImVec2(0.0f, 0.0f));
 
+						ImGuiWrapper::DrawTwoUI(
+							[]() { ImGui::Text("Speed"); },
+							[&mesh = component.mMesh]() {
+							ImGui::SliderFloat("##Speed", &mesh->mAnimPlaySpeed, 0.1f, 10.0f);
+							},
+							100.0f
+						);
+
 						ImGui::TreePop();
 					}
 				}

@@ -752,8 +752,7 @@ namespace HEngine
 							[]() { ImGui::Button("Pause"); },
 							200.0f
 						);
-						static float progress = 0.0f;
-						ImGui::ProgressBar(progress, ImVec2(0.0f, 0.0f));
+						ImGui::ProgressBar(component.mMesh->mAnimator.GetProgress(), ImVec2(0.0f, 0.0f));
 
 						ImGui::TreePop();
 					}

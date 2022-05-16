@@ -139,7 +139,7 @@ namespace HEngine
 			else
 				Library<Texture2D>::GetInstance().GetWhiteTexture()->Bind(7);
 
-			if (model->bAnimated)
+			if (model->bPlayAnim)
 			{
 				model->mAnimator.UpdateAnimation(0.01f);
 

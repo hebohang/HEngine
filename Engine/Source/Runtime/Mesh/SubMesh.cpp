@@ -104,9 +104,18 @@ namespace HEngine
 	{
 		SetupMesh(entityID);
 
+		shader->Bind();
+		if (model->bPlayAnim)
+		{
+			model->mAnimator.UpdateAnimation(0.01f);
+
+			auto transforms = model->mAnimator.GetFinalBoneMatrices();
+			for (int i = 0; i < transforms.size(); ++i)
+				shader->SetMat4("finalBonesMatrices[" + std::to_string(i) + "]", transforms[i]);
+		}
+
 		if (ModeManager::bHdrUse)
 		{
-			shader->Bind();
 			shader->SetMat4("model", transform);
 			shader->SetFloat3("camPos", cameraPos);
 
@@ -139,15 +148,6 @@ namespace HEngine
 			else
 				Library<Texture2D>::GetInstance().GetWhiteTexture()->Bind(7);
 
-			if (model->bPlayAnim)
-			{
-				model->mAnimator.UpdateAnimation(0.01f);
-
-				auto transforms = model->mAnimator.GetFinalBoneMatrices();
-				for (int i = 0; i < transforms.size(); ++i)
-					shader->SetMat4("finalBonesMatrices[" + std::to_string(i) + "]", transforms[i]);
-			}
-
 			shader->SetInt("irradianceMap", 0);
 			shader->SetInt("prefilterMap", 1);
 			shader->SetInt("brdfLUT", 2);
@@ -159,8 +159,8 @@ namespace HEngine
 		}
 		else
 		{
-			shader->Bind();
-			shader->SetMat4("u_Model.Transform", (transform));
+			shader->SetMat4("u_Model.Transform", (transform)); // for static 
+			shader->SetMat4("model", transform); // for animation 
 			mVertexArray->Bind();
 
 			if (model->bUseAlbedoMap)

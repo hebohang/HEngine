@@ -11,7 +11,7 @@ namespace py = pybind11;
 
 namespace HEngine
 {
-    PYBIND11_EMBEDDED_MODULE(Cpp, m)
+    PYBIND11_EMBEDDED_MODULE(HEngine, m)
     {
         py::class_<Timestep>(m, "Timestep")
             .def(py::init<float>())
@@ -49,8 +49,6 @@ namespace HEngine
         auto view = mLevel->mRegistry.view<TransformComponent, PythonScriptComponent>();
         for (auto e : view)
         {
-            py::scoped_interpreter guard{};
-
             Entity entity = { e, mLevel };
             auto& transform = entity.GetComponent<TransformComponent>();
             auto& script = entity.GetComponent<PythonScriptComponent>();
@@ -86,8 +84,6 @@ namespace HEngine
         auto view = mLevel->mRegistry.view<TransformComponent, PythonScriptComponent>();
         for (auto entity : view)
         {
-            py::scoped_interpreter guard{};
-
             auto [transform, script] = view.get<TransformComponent, PythonScriptComponent>(entity);
 
             if (script.Path.empty())

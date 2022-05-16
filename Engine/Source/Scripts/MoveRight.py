@@ -1,4 +1,5 @@
-import Cpp
+import numpy as np
+import HEngine
 
 def OnUpdateRuntime(transformComponent, ts):
     transformComponent.SetTranslation(transformComponent.GetTranslation().x + ts.GetSeconds(), transformComponent.GetTranslation().y, transformComponent.GetTranslation().z)

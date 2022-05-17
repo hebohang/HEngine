@@ -83,6 +83,11 @@ namespace HEngine
 			return mCurrentTime / mCurrentAnimation->GetDuration();
 		}
 
+		void Reset()
+		{
+			mCurrentTime = 0.0f;
+		}
+
 	private:
 		std::vector<glm::mat4> mFinalBoneMatrices;
 		Animation* mCurrentAnimation;

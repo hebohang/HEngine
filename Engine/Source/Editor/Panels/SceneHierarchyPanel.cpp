@@ -746,21 +746,33 @@ namespace HEngine
 									if (mesh->bPlayAnim)
 										label = "Stop";
 									else
+									{
 										label = "Play";
+										mesh->mAnimator.Reset();
+									}
 								}
 							},
-							[]() { ImGui::Button("Pause"); },
-							200.0f
-						);
-						ImGui::ProgressBar(component.mMesh->mAnimator.GetProgress(), ImVec2(0.0f, 0.0f));
-
-						ImGuiWrapper::DrawTwoUI(
-							[]() { ImGui::Text("Speed"); },
 							[&mesh = component.mMesh]() {
-							ImGui::SliderFloat("##Speed", &mesh->mAnimPlaySpeed, 0.1f, 10.0f);
+								static std::string label = "Pause";
+								if (ImGui::Button(label.c_str()))
+								{
+									mesh->bStopAnim = !mesh->bStopAnim;
+									if (mesh->bStopAnim)
+										label = "Resume";
+									else
+										label = "Pause";
+								}
 							},
-							100.0f
+							88.0f
 						);
+
+						ImGui::Columns(2, nullptr, false);
+						ImGui::Text("Speed");
+						ImGui::NextColumn();
+						ImGui::SliderFloat("##Speed", &component.mMesh->mAnimPlaySpeed, 0.1f, 10.0f);
+						ImGui::EndColumns();
+
+						ImGui::ProgressBar(component.mMesh->mAnimator.GetProgress(), ImVec2(0.0f, 0.0f));
 
 						ImGui::TreePop();
 					}

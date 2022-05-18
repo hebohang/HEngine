@@ -23,7 +23,7 @@ namespace HEngine
 	void Mesh::Draw(const glm::mat4& transform, const glm::vec3& cameraPos, int entityID)
 	{
 		for (unsigned int i = 0; i < mSubMeshes.size(); ++i)
-			mSubMeshes[i].Draw(transform, cameraPos, mMaterial->GetShader(), entityID, this);
+			mSubMeshes[i].Draw(transform, cameraPos, mMaterial[0]->GetShader(), entityID, this);
 	}
 
 	void Mesh::Draw(const glm::mat4& transform, const glm::vec3& cameraPos, Ref<Shader> shader, int entityID)
@@ -53,37 +53,38 @@ namespace HEngine
 
 		mDirectory = standardPath.substr(0, standardPath.find_last_of('/'));
 
+		uint32_t subMeshIndex = 0;
 		if (scene->HasAnimations())
 		{
 			bAnimated = true;
-			ProcessNode(scene->mRootNode, scene);
+			ProcessNode(scene->mRootNode, scene, subMeshIndex);
 			mAnimation = Animation(standardFullPath, this);
 			mAnimator = Animator(&mAnimation);
 		}
 		else
-			ProcessNode(scene->mRootNode, scene);
+			ProcessNode(scene->mRootNode, scene, subMeshIndex);
 	}
 
-	void Mesh::ProcessNode(aiNode* node, const aiScene* scene)
+	void Mesh::ProcessNode(aiNode* node, const aiScene* scene, uint32_t& subMeshIndex)
 	{
 		for (uint32_t i = 0; i < node->mNumMeshes; ++i)
 		{
 			aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
 
 			if (bAnimated)
-				mSubMeshes.push_back(ProcessMesh<SkinnedVertex>(mesh, scene, i));
+				mSubMeshes.push_back(ProcessMesh<SkinnedVertex>(mesh, scene, subMeshIndex));
 			else
-				mSubMeshes.push_back(ProcessMesh<StaticVertex>(mesh, scene, i));
+				mSubMeshes.push_back(ProcessMesh<StaticVertex>(mesh, scene, subMeshIndex));
 		}
 
 		for (uint32_t i = 0; i < node->mNumChildren; ++i)
 		{
-			ProcessNode(node->mChildren[i], scene);
+			ProcessNode(node->mChildren[i], scene, subMeshIndex);
 		}
 	}
 
 	template <typename Vertex>
-	SubMesh Mesh::ProcessMesh(aiMesh* mesh, const aiScene* scene, uint32_t subMeshIndex)
+	SubMesh Mesh::ProcessMesh(aiMesh* mesh, const aiScene* scene, uint32_t& subMeshIndex)
 	{
 		std::vector<Vertex> vertices;
 		std::vector<uint32_t> indices;
@@ -210,7 +211,7 @@ namespace HEngine
 		// normal: texture_normalN
 
 		const auto& loadTexture = [&](aiTextureType type) {
-			auto maps = loadMaterialTextures(material, type);
+			auto maps = loadMaterialTextures(material, type, subMeshIndex);
 			if (maps) textures.insert(textures.end(), maps.value().begin(), maps.value().end());
 		};
 
@@ -222,8 +223,9 @@ namespace HEngine
 		return SubMesh(vertices, indices, textures, subMeshIndex);
 	}
 
-	std::optional<std::vector<MaterialTexture>> Mesh::loadMaterialTextures(aiMaterial* mat, aiTextureType type)
+	std::optional<std::vector<MaterialTexture>> Mesh::loadMaterialTextures(aiMaterial* mat, aiTextureType type, uint32_t& subMeshIndex)
 	{
+		mMaterial.push_back(CreateRef<Material>());
 		std::vector<MaterialTexture> textures;
 		for (unsigned int i = 0; i < mat->GetTextureCount(type); i++)
 		{
@@ -232,11 +234,11 @@ namespace HEngine
 
 			// check if texture was loaded before and if so, continue to next iteration: skip loading a new texture
 			bool skip = false;
-			for (unsigned int j = 0; j < mMaterial->mTextures.size(); j++)
+			for (unsigned int j = 0; j < mMaterial[subMeshIndex]->mTextures.size(); j++)
 			{
-				if (std::strcmp(mMaterial->mTextures[j].path.data(), str.C_Str()) == 0)
+				if (std::strcmp(mMaterial[subMeshIndex]->mTextures[j].path.data(), str.C_Str()) == 0)
 				{
-					textures.push_back(mMaterial->mTextures[j]);
+					textures.push_back(mMaterial[subMeshIndex]->mTextures[j]);
 					skip = true; // a texture with the same filepath has already been loaded, continue to next one. (optimization)
 					break;
 				}
@@ -261,7 +263,7 @@ namespace HEngine
 				{
 				case aiTextureType_DIFFUSE:
 					texture.type = TextureType::Albedo;
-					mMaterial->mAlbedoMap = texture.texture2d;
+					mMaterial[subMeshIndex]->mAlbedoMap = texture.texture2d;
 					break;
 				case aiTextureType_SPECULAR:
 					texture.type = TextureType::Specular;
@@ -271,7 +273,7 @@ namespace HEngine
 					break;
 				case aiTextureType_AMBIENT:
 					texture.type = TextureType::AmbientOcclusion;
-					mMaterial->mAoMap = texture.texture2d;
+					mMaterial[subMeshIndex]->mAoMap = texture.texture2d;
 					break;
 				//case aiTextureType_BASE_COLOR:
 				//	texture.type = TextureType::Albedo;
@@ -279,7 +281,7 @@ namespace HEngine
 				//	break;
 				case aiTextureType_NORMALS:
 					texture.type = TextureType::Normal;
-					mMaterial->mNormalMap = texture.texture2d;
+					mMaterial[subMeshIndex]->mNormalMap = texture.texture2d;
 					break;
 				case aiTextureType_EMISSIVE:
 					texture.type = TextureType::Emission;
@@ -299,7 +301,7 @@ namespace HEngine
 				}
 				texture.path = str.C_Str();
 				textures.push_back(texture);
-				mMaterial->mTextures.push_back(texture);  // store it as texture loaded for entire model, to ensure we won't unnecesery load duplicate textures.
+				mMaterial[subMeshIndex]->mTextures.push_back(texture);  // store it as texture loaded for entire model, to ensure we won't unnecesery load duplicate textures.
 			}
 		}
 

@@ -25,18 +25,18 @@ namespace HEngine
 		Mesh() = default;
 		Mesh(const Mesh&) = default;
 		Mesh(const std::string& path)
-			: mMaterial(CreateRef<Material>(Library<Shader>::GetInstance().GetDefaultShader()))
 		{
+			mMaterial.push_back(CreateRef<Material>(Library<Shader>::GetInstance().GetDefaultShader()));
 			LoadModel(path);
 		}		
 		
 		Mesh(const std::string& path, Ref<Shader> shader)
-			: mMaterial(CreateRef<Material>(shader))
 		{
+			mMaterial.push_back(CreateRef<Material>(shader));
 			LoadModel(path);
 		}
 
-		void SetShader(Ref<Shader> shader) { mMaterial->SetShader(shader); };
+		void SetShader(Ref<Shader> shader) { mMaterial[0]->SetShader(shader); };
 		void Draw(const glm::mat4& transform, const glm::vec3& cameraPos, int entityID);
 		void Draw(const glm::mat4& transform, const glm::vec3& cameraPos, Ref<Shader> shader, int entityID);
 
@@ -46,11 +46,11 @@ namespace HEngine
 		int& GetBoneCount() { return mBoneCounter; }
 	private:
 		void LoadModel(const std::string& path);
-		void ProcessNode(aiNode* node, const aiScene* scene);
+		void ProcessNode(aiNode* node, const aiScene* scene, uint32_t& subMeshIndex);
 
 		template <typename Vertex>
-		SubMesh ProcessMesh(aiMesh* mesh, const aiScene* scene, uint32_t subMeshIndex);
-		std::optional<std::vector<MaterialTexture>> loadMaterialTextures(aiMaterial* mat, aiTextureType type);
+		SubMesh ProcessMesh(aiMesh* mesh, const aiScene* scene, uint32_t& subMeshIndex);
+		std::optional<std::vector<MaterialTexture>> loadMaterialTextures(aiMaterial* mat, aiTextureType type, uint32_t& subMeshIndex);
 	public:
 		// Animation
 		bool bAnimated = false;
@@ -62,8 +62,8 @@ namespace HEngine
 
 		float mAnimPlaySpeed = 1.0f;
 
-		//std::vector<Ref<Material>> mMaterial;
-		Ref<Material> mMaterial = CreateRef<Material>();
+		std::vector<Ref<Material>> mMaterial;
+		//Ref<Material> mMaterial = CreateRef<Material>();
 	private:
 		std::vector<SubMesh> mSubMeshes;
 		std::string mDirectory;

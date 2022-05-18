@@ -584,7 +584,7 @@ namespace HEngine
 				floatValueUI("friction", component.friction);
 			});
 
-		DrawComponent<MeshComponent>("Static Mesh Renderer", entity, [](MeshComponent& component)
+		DrawComponent<MeshComponent>("Mesh Renderer", entity, [](MeshComponent& component)
 			{
 				ImGui::Columns(2, nullptr, false);
 				ImGui::SetColumnWidth(0, 100.0f);
@@ -618,7 +618,7 @@ namespace HEngine
 
 				if (ImGuiWrapper::TreeNodeExStyle2((void*)"Material", "Material"))
 				{
-					const auto& materialNode = [&model = component.mMesh](const char* name, Ref<Texture2D>& tex, void(*func)(Ref<Mesh>& model)) {
+					const auto& materialNode = [&model = component.mMesh](const char* name, Ref<Texture2D>& tex, void(*func)(Ref<Material>& mat)) {
 						if (ImGui::TreeNode((void*)name, name))
 						{
 							ImGui::Image((ImTextureID)tex->GetRendererID(), ImVec2(64, 64), ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
@@ -636,36 +636,36 @@ namespace HEngine
 								ImGui::EndDragDropTarget();
 							}
 
-							func(model);
+							func(model->mMaterial[0]);
 							
 							ImGui::TreePop();
 						}
 					};
 
-					materialNode("Albedo", component.mMesh->mMaterial->mAlbedoMap, [](Ref<Mesh>& model) {
+					materialNode("Albedo", component.mMesh->mMaterial[0]->mAlbedoMap, [](Ref<Material>& mat) {
 						ImGui::SameLine();
-						ImGui::Checkbox("Use", &model->mMaterial->bUseAlbedoMap);
+						ImGui::Checkbox("Use", &mat->bUseAlbedoMap);
 
-						if (ImGui::ColorEdit4("##albedo", glm::value_ptr(model->mMaterial->col)))
+						if (ImGui::ColorEdit4("##albedo", glm::value_ptr(mat->col)))
 						{
-							if (!model->mMaterial->bUseAlbedoMap)
+							if (!mat->bUseAlbedoMap)
 							{
 								unsigned char data[4];
 								for (size_t i = 0; i < 4; i++)
 								{
-									data[i] = (unsigned char)(model->mMaterial->col[i] * 255.0f);
+									data[i] = (unsigned char)(mat->col[i] * 255.0f);
 								}
-								model->mMaterial->albedoRGBA->SetData(data, sizeof(unsigned char) * 4);
+								mat->albedoRGBA->SetData(data, sizeof(unsigned char) * 4);
 							}
 						}
 					});
 
-					materialNode("Normal", component.mMesh->mMaterial->mNormalMap, [](Ref<Mesh>& model) {
+					materialNode("Normal", component.mMesh->mMaterial[0]->mNormalMap, [](Ref<Material>& mat) {
 						ImGui::SameLine();
-						ImGui::Checkbox("Use", &model->mMaterial->bUseNormalMap);
+						ImGui::Checkbox("Use", &mat->bUseNormalMap);
 					});
 
-					materialNode("Metallic", component.mMesh->mMaterial->mMetallicMap, [](Ref<Mesh>& model) {
+					materialNode("Metallic", component.mMesh->mMaterial[0]->mMetallicMap, [](Ref<Material>& mat) {
 						ImGui::SameLine();
 
 						if (ImGui::BeginTable("Metallic", 1))
@@ -673,21 +673,21 @@ namespace HEngine
 							ImGui::TableNextRow();
 							ImGui::TableNextColumn();
 
-							ImGui::Checkbox("Use", &model->mMaterial->bUseMetallicMap);
+							ImGui::Checkbox("Use", &mat->bUseMetallicMap);
 
 							ImGui::TableNextRow();
 							ImGui::TableNextColumn();
-							if (ImGui::SliderFloat("##Metallic", &model->mMaterial->metallic, 0.0f, 1.0f))
+							if (ImGui::SliderFloat("##Metallic", &mat->metallic, 0.0f, 1.0f))
 							{
-								if (!model->mMaterial->bUseMetallicMap)
+								if (!mat->bUseMetallicMap)
 								{
 									unsigned char data[4];
 									for (size_t i = 0; i < 3; i++)
 									{
-										data[i] = (unsigned char)(model->mMaterial->metallic * 255.0f);
+										data[i] = (unsigned char)(mat->metallic * 255.0f);
 									}
 									data[3] = (unsigned char)255.0f;
-									model->mMaterial->metallicRGBA->SetData(data, sizeof(unsigned char) * 4);
+									mat->metallicRGBA->SetData(data, sizeof(unsigned char) * 4);
 								}
 							}
 
@@ -695,7 +695,7 @@ namespace HEngine
 						}
 					});
 
-					materialNode("Roughness", component.mMesh->mMaterial->mRoughnessMap, [](Ref<Mesh>& model) {
+					materialNode("Roughness", component.mMesh->mMaterial[0]->mRoughnessMap, [](Ref<Material>& mat) {
 						ImGui::SameLine();
 						
 						if (ImGui::BeginTable("Roughness", 1))
@@ -703,21 +703,21 @@ namespace HEngine
 							ImGui::TableNextRow();
 							ImGui::TableNextColumn();
 
-							ImGui::Checkbox("Use", &model->mMaterial->bUseRoughnessMap);
+							ImGui::Checkbox("Use", &mat->bUseRoughnessMap);
 
 							ImGui::TableNextRow();
 							ImGui::TableNextColumn();
-							if (ImGui::SliderFloat("##Roughness", &model->mMaterial->roughness, 0.0f, 1.0f))
+							if (ImGui::SliderFloat("##Roughness", &mat->roughness, 0.0f, 1.0f))
 							{
-								if (!model->mMaterial->bUseRoughnessMap)
+								if (!mat->bUseRoughnessMap)
 								{
 									unsigned char data[4];
 									for (size_t i = 0; i < 3; i++)
 									{
-										data[i] = (unsigned char)(model->mMaterial->roughness * 255.0f);
+										data[i] = (unsigned char)(mat->roughness * 255.0f);
 									}
 									data[3] = (unsigned char)255.0f;
-									model->mMaterial->roughnessRGBA->SetData(data, sizeof(unsigned char) * 4);
+									mat->roughnessRGBA->SetData(data, sizeof(unsigned char) * 4);
 								}
 							}
 
@@ -725,9 +725,9 @@ namespace HEngine
 						}
 					});
 
-					materialNode("Ambient Occlusion", component.mMesh->mMaterial->mAoMap, [](Ref<Mesh>& model) {
+					materialNode("Ambient Occlusion", component.mMesh->mMaterial[0]->mAoMap, [](Ref<Material>& mat) {
 						ImGui::SameLine();
-						ImGui::Checkbox("Use", &model->mMaterial->bUseAoMap);
+						ImGui::Checkbox("Use", &mat->bUseAoMap);
 					});
 
 					ImGui::TreePop();

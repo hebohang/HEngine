@@ -10,7 +10,7 @@ namespace HEngine
     class MeshComponent : public ComponentBase
     {
     public:
-		MeshComponent() = default;
+		MeshComponent() { mMesh = CreateRef<Mesh>(); };
 		MeshComponent(const MeshComponent&) = default;
 		MeshComponent(const std::string & path)
 			: Path(path), mMesh(CreateRef<Mesh>(path))

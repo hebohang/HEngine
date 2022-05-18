@@ -261,7 +261,7 @@ namespace HEngine
 				{
 				case aiTextureType_DIFFUSE:
 					texture.type = TextureType::Albedo;
-					mAlbedoMap = texture.texture2d;
+					mMaterial->mAlbedoMap = texture.texture2d;
 					break;
 				case aiTextureType_SPECULAR:
 					texture.type = TextureType::Specular;
@@ -271,7 +271,7 @@ namespace HEngine
 					break;
 				case aiTextureType_AMBIENT:
 					texture.type = TextureType::AmbientOcclusion;
-					mAoMap = texture.texture2d;
+					mMaterial->mAoMap = texture.texture2d;
 					break;
 				//case aiTextureType_BASE_COLOR:
 				//	texture.type = TextureType::Albedo;
@@ -279,7 +279,7 @@ namespace HEngine
 				//	break;
 				case aiTextureType_NORMALS:
 					texture.type = TextureType::Normal;
-					mNormalMap = texture.texture2d;
+					mMaterial->mNormalMap = texture.texture2d;
 					break;
 				case aiTextureType_EMISSIVE:
 					texture.type = TextureType::Emission;

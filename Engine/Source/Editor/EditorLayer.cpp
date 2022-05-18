@@ -350,7 +350,7 @@ namespace HEngine
 			ImGui::SetColumnWidth(0, 100.0f);
 			ImGui::Text("Camera Speed");
 			ImGui::NextColumn();
-			ImGui::SliderFloat("##Camera Speed", &mEditorCamera.mCameraSpeed, 0.1f, 5.0f);
+			ImGui::SliderFloat("##Camera Speed", &mEditorCamera.mCameraSpeed, 0.1f, 10.0f);
 			ImGui::EndColumns();
 
 			bool open = ImGuiWrapper::TreeNodeExStyle1((void*)"Physics Settings", "Physics Settings");

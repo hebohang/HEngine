@@ -70,7 +70,10 @@ namespace HEngine
             glTextureParameteri(mRendererID, GL_TEXTURE_WRAP_S, GL_REPEAT);
             glTextureParameteri(mRendererID, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
-            glTextureSubImage2D(mRendererID, 0, 0, 0, mWidth, mHeight, dataFormat, GL_UNSIGNED_BYTE, data);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+            GLenum type = internalFormat == GL_RGBA16F ? GL_FLOAT : GL_UNSIGNED_BYTE;
+            glTextureSubImage2D(mRendererID, 0, 0, 0, mWidth, mHeight, dataFormat, type, data);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
 
             stbi_image_free(data);
         }

@@ -40,7 +40,7 @@ namespace HEngine
 
 	void Mesh::LoadModel(const std::string& path)
 	{
-		mMaterial.resize(20);
+		mMaterial.resize(200);
 
 		Assimp::Importer importer;
 		std::string standardPath = std::regex_replace(path, std::regex("\\\\"), "/");
@@ -243,15 +243,15 @@ namespace HEngine
 			bool skip = false;
 			//if (!mMaterial[subMeshIndex]->mTextures.empty())
 			//{
-			//	for (unsigned int j = 0; j < mMaterial[subMeshIndex]->mTextures.size(); j++)
-			//	{
-			//		if (std::strcmp(mMaterial[subMeshIndex]->mTextures[j].path.data(), str.C_Str()) == 0)
-			//		{
-			//			textures.push_back(mMaterial[subMeshIndex]->mTextures[j]);
-			//			skip = true; // a texture with the same filepath has already been loaded, continue to next one. (optimization)
-			//			break;
-			//		}
-			//	}
+			for (unsigned int j = 0; j < mMaterial[subMeshIndex]->mTextures.size(); j++)
+			{
+				if (std::strcmp(mMaterial[subMeshIndex]->mTextures[j].path.data(), str.C_Str()) == 0)
+				{
+					textures.push_back(mMaterial[subMeshIndex]->mTextures[j]);
+					skip = true; // a texture with the same filepath has already been loaded, continue to next one. (optimization)
+					break;
+				}
+			}
 			//}
 			if (!skip)
 			{   // if texture hasn't been loaded already, load it
@@ -274,6 +274,7 @@ namespace HEngine
 				case aiTextureType_DIFFUSE:
 					texture.type = TextureType::Albedo;
 					mMaterial[subMeshIndex]->mAlbedoMap = texture.texture2d;
+					mMaterial[subMeshIndex]->bUseAlbedoMap = true;
 					break;
 				case aiTextureType_SPECULAR:
 					texture.type = TextureType::Specular;
@@ -284,6 +285,7 @@ namespace HEngine
 				case aiTextureType_AMBIENT:
 					texture.type = TextureType::AmbientOcclusion;
 					mMaterial[subMeshIndex]->mAoMap = texture.texture2d;
+					mMaterial[subMeshIndex]->bUseAoMap = true;
 					break;
 				//case aiTextureType_BASE_COLOR:
 				//	texture.type = TextureType::Albedo;
@@ -292,6 +294,7 @@ namespace HEngine
 				case aiTextureType_NORMALS:
 					texture.type = TextureType::Normal;
 					mMaterial[subMeshIndex]->mNormalMap = texture.texture2d;
+					mMaterial[subMeshIndex]->bUseNormalMap = true;
 					break;
 				case aiTextureType_EMISSIVE:
 					texture.type = TextureType::Emission;

@@ -42,14 +42,16 @@ namespace HEngine
 	public:
 		SubMesh(const std::vector<StaticVertex>& vertices, const std::vector<uint32_t> indices);
 		SubMesh(const std::vector<SkinnedVertex>& vertices, const std::vector<uint32_t> indices);
-		SubMesh(const std::vector<StaticVertex>& vertices, const std::vector<uint32_t> indices, const std::vector<MaterialTexture>& textures);
-		SubMesh(const std::vector<SkinnedVertex>& vertices, const std::vector<uint32_t> indices, const std::vector<MaterialTexture>& textures);
+		SubMesh(const std::vector<StaticVertex>& vertices, const std::vector<uint32_t> indices, const std::vector<MaterialTexture>& textures, uint32_t materialIndex = 0);
+		SubMesh(const std::vector<SkinnedVertex>& vertices, const std::vector<uint32_t> indices, const std::vector<MaterialTexture>& textures, uint32_t materialIndex = 0);
 
 		void Draw(const glm::mat4& transform, const glm::vec3& cameraPos, const Ref<Shader>& shader, int entityID, Mesh* model);
 
 		void Draw();
 	private:
 		void SetupMesh(int entityID);
+	public:
+		uint32_t mMaterialIndex;
 	private:
 		std::vector<MaterialTexture> mTextures;
 

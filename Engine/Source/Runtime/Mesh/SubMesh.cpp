@@ -30,8 +30,8 @@ namespace HEngine
 		mVertexArray->SetIndexBuffer(mIB);
 	}
 
-	SubMesh::SubMesh(const std::vector<StaticVertex>& vertices, const std::vector<uint32_t> indices, const std::vector<MaterialTexture>& textures)
-		: mStaticVertices(vertices), mIndices(indices), mTextures(textures)
+	SubMesh::SubMesh(const std::vector<StaticVertex>& vertices, const std::vector<uint32_t> indices, const std::vector<MaterialTexture>& textures, uint32_t materialIndex)
+		: mStaticVertices(vertices), mIndices(indices), mTextures(textures), mMaterialIndex(materialIndex)
 	{
 		mVertexArray = VertexArray::Create();
 
@@ -76,8 +76,8 @@ namespace HEngine
 		mVertexArray->SetIndexBuffer(mIB);
 	}
 
-	SubMesh::SubMesh(const std::vector<SkinnedVertex>& vertices, const std::vector<uint32_t> indices, const std::vector<MaterialTexture>& textures)
-		: mSkinnedVertices(vertices), mIndices(indices), mTextures(textures)
+	SubMesh::SubMesh(const std::vector<SkinnedVertex>& vertices, const std::vector<uint32_t> indices, const std::vector<MaterialTexture>& textures, uint32_t materialIndex)
+		: mSkinnedVertices(vertices), mIndices(indices), mTextures(textures), mMaterialIndex(materialIndex)
 	{
 		mVertexArray = VertexArray::Create();
 

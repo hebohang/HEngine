@@ -71,9 +71,9 @@ namespace HEngine
 			aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
 
 			if (bAnimated)
-				mSubMeshes.push_back(ProcessMesh<SkinnedVertex>(mesh, scene));
+				mSubMeshes.push_back(ProcessMesh<SkinnedVertex>(mesh, scene, i));
 			else
-				mSubMeshes.push_back(ProcessMesh<StaticVertex>(mesh, scene));
+				mSubMeshes.push_back(ProcessMesh<StaticVertex>(mesh, scene, i));
 		}
 
 		for (uint32_t i = 0; i < node->mNumChildren; ++i)
@@ -83,7 +83,7 @@ namespace HEngine
 	}
 
 	template <typename Vertex>
-	SubMesh Mesh::ProcessMesh(aiMesh* mesh, const aiScene* scene)
+	SubMesh Mesh::ProcessMesh(aiMesh* mesh, const aiScene* scene, uint32_t subMeshIndex)
 	{
 		std::vector<Vertex> vertices;
 		std::vector<uint32_t> indices;
@@ -189,7 +189,7 @@ namespace HEngine
 					HE_CORE_ASSERT(vertexId <= vertices.size());
 					for (int i = 0; i < MAX_BONE_INFLUENCE; ++i)
 					{
-						if ((* reinterpret_cast<SkinnedVertex*>(&vertices[vertexId])).mBoneIDs[i] < 0)
+						if ((*reinterpret_cast<SkinnedVertex*>(&vertices[vertexId])).mBoneIDs[i] < 0)
 						{
 							(*reinterpret_cast<SkinnedVertex*>(&vertices[vertexId])).mWeights[i] = weight;
 							(*reinterpret_cast<SkinnedVertex*>(&vertices[vertexId])).mBoneIDs[i] = boneID;
@@ -219,7 +219,7 @@ namespace HEngine
 			loadTexture(static_cast<aiTextureType>(type));
 		}
 
-		return SubMesh(vertices, indices, textures);
+		return SubMesh(vertices, indices, textures, subMeshIndex);
 	}
 
 	std::optional<std::vector<MaterialTexture>> Mesh::loadMaterialTextures(aiMaterial* mat, aiTextureType type)

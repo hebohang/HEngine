@@ -49,7 +49,7 @@ namespace HEngine
 		void ProcessNode(aiNode* node, const aiScene* scene);
 
 		template <typename Vertex>
-		SubMesh ProcessMesh(aiMesh* mesh, const aiScene* scene);
+		SubMesh ProcessMesh(aiMesh* mesh, const aiScene* scene, uint32_t subMeshIndex);
 		std::optional<std::vector<MaterialTexture>> loadMaterialTextures(aiMaterial* mat, aiTextureType type);
 	public:
 		// Animation

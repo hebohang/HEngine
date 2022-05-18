@@ -223,7 +223,7 @@ namespace HEngine
 			if (maps) textures.insert(textures.end(), maps.value().begin(), maps.value().end());
 		};
 
-		for (uint32_t type = aiTextureType_NONE; type < aiTextureType_REFLECTION; type++)
+		for (uint32_t type = aiTextureType_NONE; type < aiTextureType_AMBIENT_OCCLUSION; type++)
 		{
 			loadTexture(static_cast<aiTextureType>(type));
 		}
@@ -272,45 +272,40 @@ namespace HEngine
 				switch (type)
 				{
 				case aiTextureType_DIFFUSE:
+				case aiTextureType_BASE_COLOR:
 					texture.type = TextureType::Albedo;
 					mMaterial[subMeshIndex]->mAlbedoMap = texture.texture2d;
 					mMaterial[subMeshIndex]->bUseAlbedoMap = true;
-					break;
-				case aiTextureType_SPECULAR:
-					texture.type = TextureType::Specular;
 					break;
 				case aiTextureType_HEIGHT:
 					texture.type = TextureType::Height;
 					break;
 				case aiTextureType_AMBIENT:
+				case aiTextureType_AMBIENT_OCCLUSION:
 					texture.type = TextureType::AmbientOcclusion;
 					mMaterial[subMeshIndex]->mAoMap = texture.texture2d;
 					mMaterial[subMeshIndex]->bUseAoMap = true;
 					break;
-				//case aiTextureType_BASE_COLOR:
-				//	texture.type = TextureType::Albedo;
-				//	mAlbedoMap = texture.texture2d;
-				//	break;
 				case aiTextureType_NORMALS:
+				case aiTextureType_NORMAL_CAMERA:
 					texture.type = TextureType::Normal;
 					mMaterial[subMeshIndex]->mNormalMap = texture.texture2d;
 					mMaterial[subMeshIndex]->bUseNormalMap = true;
 					break;
+				case aiTextureType_SPECULAR:
+				case aiTextureType_METALNESS:
+					texture.type = TextureType::Metalness;
+					mMaterial[subMeshIndex]->mMetallicMap = texture.texture2d;
+					mMaterial[subMeshIndex]->bUseMetallicMap = true;
+					break;
+				case aiTextureType_DIFFUSE_ROUGHNESS:
+					texture.type = TextureType::Roughness;
+					mMaterial[subMeshIndex]->mRoughnessMap = texture.texture2d;
+					mMaterial[subMeshIndex]->bUseRoughnessMap = true;
+					break;
 				case aiTextureType_EMISSIVE:
 					texture.type = TextureType::Emission;
 					break;
-				//case aiTextureType_METALNESS:
-				//	texture.type = TextureType::Metalness;
-				//	mMetallicMap = texture.texture2d;
-				//	break;
-				//case aiTextureType_DIFFUSE_ROUGHNESS:
-				//	texture.type = TextureType::Roughness;
-				//	mRoughnessMap = texture.texture2d;
-				//	break;
-				//case aiTextureType_AMBIENT_OCCLUSION:
-				//	texture.type = TextureType::AmbientOcclusion;
-				//	mAoMap = texture.texture2d;
-				//	break;
 				}
 				texture.path = str.C_Str();
 				textures.push_back(texture);

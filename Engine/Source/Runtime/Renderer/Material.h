@@ -41,8 +41,8 @@ namespace HEngine
     class Material
     {
     public:
-        Material() = default;
-        Material(Ref<Shader> shader) : mShader(shader) {}
+        Material() { Initialize(); };
+        Material(Ref<Shader> shader) : mShader(shader) { Initialize(); };
     public:
         void SetShader(Ref<Shader> shader) { mShader = shader; }
         [[nodiscard]] Ref<Shader> GetShader() { return mShader; }
@@ -54,6 +54,8 @@ namespace HEngine
         }
 
         [[nodiscard]] Ref<Texture2D> GetTexture(TextureType type) { return mTexMap[type]; }
+    private:
+        void Initialize();
     public:
         std::vector<MaterialTexture> mTextures;
 
@@ -71,7 +73,7 @@ namespace HEngine
         Ref<Texture2D> mMetallicMap = Library<Texture2D>::GetInstance().Get("DefaultMetallicRoughness");
 
         bool bUseRoughnessMap = false;
-        float roughness = 0.1f;
+        float roughness = 0.9f;
         Ref<Texture2D> roughnessRGBA = Texture2D::Create(1, 1);
         Ref<Texture2D> mRoughnessMap = Library<Texture2D>::GetInstance().Get("DefaultMetallicRoughness");
 

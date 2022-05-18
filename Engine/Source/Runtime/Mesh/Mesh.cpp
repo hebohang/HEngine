@@ -40,6 +40,8 @@ namespace HEngine
 
 	void Mesh::LoadModel(const std::string& path)
 	{
+		mMaterial.resize(20);
+
 		Assimp::Importer importer;
 		std::string standardPath = std::regex_replace(path, std::regex("\\\\"), "/");
 		std::string standardFullPath = std::regex_replace(AssetManager::GetFullPath(path).string(), std::regex("\\\\"), "/");
@@ -63,6 +65,8 @@ namespace HEngine
 		}
 		else
 			ProcessNode(scene->mRootNode, scene, subMeshIndex);
+
+		mMaterial.resize(subMeshIndex);
 	}
 
 	void Mesh::ProcessNode(aiNode* node, const aiScene* scene, uint32_t& subMeshIndex)
@@ -75,6 +79,8 @@ namespace HEngine
 				mSubMeshes.push_back(ProcessMesh<SkinnedVertex>(mesh, scene, subMeshIndex));
 			else
 				mSubMeshes.push_back(ProcessMesh<StaticVertex>(mesh, scene, subMeshIndex));
+
+			subMeshIndex++;
 		}
 
 		for (uint32_t i = 0; i < node->mNumChildren; ++i)
@@ -210,6 +216,8 @@ namespace HEngine
 		// specular: texture_specularN
 		// normal: texture_normalN
 
+		mMaterial[subMeshIndex] = CreateRef<Material>();
+
 		const auto& loadTexture = [&](aiTextureType type) {
 			auto maps = loadMaterialTextures(material, type, subMeshIndex);
 			if (maps) textures.insert(textures.end(), maps.value().begin(), maps.value().end());
@@ -225,7 +233,6 @@ namespace HEngine
 
 	std::optional<std::vector<MaterialTexture>> Mesh::loadMaterialTextures(aiMaterial* mat, aiTextureType type, uint32_t& subMeshIndex)
 	{
-		mMaterial.push_back(CreateRef<Material>());
 		std::vector<MaterialTexture> textures;
 		for (unsigned int i = 0; i < mat->GetTextureCount(type); i++)
 		{
@@ -234,15 +241,18 @@ namespace HEngine
 
 			// check if texture was loaded before and if so, continue to next iteration: skip loading a new texture
 			bool skip = false;
-			for (unsigned int j = 0; j < mMaterial[subMeshIndex]->mTextures.size(); j++)
-			{
-				if (std::strcmp(mMaterial[subMeshIndex]->mTextures[j].path.data(), str.C_Str()) == 0)
-				{
-					textures.push_back(mMaterial[subMeshIndex]->mTextures[j]);
-					skip = true; // a texture with the same filepath has already been loaded, continue to next one. (optimization)
-					break;
-				}
-			}
+			//if (!mMaterial[subMeshIndex]->mTextures.empty())
+			//{
+			//	for (unsigned int j = 0; j < mMaterial[subMeshIndex]->mTextures.size(); j++)
+			//	{
+			//		if (std::strcmp(mMaterial[subMeshIndex]->mTextures[j].path.data(), str.C_Str()) == 0)
+			//		{
+			//			textures.push_back(mMaterial[subMeshIndex]->mTextures[j]);
+			//			skip = true; // a texture with the same filepath has already been loaded, continue to next one. (optimization)
+			//			break;
+			//		}
+			//	}
+			//}
 			if (!skip)
 			{   // if texture hasn't been loaded already, load it
 				MaterialTexture texture;

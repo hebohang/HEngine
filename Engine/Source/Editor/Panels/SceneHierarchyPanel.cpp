@@ -618,11 +618,15 @@ namespace HEngine
 
 				if (ImGuiWrapper::TreeNodeExStyle2((void*)"Material", "Material"))
 				{
-					const auto& materialNode = [&model = component.mMesh](const char* name, Ref<Texture2D>& tex, void(*func)(Ref<Material>& mat)) {
+					uint32_t matIndex = 0;
+
+					const auto& materialNode = [&matIndex = matIndex](const char* name, Ref<Material>& material, Ref<Texture2D>& tex, void(*func)(Ref<Material>& mat)) {
+						std::string label = std::string(name) + std::to_string(matIndex);
+						ImGui::PushID(label.c_str());
+
 						if (ImGui::TreeNode((void*)name, name))
 						{
 							ImGui::Image((ImTextureID)tex->GetRendererID(), ImVec2(64, 64), ImVec2{ 0, 1 }, ImVec2{ 1, 0 });
-							static bool use = false;
 							if (ImGui::BeginDragDropTarget())
 							{
 								if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
@@ -636,99 +640,116 @@ namespace HEngine
 								ImGui::EndDragDropTarget();
 							}
 
-							func(model->mMaterial[0]);
+							func(material);
 							
 							ImGui::TreePop();
 						}
+
+						ImGui::PopID();
 					};
 
-					materialNode("Albedo", component.mMesh->mMaterial[0]->mAlbedoMap, [](Ref<Material>& mat) {
-						ImGui::SameLine();
-						ImGui::Checkbox("Use", &mat->bUseAlbedoMap);
+					for (auto& material : component.mMesh->mMaterial)
+					{
+						std::string label = std::string("material") + std::to_string(matIndex);
+						ImGui::PushID(label.c_str());
 
-						if (ImGui::ColorEdit4("##albedo", glm::value_ptr(mat->col)))
+						if (ImGui::TreeNode((void*)label.c_str(), std::to_string(matIndex).c_str()))
 						{
-							if (!mat->bUseAlbedoMap)
-							{
-								unsigned char data[4];
-								for (size_t i = 0; i < 4; i++)
+							materialNode("Albedo", material, material->mAlbedoMap, [](Ref<Material>& mat) {
+								ImGui::SameLine();
+								ImGui::Checkbox("Use", &mat->bUseAlbedoMap);
+
+								if (ImGui::ColorEdit4("##albedo", glm::value_ptr(mat->col)))
 								{
-									data[i] = (unsigned char)(mat->col[i] * 255.0f);
-								}
-								mat->albedoRGBA->SetData(data, sizeof(unsigned char) * 4);
-							}
-						}
-					});
-
-					materialNode("Normal", component.mMesh->mMaterial[0]->mNormalMap, [](Ref<Material>& mat) {
-						ImGui::SameLine();
-						ImGui::Checkbox("Use", &mat->bUseNormalMap);
-					});
-
-					materialNode("Metallic", component.mMesh->mMaterial[0]->mMetallicMap, [](Ref<Material>& mat) {
-						ImGui::SameLine();
-
-						if (ImGui::BeginTable("Metallic", 1))
-						{
-							ImGui::TableNextRow();
-							ImGui::TableNextColumn();
-
-							ImGui::Checkbox("Use", &mat->bUseMetallicMap);
-
-							ImGui::TableNextRow();
-							ImGui::TableNextColumn();
-							if (ImGui::SliderFloat("##Metallic", &mat->metallic, 0.0f, 1.0f))
-							{
-								if (!mat->bUseMetallicMap)
-								{
-									unsigned char data[4];
-									for (size_t i = 0; i < 3; i++)
+									if (!mat->bUseAlbedoMap)
 									{
-										data[i] = (unsigned char)(mat->metallic * 255.0f);
+										unsigned char data[4];
+										for (size_t i = 0; i < 4; i++)
+										{
+											data[i] = (unsigned char)(mat->col[i] * 255.0f);
+										}
+										mat->albedoRGBA->SetData(data, sizeof(unsigned char) * 4);
 									}
-									data[3] = (unsigned char)255.0f;
-									mat->metallicRGBA->SetData(data, sizeof(unsigned char) * 4);
 								}
-							}
+								});
 
-							ImGui::EndTable();
-						}
-					});
+							materialNode("Normal", material, material->mNormalMap, [](Ref<Material>& mat) {
+								ImGui::SameLine();
+								ImGui::Checkbox("Use", &mat->bUseNormalMap);
+								});
 
-					materialNode("Roughness", component.mMesh->mMaterial[0]->mRoughnessMap, [](Ref<Material>& mat) {
-						ImGui::SameLine();
-						
-						if (ImGui::BeginTable("Roughness", 1))
-						{
-							ImGui::TableNextRow();
-							ImGui::TableNextColumn();
+							materialNode("Metallic", material, material->mMetallicMap, [](Ref<Material>& mat) {
+								ImGui::SameLine();
 
-							ImGui::Checkbox("Use", &mat->bUseRoughnessMap);
-
-							ImGui::TableNextRow();
-							ImGui::TableNextColumn();
-							if (ImGui::SliderFloat("##Roughness", &mat->roughness, 0.0f, 1.0f))
-							{
-								if (!mat->bUseRoughnessMap)
+								if (ImGui::BeginTable("Metallic", 1))
 								{
-									unsigned char data[4];
-									for (size_t i = 0; i < 3; i++)
+									ImGui::TableNextRow();
+									ImGui::TableNextColumn();
+
+									ImGui::Checkbox("Use", &mat->bUseMetallicMap);
+
+									ImGui::TableNextRow();
+									ImGui::TableNextColumn();
+									if (ImGui::SliderFloat("##Metallic", &mat->metallic, 0.0f, 1.0f))
 									{
-										data[i] = (unsigned char)(mat->roughness * 255.0f);
+										if (!mat->bUseMetallicMap)
+										{
+											unsigned char data[4];
+											for (size_t i = 0; i < 3; i++)
+											{
+												data[i] = (unsigned char)(mat->metallic * 255.0f);
+											}
+											data[3] = (unsigned char)255.0f;
+											mat->metallicRGBA->SetData(data, sizeof(unsigned char) * 4);
+										}
 									}
-									data[3] = (unsigned char)255.0f;
-									mat->roughnessRGBA->SetData(data, sizeof(unsigned char) * 4);
+
+									ImGui::EndTable();
 								}
-							}
+								});
 
-							ImGui::EndTable();
+							materialNode("Roughness", material, material->mRoughnessMap, [](Ref<Material>& mat) {
+								ImGui::SameLine();
+
+								if (ImGui::BeginTable("Roughness", 1))
+								{
+									ImGui::TableNextRow();
+									ImGui::TableNextColumn();
+
+									ImGui::Checkbox("Use", &mat->bUseRoughnessMap);
+
+									ImGui::TableNextRow();
+									ImGui::TableNextColumn();
+									if (ImGui::SliderFloat("##Roughness", &mat->roughness, 0.0f, 1.0f))
+									{
+										if (!mat->bUseRoughnessMap)
+										{
+											unsigned char data[4];
+											for (size_t i = 0; i < 3; i++)
+											{
+												data[i] = (unsigned char)(mat->roughness * 255.0f);
+											}
+											data[3] = (unsigned char)255.0f;
+											mat->roughnessRGBA->SetData(data, sizeof(unsigned char) * 4);
+										}
+									}
+
+									ImGui::EndTable();
+								}
+								});
+
+							materialNode("Ambient Occlusion", material, material->mAoMap, [](Ref<Material>& mat) {
+								ImGui::SameLine();
+								ImGui::Checkbox("Use", &mat->bUseAoMap);
+								});
+
+							ImGui::TreePop();
 						}
-					});
 
-					materialNode("Ambient Occlusion", component.mMesh->mMaterial[0]->mAoMap, [](Ref<Material>& mat) {
-						ImGui::SameLine();
-						ImGui::Checkbox("Use", &mat->bUseAoMap);
-					});
+						matIndex++;
+
+						ImGui::PopID();
+					}
 
 					ImGui::TreePop();
 				}

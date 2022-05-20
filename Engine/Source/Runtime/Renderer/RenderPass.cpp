@@ -20,4 +20,19 @@ namespace HEngine
         HE_CORE_ASSERT(false, "Unknown RendererAPI!");
         return;
     }
+
+    uint32_t RenderPass::ExcuteAndReturnFinalTex()
+    {
+        uint32_t width = mSpecification.TargetFramebuffer->GetSpecification().Width;
+        uint32_t height = mSpecification.TargetFramebuffer->GetSpecification().Height;
+        PostProcessing::mFramebuffer->Bind();
+        PostProcessing::mFramebuffer->Resize(width, height);
+
+        uint32_t final = 0;
+        for (auto& effect : mPostProcessings)
+        {
+            final = effect->ExcuteAndReturnFinalTex(mSpecification.TargetFramebuffer);
+        }
+        return final;
+    }
 }

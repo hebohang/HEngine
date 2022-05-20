@@ -22,15 +22,8 @@ namespace HEngine
 		const RenderPassSpecification& GetSpecification() const { return mSpecification; };
 
 		void AddPostProcessing(PostProcessingType type);
-		uint32_t ExcuteAndReturnFinalTex()
-		{
-			uint32_t final = 0;
-			for (auto& effect : mPostProcessings)
-			{
-				final = effect->ExcuteAndReturnFinalTex(mSpecification.TargetFramebuffer);
-			}
-			return final;
-		}
+
+		uint32_t ExcuteAndReturnFinalTex();
 	private:
 		RenderPassSpecification mSpecification;
 		std::vector<Scope<PostProcessing>> mPostProcessings;

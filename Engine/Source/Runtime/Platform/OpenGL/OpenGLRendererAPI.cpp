@@ -58,6 +58,12 @@ namespace HEngine
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
 		glEnable(GL_DEPTH_TEST);
+		glDepthFunc(GL_LESS);
+
+		glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
+		glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+		glStencilMask(0x00); // forbidden to write in stencil
+
 		glEnable(GL_LINE_SMOOTH);
 
 		glEnable(GL_MULTISAMPLE);
@@ -102,9 +108,9 @@ namespace HEngine
 		glClear(GL_STENCIL_BUFFER_BIT);
 	}
 
-	void OpenGLRendererAPI::DepthMask(int32_t MaskBit)
+	void OpenGLRendererAPI::DepthMask(bool maskFlag)
 	{
-		if (MaskBit) glDepthMask(GL_TRUE);
+		if (maskFlag) glDepthMask(GL_TRUE);
 		else glDepthMask(GL_FALSE);
 	}
 
@@ -149,6 +155,13 @@ namespace HEngine
 	void OpenGLRendererAPI::SetStencilFunc(StencilFunc stencilFunc, int32_t ref, int32_t mask)
 	{
 		glStencilFunc(Utils::StencilFuncToOpenGLStencilFunc(stencilFunc), ref, mask);
+	}
+
+	void OpenGLRendererAPI::StencilMask(uint32_t mask)
+	{
+		// glStencilMask(0x00): forbidden to write in stencil
+		// glStencilMask(0xFF): allow to write in stencil
+		glStencilMask(mask);
 	}
 
 	void OpenGLRendererAPI::SetFrontOrBackStencilOp(int32_t FrontOrBack, StencilOp stencilFail, StencilOp depthFail, StencilOp depthSuccess)

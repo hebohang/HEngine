@@ -43,9 +43,9 @@ namespace HEngine
 		}
 
 		//Open/Close Depth Write
-		static void DepthMask(int32_t MaskBit)
+		static void DepthMask(bool maskFlag)
 		{
-			sRendererAPI->DepthMask(MaskBit);
+			sRendererAPI->DepthMask(maskFlag);
 		}
 
 		//Open/Close Depth Test
@@ -89,6 +89,11 @@ namespace HEngine
 		static void ClearStencil()
 		{
 			sRendererAPI->ClearStencil();
+		}
+
+		static void StencilMask(uint32_t mask)
+		{
+			sRendererAPI->StencilMask(mask);
 		}
 
 		//cull

@@ -67,7 +67,7 @@ namespace HEngine
     void EditorLayer::OnAttach()
     {
         FramebufferSpecification fbSpec;
-		fbSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RED_INTEGER, FramebufferTextureFormat::Depth };
+		fbSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RED_INTEGER, FramebufferTextureFormat::DEPTH24STENCIL8 };
         fbSpec.Width = 1280;
         fbSpec.Height = 720;
 		fbSpec.Samples = 4;

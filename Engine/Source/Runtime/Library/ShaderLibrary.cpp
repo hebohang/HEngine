@@ -18,6 +18,8 @@ namespace HEngine
         Add("IBL_pbr_static", Shader::CreateNative(AssetManager::GetFullPath("Shaders/IBL/pbr_static.glsl")));
         Add("IBL_pbr_anim", Shader::CreateNative(AssetManager::GetFullPath("Shaders/IBL/pbr_anim.glsl")));
         Add("IBL_prefilter", Shader::CreateNative(AssetManager::GetFullPath("Shaders/IBL/prefilter.glsl")));
+
+        Add("Post_Outline", Shader::CreateNative(AssetManager::GetFullPath("Shaders/PostProcessing/Outline.glsl")));
     }
 
     Ref<Shader> Library<Shader>::GetDefaultShader()

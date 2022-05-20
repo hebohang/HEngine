@@ -4,6 +4,7 @@
 #include "Runtime/Renderer/Renderer2D.h"
 #include "Runtime/Renderer/Renderer3D.h"
 #include "Runtime/Platform/OpenGL/OpenGLShader.h"
+#include "Runtime/Renderer/PostProcessing.h"
 
 #include "Runtime/Core/AppFramework/Application.h"
 
@@ -16,6 +17,7 @@ namespace HEngine
         RenderCommand::Init();
         Renderer3D::Init();
         Renderer2D::Init();
+        PostProcessing::Init();
     }
 
 	void Renderer::Shutdown()

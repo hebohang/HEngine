@@ -23,7 +23,7 @@ namespace HEngine
 
 		virtual void ClearAttachment(uint32_t attachmentIndex, int value) override;
 
-        virtual uint32_t GetColorAttachmentRendererID(uint32_t index = 0) const override; // { HE_CORE_ASSERT(index < mColorAttachments.size()); return mColorAttachments[index]; }
+        virtual uint32_t GetColorAttachmentRendererID(uint32_t index = 0) const override { HE_CORE_ASSERT(index < mColorAttachments.size()); return mColorAttachments[index]; }
 
         virtual const FramebufferSpecification& GetSpecification() const override { return mSpecification; }
 

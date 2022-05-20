@@ -1,9 +1,10 @@
 #include "hepch.h"
+
 #include "Runtime/Resource/ConfigManager/ConfigManager.h"
 
 namespace HEngine
 {
-    glm::vec2 ConfigManager::mViewportSize = { 0.0f, 0.0f };
+    glm::vec2 ConfigManager::mViewportSize = { 1280.0f, 720.0f };
 
     ConfigManager::ConfigManager()
     {

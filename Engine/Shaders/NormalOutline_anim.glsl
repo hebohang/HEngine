@@ -31,8 +31,8 @@ void main()
 
     vec4 localPosition = boneTransform * vec4(a_Pos, 1.0);
 
-	vec3 FragPos = (model * localPosition).xyz;
-    gl_Position = u_ViewProjection * vec4(FragPos + a_Normal * 0.1, 1.0);
+	vec4 FragPos = model * localPosition;
+    gl_Position = u_ViewProjection * vec4(FragPos.rgb + a_Normal * 0.1, FragPos.a);
 }
 
 #type fragment

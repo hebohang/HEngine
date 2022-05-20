@@ -60,8 +60,10 @@ namespace HEngine
 		glEnable(GL_DEPTH_TEST);
 		glDepthFunc(GL_LESS);
 
-		glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
+		glEnable(GL_STENCIL_TEST);
 		glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+		glStencilFunc(GL_ALWAYS, 0, 0xFF);
+		//glStencilMask(0xFF);
 		glStencilMask(0x00); // forbidden to write in stencil
 
 		glEnable(GL_LINE_SMOOTH);
@@ -82,7 +84,7 @@ namespace HEngine
 
 	void OpenGLRendererAPI::Clear()
 	{
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 	}
 
 	void OpenGLRendererAPI::DrawIndexed(const Ref<VertexArray>& vertexArray, uint32_t indexCount)
@@ -114,9 +116,9 @@ namespace HEngine
 		else glDepthMask(GL_FALSE);
 	}
 
-	void OpenGLRendererAPI::DepthTest(int32_t Bit)
+	void OpenGLRendererAPI::DepthTest(bool enable)
 	{
-		if (Bit) glEnable(GL_DEPTH_TEST);
+		if (enable) glEnable(GL_DEPTH_TEST);
 		else glDisable(GL_DEPTH_TEST);
 	}
 

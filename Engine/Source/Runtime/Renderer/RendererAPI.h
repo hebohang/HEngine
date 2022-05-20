@@ -50,7 +50,7 @@ namespace HEngine
 		virtual void SetLineWidth(float width) = 0;
 
         //depth
-        virtual void DepthTest(int32_t Bit) = 0;
+        virtual void DepthTest(bool enable) = 0;
         virtual void DepthMask(bool maskFlag) = 0;
         virtual void DepthFunc(DepthComp comp) = 0;
 

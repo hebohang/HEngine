@@ -49,9 +49,9 @@ namespace HEngine
 		}
 
 		//Open/Close Depth Test
-		static void DepthTest(int32_t Bit)
+		static void DepthTest(bool enable)
 		{
-			sRendererAPI->DepthTest(Bit);
+			sRendererAPI->DepthTest(enable);
 		}
 
 		static void DepthFunc(DepthComp comp)

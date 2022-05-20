@@ -4,6 +4,7 @@
 #include "Runtime/EcsFramework/Component/ComponentGroup.h"
 #include "Runtime/EcsFramework/Entity/Entity.h"
 #include "Runtime/Renderer/Renderer3D.h"
+#include "Runtime/Renderer/RenderCommand.h"
 #include "Runtime/Library/ShaderLibrary.h"
 
 namespace HEngine
@@ -122,7 +123,17 @@ namespace HEngine
 			auto& transform = entity.GetComponent<TransformComponent>();
 			auto& mesh = entity.GetComponent<MeshComponent>();
 
+			RenderCommand::SetStencilFunc(StencilFunc::ALWAYS, 1, 0xFF);
+			RenderCommand::StencilMask(0xFF);
 			Renderer3D::DrawModel(transform.GetTransform(), camera.GetPosition(), mesh, (int)e);
+
+			RenderCommand::SetStencilFunc(StencilFunc::NOTEQUAL, 1, 0xFF);
+			RenderCommand::StencilMask(0x00);
+			RenderCommand::DepthTest(false);
+			mesh.mMesh->Draw(transform.GetTransform(), camera.GetPosition(), Library<Shader>::GetInstance().Get("NormalOutline"), (int)e);
+			RenderCommand::StencilMask(0xFF);
+			RenderCommand::SetStencilFunc(StencilFunc::ALWAYS, 0, 0xFF);
+			RenderCommand::DepthTest(true);
 		}
 
 		Renderer3D::EndScene();

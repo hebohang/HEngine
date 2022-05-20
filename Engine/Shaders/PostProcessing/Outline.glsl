@@ -34,6 +34,11 @@ mat3 sy = mat3(
     1.0, 0.0, -1.0 
 );
 
+float luminance(vec3 color)
+{
+	return 0.2125 * color.r + 0.7154 * color.g + 0.0721 * color.b;
+}
+
 void main()
 {
     vec3 diffuse = texture(screenTexture, TexCoords.st).rgb;
@@ -43,7 +48,7 @@ void main()
         for (int j=0; j<3; j++) 
 		{
             vec3 texSample = texelFetch(screenTexture, ivec2(gl_FragCoord) + ivec2(i-1,j-1), 0).rgb;
-            I[i][j] = length(texSample); 
+            I[i][j] = luminance(texSample) * 3;
 		}
 	}
 

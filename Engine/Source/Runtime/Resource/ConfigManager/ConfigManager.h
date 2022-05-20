@@ -23,6 +23,7 @@ namespace HEngine
         [[nodiscard]] const std::filesystem::path& GetResourcesFolder() const;
 
         static glm::vec2 mViewportSize;
+        static int selectedEntity;
     private:
         std::filesystem::path mRootFolder;
         std::filesystem::path mAssetsFolder;

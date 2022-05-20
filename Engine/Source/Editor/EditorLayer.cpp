@@ -185,8 +185,16 @@ namespace HEngine
 		}
 
 		Entity selectedEntity = mSceneHierarchyPanel.GetSelectedEntity();
-		if (selectedEntity && Input::IsKeyPressed(HE_KEY_F))
-			mEditorCamera.SetCenter(selectedEntity.GetComponent<TransformComponent>().Translation);
+		if (selectedEntity)
+		{
+			ConfigManager::selectedEntity = (int)(uint32_t)selectedEntity;
+			if (Input::IsKeyPressed(HE_KEY_F))
+				mEditorCamera.SetCenter(selectedEntity.GetComponent<TransformComponent>().Translation);
+		}
+		else
+		{
+			ConfigManager::selectedEntity = -1;
+		}
 
 		OnOverlayRender();
 

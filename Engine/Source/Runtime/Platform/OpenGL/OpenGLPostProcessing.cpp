@@ -22,7 +22,6 @@ namespace HEngine
 
     uint32_t OpenGLPostProcessing::DoOutline(const Ref<Framebuffer>& fb)
     {
-
         uint32_t width = fb->GetSpecification().Width;
         uint32_t height = fb->GetSpecification().Height;
         mFramebuffer->Bind();
@@ -32,6 +31,22 @@ namespace HEngine
 
         Library<Shader>::GetInstance().Get("Post_Outline")->Bind();
         Library<Shader>::GetInstance().Get("Post_Outline")->SetInt("screenTexture", 0);
+        DoPostProcessing();
+
+        return mFramebuffer->GetColorAttachmentRendererID();
+    }
+
+    uint32_t OpenGLPostProcessing::DoCartoon(const Ref<Framebuffer>& fb)
+    {
+        uint32_t width = fb->GetSpecification().Width;
+        uint32_t height = fb->GetSpecification().Height;
+        mFramebuffer->Bind();
+
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, mFramebuffer->GetColorAttachmentRendererID());
+
+        Library<Shader>::GetInstance().Get("Post_Cartoon")->Bind();
+        Library<Shader>::GetInstance().Get("Post_Cartoon")->SetInt("screenTexture", 0);
         DoPostProcessing();
 
         return mFramebuffer->GetColorAttachmentRendererID();
@@ -51,6 +66,9 @@ namespace HEngine
             break;
         case PostProcessingType::Outline:
             re = DoOutline(fb);
+            break;
+        case PostProcessingType::Cartoon:
+            re = DoCartoon(fb);
             break;
         default:
             return 0;

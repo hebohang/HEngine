@@ -76,7 +76,8 @@ namespace HEngine
 		RenderPassSpecification rpSpec = { mFramebuffer, "MainPass" };
 		mRenderPass = CreateRef<RenderPass>(rpSpec);
 		mRenderPass->AddPostProcessing(PostProcessingType::MSAA);
-		//mRenderPass->AddPostProcessing(PostProcessingType::Outline);
+		mRenderPass->AddPostProcessing(PostProcessingType::Cartoon);
+		mRenderPass->AddPostProcessing(PostProcessingType::Outline);
 
         mActiveScene = CreateRef<Level>();
 

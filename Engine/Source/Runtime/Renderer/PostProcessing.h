@@ -11,7 +11,7 @@ namespace HEngine
         None = 1,
         MSAA,
         Outline,
-
+        Cartoon,
     };
 
     class PostProcessing

@@ -132,7 +132,10 @@ namespace HEngine
 
 				RenderCommand::SetStencilFunc(StencilFunc::NOTEQUAL, 1, 0xFF);
 				RenderCommand::StencilMask(0x00);
-				mesh.mMesh->Draw(transform.GetTransform(), camera.GetPosition(), Library<Shader>::GetInstance().Get("NormalOutline"), (int)e);
+				if (mesh.mMesh->bPlayAnim)
+					mesh.mMesh->Draw(transform.GetTransform(), camera.GetPosition(), Library<Shader>::GetInstance().Get("NormalOutline_anim"), (int)e);
+				else
+					mesh.mMesh->Draw(transform.GetTransform(), camera.GetPosition(), Library<Shader>::GetInstance().Get("NormalOutline"), (int)e);
 				RenderCommand::StencilMask(0xFF);
 				RenderCommand::SetStencilFunc(StencilFunc::ALWAYS, 0, 0xFF);
 				RenderCommand::ClearStencil();

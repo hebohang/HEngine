@@ -7,9 +7,6 @@ layout(location = 2) in vec2 a_TexCoord;
 layout(location = 3) in vec3 a_Tangent;
 layout(location = 4) in vec3 a_Bitangent;
 layout(location = 5) in int a_EntityID;
-// Animation
-layout(location = 6) in ivec4 a_BoneIds; 
-layout(location = 7) in vec4 a_BoneWeights;
 
 layout(std140, binding = 0) uniform Camera
 {

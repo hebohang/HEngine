@@ -9,6 +9,7 @@
 
 namespace HEngine
 {
+    // ---------------Tex2D--------------------
     OpenGLTexture2D::OpenGLTexture2D(uint32_t width, uint32_t height)
         : mWidth(width), mHeight(height)
     {
@@ -107,6 +108,30 @@ namespace HEngine
         glBindTexture(GL_TEXTURE, 0);
     }
 
+    // ---------------Tex3D--------------------
+    // TODO
+    OpenGLTexture3D::OpenGLTexture3D(uint32_t width, uint32_t height)
+    {
+        glGenTextures(1, &mRendererID);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, mRendererID);
+    }
+
+    OpenGLTexture3D::~OpenGLTexture3D()
+    {
+        glDeleteTextures(1, &mRendererID);
+    }
+
+    void OpenGLTexture3D::Bind(uint32_t slot) const
+    {
+        glBindTexture(GL_TEXTURE_2D_ARRAY, mRendererID);
+    }
+
+    void OpenGLTexture3D::UnBind() const
+    {
+        glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+    }
+
+    // ---------------CubeMap--------------------
     OpenGLCubeMapTexture::OpenGLCubeMapTexture()
     {
         glGenTextures(1, &mRendererID);

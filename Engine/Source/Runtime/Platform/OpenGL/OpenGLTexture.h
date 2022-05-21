@@ -36,6 +36,29 @@ namespace HEngine
         GLenum mInternalFormat, mDataFormat;
     };
 
+    class OpenGLTexture3D : public Texture3D
+    {
+    public:
+        OpenGLTexture3D(uint32_t width, uint32_t height);
+        virtual ~OpenGLTexture3D();
+
+        virtual uint32_t GetWidth() const override { return mWidth; };
+        virtual uint32_t GetHeight() const override { return mHeight; };
+        virtual uint32_t GetRendererID() const override { return mRendererID; }
+
+        virtual void Bind(uint32_t slot = 0) const override;
+        virtual void UnBind() const override;
+
+        virtual bool operator==(const Texture& other) const override
+        {
+            return mRendererID == ((OpenGLTexture3D&)other).mRendererID;
+        }
+    private:
+        uint32_t mWidth, mHeight;
+        uint32_t mRendererID;
+        GLenum mInternalFormat, mDataFormat;
+    };
+
     class OpenGLCubeMapTexture : public CubeMapTexture
     {
     public:

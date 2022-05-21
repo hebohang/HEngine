@@ -35,6 +35,9 @@ namespace HEngine
 		[[nodiscard]] float GetPitch() const { return mPitch; }
 		[[nodiscard]] float GetYaw() const { return mYaw; }
 
+		[[nodiscard]] float GetNearPlane() const { return mNearClip; }
+		[[nodiscard]] float GetFarPlane() const { return mFarClip; }
+
 		void SetCenter(const glm::vec3& center);
 	private:
 		void UpdateProjection();

@@ -1,12 +1,14 @@
 #include "hepch.h"
 
 #include "Runtime/Resource/ModeManager/ModeManager.h"
+#include "Runtime/Resource/ConfigManager/ConfigManager.h"
 #include "Runtime/Renderer/Renderer3D.h"
 #include "Runtime/Renderer/Texture.h"
 #include "Runtime/Renderer/VertexArray.h"
 #include "Runtime/Renderer/Shader.h"
 #include "Runtime/Renderer/RenderCommand.h"
 #include "Runtime/Renderer/UniformBuffer.h"
+#include "Runtime/Renderer/Framebuffer.h"
 #include "Runtime/Library/ShaderLibrary.h"
 #include "Runtime/Library/UniformBufferLibrary.h"
 #include "Runtime/Library/Library.h"
@@ -17,8 +19,15 @@
 
 namespace HEngine
 {
+	Ref<Framebuffer> Renderer3D::lightFBO = nullptr;
+
 	void Renderer3D::Init()
 	{
+		FramebufferSpecification fbSpec;
+		fbSpec.Attachments = { FramebufferTextureFormat::DEPTH32F_TEX3D };
+		fbSpec.Width = ConfigManager::mViewportSize.x;
+		fbSpec.Height = ConfigManager::mViewportSize.y;
+		lightFBO = Framebuffer::Create(fbSpec);
 	}
 
 	void Renderer3D::Shutdown()

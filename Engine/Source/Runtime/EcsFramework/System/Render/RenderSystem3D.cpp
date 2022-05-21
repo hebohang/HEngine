@@ -34,9 +34,12 @@ namespace HEngine
 			return frustumCorners;
 		}
 
-		static glm::mat4 getLightSpaceMatrix(const float nearPlane, const float farPlane, const glm::vec3& lightDir, const glm::mat4& projview)
+		static glm::mat4 getLightSpaceMatrix(const float nearPlane, const float farPlane, float cameraFOV, float aspect, const glm::vec3& lightDir, const glm::mat4& view)
 		{
-			const auto corners = getFrustumCornersWorldSpace(projview);
+			const auto proj = glm::perspective(
+				glm::radians(cameraFOV), aspect, nearPlane,
+				farPlane);
+			const auto corners = getFrustumCornersWorldSpace(proj * view);
 
 			glm::vec3 center = glm::vec3(0, 0, 0);
 			for (const auto& v : corners)
@@ -88,22 +91,22 @@ namespace HEngine
 			return lightProjection * lightView;
 		}
 
-		static std::vector<glm::mat4> getLightSpaceMatrices(float cameraNearPlane, float cameraFarPlane, const glm::vec3& lightDir, const glm::mat4& projview, const std::vector<float>& shadowCascadeLevels)
+		static std::vector<glm::mat4> getLightSpaceMatrices(float cameraNearPlane, float cameraFarPlane, float cameraFOV, float aspect, const glm::vec3& lightDir, const glm::mat4& projview, const std::vector<float>& shadowCascadeLevels)
 		{
 			std::vector<glm::mat4> ret;
 			for (size_t i = 0; i < shadowCascadeLevels.size() + 1; ++i)
 			{
 				if (i == 0)
 				{
-					ret.push_back(getLightSpaceMatrix(cameraNearPlane, shadowCascadeLevels[i], lightDir, projview));
+					ret.push_back(getLightSpaceMatrix(cameraNearPlane, shadowCascadeLevels[i], cameraFOV, aspect, lightDir, projview));
 				}
 				else if (i < shadowCascadeLevels.size())
 				{
-					ret.push_back(getLightSpaceMatrix(shadowCascadeLevels[i - 1], shadowCascadeLevels[i], lightDir, projview));
+					ret.push_back(getLightSpaceMatrix(shadowCascadeLevels[i - 1], shadowCascadeLevels[i], cameraFOV, aspect, lightDir, projview));
 				}
 				else
 				{
-					ret.push_back(getLightSpaceMatrix(shadowCascadeLevels[i - 1], cameraFarPlane, lightDir, projview));
+					ret.push_back(getLightSpaceMatrix(shadowCascadeLevels[i - 1], cameraFarPlane, cameraFOV, aspect, lightDir, projview));
 				}
 			}
 			return ret;
@@ -230,14 +233,15 @@ namespace HEngine
 				float cameraFarPlane = camera.GetFarPlane();
 				std::vector<float> shadowCascadeLevels{ cameraFarPlane / 50.0f, cameraFarPlane / 25.0f, cameraFarPlane / 10.0f, cameraFarPlane / 2.0f };
 
-				const auto lightMatrices = Utils::getLightSpaceMatrices(cameraNearPlane, cameraFarPlane, glm::normalize(directionalLight.LightDir), camera.GetViewProjection(), shadowCascadeLevels);
+				const auto lightMatrices = Utils::getLightSpaceMatrices(cameraNearPlane, cameraFarPlane, camera.GetFOV(),
+					camera.GetAspect(), glm::normalize(directionalLight.LightDir), camera.GetViewMatrix(), shadowCascadeLevels);
 				Ref<UniformBuffer> lightMatricesUBO = Library<UniformBuffer>::GetInstance().Get("LightMatricesUniform");
 				for (size_t i = 0; i < lightMatrices.size(); i++)
 				{
 					lightMatricesUBO->SetData(&lightMatrices[i], sizeof(glm::mat4x4), i * sizeof(glm::mat4x4));
 				}
 
-				break;
+				break; // now we only support one directional light
 			}
 		}
 

@@ -7,12 +7,12 @@
 
 namespace HEngine
 {
-    class LightComponent : public ComponentBase
+    class PointLightComponent : public ComponentBase
     {
     public:
-        LightComponent() = default;
-        LightComponent(const LightComponent&) = default;
-        LightComponent(const glm::vec3& lightColor)
+        PointLightComponent() = default;
+        PointLightComponent(const PointLightComponent&) = default;
+        PointLightComponent(const glm::vec3& lightColor)
             : LightColor(lightColor) {}
 
         glm::vec3 LightColor = { 100.0f, 100.0f, 100.0f };

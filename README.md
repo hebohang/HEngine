@@ -31,7 +31,7 @@ set(ProjectRootDir "${CMAKE_CURRENT_SOURCE_DIR}")
 #### 顺序
 首先include同级文件，其次是同Source文件，再次为第三方依赖，最后为stl库（确保依赖顺序）
 
-且彼此直接需要以空格隔开
+且彼此直接需要以空格隔开（仅第三方依赖与stl库用尖括号）
 
 比如 Editor 中：
 ```
@@ -39,8 +39,7 @@ set(ProjectRootDir "${CMAKE_CURRENT_SOURCE_DIR}")
 #include "EditorLayer.h"
 
 // 同Source文件（位于 Runtime 中）
-#include <HEngine.h>
-#include <Runtime/Core/EntryPoint.h>	 
+#include "Runtime/Core/EntryPoint.h"	 
 
 // 第三方依赖
 #include <imgui/imgui.h>
@@ -78,7 +77,7 @@ cmake -B build
 cmake --build build --parallel 4
 ```
 
-2.3 Visual Studio: Open Folder, then choose HEngine folder)
+2.3 Visual Studio: Open Folder, then choose HEngine folder :)
 
 ## Credits
 * Cherno [Hazel](https://github.com/TheCherno/Hazel)

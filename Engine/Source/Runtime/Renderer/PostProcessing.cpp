@@ -6,11 +6,12 @@
 
 namespace HEngine
 {
-    Ref<VertexArray> PostProcessing::mScreenQuadVAO = nullptr;
+    Ref<VertexArray>  PostProcessing::mScreenQuadVAO = nullptr;
     Ref<VertexBuffer> PostProcessing::mScreenQuadVBO = nullptr;
-    Ref<IndexBuffer> PostProcessing::mScreenQuadIBO = nullptr;
-    Ref<Framebuffer> PostProcessing::mFramebuffer = nullptr;
-
+    Ref<IndexBuffer>  PostProcessing::mScreenQuadIBO = nullptr;
+    Ref<Framebuffer>  PostProcessing::mFramebuffer = nullptr;
+    Ref<Texture2D>    PostProcessing::mIntermediateScreenTex = nullptr;
+                      
     PostProcessing::PostProcessing(const PostProcessingType& type)
         : mType{ type }
     {

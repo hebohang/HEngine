@@ -28,6 +28,7 @@ namespace HEngine
         void DoPostProcessing();
     public:
         static Ref<Framebuffer> mFramebuffer;
+        static Ref<Texture2D> mIntermediateScreenTex;
     protected:
         PostProcessingType mType;
         static Ref<VertexArray> mScreenQuadVAO;

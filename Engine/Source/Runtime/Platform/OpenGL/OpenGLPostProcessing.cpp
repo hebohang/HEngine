@@ -26,9 +26,13 @@ namespace HEngine
         uint32_t height = fb->GetSpecification().Height;
         mFramebuffer->Bind();
 
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, mFramebuffer->GetColorAttachmentRendererID());
+        // copy the framebuffer to the intermediate screen texture
+        mFramebuffer->BindReadFramebuffer();
+        mIntermediateScreenTex->Bind();
+        glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, width, height);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
 
+        mFramebuffer->BindDrawFramebuffer();
         shader->Bind();
         shader->SetInt("screenTexture", 0);
         DoPostProcessing();

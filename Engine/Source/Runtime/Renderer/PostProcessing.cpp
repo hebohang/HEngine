@@ -46,6 +46,34 @@ namespace HEngine
         mFramebuffer = Framebuffer::Create(fbSpec);
     }
 
+    std::string PostProcessing::PostTypeToString(PostProcessingType type)
+    {
+        switch (type)
+        {
+        case HEngine::PostProcessingType::None:
+            return "";
+            break;
+        case HEngine::PostProcessingType::MSAA:
+            return "MSAA";
+            break;
+        case HEngine::PostProcessingType::Outline:
+            return "Outline";
+            break;
+        case HEngine::PostProcessingType::Cartoon:
+            return "Cartoon";
+            break;
+        case HEngine::PostProcessingType::GrayScale:
+            return "GrayScale";
+            break;
+        case HEngine::PostProcessingType::GaussianBlur:
+            return "GaussianBlur";
+            break;
+        default:
+            break;
+        }
+        return std::string();
+    }
+
     void PostProcessing::DoPostProcessing()
     {
         RenderCommand::DrawIndexed(mScreenQuadVAO);

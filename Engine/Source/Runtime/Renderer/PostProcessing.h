@@ -24,13 +24,15 @@ namespace HEngine
     public:
         static void Init();
         virtual uint32_t ExcuteAndReturnFinalTex(const Ref<Framebuffer>& fb) { return 0; };
+
+        static std::string PostTypeToString(PostProcessingType type);
     protected:
         void DoPostProcessing();
     public:
+        PostProcessingType mType;
         static Ref<Framebuffer> mFramebuffer;
         static Ref<Texture2D> mIntermediateScreenTex;
     protected:
-        PostProcessingType mType;
         static Ref<VertexArray> mScreenQuadVAO;
         static Ref<VertexBuffer> mScreenQuadVBO;
         static Ref<IndexBuffer> mScreenQuadIBO;

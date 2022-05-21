@@ -405,6 +405,20 @@ namespace HEngine
 				for (size_t i = 1; i < mRenderPass->mPostProcessings.size(); i++)
 				{
 					ImGui::Selectable(PostProcessing::PostTypeToString(mRenderPass->mPostProcessings[i]->mType).c_str());
+
+					// imgui demo: Drag to reorder items (simple)
+					if (ImGui::IsItemActive() && !ImGui::IsItemHovered())
+					{
+						int next = i + (ImGui::GetMouseDragDelta(0).y < 0.f ? -1 : 1);
+						if (next >= 1 && next < mRenderPass->mPostProcessings.size())
+						{
+							PostProcessingType tempType = mRenderPass->mPostProcessings[i]->mType;
+							mRenderPass->mPostProcessings[i]->mType = mRenderPass->mPostProcessings[next]->mType;
+							mRenderPass->mPostProcessings[next]->mType = tempType;
+							ImGui::ResetMouseDragDelta();
+						}
+					}
+
 					if (ImGui::BeginPopupContextItem())
 					{
 						if (ImGui::MenuItem("Delete"))

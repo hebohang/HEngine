@@ -24,20 +24,15 @@ uniform sampler2D screenTexture;
 // from https://computergraphics.stackexchange.com/questions/3646/opengl-glsl-sobel-edge-detection-filter
 // Sobel
 mat3 sx = mat3( 
-    1.0, 2.0, 1.0, 
-    0.0, 0.0, 0.0, 
-   -1.0, -2.0, -1.0 
+    -1.0, 0.0, 1.0, 
+    -2.0, 0.0, 2.0, 
+    -1.0, 0.0, 1.0 
 );
 mat3 sy = mat3( 
-    1.0, 0.0, -1.0, 
-    2.0, 0.0, -2.0, 
-    1.0, 0.0, -1.0 
+    -1.0, -2.0, -1.0, 
+    0.0, 0.0, 0.0, 
+    1.0, 2.0, 1.0 
 );
-
-float luminance(vec3 color)
-{
-	return 0.2125 * color.r + 0.7154 * color.g + 0.0721 * color.b;
-}
 
 void main()
 {
@@ -48,7 +43,7 @@ void main()
         for (int j=0; j<3; j++) 
 		{
             vec3 texSample = texelFetch(screenTexture, ivec2(gl_FragCoord) + ivec2(i-1,j-1), 0).rgb;
-            I[i][j] = luminance(texSample) * 3;
+            I[i][j] = length(texSample);
 		}
 	}
 
@@ -56,7 +51,7 @@ void main()
 	float gy = dot(sy[0], I[0]) + dot(sy[1], I[1]) + dot(sy[2], I[2]);
 
 	float g = sqrt(pow(gx, 2.0)+pow(gy, 2.0));
-	g = smoothstep(0.4, 0.6, g);
+	g = smoothstep(0.6, 0.8, g);
 	
 	FragColor = vec4(diffuse - vec3(g), 1.0);
 	

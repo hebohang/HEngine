@@ -12,6 +12,8 @@ namespace HEngine
         MSAA,
         Outline,
         Cartoon,
+        GrayScale,
+        GaussianBlur,
     };
 
     class PostProcessing

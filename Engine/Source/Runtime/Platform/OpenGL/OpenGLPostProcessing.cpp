@@ -20,7 +20,7 @@ namespace HEngine
         return mFramebuffer->GetColorAttachmentRendererID();
     }
 
-    uint32_t OpenGLPostProcessing::DoOutline(const Ref<Framebuffer>& fb)
+    uint32_t OpenGLPostProcessing::DoPostWithShader(const Ref<Framebuffer>& fb, const Ref<Shader>& shader)
     {
         uint32_t width = fb->GetSpecification().Width;
         uint32_t height = fb->GetSpecification().Height;
@@ -29,24 +29,8 @@ namespace HEngine
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, mFramebuffer->GetColorAttachmentRendererID());
 
-        Library<Shader>::GetInstance().Get("Post_Outline")->Bind();
-        Library<Shader>::GetInstance().Get("Post_Outline")->SetInt("screenTexture", 0);
-        DoPostProcessing();
-
-        return mFramebuffer->GetColorAttachmentRendererID();
-    }
-
-    uint32_t OpenGLPostProcessing::DoCartoon(const Ref<Framebuffer>& fb)
-    {
-        uint32_t width = fb->GetSpecification().Width;
-        uint32_t height = fb->GetSpecification().Height;
-        mFramebuffer->Bind();
-
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, mFramebuffer->GetColorAttachmentRendererID());
-
-        Library<Shader>::GetInstance().Get("Post_Cartoon")->Bind();
-        Library<Shader>::GetInstance().Get("Post_Cartoon")->SetInt("screenTexture", 0);
+        shader->Bind();
+        shader->SetInt("screenTexture", 0);
         DoPostProcessing();
 
         return mFramebuffer->GetColorAttachmentRendererID();
@@ -65,10 +49,16 @@ namespace HEngine
             re = DoMSAA(fb);
             break;
         case PostProcessingType::Outline:
-            re = DoOutline(fb);
+            re = DoPostWithShader(fb, Library<Shader>::GetInstance().Get("Post_Outline"));
             break;
         case PostProcessingType::Cartoon:
-            re = DoCartoon(fb);
+            re = DoPostWithShader(fb, Library<Shader>::GetInstance().Get("Post_Cartoon"));
+            break;
+        case PostProcessingType::GrayScale:
+            re = DoPostWithShader(fb, Library<Shader>::GetInstance().Get("Post_GrayScale"));
+            break;
+        case PostProcessingType::GaussianBlur:
+            re = DoPostWithShader(fb, Library<Shader>::GetInstance().Get("Post_GaussianBlur"));
             break;
         default:
             return 0;

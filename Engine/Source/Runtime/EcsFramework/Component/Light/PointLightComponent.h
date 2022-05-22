@@ -12,9 +12,10 @@ namespace HEngine
     public:
         PointLightComponent() = default;
         PointLightComponent(const PointLightComponent&) = default;
-        PointLightComponent(const glm::vec3& lightColor)
-            : LightColor(lightColor) {}
+        PointLightComponent(float intensity, const glm::vec3& lightColor)
+            : Intensity(intensity), LightColor(lightColor) {}
 
-        glm::vec3 LightColor = { 100.0f, 100.0f, 100.0f };
+        float Intensity = 100.0f;
+        glm::vec3 LightColor = { 1.0f, 1.0f, 1.0f };
     };
 }

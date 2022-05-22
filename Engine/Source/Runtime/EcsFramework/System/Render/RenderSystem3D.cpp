@@ -171,13 +171,14 @@ namespace HEngine
 				auto [transform, light] = view.get<TransformComponent, PointLightComponent>(entity);
 
 				glm::vec3 lightPos = transform.GetTranslation();
+				float intensity = light.Intensity;
 				glm::vec3 lightColor = light.LightColor;
 
 				Ref<Shader> defaultShader = Library<Shader>::GetInstance().GetDefaultShader();
 
 				defaultShader->Bind();
 				defaultShader->SetFloat3("lightPositions[" + std::to_string(i) + "]", lightPos);
-				defaultShader->SetFloat3("lightColors[" + std::to_string(i) + "]", lightColor);
+				defaultShader->SetFloat3("lightColors[" + std::to_string(i) + "]", intensity * lightColor);
 
 				i++;
 			}

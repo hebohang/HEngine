@@ -818,9 +818,15 @@ namespace HEngine
 
 		DrawComponent<PointLightComponent>("Point Light", entity, [](auto& component)
 			{
-				ImGui::Text("Light Color");
-				ImGui::SameLine();
-				ImGui::DragFloat3("##Light Color", (float*)& component.LightColor, 2.0f, 0.0f, 10000.0f, "%.1f");
+				ImGuiWrapper::DrawTwoUI(
+					[]() { ImGui::Text("Light Intensity"); },
+					[&component = component]() { ImGui::DragFloat("##Light Intensity", &component.Intensity, 2.0f, 0.0f, 10000.0f, "%.1f"); }
+				);
+				
+				ImGuiWrapper::DrawTwoUI(
+					[]() { ImGui::Text("Light Color"); },
+					[&component = component]() { ImGui::ColorEdit3("##Light Color", (float*)&component.LightColor); }
+				);
 			});
 
 		DrawComponent<DirectionalLightComponent>("Directional Light", entity, [](auto& component)

@@ -32,6 +32,7 @@ namespace HEngine
 
         virtual Ref<class Texture3D> GetDepthTex3D() const override; // have bugs
         virtual void BindDepthTex3D(uint32_t slot) override;
+        virtual void UnBindDepthTex3D(uint32_t slot) override;
     private:
         uint32_t mRendererID = 0;
         FramebufferSpecification mSpecification;

@@ -31,6 +31,17 @@ namespace HEngine
             "Assets/Textures/Skybox/back.jpg",
         };
         Add("SkyBoxTexture", CubeMapTexture::Create(Paths));
+
+        std::vector<std::string> blackPaths{
+            "Assets/Textures/black.png",
+            "Assets/Textures/black.png",
+            "Assets/Textures/black.png",
+            "Assets/Textures/black.png",
+            "Assets/Textures/black.png",
+            "Assets/Textures/black.png",
+        };
+        Add("BlackCubeMap", CubeMapTexture::Create(blackPaths));
+
         Add("EnvironmentHdr", CubeMapTexture::Create(512, 512));
         Add("EnvironmentIrradiance", CubeMapTexture::Create(32, 32));
         Add("EnvironmentPrefilter", CubeMapTexture::Create(128, 128));

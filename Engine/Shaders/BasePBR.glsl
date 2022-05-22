@@ -7,16 +7,11 @@ layout(location = 2) in vec2 a_TexCoord;
 layout(location = 3) in vec3 a_Tangent;
 layout(location = 4) in vec3 a_Bitangent;
 layout(location = 5) in int a_EntityID;
+// Animation
+layout(location = 6) in ivec4 a_BoneIds; 
+layout(location = 7) in vec4 a_BoneWeights;
 
-layout(std140, binding = 0) uniform Camera
-{
-	mat4 u_ViewProjection;
-};
-
-layout (push_constant) uniform Transform
-{
-	layout(offset = 0) mat4 Transform;
-} u_Model;
+uniform bool u_Animated;
 
 struct VertexOutput
 {
@@ -24,22 +19,54 @@ struct VertexOutput
 	vec3 WorldPos;
 	vec2 TexCoord;
 };
-
 layout (location = 0) out VertexOutput Output;
 layout (location = 3) out flat int v_EntityID;
 
+layout(std140, binding = 0) uniform Camera
+{
+	mat4 u_ViewProjection;
+};
+
+uniform mat4 model;
+
+const int MAX_BONES = 100;
+const int MAX_BONE_INFLUENCE = 4;
+uniform mat4 finalBonesMatrices[MAX_BONES];
+
 void main()
 {
-	vec4 WorldPos = u_Model.Transform * vec4(a_Pos, 1.0);
-	Output.WorldPos = WorldPos.xyz;
-	Output.Normal = a_Normal;
-	Output.TexCoord = a_TexCoord;
-	v_EntityID = a_EntityID;
-	gl_Position = u_ViewProjection * WorldPos;
+    Output.TexCoord = a_TexCoord;
+
+    if (u_Animated)
+    {
+        mat4 boneTransform = finalBonesMatrices[a_BoneIds[0]] * a_BoneWeights[0];
+        boneTransform += finalBonesMatrices[a_BoneIds[1]] * a_BoneWeights[1];
+        boneTransform += finalBonesMatrices[a_BoneIds[2]] * a_BoneWeights[2];
+        boneTransform += finalBonesMatrices[a_BoneIds[3]] * a_BoneWeights[3];
+
+        vec4 localPosition = boneTransform * vec4(a_Pos, 1.0);
+
+        vec4 WorldPos = model * localPosition;
+	    Output.WorldPos = WorldPos.xyz;
+	    Output.Normal = mat3(boneTransform) * a_Normal;
+	    v_EntityID = a_EntityID;
+	    gl_Position = u_ViewProjection * WorldPos;
+    }
+    else
+    {
+        Output.WorldPos = vec3(model * vec4(a_Pos, 1.0));
+        Output.Normal = mat3(model) * a_Normal;
+        v_EntityID = a_EntityID;
+
+        gl_Position =  u_ViewProjection * vec4(Output.WorldPos, 1.0);
+    }
 }
 
 #type fragment
 #version 450 core
+
+out vec4 FragColor;
+out int color2;
 
 struct VertexOutput
 {
@@ -51,101 +78,112 @@ struct VertexOutput
 layout (location = 0) in VertexOutput Input;
 layout (location = 3) in flat int v_EntityID;
 
-layout(location = 0) out vec4 FragColor;
-layout(location = 1) out int color2;
-
 // material parameters
-layout(binding = 0) uniform sampler2D albedoMap;
-layout(binding = 1) uniform sampler2D normalMap;
-layout(binding = 2) uniform sampler2D metallicMap;
-layout(binding = 3) uniform sampler2D roughnessMap;
-layout(binding = 4) uniform sampler2D aoMap;
+uniform sampler2D albedoMap;
+uniform sampler2D normalMap;
+uniform sampler2D metallicMap;
+uniform sampler2D roughnessMap;
+uniform sampler2D aoMap;
 
-// lights
-layout (push_constant) uniform Uniform
+// IBL
+uniform samplerCube irradianceMap;
+uniform samplerCube prefilterMap;
+uniform sampler2D brdfLUT;
+
+// Point lights
+uniform vec3 lightPositions[4];
+uniform vec3 lightColors[4];
+
+uniform vec3 camPos;
+
+// HDR tonemapping
+uniform float exposure;
+
+// Shadow 
+uniform mat4 view;
+uniform float farPlane;
+uniform vec3 lightDir;
+uniform sampler2DArray shadowMap;
+layout (std140, binding = 1) uniform LightSpaceMatrices
 {
-    layout(offset = 64) vec3 lightPositions[4];
-    layout(offset = 112) vec3 lightColors[4];
-    layout(offset = 160) vec3 camPos;
-} u_Uniform;
+    mat4 lightSpaceMatrices[16];
+};
+uniform float cascadePlaneDistances[16];
+uniform int cascadeCount;   // number of frusta - 1
+// End Shadow
 
+const float F0_NON_METAL = 0.04f;
 const float PI = 3.14159265359;
 
-vec3 getNormalFromMap();
-float DistributionGGX(vec3 N, vec3 H, float roughness);
-float GeometrySchlickGGX(float NdotV, float roughness);
-float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness);
-vec3 fresnelSchlick(float cosTheta, vec3 F0);
+// --------------------------Shadow Function-----------------------------------
 
-void main()
+float ShadowCalculation(vec3 fragPosWorldSpace)
 {
-    vec3 albedo     = pow(texture(albedoMap, Input.TexCoord).rgb, vec3(2.2));
-    float metallic  = texture(metallicMap, Input.TexCoord).r;
-    float roughness = texture(roughnessMap, Input.TexCoord).r;
-    float ao        = texture(aoMap, Input.TexCoord).r;
+    // select cascade layer
+    vec4 fragPosViewSpace = view * vec4(fragPosWorldSpace, 1.0);
+    float depthValue = abs(fragPosViewSpace.z);
 
-    vec3 N = getNormalFromMap();
-    vec3 V = normalize(u_Uniform.camPos - Input.WorldPos);
-
-    // calculate reflectance at normal incidence; if dia-electric (like plastic) use F0 
-    // of 0.04 and if it's a metal, use the albedo color as F0 (metallic workflow)    
-    vec3 F0 = vec3(0.04); 
-    F0 = mix(F0, albedo, metallic);
-
-    // reflectance equation
-    vec3 Lo = vec3(0.0);
-    for(int i = 0; i < 4; ++i) 
+    int layer = -1;
+    for (int i = 0; i < cascadeCount; ++i)
     {
-        // calculate per-light radiance
-        vec3 L = normalize(u_Uniform.lightPositions[i] - Input.WorldPos);
-        vec3 H = normalize(V + L);
-        float distance = length(u_Uniform.lightPositions[i] - Input.WorldPos);
-        float attenuation = 1.0 / (distance * distance);
-        vec3 radiance = u_Uniform.lightColors[i] * attenuation;
+        if (depthValue < cascadePlaneDistances[i])
+        {
+            layer = i;
+            break;
+        }
+    }
+    if (layer == -1)
+    {
+        layer = cascadeCount;
+    }
 
-        // Cook-Torrance BRDF
-        float NDF = DistributionGGX(N, H, roughness);   
-        float G   = GeometrySmith(N, V, L, roughness);      
-        vec3 F    = fresnelSchlick(max(dot(H, V), 0.0), F0);
-           
-        vec3 numerator    = NDF * G * F; 
-        float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001; // + 0.0001 to prevent divide by zero
-        vec3 specular = numerator / denominator;
+    vec4 fragPosLightSpace = lightSpaceMatrices[layer] * vec4(fragPosWorldSpace, 1.0);
+    // perform perspective divide
+    vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
+    // transform to [0,1] range
+    projCoords = projCoords * 0.5 + 0.5;
+
+    // get depth of current fragment from light's perspective
+    float currentDepth = projCoords.z;
+
+    // keep the shadow at 0.0 when outside the far_plane region of the light's frustum.
+    if (currentDepth > 1.0)
+    {
+        return 0.0;
+    }
+    // calculate bias (based on depth map resolution and slope)
+    vec3 normal = normalize(Input.Normal);
+    float bias = max(0.05 * (1.0 - dot(normal, lightDir)), 0.005);
+    const float biasModifier = 0.5f;
+    if (layer == cascadeCount)
+    {
+        bias *= 1 / (farPlane * biasModifier);
+    }
+    else
+    {
+        bias *= 1 / (cascadePlaneDistances[layer] * biasModifier);
+    }
+
+    // PCF
+    float shadow = 0.0;
+    vec2 texelSize = 1.0 / vec2(textureSize(shadowMap, 0));
+    for(int x = -1; x <= 1; ++x)
+    {
+        for(int y = -1; y <= 1; ++y)
+        {
+            float pcfDepth = texture(shadowMap, vec3(projCoords.xy + vec2(x, y) * texelSize, layer)).r;
+            shadow += (currentDepth - bias) > pcfDepth ? 1.0 : 0.0;        
+        }    
+    }
+    shadow /= 9.0;
         
-        // kS is equal to Fresnel
-        vec3 kS = F;
-        // for energy conservation, the diffuse and specular light can't
-        // be above 1.0 (unless the surface emits light); to preserve this
-        // relationship the diffuse component (kD) should equal 1.0 - kS.
-        vec3 kD = vec3(1.0) - kS;
-        // multiply kD by the inverse metalness such that only non-metals 
-        // have diffuse lighting, or a linear blend if partly metal (pure metals
-        // have no diffuse light).
-        kD *= 1.0 - metallic;	  
-
-        // scale light by NdotL
-        float NdotL = max(dot(N, L), 0.0);        
-
-        // add to outgoing radiance Lo
-        Lo += (kD * albedo / PI + specular) * radiance * NdotL;  // note that we already multiplied the BRDF by the Fresnel (kS) so we won't multiply by kS again
-    }   
-    
-    // ambient lighting (note that the next IBL tutorial will replace 
-    // this ambient lighting with environment lighting).
-    vec3 ambient = vec3(0.03) * albedo * ao;
-    
-    vec3 color = ambient + Lo;
-
-    // HDR tonemapping
-    color = color / (color + vec3(1.0));
-    // gamma correct
-    color = pow(color, vec3(1.0/2.2)); 
-
-    FragColor = vec4(color, 1.0);
-
-
-	color2 = v_EntityID;
+    return shadow;
 }
+
+// --------------------------End Shadow Function-------------------------------
+
+
+// --------------------------PBR Function--------------------------------------
 
 // ----------------------------------------------------------------------------
 // Easy trick to get tangent-normals to world-space to keep PBR code simplified.
@@ -209,3 +247,127 @@ vec3 fresnelSchlick(float cosTheta, vec3 F0)
     return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 // ----------------------------------------------------------------------------
+vec3 fresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness)
+{
+    return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}   
+// ----------------------------------------------------------------------------
+
+// Lambert diffuse
+vec3 LambertDiffuse(vec3 Ks, vec3 albedo, float metallic)
+{
+    vec3 Kd = (vec3(1.0f, 1.0f, 1.0f) - Ks) * (1 - metallic);
+    return (Kd * albedo / PI);
+}
+
+// Cook-Torrance Specular
+vec3 CookTorrance(vec3 n, vec3 l, vec3 v, float roughness, float metalness, vec3 f0, out vec3 kS)
+{
+    vec3 h = normalize(v + l);
+
+    float D = DistributionGGX(n, h, roughness);
+    float G = GeometrySmith(n, v, l, roughness);
+    vec3 F  = fresnelSchlick(max(dot(h, v), 0.0), f0);
+
+    // kS is equal to Fresnel  
+    kS = F;
+
+    float NdotV = max(dot(n, v), 0.0f);
+    float NdotL = max(dot(n, l), 0.0f);
+    return (D * G * F) / (4.0 * max(NdotV * NdotL, 0.01f));
+}
+
+// --------------------------End PBR Function----------------------------------
+
+void main()
+{		
+    // material properties
+    vec3 albedo = pow(texture(albedoMap, Input.TexCoord).rgb, vec3(2.2));
+    float metallic = texture(metallicMap, Input.TexCoord).r;
+    float roughness = texture(roughnessMap, Input.TexCoord).r;
+    float ao = texture(aoMap, Input.TexCoord).r;
+       
+    // input lighting data
+    vec3 N = getNormalFromMap();
+    vec3 V = normalize(camPos - Input.WorldPos);
+    vec3 R = reflect(-V, N); 
+
+    // calculate reflectance at normal incidence; if dia-electric (like plastic) use F0 
+    // of 0.04 and if it's a metal, use the albedo color as F0 (metallic workflow)    
+    vec3 F0 = mix(vec3(F0_NON_METAL), albedo, metallic);
+
+    // reflectance equation
+    vec3 Lo = vec3(0.0);
+
+    // Point Light PBR
+    for(int i = 0; i < 4; ++i) 
+    {
+        // calculate per-light radiance
+        vec3 L = normalize(lightPositions[i] - Input.WorldPos);
+        vec3 H = normalize(V + L);
+        float distance = length(lightPositions[i] - Input.WorldPos);
+        float attenuation = 1.0 / (distance * distance);
+        vec3 radiance = lightColors[i] * attenuation;
+        
+        vec3 kS;
+        vec3 specularBRDF = CookTorrance(N, L, V, roughness, metallic, F0, kS);
+
+        // kS is equal to Fresnel  
+        vec3 diffuseBRDF = LambertDiffuse(kS, albedo, metallic);
+            
+        // scale light by NdotL
+        float NdotL = max(dot(N, L), 0.0);        
+
+        // add to outgoing radiance Lo
+        Lo += (diffuseBRDF + specularBRDF) * radiance * NdotL; // note that we already multiplied the BRDF by the Fresnel (kS) so we won't multiply by kS again
+    }   
+
+    // Directional Light PBR
+    {
+        vec3 L = lightDir;
+
+        vec3 kS;
+        vec3 specularBRDF = CookTorrance(N, L, V, roughness, metallic, F0, kS);
+
+        // kS is equal to Fresnel  
+        vec3 diffuseBRDF = LambertDiffuse(kS, albedo, metallic);
+            
+        // scale light by NdotL
+        float NdotL = max(dot(N, L), 0.0);   
+
+        vec3 radiance = vec3(10.0);
+
+        Lo += (diffuseBRDF + specularBRDF) * radiance * NdotL;
+    }
+    
+    // ambient lighting (we now use IBL as the ambient term)
+    vec3 F = fresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
+    
+    vec3 kS = F;
+    vec3 kD = 1.0 - kS;
+    kD *= 1.0 - metallic;	  
+    
+    vec3 irradiance = texture(irradianceMap, N).rgb;
+    vec3 diffuse      = irradiance * albedo;
+    
+    // sample both the pre-filter map and the BRDF lut and combine them together as per the Split-Sum approximation to get the IBL specular part.
+    const float MAX_REFLECTION_LOD = 4.0;
+    vec3 prefilteredColor = textureLod(prefilterMap, R,  roughness * MAX_REFLECTION_LOD).rgb;    
+    vec2 brdf  = texture(brdfLUT, vec2(max(dot(N, V), 0.0), roughness)).rg;
+    vec3 specular = prefilteredColor * (F * brdf.x + brdf.y);
+
+    vec3 ambient = (kD * diffuse + specular) * ao;
+    
+    // calculate shadow
+    float shadow = ShadowCalculation(Input.WorldPos);  
+    vec3 color = ambient + (1.0 - shadow) * Lo;
+
+    // HDR tonemapping
+    color = vec3(1.0) - exp(-color * exposure);
+    // gamma correct
+    color = pow(color, vec3(1.0/2.2)); 
+
+    FragColor = vec4(color , 1.0);
+
+    color2 = v_EntityID;
+}

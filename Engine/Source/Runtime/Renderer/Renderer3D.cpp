@@ -36,20 +36,14 @@ namespace HEngine
 
 	void Renderer3D::DrawModel(const glm::mat4& transform, const glm::vec3& cameraPos, MeshComponent& MeshComponent, int EntityID)
 	{
-		if (ModeManager::bHdrUse)
-		{
-			if (MeshComponent.mMesh->bPlayAnim)
-				MeshComponent.mMesh->Draw(transform, cameraPos, Library<Shader>::GetInstance().Get("IBL_pbr_anim"), EntityID);
-			else
-				MeshComponent.mMesh->Draw(transform, cameraPos, Library<Shader>::GetInstance().Get("IBL_pbr_static"), EntityID);
-		}
+		Ref<Shader> defaultShader = Library<Shader>::GetInstance().GetDefaultShader();
+		defaultShader->Bind();
+		if (MeshComponent.mMesh->bPlayAnim)
+			defaultShader->SetBool("u_Animated", true);
 		else
-		{
-			if (MeshComponent.mMesh->bPlayAnim)
-				MeshComponent.mMesh->Draw(transform, cameraPos, Library<Shader>::GetInstance().Get("BasePBR_anim"), EntityID);
-			else
-				MeshComponent.mMesh->Draw(transform, cameraPos, Library<Shader>::GetInstance().Get("BasePBR"), EntityID);
-		}
+			defaultShader->SetBool("u_Animated", false);
+
+		MeshComponent.mMesh->Draw(transform, cameraPos, Library<Shader>::GetInstance().GetDefaultShader(), EntityID);
 	}
 
 	void Renderer3D::BeginScene(const Camera& camera, const glm::mat4& transform)

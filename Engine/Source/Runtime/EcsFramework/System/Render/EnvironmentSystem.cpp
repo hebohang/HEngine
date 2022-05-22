@@ -331,6 +331,9 @@ namespace HEngine
 
 		Library<Shader>::GetInstance().Get("IBL_pbr_static")->Bind();
 		Library<Shader>::GetInstance().Get("IBL_pbr_static")->SetFloat("exposure", environmentSettings.exposure);
+		
+		Library<Shader>::GetInstance().GetDefaultShader()->Bind();
+		Library<Shader>::GetInstance().GetDefaultShader()->SetFloat("exposure", environmentSettings.exposure);
 
 		Library<Shader>::GetInstance().Get("IBL_pbr_anim")->Bind();
 		Library<Shader>::GetInstance().Get("IBL_pbr_anim")->SetFloat("exposure", environmentSettings.exposure);

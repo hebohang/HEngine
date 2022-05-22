@@ -40,6 +40,7 @@ namespace HEngine
     {
     public:
         OpenGLTexture3D(uint32_t width, uint32_t height);
+        OpenGLTexture3D(uint32_t rendererID, uint32_t width, uint32_t height);
         virtual ~OpenGLTexture3D();
 
         virtual uint32_t GetWidth() const override { return mWidth; };
@@ -56,7 +57,7 @@ namespace HEngine
     private:
         uint32_t mWidth, mHeight;
         uint32_t mRendererID;
-        GLenum mInternalFormat, mDataFormat;
+        //GLenum mInternalFormat, mDataFormat;
     };
 
     class OpenGLCubeMapTexture : public CubeMapTexture

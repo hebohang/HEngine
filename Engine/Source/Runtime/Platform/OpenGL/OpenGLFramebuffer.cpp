@@ -1,6 +1,7 @@
 #include "hepch.h"
 
 #include "Runtime/Platform/OpenGL/OpenGLFramebuffer.h"
+#include "Runtime/Platform/OpenGL/OpenGLTexture.h"
 
 #include <glad/glad.h>
 
@@ -346,5 +347,16 @@ namespace HEngine
 	void OpenGLFramebuffer::FramebufferTexture2D(uint32_t cubemapIndex, uint32_t cubemapID, uint32_t slot)
 	{
 		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + slot, GL_TEXTURE_CUBE_MAP_POSITIVE_X + cubemapIndex, cubemapID, 0);
+	}
+
+	Ref<Texture3D> OpenGLFramebuffer::GetDepthTex3D() const
+	{
+		return CreateRef<OpenGLTexture3D>(mDepthAttachment, mSpecification.Width, mSpecification.Height);
+	}
+
+	void OpenGLFramebuffer::BindDepthTex3D(uint32_t slot)
+	{
+		glActiveTexture(GL_TEXTURE8);
+		glBindTexture(GL_TEXTURE_2D_ARRAY, mDepthAttachment);
 	}
 }

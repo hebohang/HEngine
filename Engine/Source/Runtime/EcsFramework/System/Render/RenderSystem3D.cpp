@@ -223,6 +223,11 @@ namespace HEngine
 		// Directional light depth pass
 		{
 			auto view = mLevel->mRegistry.view<TransformComponent, DirectionalLightComponent>();
+
+			Ref<Shader> shader = Library<Shader>::GetInstance().Get("IBL_pbr_static");
+			shader->Bind();
+			shader->SetInt("shadowMap", 8);
+
 			for (auto e : view)
 			{
 				Entity entity = { e, mLevel };
@@ -241,13 +246,10 @@ namespace HEngine
 					lightMatricesUBO->SetData(&lightMatrices[i], sizeof(glm::mat4x4), i * sizeof(glm::mat4x4));
 				}
 
-				Ref<Shader> shader = Library<Shader>::GetInstance().Get("IBL_pbr_static");
-				shader->Bind();
 				shader->SetMat4("view", camera.GetViewMatrix());
 				shader->SetFloat3("lightDir", glm::normalize(directionalLight.LightDir));
 				shader->SetFloat("farPlane", cameraFarPlane);
 				shader->SetInt("cascadeCount", shadowCascadeLevels.size());
-				shader->SetInt("shadowMap", 8);
 				for (size_t i = 0; i < shadowCascadeLevels.size(); ++i)
 				{
 					shader->SetFloat("cascadePlaneDistances[" + std::to_string(i) + "]", shadowCascadeLevels[i]);

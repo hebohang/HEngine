@@ -1,6 +1,7 @@
 #include "hepch.h"
 
 #include "Runtime/EcsFramework/System/Render/RenderSystem3D.h"
+#include "Runtime/EcsFramework/System/Render/EnvironmentSystem.h"
 #include "Runtime/EcsFramework/Component/ComponentGroup.h"
 #include "Runtime/EcsFramework/Entity/Entity.h"
 #include "Runtime/Renderer/Renderer3D.h"
@@ -9,6 +10,7 @@
 #include "Runtime/Renderer/UniformBuffer.h"
 #include "Runtime/Library/ShaderLibrary.h"
 #include "Runtime/Resource/ConfigManager/ConfigManager.h"
+#include "Runtime/Resource/ModeManager/ModeManager.h"
 
 namespace HEngine
 {
@@ -162,6 +164,12 @@ namespace HEngine
 	{
 		Renderer3D::BeginScene(camera);
 
+		Ref<Shader> defaultShader = Library<Shader>::GetInstance().GetDefaultShader();
+		if (ModeManager::bHdrUse)
+			defaultShader->SetFloat("exposure", EnvironmentSystem::environmentSettings.exposure);
+		else
+			defaultShader->SetFloat("exposure", 1.0f);
+
 		// Point Light 
 		{
 			auto view = mLevel->mRegistry.view<TransformComponent, PointLightComponent>();
@@ -174,8 +182,6 @@ namespace HEngine
 				float intensity = light.Intensity;
 				glm::vec3 lightColor = light.LightColor;
 
-				Ref<Shader> defaultShader = Library<Shader>::GetInstance().GetDefaultShader();
-
 				defaultShader->Bind();
 				defaultShader->SetFloat3("lightPositions[" + std::to_string(i) + "]", lightPos);
 				defaultShader->SetFloat3("lightColors[" + std::to_string(i) + "]", intensity * lightColor);
@@ -184,8 +190,6 @@ namespace HEngine
 			}
 			if (i == 0)
 			{
-				Ref<Shader> defaultShader = Library<Shader>::GetInstance().GetDefaultShader();
-
 				for (size_t i = 0; i < 4; i++)
 				{
 					defaultShader->Bind();
@@ -198,9 +202,8 @@ namespace HEngine
 		{
 			auto view = mLevel->mRegistry.view<TransformComponent, DirectionalLightComponent>();
 
-			Ref<Shader> shader = Library<Shader>::GetInstance().GetDefaultShader();
-			shader->Bind();
-			shader->SetInt("shadowMap", 8);
+			defaultShader->Bind();
+			defaultShader->SetInt("shadowMap", 8);
 			Renderer3D::lightFBO->UnBindDepthTex3D(8);
 
 			for (auto e : view)
@@ -221,13 +224,13 @@ namespace HEngine
 					lightMatricesUBO->SetData(&lightMatrices[i], sizeof(glm::mat4x4), i * sizeof(glm::mat4x4));
 				}
 
-				shader->SetMat4("view", camera.GetViewMatrix());
-				shader->SetFloat3("lightDir", glm::normalize(directionalLight.LightDir));
-				shader->SetFloat("farPlane", cameraFarPlane);
-				shader->SetInt("cascadeCount", shadowCascadeLevels.size());
+				defaultShader->SetMat4("view", camera.GetViewMatrix());
+				defaultShader->SetFloat3("lightDir", glm::normalize(directionalLight.LightDir));
+				defaultShader->SetFloat("farPlane", cameraFarPlane);
+				defaultShader->SetInt("cascadeCount", shadowCascadeLevels.size());
 				for (size_t i = 0; i < shadowCascadeLevels.size(); ++i)
 				{
-					shader->SetFloat("cascadePlaneDistances[" + std::to_string(i) + "]", shadowCascadeLevels[i]);
+					defaultShader->SetFloat("cascadePlaneDistances[" + std::to_string(i) + "]", shadowCascadeLevels[i]);
 				}
 				Renderer3D::lightFBO->BindDepthTex3D(8);
 

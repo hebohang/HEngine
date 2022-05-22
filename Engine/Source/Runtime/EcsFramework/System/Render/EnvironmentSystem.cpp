@@ -329,9 +329,6 @@ namespace HEngine
 
 		RenderCommand::DepthFunc(DepthComp::LEQUAL);
 
-		Library<Shader>::GetInstance().GetDefaultShader()->Bind();
-		Library<Shader>::GetInstance().GetDefaultShader()->SetFloat("exposure", environmentSettings.exposure);
-
 		Ref<Shader> backgroundShader = Library<Shader>::GetInstance().Get("IBL_background");
 		backgroundShader->Bind();
 		backgroundShader->SetInt("environmentMap", 0);

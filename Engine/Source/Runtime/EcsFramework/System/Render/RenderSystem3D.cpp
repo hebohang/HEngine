@@ -170,6 +170,14 @@ namespace HEngine
 		else
 			defaultShader->SetFloat("exposure", 1.0f);
 
+		// directional light reset
+		defaultShader->SetInt("cascadeCount", -2);
+		//for (size_t i = 0; i < 4; ++i)
+		//{
+		//	defaultShader->SetFloat("cascadePlaneDistances[" + std::to_string(i) + "]", 1);
+		//}
+		defaultShader->SetFloat3("lightDir", glm::vec3(0.0f));
+
 		// Point Light 
 		{
 			auto view = mLevel->mRegistry.view<TransformComponent, PointLightComponent>();

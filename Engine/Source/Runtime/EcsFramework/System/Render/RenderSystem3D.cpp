@@ -173,51 +173,22 @@ namespace HEngine
 				glm::vec3 lightPos = transform.GetTranslation();
 				glm::vec3 lightColor = light.LightColor;
 
-				//Ref<Shader> iblPbrStatic = Library<Shader>::GetInstance().Get("IBL_pbr_static");
-				Ref<Shader> iblPbrStatic = Library<Shader>::GetInstance().GetDefaultShader();
-				Ref<Shader> iblPbrAnim   = Library<Shader>::GetInstance().Get("IBL_pbr_anim");
-				Ref<Shader> basePbrStatic = Library<Shader>::GetInstance().GetDefaultShader();
-				Ref<Shader> basePbrAnim = Library<Shader>::GetInstance().Get("BasePBR_anim");
+				Ref<Shader> defaultShader = Library<Shader>::GetInstance().GetDefaultShader();
 
-				iblPbrStatic->Bind();
-				iblPbrStatic->SetFloat3("lightPositions[" + std::to_string(i) + "]", lightPos);
-				iblPbrStatic->SetFloat3("lightColors[" + std::to_string(i) + "]", lightColor);				
-				
-				iblPbrAnim->Bind();
-				iblPbrAnim->SetFloat3("lightPositions[" + std::to_string(i) + "]", lightPos);
-				iblPbrAnim->SetFloat3("lightColors[" + std::to_string(i) + "]", lightColor);
-				
-				basePbrStatic->Bind();
-				basePbrStatic->SetFloat3("u_Uniform.lightPositions[" + std::to_string(i) + "]", lightPos);
-				basePbrStatic->SetFloat3("u_Uniform.lightColors[" + std::to_string(i) + "]", lightColor);				
-				
-				basePbrAnim->Bind();
-				basePbrAnim->SetFloat3("u_Uniform.lightPositions[" + std::to_string(i) + "]", lightPos);
-				basePbrAnim->SetFloat3("u_Uniform.lightColors[" + std::to_string(i) + "]", lightColor);
+				defaultShader->Bind();
+				defaultShader->SetFloat3("lightPositions[" + std::to_string(i) + "]", lightPos);
+				defaultShader->SetFloat3("lightColors[" + std::to_string(i) + "]", lightColor);
 
 				i++;
 			}
 			if (i == 0)
 			{
-				//Ref<Shader> iblPbrStatic = Library<Shader>::GetInstance().Get("IBL_pbr_static");
-				Ref<Shader> iblPbrStatic = Library<Shader>::GetInstance().GetDefaultShader();
-				Ref<Shader> iblPbrAnim = Library<Shader>::GetInstance().Get("IBL_pbr_anim");
-				Ref<Shader> basePbrStatic = Library<Shader>::GetInstance().GetDefaultShader();
-				Ref<Shader> basePbrAnim = Library<Shader>::GetInstance().Get("BasePBR_anim");
+				Ref<Shader> defaultShader = Library<Shader>::GetInstance().GetDefaultShader();
 
 				for (size_t i = 0; i < 4; i++)
 				{
-					iblPbrStatic->Bind();
-					iblPbrStatic->SetFloat3("lightColors[" + std::to_string(i) + "]", glm::vec3{ -1.0f } );		
-					
-					iblPbrAnim->Bind();
-					iblPbrAnim->SetFloat3("lightColors[" + std::to_string(i) + "]", glm::vec3{ -1.0f } );
-
-					basePbrStatic->Bind();
-					basePbrStatic->SetFloat3("u_Uniform.lightColors[" + std::to_string(i) + "]", glm::vec3{ -1.0f });		
-					
-					basePbrAnim->Bind();
-					basePbrAnim->SetFloat3("u_Uniform.lightColors[" + std::to_string(i) + "]", glm::vec3{ -1.0f });
+					defaultShader->Bind();
+					defaultShader->SetFloat3("lightColors[" + std::to_string(i) + "]", glm::vec3{ -1.0f } );
 				}
 			}
 		}
@@ -226,7 +197,6 @@ namespace HEngine
 		{
 			auto view = mLevel->mRegistry.view<TransformComponent, DirectionalLightComponent>();
 
-			//Ref<Shader> shader = Library<Shader>::GetInstance().Get("IBL_pbr_static");
 			Ref<Shader> shader = Library<Shader>::GetInstance().GetDefaultShader();
 			shader->Bind();
 			shader->SetInt("shadowMap", 8);

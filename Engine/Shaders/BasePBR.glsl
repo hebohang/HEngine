@@ -99,17 +99,21 @@ uniform vec3 camPos;
 // HDR tonemapping
 uniform float exposure;
 
-// Shadow 
-uniform mat4 view;
-uniform float farPlane;
+// Directional light
 uniform vec3 lightDir;
-uniform sampler2DArray shadowMap;
+uniform float dirLightIntensity;
 layout (std140, binding = 1) uniform LightSpaceMatrices
 {
     mat4 lightSpaceMatrices[16];
 };
+
+// Shadow (CSM)
+uniform mat4 view;
+uniform float farPlane;
+uniform sampler2DArray shadowMap;
 uniform float cascadePlaneDistances[16];
 uniform int cascadeCount;   // number of frusta - 1
+
 // End Shadow
 
 const float F0_NON_METAL = 0.04f;
@@ -335,7 +339,7 @@ void main()
         // scale light by NdotL
         float NdotL = max(dot(N, L), 0.0);   
 
-        vec3 radiance = vec3(10.0);
+        vec3 radiance = vec3(10.0) * dirLightIntensity;
 
         Lo += (diffuseBRDF + specularBRDF) * radiance * NdotL;
     }

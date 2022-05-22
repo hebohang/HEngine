@@ -249,6 +249,8 @@ namespace HEngine
 
 		// Light Depth pass
 		Renderer3D::lightFBO->Bind();
+		RenderCommand::Clear();
+		RenderCommand::CullFrontOrBack(true); // peter panning
 		auto view = mLevel->mRegistry.view<TransformComponent, MeshComponent>();
 		for (auto e : view)
 		{
@@ -258,6 +260,7 @@ namespace HEngine
 
 			mesh.mMesh->Draw(transform.GetTransform(), camera.GetPosition(), Library<Shader>::GetInstance().Get("CSM_Depth"), (int)e);
 		}
+		RenderCommand::CullFrontOrBack(false);
 
 		// Render pass
 		RenderCommand::BindFrameBuffer(mainFramebuffer);

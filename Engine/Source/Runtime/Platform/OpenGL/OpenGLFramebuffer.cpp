@@ -170,10 +170,13 @@ namespace HEngine
         {
             glDeleteFramebuffers(1, &mRendererID);
             //glDeleteTextures(mColorAttachments.size(), mColorAttachments.data());
-            //glDeleteTextures(1, &mDepthAttachment);
+			if (mDepthAttachmentSpecification.TextureFormat == FramebufferTextureFormat::DEPTH32F_TEX3D)
+			{
+				glDeleteTextures(1, &mDepthAttachment);
+				mDepthAttachment = 0;
+			}
 
 			mColorAttachments.clear();
-			//mDepthAttachment = 0;
         }
 
 		glGenFramebuffers(1, &mRendererID);

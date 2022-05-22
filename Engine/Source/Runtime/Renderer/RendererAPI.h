@@ -68,7 +68,7 @@ namespace HEngine
 
         //cull
         virtual void Cull(int32_t Bit) = 0;
-        virtual void CullFrontOrBack(int32_t Bit) = 0;
+        virtual void CullFrontOrBack(bool bFront) = 0;
 
         [[nodiscard]] virtual int GetDrawFrameBuffer() = 0;
 

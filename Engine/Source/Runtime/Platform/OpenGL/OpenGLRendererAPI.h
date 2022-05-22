@@ -30,7 +30,7 @@ namespace HEngine
 
 		virtual void Cull(int32_t Bit) override;
 
-		virtual void CullFrontOrBack(int32_t Bit) override;
+		virtual void CullFrontOrBack(bool bFront) override;
 
 		virtual void SetStencilFunc(StencilFunc stencilFunc, int32_t ref, int32_t mask) override;
 		virtual void StencilMask(uint32_t mask) override;

@@ -102,9 +102,9 @@ namespace HEngine
 			sRendererAPI->Cull(Bit);
 		}
 
-		static void CullFrontOrBack(int32_t Bit)
+		static void CullFrontOrBack(bool bFront)
 		{
-			sRendererAPI->CullFrontOrBack(Bit);
+			sRendererAPI->CullFrontOrBack(bFront);
 		}
 		
 		// framebuffer

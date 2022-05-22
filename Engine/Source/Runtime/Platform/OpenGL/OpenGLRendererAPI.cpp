@@ -148,9 +148,9 @@ namespace HEngine
 		else glDisable(GL_CULL_FACE);
 	}
 
-	void OpenGLRendererAPI::CullFrontOrBack(int32_t Bit)
+	void OpenGLRendererAPI::CullFrontOrBack(bool bFront)
 	{
-		if (Bit) glCullFace(GL_FRONT);
+		if (bFront) glCullFace(GL_FRONT);
 		else glCullFace(GL_BACK);
 	}
 

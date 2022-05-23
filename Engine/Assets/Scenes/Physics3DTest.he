@@ -1,10 +1,19 @@
 Scene: Untitled
 Entities:
-  - Entity: 14288904579628500310
+  - Entity: 16143781570424148301
     TagComponent:
-      Tag: Sphere2
+      Tag: Directional Light
     TransformComponent:
-      Translation: [9.36186886, 3.40440845, 1.49011612e-08]
+      Translation: [0, 0, 0]
+      Rotation: [0.961166978, 1.4201858, 1.2031641]
+      Scale: [0.999997258, 0.999999523, 0.999997199]
+    DirectionalLightComponent:
+      dirIntensity: 1.07000005
+  - Entity: 712240269855225408
+    TagComponent:
+      Tag: Sphere
+    TransformComponent:
+      Translation: [1.27406323, 5.95769596, 0.115417533]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     Rigidbody3DComponent:
@@ -24,6 +33,74 @@ Entities:
       metallic: 0.100000001
       bUseRoughnessMap: false
       roughness: 0.100000001
+      bUseAoMap: false
+  - Entity: 6072653889378764273
+    TagComponent:
+      Tag: Model
+    TransformComponent:
+      Translation: [0.0746655613, 2.32903767, -1.38633716]
+      Rotation: [1.04719508, 0.785398245, 0.0262773708]
+      Scale: [1.15999997, 1.15999949, 1.15999544]
+    Rigidbody3DComponent:
+      mass: 1
+      type: 1
+    BoxCollider3DComponent:
+      linearDamping: 0
+      angularDamping: 0
+      restitution: 1
+      friction: 1
+    MeshComponent:
+      Path: Assets//Models//Box.obj
+      bUseAlbedoMap: false
+      col: [1, 1, 1, 1]
+      bUseNormalMap: false
+      bUseMetallicMap: false
+      metallic: 0.100000001
+      bUseRoughnessMap: false
+      roughness: 0.100000001
+      bUseAoMap: false
+  - Entity: 8151843350312499595
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0.797727108, 3.33094835, 35.3347855]
+      Rotation: [0, 0, 0]
+      Scale: [1, 0.999997854, 1]
+    CameraComponent:
+      Camera:
+        ProjectionType: 0
+        PerspectiveFOV: 1.02974427
+        PerspectiveNear: 0.00999999978
+        PerspectiveFar: 1000
+        OrthographicSize: 10
+        OrthographicNear: -1
+        OrthographicFar: 1
+      Primary: true
+      FixedAspectRatio: false
+  - Entity: 15794395185893427742
+    TagComponent:
+      Tag: Floor
+    TransformComponent:
+      Translation: [0.224013925, -2.83548665, -1.33891916]
+      Rotation: [1.57079637, 0, 0]
+      Scale: [32.6701202, 32.6700516, 0.687105119]
+    Rigidbody3DComponent:
+      mass: 0
+      type: 0
+    BoxCollider3DComponent:
+      linearDamping: 0
+      angularDamping: 0
+      restitution: 0.25
+      friction: 0.419999987
+    MeshComponent:
+      Path: Assets//Models//Box.obj
+      bUseAlbedoMap: false
+      col: [0, 0.601780295, 0.67181468, 1]
+      bUseNormalMap: true
+      bUseMetallicMap: false
+      metallic: 0.100000001
+      bUseRoughnessMap: false
+      roughness: 0.731999993
       bUseAoMap: false
   - Entity: 7617012176787555479
     TagComponent:
@@ -50,79 +127,11 @@ Entities:
       bUseRoughnessMap: false
       roughness: 0.100000001
       bUseAoMap: false
-  - Entity: 15794395185893427742
+  - Entity: 14288904579628500310
     TagComponent:
-      Tag: Floor
+      Tag: Sphere2
     TransformComponent:
-      Translation: [0.224013925, -2.83548665, -1.33891916]
-      Rotation: [1.57079637, 0, 0]
-      Scale: [32.6701202, 32.6700516, 0.687105119]
-    Rigidbody3DComponent:
-      mass: 0
-      type: 0
-    BoxCollider3DComponent:
-      linearDamping: 0
-      angularDamping: 0
-      restitution: 0.25
-      friction: 0.419999987
-    MeshComponent:
-      Path: Assets//Models//Box.obj
-      bUseAlbedoMap: false
-      col: [0, 0.601780295, 0.67181468, 1]
-      bUseNormalMap: true
-      bUseMetallicMap: false
-      metallic: 0.100000001
-      bUseRoughnessMap: false
-      roughness: 0.731999993
-      bUseAoMap: false
-  - Entity: 8151843350312499595
-    TagComponent:
-      Tag: Camera
-    TransformComponent:
-      Translation: [0.797727108, 3.33094835, 35.3347855]
-      Rotation: [0, 0, 0]
-      Scale: [1, 0.999997854, 1]
-    CameraComponent:
-      Camera:
-        ProjectionType: 0
-        PerspectiveFOV: 1.02974427
-        PerspectiveNear: 0.00999999978
-        PerspectiveFar: 1000
-        OrthographicSize: 10
-        OrthographicNear: -1
-        OrthographicFar: 1
-      Primary: true
-      FixedAspectRatio: false
-  - Entity: 6072653889378764273
-    TagComponent:
-      Tag: Model
-    TransformComponent:
-      Translation: [0.0746655613, 2.32903767, -1.38633716]
-      Rotation: [1.04719508, 0.785398245, 0.0262773708]
-      Scale: [1.15999997, 1.15999949, 1.15999544]
-    Rigidbody3DComponent:
-      mass: 1
-      type: 1
-    BoxCollider3DComponent:
-      linearDamping: 0
-      angularDamping: 0
-      restitution: 1
-      friction: 1
-    MeshComponent:
-      Path: Assets//Models//Box.obj
-      bUseAlbedoMap: false
-      col: [1, 1, 1, 1]
-      bUseNormalMap: false
-      bUseMetallicMap: false
-      metallic: 0.100000001
-      bUseRoughnessMap: false
-      roughness: 0.100000001
-      bUseAoMap: false
-  - Entity: 712240269855225408
-    TagComponent:
-      Tag: Sphere
-    TransformComponent:
-      Translation: [1.27406323, 5.95769596, 0.115417533]
+      Translation: [9.36186886, 3.40440845, 1.49011612e-08]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     Rigidbody3DComponent:

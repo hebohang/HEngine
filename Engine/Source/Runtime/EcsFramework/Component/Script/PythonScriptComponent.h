@@ -14,5 +14,6 @@ namespace HEngine
         {}
 
         std::string Path;
+        static bool UseScript;
     };
 }

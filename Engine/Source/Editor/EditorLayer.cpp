@@ -148,7 +148,6 @@ namespace HEngine
 			mEditorCamera.SetViewportSize(ConfigManager::mViewportSize.x, ConfigManager::mViewportSize.y);
 			mActiveScene->OnViewportResize((uint32_t)ConfigManager::mViewportSize.x, (uint32_t)ConfigManager::mViewportSize.y);
 			PostProcessing::mFramebuffer->Resize((uint32_t)ConfigManager::mViewportSize.x, (uint32_t)ConfigManager::mViewportSize.y);
-			Renderer3D::lightFBO->Resize((uint32_t)ConfigManager::mViewportSize.x, (uint32_t)ConfigManager::mViewportSize.y);
 		}
 
         // Render
@@ -636,19 +635,26 @@ namespace HEngine
 	void EditorLayer::LoadDefaultEditorConfig()
 	{
 		const std::filesystem::path CurrentEditorConfigPath{ AssetManager::GetFullPath("imgui.ini") };
-		const std::filesystem::path DefaultEditorConfigPath{ AssetManager::GetFullPath("Assets/Config/imgui.ini") };
+		const std::filesystem::path DefaultEditorConfigPath{ AssetManager::GetFullPath("Config/imgui.ini") };
 		HE_CORE_ASSERT(std::filesystem::exists(DefaultEditorConfigPath));
 		if (std::filesystem::exists(CurrentEditorConfigPath))
 			std::filesystem::remove(CurrentEditorConfigPath);
 		std::filesystem::copy(DefaultEditorConfigPath, std::filesystem::current_path());
 
+		// Window
 		bShowViewport = true;
 		bShowContentBrowser = true;
 		bShowSceneHierachy = true;
 		bShowProperties = true;
-		bShowStats = true;
+		bShowStats = false;
 		bShowEngineSettings = true;
 		bShowSceneSettings = true;
+		bShowSRT = true;
+
+		// Help
+		bShowTutorial = false;
+		bShowAboutMe = false;
+		bShowDemoImGui = false;
 		
 		// seems imgui docking branch has some bugs with load ini file?
 

@@ -25,8 +25,9 @@ namespace HEngine
 	{
 		FramebufferSpecification fbSpec;
 		fbSpec.Attachments = { FramebufferTextureFormat::DEPTH32F_TEX3D };
-		fbSpec.Width = ConfigManager::mViewportSize.x;
-		fbSpec.Height = ConfigManager::mViewportSize.y;
+		// light depth texture uses high resolution
+		fbSpec.Width = 4096;
+		fbSpec.Height = 4096;
 		lightFBO = Framebuffer::Create(fbSpec);
 	}
 

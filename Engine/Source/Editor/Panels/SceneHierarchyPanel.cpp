@@ -608,7 +608,7 @@ namespace HEngine
 				ImGui::NextColumn();
 
 				std::string standardPath = std::regex_replace(component.Path, std::regex("\\\\"), "/");
-				ImGui::Text(standardPath.substr(standardPath.find_last_of("/") + 1, standardPath.length()).c_str());
+				ImGui::Text(std::string_view(standardPath.c_str() + standardPath.find_last_of("/") + 1, standardPath.length()).data());
 
 				ImGui::SameLine();
 				if (ImGui::Button("..."))

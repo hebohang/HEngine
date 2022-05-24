@@ -213,7 +213,7 @@ namespace HEngine
 				Utils::AttachDepthRenderBuffer(mDepthAttachment, mSpecification.Samples, GL_DEPTH24_STENCIL8, GL_DEPTH_STENCIL_ATTACHMENT, mSpecification.Width, mSpecification.Height);
 				break;
 			case FramebufferTextureFormat::DEPTH32F_TEX3D:
-				Utils::AttachDepthTexture3D(mDepthAttachment, GL_DEPTH_COMPONENT32F, 4096, 4096); // to store the light depth map (CSM), we want the resolution to be height
+				Utils::AttachDepthTexture3D(mDepthAttachment, GL_DEPTH_COMPONENT32F, mSpecification.Width, mSpecification.Height);
 				break;
 			}
 		}

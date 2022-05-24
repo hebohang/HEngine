@@ -135,6 +135,17 @@ namespace HEngine
 			(*transform).Rotation.y = pitchY;
 			(*transform).Rotation.z = yawZ;
 		}
+
+		if (ModeManager::bShowPhysicsColliders)
+		{
+			Entity camera = mLevel->GetPrimaryCameraEntity();
+			Renderer2D::BeginScene(camera.GetComponent<CameraComponent>().Camera, camera.GetComponent<TransformComponent>().GetTransform());
+
+			mDynamicsWorld->setDebugDrawer(&mDebugDrawer);
+			mDynamicsWorld->debugDrawWorld();
+
+			Renderer2D::EndScene();
+		}
 	}
 
 	void PhysicSystem3D::OnRuntimeStop()

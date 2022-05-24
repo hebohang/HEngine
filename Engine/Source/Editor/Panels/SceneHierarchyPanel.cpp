@@ -839,8 +839,11 @@ namespace HEngine
 
 		DrawComponent<PythonScriptComponent>("Python Script", entity, [](auto& component)
 			{
+				ImGui::Columns(2, nullptr, false);
+				ImGui::SetColumnWidth(0, 100.0f);
 				ImGui::Text("Python Script");
-				ImGui::SameLine();
+				ImGui::NextColumn();
+
 				ImGui::Text(component.Path.c_str());
 
 				ImGui::SameLine();
@@ -854,6 +857,12 @@ namespace HEngine
 						component.Path = filepath;
 					}
 				}
+				ImGui::EndColumns();
+
+				ImGuiWrapper::DrawTwoUI(
+					[]() { ImGui::Text("Use"); },
+					[&component = component]() { ImGui::Checkbox("##Py Script Use", &component.UseScript); }
+				);
 			});
     }
 }

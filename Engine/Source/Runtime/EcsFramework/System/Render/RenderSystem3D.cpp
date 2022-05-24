@@ -254,7 +254,7 @@ namespace HEngine
 		// Light Depth pass
 		Renderer3D::lightFBO->Bind();
 
-		RenderCommand::SetViewport(0, 0, 2048, 2048);
+		RenderCommand::SetViewport(0, 0, Renderer3D::lightFBO->GetSpecification().Width, Renderer3D::lightFBO->GetSpecification().Height);
 		RenderCommand::Clear();
 		RenderCommand::CullFrontOrBack(true); // peter panning
 		auto view = mLevel->mRegistry.view<TransformComponent, MeshComponent>();

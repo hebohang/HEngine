@@ -74,8 +74,6 @@ namespace HEngine
 
 		int mGizmoType = -1;
 
-		bool mShowPhysicsColliders = false;
-
         // Panels
         SceneHierarchyPanel mSceneHierarchyPanel;
 		ContentBrowserPanel mContentBrowserPanel;

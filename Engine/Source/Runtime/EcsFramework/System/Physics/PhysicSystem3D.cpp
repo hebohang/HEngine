@@ -3,6 +3,7 @@
 #include "Runtime/EcsFramework/System/Physics/PhysicSystem3D.h"
 #include "Runtime/EcsFramework/Component/ComponentGroup.h"
 #include "Runtime/EcsFramework/Entity/Entity.h"
+#include "Runtime/Resource/ModeManager/ModeManager.h"
 
 namespace HEngine
 {
@@ -155,5 +156,23 @@ namespace HEngine
 		delete mDispatcher;
 		delete mCollisionConfiguration;
 		delete mBroadphase;
+	}
+
+	void PhysicSystem3D::OnUpdateEditor(Timestep ts, EditorCamera& camera)
+	{
+		if (ModeManager::bShowPhysicsColliders)
+		{
+			// TEMP
+			OnRuntiemStart();
+
+			Renderer2D::BeginScene(camera);
+
+			mDynamicsWorld->setDebugDrawer(&mDebugDrawer);
+			mDynamicsWorld->debugDrawWorld();
+
+			Renderer2D::EndScene();
+
+			OnRuntimeStop();
+		}
 	}
 }

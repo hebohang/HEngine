@@ -365,7 +365,7 @@ namespace HEngine
 
 			if (ImGuiWrapper::TreeNodeExStyle1((void*)"Physics Settings", "Physics Settings"))
 			{
-				ImGui::Checkbox("Show physics colliders", &mShowPhysicsColliders);
+				ImGui::Checkbox("Show physics colliders", &ModeManager::bShowPhysicsColliders);
 				ImGui::TreePop();
 			}
 
@@ -752,7 +752,7 @@ namespace HEngine
 			Renderer2D::BeginScene(camera.GetComponent<CameraComponent>().Camera, camera.GetComponent<TransformComponent>().GetTransform());
 		}
 
-		if (mShowPhysicsColliders)
+		if (ModeManager::bShowPhysicsColliders)
 		{
 			{
 				auto view = mActiveScene->GetAllEntitiesWith<TransformComponent, BoxCollider2DComponent>();

@@ -8,4 +8,5 @@ namespace HEngine
     bool ModeManager::bEditState = true;
     SceneMode ModeManager::mSceneMode = SceneMode::None;
     EditMode ModeManager::mEditMode = EditMode::Select;
+    bool ModeManager::bShowPhysicsColliders = false;
 }

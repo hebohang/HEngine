@@ -31,6 +31,7 @@ namespace HEngine
         static int b3DMode;  // 0 for 2D, 1 for 3D
         static bool bHdrUse;
         static SceneMode mSceneMode;
+        static bool bShowPhysicsColliders;
     private:
         static bool bEditState;
         static EditMode mEditMode;

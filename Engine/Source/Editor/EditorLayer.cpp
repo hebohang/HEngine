@@ -2,6 +2,7 @@
 #include "Editor/ImGuiWrapper/ImGuiWrapper.h"
 #include "Editor/IconManager/IconManager.h"
 #include "Runtime/EcsFramework/Serializer/SceneSerializer.h"
+#include "Runtime/EcsFramework/System/Physics/PhysicSystem3D.h"
 #include "Runtime/Utils/PlatformUtils.h"
 #include "Runtime/Utils/MathUtils/MathUtils.h"
 #include "Runtime/Resource/ModeManager/ModeManager.h"
@@ -363,6 +364,25 @@ namespace HEngine
 			if (ImGuiWrapper::TreeNodeExStyle1((void*)"Physics Settings", "Physics Settings"))
 			{
 				ImGui::Checkbox("Show physics colliders", &ModeManager::bShowPhysicsColliders);
+				
+				if (ImGui::BeginMenu("Show physics colliders modes"))
+				{
+					using namespace magic_enum::bitwise_operators;
+
+					constexpr auto flags = magic_enum::enum_values<PhysicsDebugDrawModeFlag>();
+					for (auto flag : flags)
+					{
+						if (ImGui::MenuItem(magic_enum::enum_name(flag).data(), NULL, (bool)(ModeManager::mPhysicsDebugDrawModeFlag & flag)))
+						{
+							(bool)(ModeManager::mPhysicsDebugDrawModeFlag & flag) ? 
+								ModeManager::mPhysicsDebugDrawModeFlag &= ~flag : ModeManager::mPhysicsDebugDrawModeFlag |= flag;
+							PhysicSystem3D::SetDebugMode((int)ModeManager::mPhysicsDebugDrawModeFlag);
+						}
+					}
+
+					ImGui::EndMenu();
+				}
+				
 				ImGui::TreePop();
 			}
 

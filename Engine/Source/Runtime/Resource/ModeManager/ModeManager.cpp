@@ -9,4 +9,5 @@ namespace HEngine
     SceneMode ModeManager::mSceneMode = SceneMode::None;
     EditMode ModeManager::mEditMode = EditMode::Select;
     bool ModeManager::bShowPhysicsColliders = false;
+    PhysicsDebugDrawModeFlag ModeManager::mPhysicsDebugDrawModeFlag = PhysicsDebugDrawModeFlag::HEngine_DrawWireframe;
 }

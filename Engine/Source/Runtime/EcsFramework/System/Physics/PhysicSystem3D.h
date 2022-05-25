@@ -36,11 +36,11 @@ namespace HEngine
 
 			virtual void draw3dText(const btVector3& location, const char* textString) {};
 
-			virtual void setDebugMode(int debugMode) { debugMode = debugMode; };
+			virtual void setDebugMode(int debugMode) { mDebugMode = debugMode; };
 
-			virtual int getDebugMode() const override { return debugMode; }
+			virtual int getDebugMode() const override { return mDebugMode; }
 
-			int debugMode = DebugDrawModes::DBG_DrawWireframe;
+			int mDebugMode = DebugDrawModes::DBG_DrawWireframe;
 		};
 	}
 
@@ -54,6 +54,8 @@ namespace HEngine
 		void OnUpdateRuntime(Timestep ts) override;
 		void OnRuntimeStop() override;
 		void OnUpdateEditor(Timestep ts, EditorCamera& camera) override;
+
+		static void SetDebugMode(int flags) { mDebugDrawer.setDebugMode(flags); }
 	private:
 		btBroadphaseInterface* mBroadphase;
 		btDefaultCollisionConfiguration* mCollisionConfiguration;
@@ -61,6 +63,6 @@ namespace HEngine
 		btSequentialImpulseConstraintSolver* mSolver;
 		btDiscreteDynamicsWorld* mDynamicsWorld;
 
-		Utils::BulletDrawer mDebugDrawer;
+		static Utils::BulletDrawer mDebugDrawer;
     };
 }

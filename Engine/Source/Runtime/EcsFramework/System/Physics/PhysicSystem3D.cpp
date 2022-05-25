@@ -7,6 +7,8 @@
 
 namespace HEngine
 {
+	Utils::BulletDrawer PhysicSystem3D::mDebugDrawer;
+
 	void PhysicSystem3D::OnRuntiemStart()
 	{
 		mBroadphase = new btDbvtBroadphase();

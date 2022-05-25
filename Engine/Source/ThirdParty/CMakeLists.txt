@@ -178,6 +178,10 @@ if(NOT TARGET pybind11)
     add_subdirectory(pybind11)
 endif()
 
+if(NOT TARGET magic_enum)
+    include(magic_enum.cmake)
+endif()
+
 if(NOT TARGET headers)
     add_library(headers INTERFACE)
     target_include_directories(headers INTERFACE "${ThirdPartyDir}")

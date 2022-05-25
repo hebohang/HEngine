@@ -63,9 +63,8 @@ namespace HEngine
 		float mAnimPlaySpeed = 1.0f;
 
 		std::vector<Ref<Material>> mMaterial;
-		//Ref<Material> mMaterial = CreateRef<Material>();
-	private:
 		std::vector<SubMesh> mSubMeshes;
+	private:
 		std::string mDirectory;
 
 		// Animation

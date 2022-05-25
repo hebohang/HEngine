@@ -52,11 +52,11 @@ namespace HEngine
 		void SetupMesh(int entityID);
 	public:
 		uint32_t mMaterialIndex;
-	private:
-		std::vector<MaterialTexture> mTextures;
 
 		std::vector<StaticVertex> mStaticVertices;
 		std::vector<SkinnedVertex> mSkinnedVertices;
+	private:
+		std::vector<MaterialTexture> mTextures;
 
 		std::vector<uint32_t> mIndices;
 

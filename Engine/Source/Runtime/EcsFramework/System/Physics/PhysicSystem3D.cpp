@@ -110,6 +110,64 @@ namespace HEngine
 				rb3d.RuntimeBody = body;
 				mDynamicsWorld->addRigidBody(body);
 			}
+			else if (entity.HasComponent<ConvexHullComponent>() && entity.HasComponent<MeshComponent>())
+			{
+				auto& chc = entity.GetComponent<ConvexHullComponent>();
+				auto& meshc = entity.GetComponent<MeshComponent>();
+
+				btConvexHullShape* shape = new btConvexHullShape();
+
+				for (const auto& submesh : meshc.mMesh->mSubMeshes)
+				{
+					auto& staticVertices = submesh.mStaticVertices;
+					auto& skinnedVertices = submesh.mSkinnedVertices;
+					for (const auto& vertex : staticVertices)
+					{
+						shape->addPoint(btVector3(vertex.Pos.x * transform.Scale.x, vertex.Pos.y * transform.Scale.y, vertex.Pos.z * transform.Scale.z));
+					}
+					for (const auto& vertex : skinnedVertices)
+					{
+						shape->addPoint(btVector3(vertex.Pos.x * transform.Scale.x, vertex.Pos.y * transform.Scale.y, vertex.Pos.z * transform.Scale.z));
+					}
+				}
+
+				btVector3 inertia{ 0.0f, 0.0f, 0.0f };
+				if (rb3d.mass > 0.0f) shape->calculateLocalInertia(rb3d.mass, inertia);
+
+				btTransform trans;
+				trans.setOrigin(btVector3(transform.Translation.x, transform.Translation.y, transform.Translation.z));
+				auto comQuat = glm::quat(transform.Rotation);
+				btQuaternion btQuat;
+				btQuat.setValue(comQuat.x, comQuat.y, comQuat.z, comQuat.w);
+				trans.setRotation(btQuat);
+
+				btDefaultMotionState* motion = new btDefaultMotionState(trans);
+				btRigidBody::btRigidBodyConstructionInfo rbInfo(rb3d.mass, motion, shape, inertia);
+				rbInfo.m_linearDamping = chc.linearDamping;
+				rbInfo.m_angularDamping = chc.angularDamping;
+				rbInfo.m_restitution = chc.restitution;
+				rbInfo.m_friction = chc.friction;
+
+				btRigidBody* body = new btRigidBody(rbInfo);
+				body->setSleepingThresholds(0.01f, glm::radians(0.1f));
+				body->setActivationState(DISABLE_DEACTIVATION);
+
+				if (rb3d.Type == Rigidbody3DComponent::Body3DType::Static)
+				{
+					body->setCollisionFlags(body->getCollisionFlags() | btCollisionObject::CF_STATIC_OBJECT);
+				}
+				else if (rb3d.Type == Rigidbody3DComponent::Body3DType::Kinematic)
+				{
+					body->setCollisionFlags(body->getCollisionFlags() | btCollisionObject::CF_KINEMATIC_OBJECT);
+				}
+				else if (rb3d.Type == Rigidbody3DComponent::Body3DType::Dynamic)
+				{
+					body->setCollisionFlags(body->getCollisionFlags() | btCollisionObject::CF_DYNAMIC_OBJECT);
+				}
+
+				rb3d.RuntimeBody = body;
+				mDynamicsWorld->addRigidBody(body);
+			}
 		}
 	}
 

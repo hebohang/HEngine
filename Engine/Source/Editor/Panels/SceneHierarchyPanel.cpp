@@ -355,6 +355,15 @@ namespace HEngine
 				}
 			}
 
+			if (!mSelectionContext.HasComponent<ConvexHullComponent>())
+			{
+				if (ImGui::MenuItem("ConvexHull Collider"))
+				{
+					mSelectionContext.AddComponent<ConvexHullComponent>();
+					ImGui::CloseCurrentPopup();
+				}
+			}
+
 			if (!mSelectionContext.HasComponent<PointLightComponent>())
 			{
 				if (ImGui::MenuItem("Point Light"))
@@ -583,6 +592,24 @@ namespace HEngine
 			});
 
 		DrawComponent<SphereCollider3DComponent>("Sphere Collider 3D", entity, [](auto& component)
+			{
+				const auto& floatValueUI = [](const char* name, float& value) {
+					ImGui::Columns(2, nullptr, false);
+					ImGui::SetColumnWidth(0, 100.0f);
+					ImGui::Text(name);
+					ImGui::NextColumn();
+					std::string label = std::string("##") + std::string(name);
+					ImGui::SliderFloat(label.c_str(), &value, 0.0f, 1.0f, "%.2f");
+					ImGui::EndColumns();
+				};
+
+				floatValueUI("linearDamping", component.linearDamping);
+				floatValueUI("angularDamping", component.angularDamping);
+				floatValueUI("restitution", component.restitution);
+				floatValueUI("friction", component.friction);
+			});
+
+		DrawComponent<ConvexHullComponent>("ConvexHull Collider", entity, [](auto& component)
 			{
 				const auto& floatValueUI = [](const char* name, float& value) {
 					ImGui::Columns(2, nullptr, false);

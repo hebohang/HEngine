@@ -4,6 +4,7 @@
 #include "Runtime/EcsFramework/Level/Level.h"
 
 #include <fmod.hpp>
+#include <fmod.h>
 
 namespace HEngine
 {
@@ -19,7 +20,6 @@ namespace HEngine
 		void OnUpdateEditor(Timestep ts, EditorCamera& camera) override;
 	private:
 		FMOD::System* mFmodSystem;
-		FMOD::Sound* mSound1;
-		FMOD::Channel* mChannel = 0;
+		FMOD_SYSTEM* mFmodSystem2;
 	};
 }

@@ -158,9 +158,21 @@ if(NOT TARGET spirv-cross)
 endif()
 
 # Learned from https://github.com/Mike-Leo-Smith/LearnVulkan/blob/master/CMakeLists.txt
-add_subdirectory(SPIRV-Headers)
-add_subdirectory(SPIRV-Tools)
-add_subdirectory(glslang)
+if (NOT TARGET SPIRV-Headers)
+    add_subdirectory(SPIRV-Headers)
+endif()
+
+if (NOT TARGET SPIRV_TOOLS)
+    option(SPIRV_SKIP_EXECUTABLES
+      "Skip building the executable and tests along with the library"
+      on)
+    option(SKIP_SPIRV_TOOLS_INSTALL "Skip installation" off)
+    add_subdirectory(SPIRV-Tools)
+endif()
+
+if (NOT TARGET glslang)
+    add_subdirectory(glslang)
+endif()
 
 if(NOT TARGET shaderc)
     set(SHADERC_SKIP_TESTS ON CACHE BOOL "" FORCE)

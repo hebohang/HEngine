@@ -13,3 +13,6 @@ build/
 **.vcxproj
 **.vcxproj.filters
 **.vcxproj.user
+
+Engine/Source/Editor/*.dll
+Engine/Source/Editor/*.ini

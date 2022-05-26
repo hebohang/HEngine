@@ -65,6 +65,13 @@ namespace HEngine
 						SetSelectedEntity(entity);
 					}
 
+					if (ImGui::MenuItem("Create Audio"))
+					{
+						auto entity = mContext->CreateEntity("Audio");
+						entity.AddComponent<SoundComponent>();
+						SetSelectedEntity(entity);
+					}
+
 					ImGui::EndPopup();
 				}
 			}
@@ -387,6 +394,15 @@ namespace HEngine
 				if (ImGui::MenuItem("Python Script"))
 				{
 					mSelectionContext.AddComponent<PythonScriptComponent>();
+					ImGui::CloseCurrentPopup();
+				}
+			}
+
+			if (!mSelectionContext.HasComponent<SoundComponent>())
+			{
+				if (ImGui::MenuItem("Sound"))
+				{
+					mSelectionContext.AddComponent<SoundComponent>();
 					ImGui::CloseCurrentPopup();
 				}
 			}
@@ -890,6 +906,38 @@ namespace HEngine
 					[]() { ImGui::Text("Use"); },
 					[&component = component]() { ImGui::Checkbox("##Py Script Use", &component.UseScript); }
 				);
+			});
+
+		DrawComponent<SoundComponent>("Sound", entity, [](auto& component)
+			{
+				ImGui::Columns(2, nullptr, false);
+				ImGui::SetColumnWidth(0, 100.0f);
+				ImGui::Text("Sound Path");
+				ImGui::NextColumn();
+
+				std::string standardPath = std::regex_replace(component.Path, std::regex("\\\\"), "/");
+				ImGui::Text(std::string_view(standardPath.c_str() + standardPath.find_last_of("/") + 1, standardPath.length()).data());
+
+				ImGui::SameLine();
+				if (ImGui::Button("..."))
+				{
+					std::string filepath = FileDialogs::OpenFile("Sound (*.wav *.mp3)\0");
+					if (filepath.find("Assets") != std::string::npos)
+					{
+						filepath = filepath.substr(filepath.find("Assets"), filepath.length());
+					}
+					else
+					{
+						// TODO: Import Mesh
+						//HE_CORE_ASSERT(false, "HEngine Now Only support the model from Assets!");
+						//filepath = "";
+					}
+					if (!filepath.empty())
+					{
+						component.Path = filepath;
+					}
+				}
+				ImGui::EndColumns();
 			});
     }
 }

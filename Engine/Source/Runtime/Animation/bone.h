@@ -56,7 +56,7 @@ namespace HEngine
 			for (int positionIndex = 0; positionIndex < mNumPositions; ++positionIndex)
 			{
 				aiVector3D aiPosition = channel->mPositionKeys[positionIndex].mValue;
-				float timeStamp = channel->mPositionKeys[positionIndex].mTime;
+				float timeStamp = (float)channel->mPositionKeys[positionIndex].mTime;
 				KeyPosition data;
 				data.position = Utils::GetGLMVec(aiPosition);
 				data.timeStamp = timeStamp;
@@ -67,7 +67,7 @@ namespace HEngine
 			for (int rotationIndex = 0; rotationIndex < mNumRotations; ++rotationIndex)
 			{
 				aiQuaternion aiOrientation = channel->mRotationKeys[rotationIndex].mValue;
-				float timeStamp = channel->mRotationKeys[rotationIndex].mTime;
+				float timeStamp = (float)channel->mRotationKeys[rotationIndex].mTime;
 				KeyRotation data;
 				data.orientation = Utils::GetGLMQuat(aiOrientation);
 				data.timeStamp = timeStamp;
@@ -78,7 +78,7 @@ namespace HEngine
 			for (int keyIndex = 0; keyIndex < mNumScalings; ++keyIndex)
 			{
 				aiVector3D scale = channel->mScalingKeys[keyIndex].mValue;
-				float timeStamp = channel->mScalingKeys[keyIndex].mTime;
+				float timeStamp = (float)channel->mScalingKeys[keyIndex].mTime;
 				KeyScale data;
 				data.scale = Utils::GetGLMVec(scale);
 				data.timeStamp = timeStamp;

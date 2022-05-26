@@ -19,6 +19,7 @@
 #include "Runtime/EcsFramework/Component/Mesh/MeshComponent.h" 
 #include "Runtime/EcsFramework/Component/Light/PointLightComponent.h"
 #include "Runtime/EcsFramework/Component/Light/DirectionalLightComponent.h"
+#include "Runtime/EcsFramework/Component/Audio/SoundComponent.h"
 
 #include <concepts>
 #include <type_traits>
@@ -40,5 +41,6 @@ namespace HEngine
         CameraComponent, NativeScriptComponent, PythonScriptComponent, 
         Rigidbody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent, 
         Rigidbody3DComponent, SphereCollider3DComponent, BoxCollider3DComponent, ConvexHullComponent,
-        MeshComponent, PointLightComponent, DirectionalLightComponent>;
+        MeshComponent, PointLightComponent, DirectionalLightComponent,
+        SoundComponent>;
 }

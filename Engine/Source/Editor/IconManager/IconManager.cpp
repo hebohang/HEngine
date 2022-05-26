@@ -15,5 +15,6 @@ namespace HEngine
         Add("TransIcon", Texture2D::Create(std::string(("Resources/Icons/Trans.png"))));
         Add("RotateIcon", Texture2D::Create(std::string(("Resources/Icons/Rotate.png"))));
         Add("ScaleIcon", Texture2D::Create(std::string(("Resources/Icons/Scale.png"))));
+        Add("MusicIcon", Texture2D::Create(std::string(("Resources/Icons/Music.png"))));
     }
 }

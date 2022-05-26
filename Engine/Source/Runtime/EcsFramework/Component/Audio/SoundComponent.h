@@ -15,7 +15,7 @@ namespace HEngine
             : Path(path)
         {}
 
-        std::string Path;
+        std::string Path = "None";
         bool Play;
 
         FMOD::Sound* Sound;

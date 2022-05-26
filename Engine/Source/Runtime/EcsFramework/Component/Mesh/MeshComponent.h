@@ -21,7 +21,7 @@ namespace HEngine
 		//{
 		//}
 
-		std::string Path;
+		std::string Path = "None";
 		Ref<Mesh> mMesh;
     };
 }

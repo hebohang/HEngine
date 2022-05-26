@@ -1,7 +1,7 @@
-#include "ContentBrowserPanel.h"
+#include "Editor/Panels/ContentBrowserPanel.h"
+#include "Editor/IconManager/IconManager.h"
 #include "Runtime/Resource/ConfigManager/ConfigManager.h"
 #include "Runtime/Resource/AssetManager/AssetManager.h"
-#include "Editor/IconManager/IconManager.h"
 
 #include <imgui/imgui.h>
 
@@ -23,6 +23,16 @@ namespace HEngine
 		{
 			std::string extension = filePath.substr(filePath.find_last_of(".") + 1);
 			if (extension == "png" || extension == "jpg" || extension == "bmp" || extension == "hdr" || extension == "tga")
+			{
+				return true;
+			}
+			return false;
+		}
+
+		static bool IsMusicFormat(std::string filePath)
+		{
+			std::string extension = filePath.substr(filePath.find_last_of(".") + 1);
+			if (extension == "mp3" || extension == "wma" || extension == "wav")
 			{
 				return true;
 			}
@@ -178,6 +188,10 @@ namespace HEngine
 				std::string texturePath = "Assets\\" + relativePath.string();
 				Ref<Texture2D> img = IconManager::GetInstance().LoadOrFindTexture(texturePath);
 				ImGui::ImageButton((ImTextureID)img->GetRendererID(), { thumbnailSize, thumbnailSize }, { 0, 1 }, { 1, 0 });
+			}
+			else if (Utils::IsMusicFormat(path.string()))
+			{
+				ImGui::ImageButton((ImTextureID)IconManager::GetInstance().Get("MusicIcon")->GetRendererID(), {thumbnailSize, thumbnailSize}, {0, 1}, {1, 0});
 			}
 			else
 			{

@@ -1,7 +1,6 @@
 #include "Editor/ImGuiWrapper/ImGuiWrapper.h"
 #include "Editor/Panels/SceneHierarchyPanel.h"
 #include "Editor/IconManager/IconManager.h"
-
 #include "Runtime/EcsFramework/Component/ComponentGroup.h"
 #include "Runtime/Renderer/Texture.h"
 #include "Runtime/Resource/ConfigManager/ConfigManager.h"
@@ -652,6 +651,16 @@ namespace HEngine
 
 				std::string standardPath = std::regex_replace(component.Path, std::regex("\\\\"), "/");
 				ImGui::Text(std::string_view(standardPath.c_str() + standardPath.find_last_of("/") + 1, standardPath.length()).data());
+				if (ImGui::BeginDragDropTarget())
+				{
+					if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+					{
+						auto path = (const wchar_t*)payload->Data;
+						component.Path = (std::filesystem::path("Assets") / path).string();
+						component.mMesh = CreateRef<Mesh>(component.Path);
+					}
+					ImGui::EndDragDropTarget();
+				}
 
 				ImGui::SameLine();
 				if (ImGui::Button("..."))
@@ -917,6 +926,15 @@ namespace HEngine
 
 				std::string standardPath = std::regex_replace(component.Path, std::regex("\\\\"), "/");
 				ImGui::Text(std::string_view(standardPath.c_str() + standardPath.find_last_of("/") + 1, standardPath.length()).data());
+				if (ImGui::BeginDragDropTarget())
+				{
+					if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+					{
+						auto path = (const wchar_t*)payload->Data;
+						component.Path = (std::filesystem::path("Assets") / path).string();
+					}
+					ImGui::EndDragDropTarget();
+				}
 
 				ImGui::SameLine();
 				if (ImGui::Button("..."))

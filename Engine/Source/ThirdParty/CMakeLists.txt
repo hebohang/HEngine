@@ -182,6 +182,10 @@ if(NOT TARGET magic_enum)
     include(magic_enum.cmake)
 endif()
 
+if(NOT TARGET FMOD_CORE)
+    include(FMOD.cmake)
+endif()
+
 if(NOT TARGET headers)
     add_library(headers INTERFACE)
     target_include_directories(headers INTERFACE "${ThirdPartyDir}")

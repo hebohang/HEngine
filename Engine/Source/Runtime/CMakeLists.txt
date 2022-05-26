@@ -46,6 +46,7 @@ target_link_libraries(HEngineRuntime PUBLIC glfw
     PUBLIC ${vulkan_lib}
     PUBLIC pybind11::embed pybind11::module pybind11::pybind11
     PUBLIC magic_enum
+    PUBLIC FMOD::Core FMOD::Fsbank FMOD::Studio
 )
 
 if (WIN32)

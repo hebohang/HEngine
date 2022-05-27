@@ -8,12 +8,13 @@ namespace HEngine
 {
     enum class PostProcessingType
     {
-        None = 1,
-        MSAA,
+        None = 0,
+        MSAA = 1,
         Outline,
         Cartoon,
         GrayScale,
         GaussianBlur,
+        FxaaConsole,
     };
 
     class PostProcessing
@@ -24,8 +25,6 @@ namespace HEngine
     public:
         static void Init();
         virtual uint32_t ExcuteAndReturnFinalTex(const Ref<Framebuffer>& fb) { return 0; };
-
-        static std::string PostTypeToString(PostProcessingType type);
     protected:
         void DoPostProcessing();
     public:

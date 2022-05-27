@@ -14,6 +14,7 @@
 #include <ImGuizmo.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <magic_enum.hpp>
 
 namespace HEngine
 {
@@ -393,28 +394,16 @@ namespace HEngine
 
 				if (ImGui::BeginPopup("AddPostProcessing"))
 				{
-					if (ImGui::MenuItem("Outline"))
-					{
-						mRenderPass->AddPostProcessing(PostProcessingType::Outline);
-						ImGui::CloseCurrentPopup();
-					}
+					constexpr auto postTypes = magic_enum::enum_values<PostProcessingType>();
 
-					if (ImGui::MenuItem("Cartoon"))
+					// Skip None and MSAA
+					for (size_t i = 2; i < postTypes.size(); i++)
 					{
-						mRenderPass->AddPostProcessing(PostProcessingType::Cartoon);
-						ImGui::CloseCurrentPopup();
-					}
-
-					if (ImGui::MenuItem("GrayScale"))
-					{
-						mRenderPass->AddPostProcessing(PostProcessingType::GrayScale);
-						ImGui::CloseCurrentPopup();
-					}
-
-					if (ImGui::MenuItem("GaussianBlur"))
-					{
-						mRenderPass->AddPostProcessing(PostProcessingType::GaussianBlur);
-						ImGui::CloseCurrentPopup();
+						if (ImGui::MenuItem(magic_enum::enum_name(postTypes[i]).data()))
+						{
+							mRenderPass->AddPostProcessing(postTypes[i]);
+							ImGui::CloseCurrentPopup();
+						}
 					}
 
 					ImGui::EndPopup();
@@ -422,7 +411,7 @@ namespace HEngine
 
 				for (size_t i = 1; i < mRenderPass->mPostProcessings.size(); i++)
 				{
-					ImGui::Selectable(PostProcessing::PostTypeToString(mRenderPass->mPostProcessings[i]->mType).c_str());
+					ImGui::Selectable(magic_enum::enum_name(mRenderPass->mPostProcessings[i]->mType).data());
 
 					// imgui demo: Drag to reorder items (simple)
 					if (ImGui::IsItemActive() && !ImGui::IsItemHovered())

@@ -65,6 +65,9 @@ namespace HEngine
         case PostProcessingType::GaussianBlur:
             re = DoPostWithShader(fb, Library<Shader>::GetInstance().Get("Post_GaussianBlur"));
             break;
+        case PostProcessingType::FxaaConsole:
+            re = DoPostWithShader(fb, Library<Shader>::GetInstance().Get("Post_FxaaConsole"));
+            break;
         default:
             return 0;
             break;

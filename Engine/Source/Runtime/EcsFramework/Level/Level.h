@@ -50,8 +50,6 @@ namespace HEngine
     public:
         entt::registry mRegistry;
     private:
-		b2World* mPhysicsWorld = nullptr;
-
         std::vector<Scope<class System>> mSystems;
 
         friend class Entity;

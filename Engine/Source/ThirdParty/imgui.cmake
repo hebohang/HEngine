@@ -1,6 +1,6 @@
 set(ImguiSourceDir ${ThirdPartyDir}/imgui)
 
-file(GLOB ImGuiSrc
+set(ImGuiSrc
     "${ImguiSourceDir}/imconfig.h"
     "${ImguiSourceDir}/imgui.h"
     "${ImguiSourceDir}/imgui.cpp"
@@ -15,7 +15,7 @@ file(GLOB ImGuiSrc
 )
 
 # Still some bugs
-file(GLOB ImGuiImpl CONFIGURE_DEPENDS  
+set(ImGuiImpl  
 "${ImguiSourceDir}/backends/imgui_impl_glfw.cpp" 
 "${ImguiSourceDir}/backends/imgui_impl_glfw.h"
 "${ImguiSourceDir}/backends/imgui_impl_opengl3.cpp" 

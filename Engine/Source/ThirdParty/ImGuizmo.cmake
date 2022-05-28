@@ -1,6 +1,6 @@
 set(ImGuizmoSourceDir ${ThirdPartyDir}/ImGuizmo)
 
-file(GLOB_RECURSE ImGuizmoSrc 
+set(ImGuizmoSrc 
     "${ImGuizmoSourceDir}/ImGuizmo.h"
     "${ImGuizmoSourceDir}/ImGuizmo.cpp"
 )

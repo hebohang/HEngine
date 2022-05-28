@@ -1,18 +1,18 @@
 set(FmodSourceDir ${ThirdPartyDir}/FMOD)
 
-file(GLOB FmodLibFile
+set(FmodLibFile
     "${FmodSourceDir}/api/core/lib/x64/fmod_vc.lib"
     "${FmodSourceDir}/api/fsbank/lib/x64/fsbank_vc.lib"
     "${FmodSourceDir}/api/studio/lib/x64/fmodstudio_vc.lib"
 )
 
-file(GLOB FmodDllFile
+set(FmodDllFile
     "${FmodSourceDir}/api/core/lib/x64/fmod.dll"
     "${FmodSourceDir}/api/fsbank/lib/x64/fsbank.dll"
     "${FmodSourceDir}/api/studio/lib/x64/fmodstudio.dll"
 )
 
-file(GLOB FmodIncludeDir
+set(FmodIncludeDir
     "${FmodSourceDir}/api/core/inc"
     "${FmodSourceDir}/api/fsbank/inc"
     "${FmodSourceDir}/api/studio/inc"

@@ -1,8 +1,58 @@
-file(GLOB_RECURSE yaml-cpp_SRCS	
-    "${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/*.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/*.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/include/*.h"
+set(yaml_cpp_SRCS	
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/binary.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/collectionstack.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/convert.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/depthguard.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/directives.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/directives.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/emit.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/emitfromevents.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/emitter.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/emitterstate.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/emitterstate.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/emitterutils.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/emitterutils.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/exceptions.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/exp.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/exp.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/indentation.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/memory.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/node.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/nodebuilder.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/nodebuilder.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/nodeevents.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/nodeevents.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/node_data.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/null.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/ostream_wrapper.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/parse.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/parser.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/ptr_vector.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/regeximpl.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/regex_yaml.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/regex_yaml.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/scanner.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/scanner.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/scanscalar.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/scanscalar.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/scantag.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/scantag.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/scantoken.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/setting.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/simplekey.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/singledocparser.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/singledocparser.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/stream.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/stream.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/streamcharsource.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/stringsource.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/tag.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/tag.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/token.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/contrib/graphbuilder.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/contrib/graphbuilderadapter.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/yaml-cpp/src/contrib/graphbuilderadapter.h
 )
-add_library(yaml-cpp STATIC ${yaml-cpp_SRCS})
+add_library(yaml-cpp STATIC ${yaml_cpp_SRCS})
 target_include_directories(yaml-cpp PUBLIC "${ThirdPartyDir}/yaml-cpp/include")
 target_compile_definitions(yaml-cpp PUBLIC "YAML_CPP_STATIC_DEFINE")

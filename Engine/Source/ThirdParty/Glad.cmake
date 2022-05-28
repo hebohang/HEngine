@@ -1,6 +1,6 @@
 set(GladSourceDir ${ThirdPartyDir}/Glad)
 
-file(GLOB GladSrc 
+set(GladSrc 
     "${GladSourceDir}/include/glad/glad.h"
     "${GladSourceDir}/include/KHR/khrplatform.h"
     "${GladSourceDir}/src/glad.c"

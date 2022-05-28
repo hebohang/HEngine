@@ -1,0 +1,37 @@
+RUNTIME_ADD_SOURCE(
+    Framebuffer.cpp
+    Framebuffer.h
+    GraphicsContext.cpp
+    GraphicsContext.h
+    IndexBuffer.cpp
+    IndexBuffer.h
+    Material.cpp
+    Material.h
+    PostProcessing.cpp
+    PostProcessing.h
+    RenderCommand.cpp
+    RenderCommand.h
+    RenderCommandQueue.cpp
+    RenderCommandQueue.h
+    Renderer.cpp
+    Renderer.h
+    Renderer2D.cpp
+    Renderer2D.h
+    Renderer3D.cpp
+    Renderer3D.h
+    RendererAPI.h
+    RenderPass.cpp
+    RenderPass.h
+    Shader.cpp
+    Shader.h
+    SubTexture2D.cpp
+    SubTexture2D.h
+    Texture.cpp
+    Texture.h
+    UniformBuffer.cpp
+    UniformBuffer.h
+    VertexArray.cpp
+    VertexArray.h
+    VertexBuffer.cpp
+    VertexBuffer.h
+)

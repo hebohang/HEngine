@@ -56,7 +56,7 @@ target_link_libraries(HEngineRuntime PUBLIC glfw
     PUBLIC ${OPENGL_LIBRARIES}
     PUBLIC yaml-cpp
     PUBLIC spdlog
-    PUBLIC Box2D
+    PUBLIC box2d
     PUBLIC stb
     PUBLIC ImGuizmo
     PUBLIC assimp

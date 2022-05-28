@@ -41,7 +41,7 @@ inline bool b2IsValid(float x)
 struct B2_API b2Vec2
 {
 	/// Default constructor does nothing (for performance).
-	b2Vec2() = default;
+	b2Vec2() {}
 
 	/// Construct using coordinates.
 	b2Vec2(float xIn, float yIn) : x(xIn), y(yIn) {}
@@ -132,7 +132,7 @@ struct B2_API b2Vec2
 struct B2_API b2Vec3
 {
 	/// Default constructor does nothing (for performance).
-	b2Vec3() = default;
+	b2Vec3() {}
 
 	/// Construct using coordinates.
 	b2Vec3(float xIn, float yIn, float zIn) : x(xIn), y(yIn), z(zIn) {}
@@ -171,7 +171,7 @@ struct B2_API b2Vec3
 struct B2_API b2Mat22
 {
 	/// The default constructor does nothing (for performance).
-	b2Mat22() = default;
+	b2Mat22() {}
 
 	/// Construct this matrix using columns.
 	b2Mat22(const b2Vec2& c1, const b2Vec2& c2)
@@ -245,7 +245,7 @@ struct B2_API b2Mat22
 struct B2_API b2Mat33
 {
 	/// The default constructor does nothing (for performance).
-	b2Mat33() = default;
+	b2Mat33() {}
 
 	/// Construct this matrix using columns.
 	b2Mat33(const b2Vec3& c1, const b2Vec3& c2, const b2Vec3& c3)
@@ -286,7 +286,7 @@ struct B2_API b2Mat33
 /// Rotation
 struct B2_API b2Rot
 {
-	b2Rot() = default;
+	b2Rot() {}
 
 	/// Initialize from an angle in radians
 	explicit b2Rot(float angle)
@@ -338,7 +338,7 @@ struct B2_API b2Rot
 struct B2_API b2Transform
 {
 	/// The default constructor does nothing.
-	b2Transform() = default;
+	b2Transform() {}
 
 	/// Initialize using a position vector and a rotation.
 	b2Transform(const b2Vec2& position, const b2Rot& rotation) : p(position), q(rotation) {}
@@ -367,8 +367,6 @@ struct B2_API b2Transform
 /// we must interpolate the center of mass position.
 struct B2_API b2Sweep
 {
-	b2Sweep() = default;
-
 	/// Get the interpolated transform at a specific time.
 	/// @param transform the output transform
 	/// @param beta is a factor in [0,1], where 0 indicates alpha0.

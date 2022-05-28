@@ -243,7 +243,7 @@ public:
 
 	/// Get the mass data of the body.
 	/// @return a struct containing the mass, inertia and center of the body.
-	b2MassData GetMassData() const;
+	void GetMassData(b2MassData* data) const;
 
 	/// Set the mass properties to override the mass properties of the fixtures.
 	/// Note that this changes the center of mass position.
@@ -377,7 +377,9 @@ public:
 
 	/// Get the user data pointer that was provided in the body definition.
 	b2BodyUserData& GetUserData();
-	const b2BodyUserData& GetUserData() const;
+
+	/// Set the user data. Use this to store your application specific data.
+	void SetUserData(void* data);
 
 	/// Get the parent world of this body.
 	b2World* GetWorld();
@@ -402,6 +404,7 @@ private:
 	friend class b2PrismaticJoint;
 	friend class b2PulleyJoint;
 	friend class b2RevoluteJoint;
+	friend class b2RopeJoint;
 	friend class b2WeldJoint;
 	friend class b2WheelJoint;
 
@@ -548,13 +551,11 @@ inline float b2Body::GetInertia() const
 	return m_I + m_mass * b2Dot(m_sweep.localCenter, m_sweep.localCenter);
 }
 
-inline b2MassData b2Body::GetMassData() const
+inline void b2Body::GetMassData(b2MassData* data) const
 {
-	b2MassData data;
-	data.mass = m_mass;
-	data.I = m_I + m_mass * b2Dot(m_sweep.localCenter, m_sweep.localCenter);
-	data.center = m_sweep.localCenter;
-	return data;
+	data->mass = m_mass;
+	data->I = m_I + m_mass * b2Dot(m_sweep.localCenter, m_sweep.localCenter);
+	data->center = m_sweep.localCenter;
 }
 
 inline b2Vec2 b2Body::GetWorldPoint(const b2Vec2& localPoint) const
@@ -731,11 +732,6 @@ inline const b2Body* b2Body::GetNext() const
 }
 
 inline b2BodyUserData& b2Body::GetUserData()
-{
-	return m_userData;
-}
-
-inline const b2BodyUserData& b2Body::GetUserData() const
 {
 	return m_userData;
 }

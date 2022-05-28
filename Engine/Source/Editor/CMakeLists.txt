@@ -19,10 +19,6 @@ add_subdirectory(Panels)
 add_subdirectory(ImGuiWrapper)
 add_subdirectory(IconManager)
 
-# EDITOR_ADD_SOURCE(EditorLayer.h EditorLayer.cpp HEngineEditorApp.cpp)
-
-# message(${EditorSourceFiles})
-
 source_group(TREE ${EngineEditorDir} FILES ${EditorSourceFiles})
 
 add_executable(HEngineEditor ${EditorSourceFiles})

@@ -29,8 +29,6 @@ add_subdirectory(Renderer)
 add_subdirectory(Resource)
 add_subdirectory(Utils)
 
-message(${RuntimeSourceFiles})
-
 source_group(TREE "${EngineRuntimeDir}" FILES ${RuntimeSourceFiles})
 
 add_library(HEngineRuntime STATIC ${RuntimeSourceFiles})

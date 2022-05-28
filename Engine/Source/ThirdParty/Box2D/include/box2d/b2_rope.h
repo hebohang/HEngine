@@ -55,8 +55,6 @@ struct B2_API b2RopeTuning
 		bendingModel = b2_pbdAngleBendingModel;
 		damping = 0.0f;
 		stretchStiffness = 1.0f;
-		stretchHertz = 1.0f;
-		stretchDamping = 0.0f;
 		bendStiffness = 0.5f;
 		bendHertz = 1.0f;
 		bendDamping = 0.0f;

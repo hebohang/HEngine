@@ -1,9 +1,37 @@
-file(GLOB_RECURSE RuntimeHeaderFiles CONFIGUE_DEPENDS "*.h")
-file(GLOB_RECURSE RuntimeSourceFiles CONFIGUE_DEPENDS "*.cpp")
+macro(RUNTIME_ADD_SOURCE)
+	set(SOURCE_FILES "")
+    foreach(SOURCE_FILE ${ARGN})
+        if(SOURCE_FILE MATCHES "^/.*")
+            list(APPEND SOURCE_FILES ${SOURCE_FILE})
+        else()
+            list(APPEND SOURCE_FILES
+                 "${CMAKE_CURRENT_SOURCE_DIR}/${SOURCE_FILE}")
+        endif()
+    endforeach()
+    set(RuntimeSourceFiles ${RuntimeSourceFiles} ${SOURCE_FILES} PARENT_SCOPE)
+endmacro(RUNTIME_ADD_SOURCE)
 
-source_group(TREE "${EngineRuntimeDir}" FILES ${RuntimeHeaderFiles} ${RuntimeSourceFiles})
+set(RuntimeSourceFiles "${CMAKE_CURRENT_SOURCE_DIR}/HEngine.h" "${CMAKE_CURRENT_SOURCE_DIR}/hepch.h" "${CMAKE_CURRENT_SOURCE_DIR}/hepch.cpp")
 
-add_library(HEngineRuntime STATIC ${RuntimeHeaderFiles} ${RuntimeSourceFiles})
+add_subdirectory(Animation)
+add_subdirectory(Camera)
+add_subdirectory(Core)
+add_subdirectory(Debug)
+add_subdirectory(EcsFramework)
+add_subdirectory(Events)
+add_subdirectory(ImGui)
+add_subdirectory(Input)
+add_subdirectory(Launch)
+add_subdirectory(Library)
+add_subdirectory(Mesh)
+add_subdirectory(Platform)
+add_subdirectory(Renderer)
+add_subdirectory(Resource)
+add_subdirectory(Utils)
+
+source_group(TREE "${EngineRuntimeDir}" FILES ${RuntimeSourceFiles})
+
+add_library(HEngineRuntime STATIC ${RuntimeSourceFiles})
 
 target_include_directories(HEngineRuntime 
     PRIVATE "${EngineSourceDir}"
@@ -28,7 +56,7 @@ target_link_libraries(HEngineRuntime PUBLIC glfw
     PUBLIC ${OPENGL_LIBRARIES}
     PUBLIC yaml-cpp
     PUBLIC spdlog
-    PUBLIC Box2D
+    PUBLIC box2d
     PUBLIC stb
     PUBLIC ImGuizmo
     PUBLIC assimp

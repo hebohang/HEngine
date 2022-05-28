@@ -1,0 +1,26 @@
+RUNTIME_ADD_SOURCE(
+    NativeOpenGLShader.cpp
+    NativeOpenGLShader.h
+    OpenGLContext.cpp
+    OpenGLContext.h
+    OpenGLFramebuffer.cpp
+    OpenGLFramebuffer.h
+    OpenGLImGuiLayer.cpp
+    OpenGLImGuiLayer.h
+    OpenGLIndexBuffer.cpp
+    OpenGLIndexBuffer.h
+    OpenGLPostProcessing.cpp
+    OpenGLPostProcessing.h
+    OpenGLRendererAPI.cpp
+    OpenGLRendererAPI.h
+    OpenGLShader.cpp
+    OpenGLShader.h
+    OpenGLTexture.cpp
+    OpenGLTexture.h
+    OpenGLUniformBuffer.cpp
+    OpenGLUniformBuffer.h
+    OpenGLVertexArray.cpp
+    OpenGLVertexArray.h
+    OpenGLVertexBuffer.cpp
+    OpenGLVertexBuffer.h
+)

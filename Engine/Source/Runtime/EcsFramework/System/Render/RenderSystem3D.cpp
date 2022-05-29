@@ -2,7 +2,10 @@
 
 #include "Runtime/EcsFramework/System/Render/RenderSystem3D.h"
 #include "Runtime/EcsFramework/System/Render/EnvironmentSystem.h"
-#include "Runtime/EcsFramework/Component/ComponentGroup.h"
+#include "Runtime/EcsFramework/Component/Transform/TransformComponent.h"
+#include "Runtime/EcsFramework/Component/Light/PointLightComponent.h"
+#include "Runtime/EcsFramework/Component/Light/DirectionalLightComponent.h"
+#include "Runtime/EcsFramework/Component/Camera/CameraComponent.h"
 #include "Runtime/EcsFramework/Entity/Entity.h"
 #include "Runtime/Renderer/Renderer3D.h"
 #include "Runtime/Renderer/RenderCommand.h"

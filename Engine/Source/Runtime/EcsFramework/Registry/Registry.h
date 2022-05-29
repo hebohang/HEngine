@@ -1,7 +1,5 @@
 #pragma once
 
-#include "Runtime/EcsFramework/Component/ComponentGroup.h"
-
 #include <entt.hpp>
 
 namespace HEngine

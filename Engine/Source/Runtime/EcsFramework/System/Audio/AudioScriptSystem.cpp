@@ -1,7 +1,8 @@
 #include "hepch.h"
 
 #include "Runtime/EcsFramework/System/Audio/AudioScriptSystem.h"
-#include "Runtime/EcsFramework/Component/ComponentGroup.h"
+#include "Runtime/EcsFramework/Component/Transform/TransformComponent.h"
+#include "Runtime/EcsFramework/Component/Audio/SoundComponent.h"
 #include "Runtime/EcsFramework/Entity/Entity.h"
 #include "Runtime/Resource/AssetManager/AssetManager.h"
 

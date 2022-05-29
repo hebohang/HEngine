@@ -1,7 +1,13 @@
 #include "hepch.h"
 
 #include "Runtime/EcsFramework/System/Physics/PhysicSystem3D.h"
-#include "Runtime/EcsFramework/Component/ComponentGroup.h"
+#include "Runtime/EcsFramework/Component/Transform/TransformComponent.h"
+#include "Runtime/EcsFramework/Component/Camera/CameraComponent.h"
+#include "Runtime/EcsFramework/Component/Mesh/MeshComponent.h"
+#include "Runtime/EcsFramework/Component/Physics/3D/BoxCollider3DComponent.h"
+#include "Runtime/EcsFramework/Component/Physics/3D/ConvexHullComponent.h"
+#include "Runtime/EcsFramework/Component/Physics/3D/Rigidbody3DComponent.h"
+#include "Runtime/EcsFramework/Component/Physics/3D/SphereCollider3DComponent.h"
 #include "Runtime/EcsFramework/Entity/Entity.h"
 #include "Runtime/Resource/ModeManager/ModeManager.h"
 

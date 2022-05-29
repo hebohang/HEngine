@@ -1,6 +1,7 @@
 #include "hepch.h"
 #include "Runtime/EcsFramework/Entity/Entity.h"
-#include "Runtime/EcsFramework/Component/ComponentGroup.h"
+#include "Runtime/EcsFramework/Component/Basic/IDComponent.h"
+#include "Runtime/EcsFramework/Component/Basic/TagComponent.h"
 
 namespace HEngine
 {

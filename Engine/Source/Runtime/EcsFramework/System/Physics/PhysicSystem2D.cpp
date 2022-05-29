@@ -1,7 +1,11 @@
 #include "hepch.h"
 
 #include "Runtime/EcsFramework/System/Physics/PhysicSystem2D.h"
-#include "Runtime/EcsFramework/Component/ComponentGroup.h"
+#include "Runtime/EcsFramework/Component/Transform/TransformComponent.h"
+#include "Runtime/EcsFramework/Component/Camera/CameraComponent.h"
+#include "Runtime/EcsFramework/Component/Physics/2D/BoxCollider2DComponent.h"
+#include "Runtime/EcsFramework/Component/Physics/2D/CircleCollider2DComponent.h"
+#include "Runtime/EcsFramework/Component/Physics/2D/Rigidbody2DComponent.h"
 #include "Runtime/EcsFramework/Entity/Entity.h"
 #include "Runtime/Resource/ModeManager/ModeManager.h"
 #include "Runtime/Renderer/Renderer2D.h"

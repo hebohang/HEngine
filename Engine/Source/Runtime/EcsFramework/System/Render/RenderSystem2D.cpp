@@ -1,7 +1,10 @@
 #include "hepch.h"
 
 #include "Runtime/EcsFramework/System/Render/RenderSystem2D.h"
-#include "Runtime/EcsFramework/Component/ComponentGroup.h"
+#include "Runtime/EcsFramework/Component/Transform/TransformComponent.h"
+#include "Runtime/EcsFramework/Component/Shape/CircleRendererComponent.h"
+#include "Runtime/EcsFramework/Component/Shape/SpriteRendererComponent.h"
+#include "Runtime/EcsFramework/Component/Camera/CameraComponent.h"
 #include "Runtime/EcsFramework/Entity/Entity.h"
 
 #include "Runtime/Renderer/Renderer2D.h"

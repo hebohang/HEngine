@@ -1,10 +1,8 @@
 #pragma once
 
 #include "Runtime/Renderer/Texture.h"
-#include "SubTexture2D.h"
-
-#include "Runtime/EcsFramework/Component/ComponentGroup.h"
-
+#include "Runtime/Renderer/SubTexture2D.h"
+#include "Runtime/EcsFramework/Component/Shape/SpriteRendererComponent.h"
 #include "Runtime/Camera/Camera.h"
 #include "Runtime/Camera/EditorCamera.h"
 

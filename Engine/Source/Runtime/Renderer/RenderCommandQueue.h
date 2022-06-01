@@ -8,7 +8,7 @@ namespace HEngine
     class RenderCommandQueue
     {
     public:
-        template<typename FuncT>
+        template <typename FuncT>
         void Submit(FuncT&& func)
         {
             mCommandQueue.emplace(func);

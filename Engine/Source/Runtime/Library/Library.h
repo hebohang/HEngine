@@ -30,7 +30,7 @@ namespace HEngine
         std::unordered_map<std::string, Ref<LibType>> mLibrary;
     };
 
-    template<typename LibType>
+    template <typename LibType>
     class Library : public LibraryBase<Library, LibType>
     {
     public:

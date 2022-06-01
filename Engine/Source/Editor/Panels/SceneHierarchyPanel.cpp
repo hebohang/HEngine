@@ -4,6 +4,7 @@
 #include "Runtime/EcsFramework/Component/ComponentGroup.h"
 #include "Runtime/Renderer/Texture.h"
 #include "Runtime/Resource/ConfigManager/ConfigManager.h"
+#include "Runtime/Resource/ModeManager/ModeManager.h"
 #include "Runtime/Utils/PlatformUtils.h"
 
 #include <imgui/imgui.h>
@@ -209,7 +210,7 @@ namespace HEngine
 		ImGui::EndColumns();
     }
 
-    template<typename T, typename UIFunction>
+    template <typename T, typename UIFunction>
     static void DrawComponent(const std::string& name, Entity entity, UIFunction uiFunction)
     {
         const ImGuiTreeNodeFlags treeNodeFlags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_AllowItemOverlap | ImGuiTreeNodeFlags_FramePadding;
@@ -248,6 +249,23 @@ namespace HEngine
         }
     }
 
+	template <typename componentType>
+	void SceneHierarchyPanel::MenuAddComponent(const char* menuName, const char* menuItemName)
+	{
+		if (!mSelectionContext.HasComponent<componentType>())
+		{
+			if (ImGui::BeginMenu(menuName))
+			{
+				if (ImGui::MenuItem(menuItemName))
+				{
+					mSelectionContext.AddComponent<componentType>();
+					ImGui::CloseCurrentPopup();
+				}
+				ImGui::EndMenu();
+			}
+		}
+	}
+
     void SceneHierarchyPanel::DrawComponents(Entity entity)
     {
         if (entity.HasComponent<TagComponent>())
@@ -271,113 +289,32 @@ namespace HEngine
 
         if (ImGui::BeginPopup("AddComponent"))
         {
-			if (!mSelectionContext.HasComponent<CameraComponent>())
+			MenuAddComponent<CameraComponent>("Camera", "Camera");
+
+			if (ModeManager::b3DMode)
 			{
-				if (ImGui::MenuItem("Camera"))
+				MenuAddComponent<MeshComponent>("Mesh", "Mesh Renderer");
+
+				if (mSelectionContext.HasComponent<MeshComponent>())
+					MenuAddComponent<Rigidbody3DComponent>("Physic", "Rigidbody");
+
+				MenuAddComponent<PointLightComponent>("Light", "Point Light");
+				MenuAddComponent<DirectionalLightComponent>("Light", "Directional Light");
+			}
+			else
+			{
+				MenuAddComponent<SpriteRendererComponent>("Renderer", "Sprite Renderer");
+				MenuAddComponent<CircleRendererComponent>("Renderer", "Circle Renderer");
+				if (mSelectionContext.HasComponent<SpriteRendererComponent>() || mSelectionContext.HasComponent<CircleRendererComponent>())
 				{
-					mSelectionContext.AddComponent<CameraComponent>();
-					ImGui::CloseCurrentPopup();
+					MenuAddComponent<Rigidbody2DComponent>("Physic", "Rigidbody");
+					MenuAddComponent<BoxCollider2DComponent>("Physic", "Box Collider");
+					MenuAddComponent<CircleCollider2DComponent>("Physic", "Circle Collider");
 				}
 			}
 
-			if (!mSelectionContext.HasComponent<SpriteRendererComponent>())
-			{
-				if (ImGui::MenuItem("Sprite Renderer"))
-				{
-					mSelectionContext.AddComponent<SpriteRendererComponent>();
-					ImGui::CloseCurrentPopup();
-				}
-			}
-
-			if (!mSelectionContext.HasComponent<CircleRendererComponent>())
-			{
-				if (ImGui::MenuItem("Circle Renderer"))
-				{
-					mSelectionContext.AddComponent<CircleRendererComponent>();
-					ImGui::CloseCurrentPopup();
-				}
-			}
-
-			if (!mSelectionContext.HasComponent<Rigidbody2DComponent>())
-			{
-				if (ImGui::MenuItem("Rigidbody 2D"))
-				{
-					mSelectionContext.AddComponent<Rigidbody2DComponent>();
-					ImGui::CloseCurrentPopup();
-				}
-			}
-
-			if (!mSelectionContext.HasComponent<BoxCollider2DComponent>())
-			{
-				if (ImGui::MenuItem("Box Collider 2D"))
-				{
-					mSelectionContext.AddComponent<BoxCollider2DComponent>();
-					ImGui::CloseCurrentPopup();
-				}
-			}
-
-			if (!mSelectionContext.HasComponent<CircleCollider2DComponent>())
-			{
-				if (ImGui::MenuItem("Circle Collider 2D"))
-				{
-					mSelectionContext.AddComponent<CircleCollider2DComponent>();
-					ImGui::CloseCurrentPopup();
-				}
-			}
-
-			if (!mSelectionContext.HasComponent<MeshComponent>())
-			{
-				if (ImGui::MenuItem("Mesh Renderer"))
-				{
-					mSelectionContext.AddComponent<MeshComponent>();
-					ImGui::CloseCurrentPopup();
-				}
-			}
-
-			if (!mSelectionContext.HasComponent<Rigidbody3DComponent>())
-			{
-				if (ImGui::MenuItem("Rigidbody 3D"))
-				{
-					mSelectionContext.AddComponent<Rigidbody3DComponent>();
-					ImGui::CloseCurrentPopup();
-				}
-			}
-
-			if (!mSelectionContext.HasComponent<PointLightComponent>())
-			{
-				if (ImGui::MenuItem("Point Light"))
-				{
-					mSelectionContext.AddComponent<PointLightComponent>();
-					ImGui::CloseCurrentPopup();
-				}
-			}
-
-			if (!mSelectionContext.HasComponent<DirectionalLightComponent>())
-			{
-				if (ImGui::MenuItem("Directional Light"))
-				{
-					mSelectionContext.AddComponent<DirectionalLightComponent>();
-					ImGui::CloseCurrentPopup();
-				}
-			}
-
-			if (!mSelectionContext.HasComponent<PythonScriptComponent>())
-			{
-				if (ImGui::MenuItem("Python Script"))
-				{
-					mSelectionContext.AddComponent<PythonScriptComponent>();
-					ImGui::CloseCurrentPopup();
-				}
-			}
-
-			if (!mSelectionContext.HasComponent<SoundComponent>())
-			{
-				if (ImGui::MenuItem("Sound"))
-				{
-					mSelectionContext.AddComponent<SoundComponent>();
-					ImGui::CloseCurrentPopup();
-				}
-			}
+			MenuAddComponent<PythonScriptComponent>("Script", "Python Script");
+			MenuAddComponent<SoundComponent>("Audio", "Sound");
 
             ImGui::EndPopup();
         }
@@ -525,82 +462,6 @@ namespace HEngine
 				ImGui::DragFloat("Friction", &component.Friction, 0.01f, 0.0f, 1.0f);
 				ImGui::DragFloat("Restitution", &component.Restitution, 0.01f, 0.0f, 1.0f);
 				ImGui::DragFloat("Restitution Threshold", &component.RestitutionThreshold, 0.01f, 0.0f);
-			});
-
-		DrawComponent<Rigidbody3DComponent>("Rigidbody 3D", entity, [](auto& component)
-			{
-				const char* bodyTypeStrings[] = { "Static", "Dynamic", "Kinematic" };
-				const char* currentBodyTypeString = bodyTypeStrings[(int)component.Type];
-
-				ImGui::Columns(2, nullptr, false);
-				ImGui::SetColumnWidth(0, 150.0f);
-				ImGui::Text("Body Type");
-				ImGui::NextColumn();
-				if (ImGui::BeginCombo("##Body Type", currentBodyTypeString))
-				{
-					for (int i = 0; i < 3; i++)
-					{
-						bool isSelected = currentBodyTypeString == bodyTypeStrings[i];
-						if (ImGui::Selectable(bodyTypeStrings[i], isSelected))
-						{
-							currentBodyTypeString = bodyTypeStrings[i];
-							component.Type = (Rigidbody3DComponent::Body3DType)i;
-						}
-
-						if (isSelected)
-							ImGui::SetItemDefaultFocus();
-					}
-
-					ImGui::EndCombo();
-				}
-				ImGui::EndColumns();
-
-				ImGui::Columns(2, nullptr, false);
-				ImGui::SetColumnWidth(0, 150.0f);
-				ImGui::Text("Collision Shape");
-				ImGui::NextColumn();
-				constexpr auto collisionShapes = magic_enum::enum_values<CollisionShape>();
-				if (ImGui::BeginCombo("##Collision Shape", magic_enum::enum_name(component.Shape).data()))
-				{
-					for (auto& shape : collisionShapes)
-					{
-						bool isSelected = component.Shape == shape;
-						if (ImGui::Selectable(magic_enum::enum_name(shape).data(), isSelected))
-						{
-							component.Shape = shape;
-						}
-
-						if (isSelected)
-							ImGui::SetItemDefaultFocus();
-					}
-
-					ImGui::EndCombo();
-				}
-				ImGui::EndColumns();
-
-				if (component.Shape != CollisionShape::None)
-				{
-					const auto& floatValueUI = [](const char* name, float& value) {
-						ImGui::Columns(2, nullptr, false);
-						ImGui::SetColumnWidth(0, 150.0f);
-						ImGui::Text(name);
-						ImGui::NextColumn();
-						std::string label = std::string("##") + std::string(name);
-						ImGui::SliderFloat(label.c_str(), &value, 0.0f, 1.0f, "%.2f");
-						ImGui::EndColumns();
-					};
-
-					floatValueUI("linearDamping", component.linearDamping);
-					floatValueUI("angularDamping", component.angularDamping);
-					floatValueUI("restitution", component.restitution);
-					floatValueUI("friction", component.friction);
-				}
-
-				ImGuiWrapper::DrawTwoUI(
-					[]() { ImGui::Text("mass"); }, 
-					[&component = component]() { ImGui::SliderFloat("##masas", &component.mass, 0.0f, 10.0f, "%.2f"); },
-					150.0f
-				);
 			});
 
 		DrawComponent<MeshComponent>("Mesh Renderer", entity, [](MeshComponent& component)
@@ -827,6 +688,82 @@ namespace HEngine
 						ImGui::TreePop();
 					}
 				}
+			});
+
+		DrawComponent<Rigidbody3DComponent>("Rigidbody 3D", entity, [](auto& component)
+			{
+				const char* bodyTypeStrings[] = { "Static", "Dynamic", "Kinematic" };
+				const char* currentBodyTypeString = bodyTypeStrings[(int)component.Type];
+
+				ImGui::Columns(2, nullptr, false);
+				ImGui::SetColumnWidth(0, 150.0f);
+				ImGui::Text("Body Type");
+				ImGui::NextColumn();
+				if (ImGui::BeginCombo("##Body Type", currentBodyTypeString))
+				{
+					for (int i = 0; i < 3; i++)
+					{
+						bool isSelected = currentBodyTypeString == bodyTypeStrings[i];
+						if (ImGui::Selectable(bodyTypeStrings[i], isSelected))
+						{
+							currentBodyTypeString = bodyTypeStrings[i];
+							component.Type = (Rigidbody3DComponent::Body3DType)i;
+						}
+
+						if (isSelected)
+							ImGui::SetItemDefaultFocus();
+					}
+
+					ImGui::EndCombo();
+				}
+				ImGui::EndColumns();
+
+				ImGui::Columns(2, nullptr, false);
+				ImGui::SetColumnWidth(0, 150.0f);
+				ImGui::Text("Collision Shape");
+				ImGui::NextColumn();
+				constexpr auto collisionShapes = magic_enum::enum_values<CollisionShape>();
+				if (ImGui::BeginCombo("##Collision Shape", magic_enum::enum_name(component.Shape).data()))
+				{
+					for (auto& shape : collisionShapes)
+					{
+						bool isSelected = component.Shape == shape;
+						if (ImGui::Selectable(magic_enum::enum_name(shape).data(), isSelected))
+						{
+							component.Shape = shape;
+						}
+
+						if (isSelected)
+							ImGui::SetItemDefaultFocus();
+					}
+
+					ImGui::EndCombo();
+				}
+				ImGui::EndColumns();
+
+				if (component.Shape != CollisionShape::None)
+				{
+					const auto& floatValueUI = [](const char* name, float& value) {
+						ImGui::Columns(2, nullptr, false);
+						ImGui::SetColumnWidth(0, 150.0f);
+						ImGui::Text(name);
+						ImGui::NextColumn();
+						std::string label = std::string("##") + std::string(name);
+						ImGui::SliderFloat(label.c_str(), &value, 0.0f, 1.0f, "%.2f");
+						ImGui::EndColumns();
+					};
+
+					floatValueUI("linearDamping", component.linearDamping);
+					floatValueUI("angularDamping", component.angularDamping);
+					floatValueUI("restitution", component.restitution);
+					floatValueUI("friction", component.friction);
+				}
+
+				ImGuiWrapper::DrawTwoUI(
+					[]() { ImGui::Text("mass"); }, 
+					[&component = component]() { ImGui::SliderFloat("##masas", &component.mass, 0.0f, 10.0f, "%.2f"); },
+					150.0f
+				);
 			});
 
 		DrawComponent<PointLightComponent>("Point Light", entity, [](auto& component)

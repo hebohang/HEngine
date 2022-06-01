@@ -8,7 +8,7 @@
 
 #include <imgui/imgui.h>
 #include <imgui/imgui_internal.h>
-
+#include <magic_enum.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
 #include <filesystem>
@@ -343,33 +343,6 @@ namespace HEngine
 				}
 			}
 
-			if (!mSelectionContext.HasComponent<BoxCollider3DComponent>())
-			{
-				if (ImGui::MenuItem("Box Collider 3D"))
-				{
-					mSelectionContext.AddComponent<BoxCollider3DComponent>();
-					ImGui::CloseCurrentPopup();
-				}
-			}
-
-			if (!mSelectionContext.HasComponent<SphereCollider3DComponent>())
-			{
-				if (ImGui::MenuItem("Sphere Collider 3D"))
-				{
-					mSelectionContext.AddComponent<SphereCollider3DComponent>();
-					ImGui::CloseCurrentPopup();
-				}
-			}
-
-			if (!mSelectionContext.HasComponent<ConvexHullComponent>())
-			{
-				if (ImGui::MenuItem("ConvexHull Collider"))
-				{
-					mSelectionContext.AddComponent<ConvexHullComponent>();
-					ImGui::CloseCurrentPopup();
-				}
-			}
-
 			if (!mSelectionContext.HasComponent<PointLightComponent>())
 			{
 				if (ImGui::MenuItem("Point Light"))
@@ -560,7 +533,7 @@ namespace HEngine
 				const char* currentBodyTypeString = bodyTypeStrings[(int)component.Type];
 
 				ImGui::Columns(2, nullptr, false);
-				ImGui::SetColumnWidth(0, 100.0f);
+				ImGui::SetColumnWidth(0, 150.0f);
 				ImGui::Text("Body Type");
 				ImGui::NextColumn();
 				if (ImGui::BeginCombo("##Body Type", currentBodyTypeString))
@@ -582,64 +555,52 @@ namespace HEngine
 				}
 				ImGui::EndColumns();
 
+				ImGui::Columns(2, nullptr, false);
+				ImGui::SetColumnWidth(0, 150.0f);
+				ImGui::Text("Collision Shape");
+				ImGui::NextColumn();
+				constexpr auto collisionShapes = magic_enum::enum_values<CollisionShape>();
+				if (ImGui::BeginCombo("##Collision Shape", magic_enum::enum_name(component.Shape).data()))
+				{
+					for (auto& shape : collisionShapes)
+					{
+						bool isSelected = component.Shape == shape;
+						if (ImGui::Selectable(magic_enum::enum_name(shape).data(), isSelected))
+						{
+							component.Shape = shape;
+						}
+
+						if (isSelected)
+							ImGui::SetItemDefaultFocus();
+					}
+
+					ImGui::EndCombo();
+				}
+				ImGui::EndColumns();
+
+				if (component.Shape != CollisionShape::None)
+				{
+					const auto& floatValueUI = [](const char* name, float& value) {
+						ImGui::Columns(2, nullptr, false);
+						ImGui::SetColumnWidth(0, 150.0f);
+						ImGui::Text(name);
+						ImGui::NextColumn();
+						std::string label = std::string("##") + std::string(name);
+						ImGui::SliderFloat(label.c_str(), &value, 0.0f, 1.0f, "%.2f");
+						ImGui::EndColumns();
+					};
+
+					floatValueUI("linearDamping", component.linearDamping);
+					floatValueUI("angularDamping", component.angularDamping);
+					floatValueUI("restitution", component.restitution);
+					floatValueUI("friction", component.friction);
+				}
+
 				ImGuiWrapper::DrawTwoUI(
 					[]() { ImGui::Text("mass"); }, 
-					[&component = component]() { ImGui::SliderFloat("##masas", &component.mass, 0.0f, 10.0f, "%.2f"); }
+					[&component = component]() { ImGui::SliderFloat("##masas", &component.mass, 0.0f, 10.0f, "%.2f"); },
+					150.0f
 				);
-			});
-
-		DrawComponent<BoxCollider3DComponent>("Box Collider 3D", entity, [](auto& component)
-			{
-				const auto& floatValueUI = [](const char* name, float& value) {
-					ImGui::Columns(2, nullptr, false);
-					ImGui::SetColumnWidth(0, 100.0f);
-					ImGui::Text(name);
-					ImGui::NextColumn();
-					std::string label = std::string("##") + std::string(name);
-					ImGui::SliderFloat(label.c_str(), &value, 0.0f, 1.0f, "%.2f");
-					ImGui::EndColumns();
-				};
-
-				floatValueUI("linearDamping", component.linearDamping);
-				floatValueUI("angularDamping", component.angularDamping);
-				floatValueUI("restitution", component.restitution);
-				floatValueUI("friction", component.friction);
-			});
-
-		DrawComponent<SphereCollider3DComponent>("Sphere Collider 3D", entity, [](auto& component)
-			{
-				const auto& floatValueUI = [](const char* name, float& value) {
-					ImGui::Columns(2, nullptr, false);
-					ImGui::SetColumnWidth(0, 100.0f);
-					ImGui::Text(name);
-					ImGui::NextColumn();
-					std::string label = std::string("##") + std::string(name);
-					ImGui::SliderFloat(label.c_str(), &value, 0.0f, 1.0f, "%.2f");
-					ImGui::EndColumns();
-				};
-
-				floatValueUI("linearDamping", component.linearDamping);
-				floatValueUI("angularDamping", component.angularDamping);
-				floatValueUI("restitution", component.restitution);
-				floatValueUI("friction", component.friction);
-			});
-
-		DrawComponent<ConvexHullComponent>("ConvexHull Collider", entity, [](auto& component)
-			{
-				const auto& floatValueUI = [](const char* name, float& value) {
-					ImGui::Columns(2, nullptr, false);
-					ImGui::SetColumnWidth(0, 100.0f);
-					ImGui::Text(name);
-					ImGui::NextColumn();
-					std::string label = std::string("##") + std::string(name);
-					ImGui::SliderFloat(label.c_str(), &value, 0.0f, 1.0f, "%.2f");
-					ImGui::EndColumns();
-				};
-
-				floatValueUI("linearDamping", component.linearDamping);
-				floatValueUI("angularDamping", component.angularDamping);
-				floatValueUI("restitution", component.restitution);
-				floatValueUI("friction", component.friction);
 			});
 
 		DrawComponent<MeshComponent>("Mesh Renderer", entity, [](MeshComponent& component)

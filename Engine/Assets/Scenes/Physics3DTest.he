@@ -19,7 +19,7 @@ Entities:
     Rigidbody3DComponent:
       mass: 1
       type: 1
-    SphereCollider3DComponent:
+      shape: 2
       linearDamping: 0
       angularDamping: 0
       restitution: 1
@@ -44,7 +44,7 @@ Entities:
     Rigidbody3DComponent:
       mass: 1
       type: 1
-    BoxCollider3DComponent:
+      shape: 1
       linearDamping: 0
       angularDamping: 0
       restitution: 1
@@ -87,11 +87,11 @@ Entities:
     Rigidbody3DComponent:
       mass: 0
       type: 0
-    BoxCollider3DComponent:
-      linearDamping: 0
-      angularDamping: 0
-      restitution: 0.25
-      friction: 0.419999987
+      shape: 1
+      linearDamping: 0.280000001
+      angularDamping: 0.379999995
+      restitution: 0
+      friction: 0.150000006
     MeshComponent:
       Path: Assets//Models//Box.obj
       bUseAlbedoMap: false
@@ -112,7 +112,7 @@ Entities:
     Rigidbody3DComponent:
       mass: 1
       type: 1
-    BoxCollider3DComponent:
+      shape: 1
       linearDamping: 0
       angularDamping: 0
       restitution: 1
@@ -137,7 +137,7 @@ Entities:
     Rigidbody3DComponent:
       mass: 1
       type: 1
-    SphereCollider3DComponent:
+      shape: 2
       linearDamping: 0
       angularDamping: 0
       restitution: 1

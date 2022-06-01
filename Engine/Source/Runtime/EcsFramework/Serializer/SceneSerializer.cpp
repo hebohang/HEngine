@@ -268,34 +268,11 @@ namespace HEngine
 			auto& rb3dComponent = entity.GetComponent<Rigidbody3DComponent>();
 			out << YAML::Key << "mass" << YAML::Value << rb3dComponent.mass;
 			out << YAML::Key << "type" << YAML::Value << (uint32_t)rb3dComponent.Type;
-
-			out << YAML::EndMap;
-		}
-
-		if (entity.HasComponent<BoxCollider3DComponent>())
-		{
-			out << YAML::Key << "BoxCollider3DComponent";
-			out << YAML::BeginMap;
-
-			auto& bc3dComponent = entity.GetComponent<BoxCollider3DComponent>();
-			out << YAML::Key << "linearDamping" << YAML::Value << bc3dComponent.linearDamping;
-			out << YAML::Key << "angularDamping" << YAML::Value << bc3dComponent.angularDamping;
-			out << YAML::Key << "restitution" << YAML::Value << bc3dComponent.restitution;
-			out << YAML::Key << "friction" << YAML::Value << bc3dComponent.friction;
-
-			out << YAML::EndMap;
-		}
-
-		if (entity.HasComponent<SphereCollider3DComponent>())
-		{
-			out << YAML::Key << "SphereCollider3DComponent";
-			out << YAML::BeginMap;
-
-			auto& sc3dComponent = entity.GetComponent<SphereCollider3DComponent>();
-			out << YAML::Key << "linearDamping" << YAML::Value << sc3dComponent.linearDamping;
-			out << YAML::Key << "angularDamping" << YAML::Value << sc3dComponent.angularDamping;
-			out << YAML::Key << "restitution" << YAML::Value << sc3dComponent.restitution;
-			out << YAML::Key << "friction" << YAML::Value << sc3dComponent.friction;
+			out << YAML::Key << "shape" << YAML::Value << (uint32_t)rb3dComponent.Shape;
+			out << YAML::Key << "linearDamping" << YAML::Value << rb3dComponent.linearDamping;
+			out << YAML::Key << "angularDamping" << YAML::Value << rb3dComponent.angularDamping;
+			out << YAML::Key << "restitution" << YAML::Value << rb3dComponent.restitution;
+			out << YAML::Key << "friction" << YAML::Value << rb3dComponent.friction;
 
 			out << YAML::EndMap;
 		}
@@ -496,22 +473,11 @@ namespace HEngine
 					auto& rb3d = deserializedEntity.AddComponent<Rigidbody3DComponent>();
 					rb3d.mass = rigidbody3DComponent["mass"].as<float>();
 					rb3d.Type = (Rigidbody3DComponent::Body3DType)rigidbody3DComponent["type"].as<uint32_t>();
-				}
-
-				auto boxCollider3DComponent = entity["BoxCollider3DComponent"];
-				if (boxCollider3DComponent)
-				{
-					auto& bc3d = deserializedEntity.AddComponent<BoxCollider3DComponent>();
-					bc3d.linearDamping = boxCollider3DComponent["linearDamping"].as<float>();
-					bc3d.angularDamping = boxCollider3DComponent["angularDamping"].as<float>();
-					bc3d.restitution = boxCollider3DComponent["restitution"].as<float>();
-					bc3d.friction = boxCollider3DComponent["friction"].as<float>();
-				}
-
-				auto sphereCollider3DComponent = entity["SphereCollider3DComponent"];
-				if (sphereCollider3DComponent)
-				{
-					auto& sc3d = deserializedEntity.AddComponent<SphereCollider3DComponent>();
+					rb3d.Shape = (CollisionShape)rigidbody3DComponent["shape"].as<uint32_t>();
+					rb3d.linearDamping = rigidbody3DComponent["linearDamping"].as<float>();
+					rb3d.angularDamping = rigidbody3DComponent["angularDamping"].as<float>();
+					rb3d.restitution = rigidbody3DComponent["restitution"].as<float>();
+					rb3d.friction = rigidbody3DComponent["friction"].as<float>();
 				}
 
 				auto meshComponent = entity["MeshComponent"];

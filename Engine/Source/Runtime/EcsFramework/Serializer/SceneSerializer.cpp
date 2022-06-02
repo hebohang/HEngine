@@ -467,19 +467,6 @@ namespace HEngine
 					cc2d.RestitutionThreshold = circleCollider2DComponent["RestitutionThreshold"].as<float>();
 				}
 
-				auto rigidbody3DComponent = entity["Rigidbody3DComponent"];
-				if (rigidbody3DComponent)
-				{
-					auto& rb3d = deserializedEntity.AddComponent<Rigidbody3DComponent>();
-					rb3d.mass = rigidbody3DComponent["mass"].as<float>();
-					rb3d.Type = (Rigidbody3DComponent::Body3DType)rigidbody3DComponent["type"].as<uint32_t>();
-					rb3d.Shape = (CollisionShape)rigidbody3DComponent["shape"].as<uint32_t>();
-					rb3d.linearDamping = rigidbody3DComponent["linearDamping"].as<float>();
-					rb3d.angularDamping = rigidbody3DComponent["angularDamping"].as<float>();
-					rb3d.restitution = rigidbody3DComponent["restitution"].as<float>();
-					rb3d.friction = rigidbody3DComponent["friction"].as<float>();
-				}
-
 				auto meshComponent = entity["MeshComponent"];
 				if (meshComponent)
 				{
@@ -496,6 +483,19 @@ namespace HEngine
 					mc.mMesh->mMaterial[0]->roughness = meshComponent["roughness"].as<float>();
 					mc.mMesh->mMaterial[0]->bUseAoMap = meshComponent["bUseAoMap"].as<bool>();
 					// End Material
+				}
+
+				auto rigidbody3DComponent = entity["Rigidbody3DComponent"];
+				if (rigidbody3DComponent)
+				{
+					auto& rb3d = deserializedEntity.AddComponent<Rigidbody3DComponent>();
+					rb3d.mass = rigidbody3DComponent["mass"].as<float>();
+					rb3d.Type = (Rigidbody3DComponent::Body3DType)rigidbody3DComponent["type"].as<uint32_t>();
+					rb3d.Shape = (CollisionShape)rigidbody3DComponent["shape"].as<uint32_t>();
+					rb3d.linearDamping = rigidbody3DComponent["linearDamping"].as<float>();
+					rb3d.angularDamping = rigidbody3DComponent["angularDamping"].as<float>();
+					rb3d.restitution = rigidbody3DComponent["restitution"].as<float>();
+					rb3d.friction = rigidbody3DComponent["friction"].as<float>();
 				}
 
 				auto pointLightComponent = entity["PointLightComponent"];

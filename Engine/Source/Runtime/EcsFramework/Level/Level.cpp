@@ -2,14 +2,13 @@
 
 #include "Runtime/Resource/ModeManager/ModeManager.h"
 #include "Runtime/Resource/ConfigManager/ConfigManager.h"
-
 #include "Runtime/EcsFramework/Entity/Entity.h"
 #include "Runtime/EcsFramework/Level/Level.h"
 #include "Runtime/EcsFramework/Component/ComponentGroup.h"
 #include "Runtime/EcsFramework/System/SystemGroup.h"
-
 #include "Runtime/Renderer/Renderer2D.h"
 #include "Runtime/Renderer/Renderer3D.h"
+#include "Runtime/Utils/MathUtils/MathUtils.h"
 
 #include <glm/glm.hpp>
 #include <box2d/b2_world.h>
@@ -268,5 +267,99 @@ namespace HEngine
 	template<>
 	void Level::OnComponentAdded<MeshComponent>(Entity entity, MeshComponent& component)
 	{
+	}
+
+	template<>
+	void Level::OnComponentAdded<Rigidbody3DComponent>(Entity entity, Rigidbody3DComponent& component)
+	{
+		// Calculate Obb
+		HE_CORE_ASSERT(entity.HasComponent<MeshComponent>());
+		auto& transform = entity.GetComponent<TransformComponent>();
+		auto& mesh = entity.GetComponent<MeshComponent>();
+
+		std::vector<glm::vec3> vertices;
+		for (const auto& subMesh : mesh.mMesh->mSubMeshes)
+		{
+			if (subMesh.mStaticVertices.empty())
+			{
+				for (const auto& vertex : subMesh.mSkinnedVertices)
+				{
+					vertices.emplace_back(vertex.Pos);
+				}
+			}
+			else
+			{
+				for (const auto& vertex : subMesh.mStaticVertices)
+				{
+					vertices.emplace_back(vertex.Pos);
+				}
+			}
+		}
+
+		glm::vec3 originPos(0.0f);
+		glm::mat3 covMat = Math::CalculateCovMatrix(vertices, originPos);
+
+		glm::vec3 eValues;
+		glm::mat3 eVectors;
+		Math::JacobiSolver(covMat, eValues, eVectors);
+
+		// sort to obtain eValue[0] <= eValue[1] <= eValue[2] (eVectors with the same order of eValues)
+		for (int i = 0; i < 2; i++)
+		{
+			for (int j = 0; j < 2 - i; j++)
+			{
+				if (eValues[j] > eValues[j + 1])
+				{
+					float temp = eValues[j];
+					eValues[j] = eValues[j + 1];
+					eValues[j + 1] = temp;
+
+					glm::vec3 tempVec = eVectors[j];
+					eVectors[j] = eVectors[j + 1];
+					eVectors[j + 1] = tempVec;
+				}
+			}
+		}
+		Math::SchmidtOrthogonalization(eVectors[2], eVectors[1], eVectors[0]);
+
+		constexpr float infinity = std::numeric_limits<float>::infinity();
+		glm::vec3 minExtents(infinity, infinity, infinity);
+		glm::vec3 maxExtents(-infinity, -infinity, -infinity);
+
+		for (const glm::vec3& displacement : vertices)
+		{
+			minExtents.x = std::min(minExtents.x, glm::dot(displacement, eVectors[2]));
+			minExtents.y = std::min(minExtents.y, glm::dot(displacement, eVectors[1]));
+			minExtents.z = std::min(minExtents.z, glm::dot(displacement, eVectors[0]));
+
+			maxExtents.x = std::max(maxExtents.x, glm::dot(displacement, eVectors[2]));
+			maxExtents.y = std::max(maxExtents.y, glm::dot(displacement, eVectors[1]));
+			maxExtents.z = std::max(maxExtents.z, glm::dot(displacement, eVectors[0]));
+		}
+
+		glm::vec3 halfExtent = (maxExtents - minExtents) / 2.0f;
+		glm::vec3 offset = halfExtent + minExtents;
+		originPos += offset.x * eVectors[2] + offset.y * eVectors[1] + offset.z * eVectors[0];
+
+#if 0
+		// Cov Matrix test
+		// from https://blog.csdn.net/qing101hua/article/details/53100112
+		std::vector<glm::vec3> testVertices;
+		testVertices.emplace_back(3.7, 1.7, 0.0);
+		testVertices.emplace_back(4.1, 3.8, 0.0);
+		testVertices.emplace_back(4.7, 2.9, 0.0);
+		testVertices.emplace_back(5.2, 2.8, 0.0);
+		testVertices.emplace_back(6.0, 4.0, 0.0);
+		testVertices.emplace_back(6.3, 3.6, 0.0);
+		testVertices.emplace_back(9.7, 6.3, 0.0);
+		testVertices.emplace_back(10.0, 4.9, 0.0);
+		testVertices.emplace_back(11.0, 3.6, 0.0);
+		testVertices.emplace_back(12.5, 6.4, 0.0);
+		glm::mat3 testCovMat = Math::CalculateCovMatrix(testVertices);
+
+		glm::vec3 eValues;
+		glm::mat3 eVectors;
+		Math::JacobiSolver(testCovMat, eValues, eVectors);
+#endif
 	}
 }

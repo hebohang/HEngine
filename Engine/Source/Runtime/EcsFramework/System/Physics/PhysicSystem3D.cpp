@@ -7,6 +7,7 @@
 #include "Runtime/EcsFramework/Component/Physics/3D/Rigidbody3DComponent.h"
 #include "Runtime/EcsFramework/Entity/Entity.h"
 #include "Runtime/Resource/ModeManager/ModeManager.h"
+#include "Runtime/Utils/MathUtils/MathUtils.h"
 
 namespace HEngine
 {
@@ -35,8 +36,79 @@ namespace HEngine
 
 			if (rb3d.Shape == CollisionShape::Box)
 			{
-				shape = new btBoxShape(btVector3(transform.Scale.x, transform.Scale.y, transform.Scale.z));
+				// Calculate Obb
+				HE_CORE_ASSERT(entity.HasComponent<MeshComponent>());
+				auto& transform = entity.GetComponent<TransformComponent>();
+				auto& mesh = entity.GetComponent<MeshComponent>();
+
+				std::vector<glm::vec3> vertices;
+				for (const auto& subMesh : mesh.mMesh->mSubMeshes)
+				{
+					if (subMesh.mStaticVertices.empty())
+					{
+						for (const auto& vertex : subMesh.mSkinnedVertices)
+						{
+							vertices.emplace_back(vertex.Pos);
+						}
+					}
+					else
+					{
+						for (const auto& vertex : subMesh.mStaticVertices)
+						{
+							vertices.emplace_back(vertex.Pos);
+						}
+					}
+				}
+
+				glm::vec3 originPos(0.0f);
+				glm::mat3 covMat = Math::CalculateCovMatrix(vertices, originPos);
+
+				glm::vec3 eValues;
+				glm::mat3 eVectors;
+				Math::JacobiSolver(covMat, eValues, eVectors);
+
+				// sort to obtain eValue[0] <= eValue[1] <= eValue[2] (eVectors with the same order of eValues)
+				//for (int i = 0; i < 2; i++)
+				//{
+				//	for (int j = 0; j < 2 - i; j++)
+				//	{
+				//		if (eValues[j] > eValues[j + 1])
+				//		{
+				//			float temp = eValues[j];
+				//			eValues[j] = eValues[j + 1];
+				//			eValues[j + 1] = temp;
+
+				//			glm::vec3 tempVec = eVectors[j];
+				//			eVectors[j] = eVectors[j + 1];
+				//			eVectors[j + 1] = tempVec;
+				//		}
+				//	}
+				//}
+				Math::SchmidtOrthogonalization(eVectors[0], eVectors[1], eVectors[2]);
+
+				constexpr float infinity = std::numeric_limits<float>::infinity();
+				glm::vec3 minExtents(infinity, infinity, infinity);
+				glm::vec3 maxExtents(-infinity, -infinity, -infinity);
+
+				for (const glm::vec3& displacement : vertices)
+				{
+					minExtents.x = std::min(minExtents.x, glm::dot(displacement, eVectors[0]));
+					minExtents.y = std::min(minExtents.y, glm::dot(displacement, eVectors[1]));
+					minExtents.z = std::min(minExtents.z, glm::dot(displacement, eVectors[2]));
+
+					maxExtents.x = std::max(maxExtents.x, glm::dot(displacement, eVectors[0]));
+					maxExtents.y = std::max(maxExtents.y, glm::dot(displacement, eVectors[1]));
+					maxExtents.z = std::max(maxExtents.z, glm::dot(displacement, eVectors[2]));
+				}
+
+				glm::vec3 halfExtent = (maxExtents - minExtents) / 2.0f;
+				glm::vec3 offset = halfExtent + minExtents;
+				originPos += offset.x * eVectors[0] + offset.y * eVectors[1] + offset.z * eVectors[2];
+
+				shape = new btBoxShape(btVector3(halfExtent.x, halfExtent.y, halfExtent.z));
 				if (rb3d.mass > 0.0f) shape->calculateLocalInertia(rb3d.mass, inertia);
+
+				trans.setOrigin(btVector3(originPos.x, originPos.y, originPos.z));
 			}
 			else if (rb3d.Shape == CollisionShape::Sphere)
 			{
@@ -66,7 +138,7 @@ namespace HEngine
 
 			if (rb3d.mass > 0.0f) shape->calculateLocalInertia(rb3d.mass, inertia);
 
-			trans.setOrigin(btVector3(transform.Translation.x, transform.Translation.y, transform.Translation.z));
+			//trans.setOrigin(btVector3(transform.Translation.x, transform.Translation.y, transform.Translation.z));
 			auto comQuat = glm::quat(transform.Rotation);
 			btQuaternion btQuat;
 			btQuat.setValue(comQuat.x, comQuat.y, comQuat.z, comQuat.w);
@@ -161,10 +233,11 @@ namespace HEngine
 
 	void PhysicSystem3D::OnUpdateEditor(Timestep ts, EditorCamera& camera)
 	{
+		static bool initFlag = true;
 		if (ModeManager::bShowPhysicsColliders)
 		{
-			// TEMP
-			OnRuntiemStart();
+			if (initFlag)
+				OnRuntiemStart();
 
 			Renderer2D::BeginScene(camera);
 
@@ -173,7 +246,13 @@ namespace HEngine
 
 			Renderer2D::EndScene();
 
-			OnRuntimeStop();
+			initFlag = false;
+		}
+		else
+		{
+			if (!initFlag)
+				OnRuntimeStop();
+			initFlag = true;
 		}
 	}
 }

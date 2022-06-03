@@ -86,12 +86,13 @@ namespace HEngine
 				glm::vec3 halfExtent = (maxExtents - minExtents) / 2.0f;
 				glm::vec3 offset = halfExtent + minExtents;
 				originPos += offset.x * eVectors[0] + offset.y * eVectors[1] + offset.z * eVectors[2];
+				glm::vec3 offsetScale = originPos * (transform.Scale - 1.0f);
 				// end obb
 
 				shape = new btBoxShape(btVector3(halfExtent.x * transform.Scale.x, halfExtent.y * transform.Scale.y, halfExtent.z * transform.Scale.z));
 				if (rb3d.mass > 0.0f) shape->calculateLocalInertia(rb3d.mass, inertia);
 
-				trans.setOrigin(Utils::GlmToBtVec3(transform.Translation + originPos));
+				trans.setOrigin(Utils::GlmToBtVec3(transform.Translation + originPos + offsetScale));
 			}
 			else if (rb3d.Shape == CollisionShape::Sphere)
 			{

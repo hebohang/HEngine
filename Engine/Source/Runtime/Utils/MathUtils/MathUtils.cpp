@@ -111,9 +111,9 @@ namespace HEngine::Math
 	// offer to https://github.com/Tuufless/PCA-OBB/blob/master/OBBGenerator/main.cpp
 	void JacobiSolver(glm::mat3 matrix, glm::vec3& eValues, glm::mat3& eVectors)
 	{
-		const float eps1 = 0.00001f;
-		const float eps2 = 0.00001f;
-		const float eps3 = 0.00001f;
+		const float eps1 = 0.000001f;
+		const float eps2 = 0.000001f;
+		const float eps3 = 0.000001f;
 		const float INV_SQRT_TWO = 0.707106781f;
 
 		float p, q, spq;

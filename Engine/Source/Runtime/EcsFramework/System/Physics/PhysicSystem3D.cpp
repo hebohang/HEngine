@@ -66,6 +66,15 @@ namespace HEngine
 				glm::vec3 eValues;
 				glm::mat3 eVectors;
 				Math::JacobiSolver(covMat, eValues, eVectors);
+
+				//for (int i = 0; i < 3; i++)
+				//{
+				//	if (eValues[i] == 0 || i == 2)
+				//	{
+				//		Math::SchmidtOrthogonalization(eVectors[(i + 1) % 3], eVectors[(i + 2) % 3], eVectors[i]);
+				//		break;
+				//	}
+				//}
 				Math::SchmidtOrthogonalization(eVectors[0], eVectors[1], eVectors[2]);
 
 				constexpr float infinity = std::numeric_limits<float>::infinity();
@@ -74,13 +83,13 @@ namespace HEngine
 
 				for (const glm::vec3& displacement : vertices)
 				{
-					minExtents.x = std::min(minExtents.x, glm::dot(displacement, eVectors[0]));
-					minExtents.y = std::min(minExtents.y, glm::dot(displacement, eVectors[1]));
-					minExtents.z = std::min(minExtents.z, glm::dot(displacement, eVectors[2]));
+					minExtents[0] = std::min(minExtents[0], glm::dot(displacement, eVectors[0]));
+					minExtents[1] = std::min(minExtents[1], glm::dot(displacement, eVectors[1]));
+					minExtents[2] = std::min(minExtents[2], glm::dot(displacement, eVectors[2]));
 
-					maxExtents.x = std::max(maxExtents.x, glm::dot(displacement, eVectors[0]));
-					maxExtents.y = std::max(maxExtents.y, glm::dot(displacement, eVectors[1]));
-					maxExtents.z = std::max(maxExtents.z, glm::dot(displacement, eVectors[2]));
+					maxExtents[0] = std::max(maxExtents[0], glm::dot(displacement, eVectors[0]));
+					maxExtents[1] = std::max(maxExtents[1], glm::dot(displacement, eVectors[1]));
+					maxExtents[2] = std::max(maxExtents[2], glm::dot(displacement, eVectors[2]));
 				}
 
 				glm::vec3 halfExtent = (maxExtents - minExtents) / 2.0f;
@@ -93,9 +102,18 @@ namespace HEngine
 				// end obb
 
 				shape = new btBoxShape(btVector3(halfExtent.x * transform.Scale.x, halfExtent.y * transform.Scale.y, halfExtent.z * transform.Scale.z));
+				//shape = new btBoxShape(btVector3(halfExtent[0] * glm::dot(transform.Scale, eVectors[0]), halfExtent[1] * glm::dot(transform.Scale, eVectors[1]), halfExtent[2] * glm::dot(transform.Scale, eVectors[2])));
 				if (rb3d.mass > 0.0f) shape->calculateLocalInertia(rb3d.mass, inertia);
 
 				trans.setOrigin(Utils::GlmToBtVec3(originPos));
+
+				if (rb3d.mass > 0.0f) shape->calculateLocalInertia(rb3d.mass, inertia);
+
+				glm::mat4 rotateObb = glm::mat4(eVectors);
+				auto comQuat = glm::quat(transform.Rotation) * glm::quat(rotateObb);
+				btQuaternion btQuat;
+				btQuat.setValue(comQuat.x, comQuat.y, comQuat.z, comQuat.w);
+				trans.setRotation(btQuat);
 			}
 			else if (rb3d.Shape == CollisionShape::Sphere)
 			{
@@ -127,12 +145,7 @@ namespace HEngine
 				trans.setOrigin(btVector3(transform.Translation.x, transform.Translation.y, transform.Translation.z));
 			}
 
-			if (rb3d.mass > 0.0f) shape->calculateLocalInertia(rb3d.mass, inertia);
 
-			auto comQuat = glm::quat(transform.Rotation);
-			btQuaternion btQuat;
-			btQuat.setValue(comQuat.x, comQuat.y, comQuat.z, comQuat.w);
-			trans.setRotation(btQuat);
 
 			btDefaultMotionState* motion = new btDefaultMotionState(trans);
 			btRigidBody::btRigidBodyConstructionInfo rbInfo(rb3d.mass, motion, shape, inertia);

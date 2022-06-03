@@ -67,15 +67,14 @@ namespace HEngine
 				glm::mat3 eVectors;
 				Math::JacobiSolver(covMat, eValues, eVectors);
 
-				//for (int i = 0; i < 3; i++)
-				//{
-				//	if (eValues[i] == 0 || i == 2)
-				//	{
-				//		Math::SchmidtOrthogonalization(eVectors[(i + 1) % 3], eVectors[(i + 2) % 3], eVectors[i]);
-				//		break;
-				//	}
-				//}
-				Math::SchmidtOrthogonalization(eVectors[0], eVectors[1], eVectors[2]);
+				for (int i = 0; i < 3; i++)
+				{
+					if (eValues[i] == 0 || i == 2)
+					{
+						Math::SchmidtOrthogonalization(eVectors[(i + 1) % 3], eVectors[(i + 2) % 3], eVectors[i]);
+						break;
+					}
+				}
 
 				constexpr float infinity = std::numeric_limits<float>::infinity();
 				glm::vec3 minExtents(infinity, infinity, infinity);
@@ -99,18 +98,13 @@ namespace HEngine
 				originPos += offsetScale;
 				originPos = glm::mat3(transform.GetRotationMatrix()) * originPos;
 				originPos += transform.Translation;
-				// end obb
 
 				shape = new btBoxShape(btVector3(halfExtent.x * transform.Scale.x, halfExtent.y * transform.Scale.y, halfExtent.z * transform.Scale.z));
-				//shape = new btBoxShape(btVector3(halfExtent[0] * glm::dot(transform.Scale, eVectors[0]), halfExtent[1] * glm::dot(transform.Scale, eVectors[1]), halfExtent[2] * glm::dot(transform.Scale, eVectors[2])));
 				if (rb3d.mass > 0.0f) shape->calculateLocalInertia(rb3d.mass, inertia);
 
 				trans.setOrigin(Utils::GlmToBtVec3(originPos));
 
-				if (rb3d.mass > 0.0f) shape->calculateLocalInertia(rb3d.mass, inertia);
-
-				glm::mat4 rotateObb = glm::mat4(eVectors);
-				auto comQuat = glm::quat(transform.Rotation) * glm::quat(rotateObb);
+				auto comQuat = glm::quat(transform.Rotation) * glm::quat(glm::mat4(eVectors));
 				btQuaternion btQuat;
 				btQuat.setValue(comQuat.x, comQuat.y, comQuat.z, comQuat.w);
 				trans.setRotation(btQuat);
@@ -121,6 +115,11 @@ namespace HEngine
 				if (rb3d.mass > 0.0f) shape->calculateLocalInertia(rb3d.mass, inertia);
 
 				trans.setOrigin(btVector3(transform.Translation.x, transform.Translation.y, transform.Translation.z));
+			
+				auto comQuat = glm::quat(transform.Rotation);
+				btQuaternion btQuat;
+				btQuat.setValue(comQuat.x, comQuat.y, comQuat.z, comQuat.w);
+				trans.setRotation(btQuat);
 			}
 			else if (rb3d.Shape == CollisionShape::ConvexHull && entity.HasComponent<MeshComponent>())
 			{
@@ -142,10 +141,15 @@ namespace HEngine
 					}
 				}
 
+				if (rb3d.mass > 0.0f) shape->calculateLocalInertia(rb3d.mass, inertia);
+
 				trans.setOrigin(btVector3(transform.Translation.x, transform.Translation.y, transform.Translation.z));
+			
+				auto comQuat = glm::quat(transform.Rotation);
+				btQuaternion btQuat;
+				btQuat.setValue(comQuat.x, comQuat.y, comQuat.z, comQuat.w);
+				trans.setRotation(btQuat);
 			}
-
-
 
 			btDefaultMotionState* motion = new btDefaultMotionState(trans);
 			btRigidBody::btRigidBodyConstructionInfo rbInfo(rb3d.mass, motion, shape, inertia);

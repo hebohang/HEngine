@@ -5,6 +5,7 @@
 #include "Runtime/Platform/DirectX11/RenderStates.h"
 
 #include <d3d11.h>
+#include <glm/gtc/type_ptr.hpp>
 
 namespace HEngine
 {
@@ -30,7 +31,7 @@ namespace HEngine
 
     void Dx11RendererAPI::SetClearColor(const glm::vec4& color)
     {
-        //Dx11ContextWrapper::GetContext()->
+        Dx11ContextWrapper::GetContext()->ClearRenderTargetView(Dx11ContextWrapper::GetRTV().Get(), glm::value_ptr(color));
         
     }
 

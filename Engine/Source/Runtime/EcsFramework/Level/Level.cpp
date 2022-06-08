@@ -25,7 +25,9 @@ namespace HEngine
 			mSystems.emplace_back(CreateScope<RenderSystem3D>(this));
 			mSystems.emplace_back(CreateScope<PhysicSystem3D>(this));
 			mSystems.emplace_back(CreateScope<EnvironmentSystem>(this));
+#ifdef WITH_PYTHON
 			mSystems.emplace_back(CreateScope<PythonScriptSystem>(this));
+#endif
 			mSystems.emplace_back(CreateScope<AudioScriptSystem>(this));
 		}
 		else
@@ -112,6 +114,10 @@ namespace HEngine
 			mSystems.emplace_back(CreateScope<RenderSystem3D>(this));
 			mSystems.emplace_back(CreateScope<PhysicSystem3D>(this));
 			mSystems.emplace_back(CreateScope<EnvironmentSystem>(this));
+#ifdef WITH_PYTHON
+			mSystems.emplace_back(CreateScope<PythonScriptSystem>(this));
+#endif
+			mSystems.emplace_back(CreateScope<AudioScriptSystem>(this));
 		}
 		else
 		{

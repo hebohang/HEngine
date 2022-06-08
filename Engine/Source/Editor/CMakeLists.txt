@@ -18,6 +18,7 @@ set(EditorSourceFiles "${CMAKE_CURRENT_SOURCE_DIR}/EditorLayer.h" "${CMAKE_CURRE
 add_subdirectory(Panels)
 add_subdirectory(ImGuiWrapper)
 add_subdirectory(IconManager)
+add_subdirectory(RawRenderTest)
 
 source_group(TREE ${EngineEditorDir} FILES ${EditorSourceFiles})
 

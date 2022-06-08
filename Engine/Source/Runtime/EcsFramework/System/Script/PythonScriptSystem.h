@@ -13,7 +13,5 @@ namespace HEngine
 	public:
 		void OnUpdateRuntime(Timestep ts) override;
 		void OnUpdateEditor(Timestep ts, EditorCamera& camera) override;
-	private:
-		bool bLoadPython = false;
 	};
 }

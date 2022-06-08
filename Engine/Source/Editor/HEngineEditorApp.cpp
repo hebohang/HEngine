@@ -1,4 +1,5 @@
 #include "EditorLayer.h"
+#include "Editor/RawRenderTest/RawLayer.h"
 
 #include <HEngine.h>
 
@@ -12,5 +13,6 @@ namespace HEngine
 	{
 		app.Init("HEngine Editor");
 		app.PushLayer(new EditorLayer());
+		//app.PushLayer(new RawLayer());
 	}
 }

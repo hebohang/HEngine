@@ -25,7 +25,13 @@ else()
 endif()
 # end from
 
+set(WITH_PYTHON OFF) # will judge in ThirdParty/pybind11
+
 add_subdirectory(ThirdParty)
+
+if(WITH_PYTHON)
+    add_compile_definitions(WITH_PYTHON)
+endif()
 
 # list(APPEND CMAKE_MODULE_PATH 
 #   "${PROJECT_SOURCE_DIR}/CMake"

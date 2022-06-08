@@ -7,5 +7,5 @@
 
 namespace HEngine
 {
-	Scope<RendererAPI> RenderCommand::sRendererAPI = CreateScope<OpenGLRendererAPI>();
+	Scope<RendererAPI> RenderCommand::sRendererAPI = CreateScope<Dx11RendererAPI>();
 }

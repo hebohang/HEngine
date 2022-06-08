@@ -32,7 +32,6 @@ namespace HEngine
     void Dx11RendererAPI::SetClearColor(const glm::vec4& color)
     {
         Dx11ContextWrapper::GetContext()->ClearRenderTargetView(Dx11ContextWrapper::GetRTV().Get(), glm::value_ptr(color));
-        
     }
 
     void Dx11RendererAPI::Clear()

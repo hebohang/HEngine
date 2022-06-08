@@ -76,6 +76,6 @@ namespace HEngine
 
         virtual void BindFrameBuffer(uint32_t framebufferID) = 0;
     private:
-        static inline RendererAPIType sCurrentRendererAPI = RendererAPIType::OpenGL;
+        static inline RendererAPIType sCurrentRendererAPI = RendererAPIType::DX11;
     };
 }

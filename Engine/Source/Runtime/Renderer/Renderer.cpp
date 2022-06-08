@@ -15,15 +15,15 @@ namespace HEngine
     void Renderer::Init()
     {
         RenderCommand::Init();
-        Renderer3D::Init();
-        Renderer2D::Init();
-        PostProcessing::Init();
+        //Renderer3D::Init();
+        //Renderer2D::Init();
+        //PostProcessing::Init();
     }
 
 	void Renderer::Shutdown()
 	{
-		Renderer2D::Shutdown();
-		Renderer3D::Shutdown();
+		//Renderer2D::Shutdown();
+		//Renderer3D::Shutdown();
 	}
 
     void Renderer::OnWindowResize(uint32_t width, uint32_t height)

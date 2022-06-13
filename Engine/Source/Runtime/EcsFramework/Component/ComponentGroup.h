@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Runtime/EcsFramework/Component/ComponentBase.h"
+#include "Runtime/EcsFramework/Component/ComponentConcept.h"
 #include "Runtime/EcsFramework/Component/Basic/IDComponent.h"
 #include "Runtime/EcsFramework/Component/Basic/TagComponent.h"
 #include "Runtime/EcsFramework/Component/Camera/CameraComponent.h"
@@ -18,15 +18,9 @@
 #include "Runtime/EcsFramework/Component/Light/DirectionalLightComponent.h"
 #include "Runtime/EcsFramework/Component/Audio/SoundComponent.h"
 
-#include <concepts>
-#include <type_traits>
-
 namespace HEngine
 {
     // Every Component Class should be registered in this file
-
-    template<class T>
-    concept Component = std::is_base_of_v<ComponentBase, T>;
 
     template<Component... C>
     struct ComponentGroup
@@ -34,6 +28,7 @@ namespace HEngine
 
     };
 
+    // Component to be copied
     using AllComponents = ComponentGroup<TransformComponent, CircleRendererComponent, SpriteRendererComponent,
         CameraComponent, NativeScriptComponent, PythonScriptComponent, 
         Rigidbody2DComponent, BoxCollider2DComponent, CircleCollider2DComponent, 

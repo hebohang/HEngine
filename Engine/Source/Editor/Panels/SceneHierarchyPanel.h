@@ -3,6 +3,7 @@
 #include "Runtime/Core/Base/Base.h"
 #include "Runtime/EcsFramework/Level/Level.h"
 #include "Runtime/EcsFramework/Entity/Entity.h"
+#include "Runtime/EcsFramework/Component/ComponentConcept.h"
 
 namespace HEngine
 {
@@ -19,7 +20,7 @@ namespace HEngine
 		Entity GetSelectedEntity() const { return mSelectionContext; }
 		void SetSelectedEntity(Entity entity);
     private:
-        template <typename componentType>
+        template <Component componentType>
         void MenuAddComponent(const char* menuName, const char* menuItemName);
         void DrawEntityNode(Entity entity);
         void DrawComponents(Entity entity);

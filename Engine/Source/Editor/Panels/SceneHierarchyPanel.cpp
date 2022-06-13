@@ -249,7 +249,7 @@ namespace HEngine
         }
     }
 
-	template <typename componentType>
+	template <Component componentType>
 	void SceneHierarchyPanel::MenuAddComponent(const char* menuName, const char* menuItemName)
 	{
 		if (!mSelectionContext.HasComponent<componentType>())

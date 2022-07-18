@@ -741,6 +741,8 @@ namespace HEngine
 					mGizmoType = ImGuizmo::OPERATION::SCALE;
 				break;
         }
+
+		return true;
     }
 
 	bool EditorLayer::OnMouseButtonPressed(MouseButtonPressedEvent& e)

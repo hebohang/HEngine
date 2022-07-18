@@ -41,7 +41,7 @@ HRESULT WINAPI DXTraceW(_In_z_ const WCHAR* strFile, _In_ DWORD dwLine, _In_ HRE
 
 	swprintf_s(strBufferHR, 40, L" (0x%0.8x)", hr);
 	wcscat_s(strBufferError, strBufferHR);
-	swprintf_s(strBuffer, 3000, L"错误码含义：%ls", strBufferError);
+	swprintf_s(strBuffer, 3000, L"Error code meaning: %ls", strBufferError);
 	OutputDebugStringW(strBuffer);
 
 	OutputDebugStringW(L"\n");
@@ -54,12 +54,12 @@ HRESULT WINAPI DXTraceW(_In_z_ const WCHAR* strFile, _In_ DWORD dwLine, _In_ HRE
 
 		wcscpy_s(strBufferMsg, 1024, L"");
 		if (nMsgLen > 0)
-			swprintf_s(strBufferMsg, 1024, L"当前调用：%ls\n", strMsg);
+			swprintf_s(strBufferMsg, 1024, L"Now call: %ls\n", strMsg);
 
-		swprintf_s(strBuffer, 3000, L"文件名：%ls\n行号：%ls\n错误码含义：%ls\n%ls您需要调试当前应用程序吗？",
+		swprintf_s(strBuffer, 3000, L"File name: %ls\nLine: %ls\nError code meaning: %ls\n%lsdo you need to debug your proj?",
 			strBufferFile, strBufferLine, strBufferError, strBufferMsg);
 
-		int nResult = MessageBoxW(GetForegroundWindow(), strBuffer, L"错误", MB_YESNO | MB_ICONERROR);
+		int nResult = MessageBoxW(GetForegroundWindow(), strBuffer, L"error", MB_YESNO | MB_ICONERROR);
 		if (nResult == IDYES)
 			DebugBreak();
 	}

@@ -21,7 +21,12 @@ if (WIN32)
     add_definitions(-DNOMINMAX -D_USE_MATH_DEFINES)
 endif()
 
-if (MSVC)
+# learned from SPIRV-Tools/CMakeLists.txt
+if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
+    add_compile_options("-MP")
+    # https://stackoverflow.com/questions/21617158/how-to-silence-unused-command-line-argument-error-with-clang-without-disabling-i
+    add_compile_options("-Wno-error=unused-command-line-argument")
+elseif("${CMAKE_CXX_COMPILER_ID}" MATCHES "MSVC")
     add_compile_options("/MP")
 endif()
 

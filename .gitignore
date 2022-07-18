@@ -4,6 +4,9 @@ bin-int/
 out/
 build/
 
+# Imediate CMake files
+CMakeFiles/
+
 # HEngine files
 *.log
 

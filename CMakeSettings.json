@@ -1,4 +1,4 @@
-﻿{
+{
   "configurations": [
     {
       "name": "x64-Debug",
@@ -9,7 +9,29 @@
       "installRoot": "${projectDir}\\out\\install\\${name}",
       "cmakeCommandArgs": "",
       "buildCommandArgs": "",
-      "ctestCommandArgs": ""
+      "ctestCommandArgs": "",
+      "variables": [
+        {
+          "name": "HE_GENERATED_SOURCE_DIR",
+          "value": "${projectDir}\\build\\GeneratedSource",
+          "type": "PATH"
+        },
+        {
+          "name": "HE_EFFEKSEER_BUILD_DX12",
+          "value": "ON",
+          "type": "BOOL"
+        },
+        {
+          "name": "HE_ENABLE_TRACY",
+          "value": "OFF",
+          "type": "BOOL"
+        },
+        {
+          "name": "HE_TRACY_ON_DEMAND",
+          "value": "ON",
+          "type": "BOOL"
+        }
+      ]
     },
     {
       "name": "x64-Release",
@@ -21,7 +43,160 @@
       "buildCommandArgs": "",
       "ctestCommandArgs": "",
       "inheritEnvironments": [ "msvc_x64_x64" ],
-      "variables": []
+      "variables": [
+        {
+          "name": "HE_GENERATED_SOURCE_DIR",
+          "value": "${projectDir}\\build\\GeneratedSource",
+          "type": "PATH"
+        },
+        {
+          "name": "HE_EFFEKSEER_BUILD_DX12",
+          "value": "ON",
+          "type": "BOOL"
+        },
+        {
+          "name": "HE_ENABLE_TRACY",
+          "value": "OFF",
+          "type": "BOOL"
+        },
+        {
+          "name": "HE_TRACY_ON_DEMAND",
+          "value": "ON",
+          "type": "BOOL"
+        }
+      ]
+    },
+    {
+      "name": "x64-Debug-Tracy",
+      "generator": "Ninja",
+      "configurationType": "Debug",
+      "inheritEnvironments": [ "msvc_x64_x64" ],
+      "buildRoot": "${projectDir}\\out\\build\\${name}",
+      "installRoot": "${projectDir}\\out\\install\\${name}",
+      "cmakeCommandArgs": "",
+      "buildCommandArgs": "",
+      "ctestCommandArgs": "",
+      "variables": [
+        {
+          "name": "HE_GENERATED_SOURCE_DIR",
+          "value": "${projectDir}\\build\\GeneratedSource",
+          "type": "PATH"
+        },
+        {
+          "name": "HE_EFFEKSEER_BUILD_DX12",
+          "value": "ON",
+          "type": "BOOL"
+        },
+        {
+          "name": "HE_ENABLE_TRACY",
+          "value": "ON",
+          "type": "BOOL"
+        },
+        {
+          "name": "HE_TRACY_ON_DEMAND",
+          "value": "ON",
+          "type": "BOOL"
+        }
+      ]
+    },
+    {
+      "name": "x64-Release-Tracy",
+      "generator": "Ninja",
+      "configurationType": "RelWithDebInfo",
+      "buildRoot": "${projectDir}\\out\\build\\${name}",
+      "installRoot": "${projectDir}\\out\\install\\${name}",
+      "cmakeCommandArgs": "",
+      "buildCommandArgs": "",
+      "ctestCommandArgs": "",
+      "inheritEnvironments": [ "msvc_x64_x64" ],
+      "variables": [
+        {
+          "name": "HE_GENERATED_SOURCE_DIR",
+          "value": "${projectDir}\\build\\GeneratedSource",
+          "type": "PATH"
+        },
+        {
+          "name": "HE_EFFEKSEER_BUILD_DX12",
+          "value": "ON",
+          "type": "BOOL"
+        },
+        {
+          "name": "HE_ENABLE_TRACY",
+          "value": "ON",
+          "type": "BOOL"
+        },
+        {
+          "name": "HE_TRACY_ON_DEMAND",
+          "value": "ON",
+          "type": "BOOL"
+        }
+      ]
+    },
+    {
+      "name": "x64-Clang-Debug",
+      "generator": "Ninja",
+      "configurationType": "Debug",
+      "buildRoot": "${projectDir}\\out\\build\\${name}",
+      "installRoot": "${projectDir}\\out\\install\\${name}",
+      "cmakeCommandArgs": "",
+      "buildCommandArgs": "",
+      "ctestCommandArgs": "",
+      "inheritEnvironments": [ "clang_cl_x64_x64" ],
+      "variables": [
+        {
+          "name": "HE_GENERATED_SOURCE_DIR",
+          "value": "${projectDir}\\build\\GeneratedSource",
+          "type": "PATH"
+        },
+        {
+          "name": "HE_EFFEKSEER_BUILD_DX12",
+          "value": "ON",
+          "type": "BOOL"
+        },
+        {
+          "name": "HE_ENABLE_TRACY",
+          "value": "OFF",
+          "type": "BOOL"
+        },
+        {
+          "name": "HE_TRACY_ON_DEMAND",
+          "value": "ON",
+          "type": "BOOL"
+        }
+      ]
+    },
+    {
+      "name": "x64-Clang-Release",
+      "generator": "Ninja",
+      "configurationType": "RelWithDebInfo",
+      "buildRoot": "${projectDir}\\out\\build\\${name}",
+      "installRoot": "${projectDir}\\out\\install\\${name}",
+      "cmakeCommandArgs": "",
+      "buildCommandArgs": "",
+      "ctestCommandArgs": "",
+      "inheritEnvironments": [ "clang_cl_x64_x64" ],
+      "variables": [
+        {
+          "name": "HE_GENERATED_SOURCE_DIR",
+          "value": "${projectDir}\\build\\GeneratedSource",
+          "type": "PATH"
+        },
+        {
+          "name": "HE_EFFEKSEER_BUILD_DX12",
+          "value": "ON",
+          "type": "BOOL"
+        },
+        {
+          "name": "HE_ENABLE_TRACY",
+          "value": "OFF",
+          "type": "BOOL"
+        },
+        {
+          "name": "HE_TRACY_ON_DEMAND",
+          "value": "ON",
+          "type": "BOOL"
+        }
+      ]
     }
   ]
 }

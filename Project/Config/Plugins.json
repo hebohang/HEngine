@@ -1,0 +1,34 @@
+{
+	"he.importers": {
+		"Editor": true,
+		"DevGame": false,
+		"Game": false,
+		"Tests": false,
+		"Tools": true,
+		"RenderSmoke": false
+	},
+	"he.renderdoc": {
+		"Editor": false,
+		"DevGame": false,
+		"Game": false,
+		"Tests": false,
+		"Tools": false,
+		"RenderSmoke": false
+	},
+	"he.exporters": {
+		"Editor": false,
+		"DevGame": false,
+		"Game": false,
+		"Tests": false,
+		"Tools": false,
+		"RenderSmoke": false
+	},
+	"he.offline-reference-renderer": {
+		"Editor": true,
+		"DevGame": false,
+		"Game": false,
+		"Tests": true,
+		"Tools": false,
+		"RenderSmoke": true
+	}
+}

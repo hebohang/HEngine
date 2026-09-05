@@ -1,0 +1,416 @@
+{
+  "0c181fd7-0b21-4e9a-94b4-5b16a0b503d0": {
+    "CameraComponent": {
+      "Camera": {
+        "mAspectRatio": 1.7777777910232544,
+        "mOrthographicFar": 1.0,
+        "mOrthographicNear": -1.0,
+        "mOrthographicSize": 10.0,
+        "mPerspectiveFOV": 0.7853981852531433,
+        "mPerspectiveFar": 100.0,
+        "mPerspectiveNear": 0.10000000149011612,
+        "mProjectionType": 0
+      },
+      "FixedAspectRatio": false,
+      "Primary": true
+    },
+    "TagComponent": {
+      "Tag": "Showcase Camera"
+    },
+    "TransformComponent": {
+      "ParentUuid": "",
+      "Rotation": [
+        -0.3490658402442932,
+        0.4363323152065277,
+        0.0
+      ],
+      "Scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "Translation": [
+        8.0,
+        6.5,
+        14.0
+      ]
+    }
+  },
+  "22432979-10d5-4d79-a2bc-5410e367b35f": {
+    "DirectionalLightComponent": {
+      "Color": [
+        1.0,
+        0.95686274766922,
+        0.8784313797950745
+      ],
+      "Intensity": 3.0
+    },
+    "TagComponent": {
+      "Tag": "Sun"
+    },
+    "TransformComponent": {
+      "ParentUuid": "",
+      "Rotation": [
+        -0.7853981852531433,
+        0.5235987901687622,
+        0.1745329201221466
+      ],
+      "Scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "Translation": [
+        0.0,
+        8.0,
+        0.0
+      ]
+    }
+  },
+  "289a4314-5aa8-4f78-a1dd-4e8c74ca9070": {
+    "EnvironmentLightComponent": {
+      "Exposure": 1.0,
+      "HdrTexturePath": "Assets/Textures/Hdr/Default.hdr",
+      "IBLIntensity": 1.0
+    },
+    "TagComponent": {
+      "Tag": "Environment"
+    },
+    "TransformComponent": {
+      "ParentUuid": "",
+      "Rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "Scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "Translation": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "42edc384-9335-41f2-8d7a-6a8a43f6866b": {
+    "MeshComponent": {
+      "MaterialOverrides": [
+        "Assets/Material/RoughCeramic.hmat"
+      ],
+      "Path": "Assets/Models/Cube/Cube.hmesh",
+      "meshResPath": "Assets/Models/Cube/Cube.hmesh"
+    },
+    "Rigidbody3DComponent": {
+      "AllowSleeping": true,
+      "ColliderOffset": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "ColliderRotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "ColliderScale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "EnableCCD": false,
+      "IsTrigger": false,
+      "Shape": 1,
+      "Type": 0,
+      "angularDamping": 0.0,
+      "friction": 0.8,
+      "linearDamping": 0.0,
+      "mass": 0.0,
+      "restitution": 0.1
+    },
+    "TagComponent": {
+      "Tag": "Floor"
+    },
+    "TransformComponent": {
+      "ParentUuid": "",
+      "Rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "Scale": [
+        6.0,
+        0.25,
+        6.0
+      ],
+      "Translation": [
+        0.0,
+        -0.25,
+        0.0
+      ]
+    }
+  },
+  "55f0a4f8-71db-43f4-916c-11dcaa3744fa": {
+    "MeshComponent": {
+      "MaterialOverrides": [
+        "Assets/Material/Gold.hmat"
+      ],
+      "Path": "Assets/Models/Cube/Cube.hmesh",
+      "meshResPath": "Assets/Models/Cube/Cube.hmesh"
+    },
+    "Rigidbody3DComponent": {
+      "AllowSleeping": true,
+      "ColliderOffset": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "ColliderRotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "ColliderScale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "EnableCCD": false,
+      "IsTrigger": false,
+      "Shape": 1,
+      "Type": 0,
+      "angularDamping": 0.0,
+      "friction": 0.55,
+      "linearDamping": 0.0,
+      "mass": 0.0,
+      "restitution": 0.15
+    },
+    "TagComponent": {
+      "Tag": "Ramp"
+    },
+    "TransformComponent": {
+      "ParentUuid": "",
+      "Rotation": [
+        0.0,
+        0.0,
+        -0.3141592741012573
+      ],
+      "Scale": [
+        2.25,
+        0.25,
+        1.5
+      ],
+      "Translation": [
+        2.5,
+        1.2,
+        0.0
+      ]
+    }
+  },
+  "6d36eb32-f137-43a3-8b58-22ee6318d887": {
+    "MeshComponent": {
+      "MaterialOverrides": [
+        "Assets/Material/Plastic.hmat"
+      ],
+      "Path": "Assets/Models/Cube/Cube.hmesh",
+      "meshResPath": "Assets/Models/Cube/Cube.hmesh"
+    },
+    "Rigidbody3DComponent": {
+      "AllowSleeping": true,
+      "ColliderOffset": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "ColliderRotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "ColliderScale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "EnableCCD": true,
+      "IsTrigger": false,
+      "Shape": 1,
+      "Type": 1,
+      "angularDamping": 0.12,
+      "friction": 0.45,
+      "linearDamping": 0.04,
+      "mass": 1.0,
+      "restitution": 0.35
+    },
+    "TagComponent": {
+      "Tag": "Dynamic Cube A"
+    },
+    "TransformComponent": {
+      "ParentUuid": "",
+      "Rotation": [
+        0.1745329201221466,
+        0.3490658402442932,
+        0.0872664600610733
+      ],
+      "Scale": [
+        0.65,
+        0.65,
+        0.65
+      ],
+      "Translation": [
+        -1.5,
+        4.0,
+        0.2
+      ]
+    }
+  },
+  "7715504c-8615-417e-acda-74454c7d00d2": {
+    "MeshComponent": {
+      "MaterialOverrides": [
+        "Assets/Material/Gold.hmat"
+      ],
+      "Path": "Assets/Models/Cube/Cube.hmesh",
+      "meshResPath": "Assets/Models/Cube/Cube.hmesh"
+    },
+    "Rigidbody3DComponent": {
+      "AllowSleeping": true,
+      "ColliderOffset": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "ColliderRotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "ColliderScale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "EnableCCD": true,
+      "IsTrigger": false,
+      "Shape": 1,
+      "Type": 1,
+      "angularDamping": 0.08,
+      "friction": 0.4,
+      "linearDamping": 0.03,
+      "mass": 1.25,
+      "restitution": 0.45
+    },
+    "TagComponent": {
+      "Tag": "Dynamic Cube B"
+    },
+    "TransformComponent": {
+      "ParentUuid": "",
+      "Rotation": [
+        -0.0872664600610733,
+        0.2617993950843811,
+        0.3490658402442932
+      ],
+      "Scale": [
+        0.55,
+        0.55,
+        0.55
+      ],
+      "Translation": [
+        0.0,
+        6.2,
+        -0.3
+      ]
+    }
+  },
+  "a5187b52-d892-453a-a388-bc6bf1f3a677": {
+    "MeshComponent": {
+      "MaterialOverrides": [
+        "Assets/Material/RoughCeramic.hmat"
+      ],
+      "Path": "Assets/Models/Cube/Cube.hmesh",
+      "meshResPath": "Assets/Models/Cube/Cube.hmesh"
+    },
+    "Rigidbody3DComponent": {
+      "AllowSleeping": true,
+      "ColliderOffset": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "ColliderRotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "ColliderScale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "EnableCCD": true,
+      "IsTrigger": false,
+      "Shape": 1,
+      "Type": 1,
+      "angularDamping": 0.1,
+      "friction": 0.5,
+      "linearDamping": 0.02,
+      "mass": 0.9,
+      "restitution": 0.55
+    },
+    "TagComponent": {
+      "Tag": "Dynamic Cube C"
+    },
+    "TransformComponent": {
+      "ParentUuid": "",
+      "Rotation": [
+        0.2617993950843811,
+        -0.1745329201221466,
+        0.1745329201221466
+      ],
+      "Scale": [
+        0.75,
+        0.75,
+        0.75
+      ],
+      "Translation": [
+        1.2,
+        8.4,
+        0.4
+      ]
+    }
+  },
+  "bc94e242-b3c5-4b39-a9cd-124438439655": {
+    "PointLightComponent": {
+      "FalloffExponent": 2.0,
+      "Intensity": 8.0,
+      "LightColor": [
+        0.1882352977991104,
+        0.5372549295425415,
+        1.0
+      ],
+      "Radius": 7.5
+    },
+    "TagComponent": {
+      "Tag": "Blue Fill Light"
+    },
+    "TransformComponent": {
+      "ParentUuid": "",
+      "Rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "Scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "Translation": [
+        -3.5,
+        4.0,
+        2.5
+      ]
+    }
+  }
+}

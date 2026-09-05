@@ -1,5 +1,9 @@
-#include "hepch.h"
+#include "Hepch.h"
 #include "LayerStack.h"
+
+#include "Runtime/Core/Log/Log.h"
+
+#include <exception>
 
 namespace HEngine
 {
@@ -10,9 +14,32 @@ namespace HEngine
 
 	LayerStack::~LayerStack()
 	{
-		for (Layer* layer : mLayers)
+		Shutdown();
+	}
+
+	void LayerStack::Shutdown() noexcept
+	{
+		std::vector<Layer*> layers;
+		layers.swap(mLayers);
+		mLayerInsertIndex = 0;
+
+		for (Layer* layer : layers)
 		{
-			layer->OnDetach();
+			if (!layer)
+				continue;
+
+			try
+			{
+				layer->OnDetach();
+			}
+			catch (const std::exception& exception)
+			{
+				Log::WriteFallbackError("Layer detach failed during shutdown.", exception.what());
+			}
+			catch (...)
+			{
+				Log::WriteFallbackError("Layer detach failed during shutdown.", "unknown exception");
+			}
 			delete layer;
 		}
 	}

@@ -1,0 +1,16 @@
+{
+  "schema": "https://henginedev.local/schemas/cornell-imported-assets/v1",
+  "sourceManifestSha256": "8ae369715b84cdaecc24517134f5c6a361cd322d1f9bcf3e1cdc53db7f1cfe0e",
+  "sourceGltfSha256": "40dc70fc9a58c0a626e809f04abfd258527dd8ad74440cc6c1215ed2b1a17783",
+  "destination": "Assets/CornellBox",
+  "files": {
+    "CornellBox.bin": "081359f9830e7a694ec58d5724a6f5ecf7b1e48985cca712973bf0b8b8482c1b",
+    "CornellBox.he": "1440770fcc2d7448b18999b7955c699a8a513b42cf325e4686e565a367329b57",
+    "CornellBox.hmat": "2b5816ff2c485fec4543db54828121dcabef790423b0c01d65eb6e549f155fcf",
+    "CornellBox.hmesh": "c3056f0af1a9ca6451f8103570340f71b19010fdb5f5e5bcad46bab8a91ae2ef",
+    "green.hmat": "28a85d32cc056d7311262cd631017a8f85ba5821fff1d82bd5dac2d29e943dd5",
+    "light.hmat": "4d3f4d9cfdc35d3abc976322f7a08da981fec8585d8705eec5c64ac31139e7b1",
+    "red.hmat": "0247b41b939aafe8eca35b2a5365904129be7632a54cade43c305c9dc6629ed8",
+    "white.hmat": "bd87a38c1e269efdc7600bf7f12f843668fcaa13c5bcc453302e538440c9c508"
+  }
+}

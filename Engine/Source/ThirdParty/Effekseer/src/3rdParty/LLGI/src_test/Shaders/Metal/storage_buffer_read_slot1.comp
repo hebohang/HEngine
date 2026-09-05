@@ -1,0 +1,97 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct SPIRV_Cross_Input
+{
+    uint3 _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+};
+
+struct SlotData
+{
+    float3 Position;
+    uint Direction;
+};
+
+struct Data
+{
+    uint _data[1];
+};
+
+struct OutputData
+{
+    float3 Position;
+    uint Direction;
+    uint Checksum;
+    uint Padding0;
+    uint Padding1;
+    uint Padding2;
+};
+
+struct Output
+{
+    uint _data[1];
+};
+
+static inline __attribute__((always_inline))
+void _main(thread const uint3& dtid, const device Data& Data_1, device Output& Output_1)
+{
+    uint index = dtid.x;
+    int byteAddrTemp = int(((index * 16u) + 0u) >> uint(2));
+    SlotData _RESERVED_IDENTIFIER_FIXUP_33;
+    _RESERVED_IDENTIFIER_FIXUP_33.Position = as_type<float3>(uint3(Data_1._data[byteAddrTemp], Data_1._data[byteAddrTemp + 1], Data_1._data[byteAddrTemp + 2]));
+    _RESERVED_IDENTIFIER_FIXUP_33.Direction = Data_1._data[int(((index * 16u) + 12u) >> uint(2))];
+    SlotData data;
+    data.Position = _RESERVED_IDENTIFIER_FIXUP_33.Position;
+    data.Direction = _RESERVED_IDENTIFIER_FIXUP_33.Direction;
+    OutputData _output;
+    _output.Position = data.Position + float3(10.0, 20.0, 30.0);
+    _output.Direction = data.Direction;
+    _output.Checksum = data.Direction ^ (index * 16843009u);
+    _output.Padding0 = 0u;
+    _output.Padding1 = 0u;
+    _output.Padding2 = 0u;
+    int byteAddrTemp_1 = int(((index * 32u) + 0u) >> uint(2));
+    Output_1._data[byteAddrTemp_1] = as_type<uint3>(_output.Position).x;
+    Output_1._data[byteAddrTemp_1 + 1] = as_type<uint3>(_output.Position).y;
+    Output_1._data[byteAddrTemp_1 + 2] = as_type<uint3>(_output.Position).z;
+    int byteAddrTemp_2 = int(((index * 32u) + 12u) >> uint(2));
+    Output_1._data[byteAddrTemp_2] = _output.Direction;
+    int byteAddrTemp_3 = int(((index * 32u) + 16u) >> uint(2));
+    Output_1._data[byteAddrTemp_3] = _output.Checksum;
+    int byteAddrTemp_4 = int(((index * 32u) + 20u) >> uint(2));
+    Output_1._data[byteAddrTemp_4] = _output.Padding0;
+    int byteAddrTemp_5 = int(((index * 32u) + 24u) >> uint(2));
+    Output_1._data[byteAddrTemp_5] = _output.Padding1;
+    int byteAddrTemp_6 = int(((index * 32u) + 28u) >> uint(2));
+    Output_1._data[byteAddrTemp_6] = _output.Padding2;
+}
+
+static inline __attribute__((always_inline))
+void comp_main(const device Data& Data_1, device Output& Output_1, thread uint3& _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID)
+{
+    uint3 dtid = _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+    uint3 param = dtid;
+    uint3 param_1 = param;
+    _main(param_1, Data_1, Output_1);
+}
+
+static inline __attribute__((always_inline))
+void _main(thread const SPIRV_Cross_Input& stage_input, const device Data& Data_1, device Output& Output_1, thread uint3& _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID)
+{
+    _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID = stage_input._RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+    comp_main(Data_1, Output_1, _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID);
+}
+
+kernel void main0(device Output& Output_1 [[buffer(10)]], const device Data& Data_1 [[buffer(11)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    SPIRV_Cross_Input stage_input;
+    stage_input._RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID = gl_GlobalInvocationID;
+    SPIRV_Cross_Input param = stage_input;
+    uint3 _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+    _main(param, Data_1, Output_1, _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID);
+}
+

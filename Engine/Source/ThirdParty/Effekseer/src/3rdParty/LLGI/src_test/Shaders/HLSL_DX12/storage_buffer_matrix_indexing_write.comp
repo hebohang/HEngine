@@ -1,0 +1,49 @@
+struct MatrixIndexingRecord
+{
+    float4x4 Clip;
+    float4x3 Transform;
+    float4 Local;
+    uint Row;
+    uint Flags;
+    uint2 Padding;
+};
+
+RWStructuredBuffer<MatrixIndexingRecord> Records : register(u1);
+
+float MakeClip(uint index, uint row, uint column)
+{
+    float diagonal = row == column ? 1.0f : 0.0f;
+    return diagonal + float((int(index) + 1) * (int(row) + 1) - int(column)) * 0.03125f;
+}
+
+float MakeTransform(uint index, uint row, uint column)
+{
+    return float((row + 1u) * (column + 2u)) * 0.125f + float(index) * 0.0078125f;
+}
+
+[numthreads(1, 1, 1)]
+void main(uint3 dtid : SV_DispatchThreadID)
+{
+    uint index = dtid.x;
+
+    MatrixIndexingRecord record;
+    record.Clip[0] = float4(MakeClip(index, 0u, 0u), MakeClip(index, 0u, 1u), MakeClip(index, 0u, 2u), MakeClip(index, 0u, 3u));
+    record.Clip[1] = float4(MakeClip(index, 1u, 0u), MakeClip(index, 1u, 1u), MakeClip(index, 1u, 2u), MakeClip(index, 1u, 3u));
+    record.Clip[2] = float4(MakeClip(index, 2u, 0u), MakeClip(index, 2u, 1u), MakeClip(index, 2u, 2u), MakeClip(index, 2u, 3u));
+    record.Clip[3] = float4(MakeClip(index, 3u, 0u), MakeClip(index, 3u, 1u), MakeClip(index, 3u, 2u), MakeClip(index, 3u, 3u));
+    record.Transform[0] = float3(MakeTransform(index, 0u, 0u), MakeTransform(index, 0u, 1u), MakeTransform(index, 0u, 2u));
+    record.Transform[1] = float3(MakeTransform(index, 1u, 0u), MakeTransform(index, 1u, 1u), MakeTransform(index, 1u, 2u));
+    record.Transform[2] = float3(MakeTransform(index, 2u, 0u), MakeTransform(index, 2u, 1u), MakeTransform(index, 2u, 2u));
+    record.Transform[3] = float3(-0.5f + float(index) * 0.046875f,
+                                 0.375f - float(index) * 0.0234375f,
+                                 0.25f + float(index) * 0.015625f);
+    record.Local = float4(0.25f + float(index) * 0.015625f,
+                          -0.5f + float(index) * 0.0078125f,
+                          0.75f - float(index) * 0.00390625f,
+                          1.0f);
+    record.Row = index & 3u;
+    record.Flags = 0x45000000u + index * 31u;
+    record.Padding = uint2(0u, 0u);
+
+    Records[index] = record;
+}

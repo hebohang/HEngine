@@ -7,15 +7,20 @@
 
 namespace HEngine
 {
-    class PointLightComponent : public ComponentBase
+    REFLECTION_TYPE(PointLightComponent)
+    CLASS(PointLightComponent : public ComponentBase, Fields)
     {
+        REFLECTION_COMPONENT_BODY(PointLightComponent);
     public:
         PointLightComponent() = default;
         PointLightComponent(const PointLightComponent&) = default;
-        PointLightComponent(float intensity, const glm::vec3& lightColor)
-            : Intensity(intensity), LightColor(lightColor) {}
+        PointLightComponent(float intensity, const glm::vec3& lightColor, float radius = 10.0f, float falloffExponent = 2.0f)
+            : Intensity(intensity), LightColor(lightColor), Radius(radius), FalloffExponent(falloffExponent) {}
 
-        float Intensity = 100.0f;
+        float Intensity = 800.0f;
         glm::vec3 LightColor = { 1.0f, 1.0f, 1.0f };
+        float Radius = 10.0f;
+        float FalloffExponent = 2.0f;
     };
+    REGISTER_COMPONENT_TYPE(PointLightComponent)
 }

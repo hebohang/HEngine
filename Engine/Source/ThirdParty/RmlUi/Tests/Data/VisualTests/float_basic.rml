@@ -1,0 +1,51 @@
+<rml>
+<head>
+	<title>Floats, block formatting contexts</title>
+	<link type="text/rcss" href="../style.rcss"/>
+	<link rel="help" href="https://drafts.csswg.org/css2/#bfc-next-to-float" />
+	<meta name="Description" content="Floated elements should only interact with elements in the same block formatting context. The margin box of floated elements must not overlap with the border box of elements that establish an independent formatting context." />
+	<style>
+		body {
+			background: #ddd;
+			color: #444;
+		}
+		#content {
+			width: 250dp;
+			margin: 0 auto;
+		}
+		div.float {
+			float: left;
+			background-color: #bbb;
+			border: 1dp #333;
+			width: 100dp;
+			height: 100dp;
+			margin: 5dp;
+		}
+		.red {
+			color: red;
+		}
+	</style>
+</head>
+
+<body>
+<p>This test makes assumptions about the font properties, that is, it depends on the size of the layed-out text.</p>
+<div id="content">
+	<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod.
+	<div class="float">float: left</div>
+	<span class="red">This</span> is the first word after the float and should flow next to the float.</p>
+	<p>This paragraph should flow next to the float.</p>
+
+	<hr/>
+	<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod.
+	<div class="float">float: left</div>
+	<span class="red">This</span> is the first word after the float and should flow next to the float.</p>
+	<p style="clear: left;">This paragraph should be below the float as it clears the float.</p>
+
+	<hr/>
+	<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod.
+	<div class="float">float: left</div>
+	<span class="red">This</span> is the first word after the float and should flow next to the float.</p>
+	<p style="overflow: auto;">This paragraph establishes a new block formatting context. This paragraph should therefore be placed below the preceding float to avoid overlapping it, but may be placed adjacent to the float if there is sufficient space.</p>
+</div>
+</body>
+</rml>

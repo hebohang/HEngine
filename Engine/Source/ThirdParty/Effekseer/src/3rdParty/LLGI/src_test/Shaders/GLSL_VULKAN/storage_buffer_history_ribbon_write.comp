@@ -1,0 +1,124 @@
+#version 430
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+struct HistoryRecord
+{
+    vec3 Position;
+    uint ColorTag;
+    vec3 Tangent;
+    uint Sequence;
+};
+
+struct RibbonRecord
+{
+    uint BaseIndex;
+    uint Count;
+    uint Head;
+    float Width;
+    uint ColorTag;
+    uint Reserved0;
+    uint Reserved1;
+    uint Reserved2;
+};
+
+layout(set = 2, binding = 0, std430) buffer HistoryData
+{
+    HistoryRecord _data[];
+} HistoryData_1;
+
+layout(set = 2, binding = 1, std430) buffer RibbonData
+{
+    RibbonRecord _data[];
+} RibbonData_1;
+
+void _main(uvec3 dtid)
+{
+    uint id = dtid.x;
+    if (id < 8u)
+    {
+        uint local = id & 3u;
+        uint instance = id >> 2u;
+        HistoryRecord record;
+        record.Tangent = vec3(0.0, 1.0, 0.0);
+        record.ColorTag = instance;
+        record.Sequence = local;
+        if (instance == 0u)
+        {
+            float x = -0.1500000059604644775390625;
+            if (local == 1u)
+            {
+                x = -0.75;
+            }
+            else
+            {
+                if (local == 2u)
+                {
+                    x = -0.550000011920928955078125;
+                }
+                else
+                {
+                    if (local == 3u)
+                    {
+                        x = -0.3499999940395355224609375;
+                    }
+                }
+            }
+            record.Position = vec3(x, -0.2800000011920928955078125, 0.0);
+        }
+        else
+        {
+            float x_1 = 0.550000011920928955078125;
+            if (local == 1u)
+            {
+                x_1 = 0.75;
+            }
+            else
+            {
+                if (local == 2u)
+                {
+                    x_1 = 0.1500000059604644775390625;
+                }
+                else
+                {
+                    if (local == 3u)
+                    {
+                        x_1 = 0.3499999940395355224609375;
+                    }
+                }
+            }
+            record.Position = vec3(x_1, 0.2599999904632568359375, 0.0);
+        }
+        HistoryData_1._data[id].Position = record.Position;
+        HistoryData_1._data[id].ColorTag = record.ColorTag;
+        HistoryData_1._data[id].Tangent = record.Tangent;
+        HistoryData_1._data[id].Sequence = record.Sequence;
+    }
+    if (id < 2u)
+    {
+        RibbonRecord record_1;
+        record_1.BaseIndex = id * 4u;
+        record_1.Count = 4u;
+        record_1.Head = (id == 0u) ? 1u : 2u;
+        record_1.Width = 0.054999999701976776123046875;
+        record_1.ColorTag = id;
+        record_1.Reserved0 = 0u;
+        record_1.Reserved1 = 0u;
+        record_1.Reserved2 = 0u;
+        RibbonData_1._data[id].BaseIndex = record_1.BaseIndex;
+        RibbonData_1._data[id].Count = record_1.Count;
+        RibbonData_1._data[id].Head = record_1.Head;
+        RibbonData_1._data[id].Width = record_1.Width;
+        RibbonData_1._data[id].ColorTag = record_1.ColorTag;
+        RibbonData_1._data[id].Reserved0 = record_1.Reserved0;
+        RibbonData_1._data[id].Reserved1 = record_1.Reserved1;
+        RibbonData_1._data[id].Reserved2 = record_1.Reserved2;
+    }
+}
+
+void main()
+{
+    uvec3 dtid = gl_GlobalInvocationID;
+    uvec3 param = dtid;
+    _main(param);
+}
+

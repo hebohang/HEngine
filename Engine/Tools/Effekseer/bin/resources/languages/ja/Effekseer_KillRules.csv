@@ -1,0 +1,31 @@
+KillRules,破棄ルール
+KillRules_Description,"破棄ルールを使用すると、パーティクルを破棄する領域を指定できます。
+ -箱 指定された箱の内側または外側に移動するときにパーティクルを破棄する。
+ -平面 パーティクルが指定された軸に沿って特定の位置を超えて移動したときにパーティクルを破棄する。
+ -球 指定された球の内側または外側に移動するときにパーティクルを破棄する。"
+KillRules_Type_Name,種類
+KillRules_Box_Center_Name,中央
+KillRules_Box_Size_Name,大きさ
+KillRules_Box_IsKillInside_Name,内部を破棄
+KillRules_Box_IsKillInside_Desc,"これが有効の場合、箱の内部にパーティクルが入った時、パーティクルが破棄されます。
+これが無効の場合(デフォルト)、箱の外側にパーティクルが出た時、パーティクルが破棄されます。"
+KillRules_IsScaleAndRotationApplied_Name,"回転拡大の適用"
+KillRules_IsScaleAndRotationApplied_Desc,"これが有効の場合(デフォルト)、エフェクトの回転拡大が箱に適用されます。
+これが無効の場合、固定された大きさで軸に沿った箱になります。"
+KillRules_Plane_Axis_Name,平面の軸
+KillRules_Plane_PlaneOffset_Name,"平面の位置オフセット"
+KillRules_Sphere_Center_Name,中央
+KillRules_Sphere_Radius_Name,半径
+KillRules_Sphere_IsKillInside_Name,内部を破棄
+KillRules_Sphere_IsKillInside_Desc,"これが有効の場合、球の内部にパーティクルが入った時、パーティクルが破棄されます。
+これが無効の場合(デフォルト)、球の外側にパーティクルが出た時、パーティクルが破棄されます。"
+KillType_None_Name,なし
+KillType_Box_Name,箱
+KillType_Plane_Name,平面
+KillType_Sphere_Name,球
+PlaneAxisType_XPositive_Name,+X
+PlaneAxisType_XNegative_Name,-X
+PlaneAxisType_YPositive_Name,+Y
+PlaneAxisType_YNegative_Name,-Y
+PlaneAxisType_ZPositive_Name,+Z
+PlaneAxisType_ZNegative_Name,-Z

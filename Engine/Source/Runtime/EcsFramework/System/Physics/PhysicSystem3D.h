@@ -2,72 +2,127 @@
 
 #include "Runtime/EcsFramework/System/System.h"
 #include "Runtime/EcsFramework/Level/Level.h"
-#include "Runtime/Renderer/Renderer2D.h"
+#include "Runtime/Graphics/Renderer2D.h"
+#include "Runtime/Resource/ModeManager/ModeManager.h"
 
-#include <btBulletCollisionCommon.h>
-#include <btBulletDynamicsCommon.h>
+#include <Jolt/Jolt.h>
+#include <Jolt/Core/TempAllocator.h>
+#include <Jolt/Core/JobSystemThreadPool.h>
+#include <Jolt/Physics/PhysicsSystem.h>
+#include <Jolt/Physics/Body/BodyID.h>
+#include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayer.h>
+#include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayerInterfaceTable.h>
+#include <Jolt/Physics/Collision/BroadPhase/ObjectVsBroadPhaseLayerFilterTable.h>
+#include <Jolt/Physics/Collision/ObjectLayerPairFilterTable.h>
+#include <Jolt/Physics/Collision/Shape/Shape.h>
+
+#ifdef JPH_DEBUG_RENDERER
+#include <Jolt/Physics/Body/BodyManager.h>
+#include "Runtime/EcsFramework/System/Physics/JoltDebugRendererAdapter.h"
+#endif
+
+#include <glm/glm.hpp>
+
+#include <cstdint>
+#include <memory>
 
 namespace HEngine
 {
 	namespace Utils
 	{
-		inline glm::vec3 BtVec3ToGlm(const btVector3& src)
+		inline glm::vec3 JoltVec3ToGlm(JPH::Vec3Arg src)
 		{
-			return glm::vec3(src.x(), src.y(), src.z());
+			return glm::vec3(src.GetX(), src.GetY(), src.GetZ());
 		}
 
-		inline btVector3 GlmToBtVec3(const glm::vec3& src)
+		inline glm::vec3 JoltRVec3ToGlm(JPH::RVec3Arg src)
 		{
-			return btVector3(src.x, src.y, src.z);
+			return glm::vec3(static_cast<float>(src.GetX()), static_cast<float>(src.GetY()), static_cast<float>(src.GetZ()));
 		}
 
-		class BulletDrawer : public btIDebugDraw
+		inline JPH::Vec3 GlmToJoltVec3(const glm::vec3& src)
 		{
-		public:
-			virtual void drawLine(const btVector3& from, const btVector3& to, const btVector3& color) override
-			{
-				//Renderer2D::DrawLine(BtVec3ToGlm(from), BtVec3ToGlm(to), { BtVec3ToGlm(color), 1.0f });
-				Renderer2D::DrawLine(BtVec3ToGlm(from), BtVec3ToGlm(to), glm::vec4(0, 1, 0, 1));
-			}
+			return JPH::Vec3(src.x, src.y, src.z);
+		}
 
-			virtual void drawContactPoint(const btVector3& PointOnB, const btVector3& normalOnB, btScalar distance, int lifeTime, const btVector3& color) override
-			{
-				// TODO
-				//Renderer2D::DrawLine(BtVec3ToGlm(PointOnB), BtVec3ToGlm(normalOnB), { BtVec3ToGlm(color), 1.0f });
-				Renderer2D::DrawLine(BtVec3ToGlm(PointOnB), BtVec3ToGlm(normalOnB), glm::vec4(0, 1, 0, 1));
-			}
-
-			virtual void reportErrorWarning(const char* warningString) { HE_CORE_ERROR(warningString); };
-
-			virtual void draw3dText(const btVector3& location, const char* textString) {};
-
-			virtual void setDebugMode(int debugMode) { mDebugMode = debugMode; };
-
-			virtual int getDebugMode() const override { return mDebugMode; }
-
-			int mDebugMode = DebugDrawModes::DBG_DrawWireframe;
-		};
+		inline JPH::RVec3 GlmToJoltRVec3(const glm::vec3& src)
+		{
+			return JPH::RVec3(src.x, src.y, src.z);
+		}
 	}
 
     class PhysicSystem3D : public System
     {
 	public:
 		PhysicSystem3D(Level* level) : System(level) {}
-		virtual ~PhysicSystem3D() = default;
+		~PhysicSystem3D() noexcept override;
+
+		static constexpr JPH::ObjectLayer ObjectLayerStatic = 0;
+		static constexpr JPH::ObjectLayer ObjectLayerMoving = 1;
     public:
 		void OnRuntiemStart() override;
 		void OnUpdateRuntime(Timestep ts) override;
 		void OnRuntimeStop() override;
+#if WITH_EDITOR
 		void OnUpdateEditor(Timestep ts, EditorCamera& camera) override;
+		void ReleaseEditorDebugResources();
+#endif
 
-		static void SetDebugMode(int flags) { mDebugDrawer.setDebugMode(flags); }
+		static void SetDebugMode(PhysicsDebugDrawModeFlag flags);
+
+		JPH::PhysicsSystem* GetPhysicsSystem() const { return mPhysicsSystem.get(); }
+		JPH::TempAllocator* GetTempAllocator() const { return mTempAllocator.get(); }
+
+		bool SetBodyLinearVelocity(void* runtimeBody, const glm::vec3& velocity);
+		bool SnapEntityToFloor(Entity entity);
+		[[nodiscard]] bool RaycastFloorHeight(
+			const glm::vec3& position,
+			float castDistanceAbove,
+			float castDistanceBelow,
+			float& outFloorHeight) const;
+
+		static const JPH::BodyID* TryGetBodyID(void* runtimeBody);
+		static const JPH::BodyID* TryGetBodyID(const void* runtimeBody);
+
 	private:
-		btBroadphaseInterface* mBroadphase;
-		btDefaultCollisionConfiguration* mCollisionConfiguration;
-		btCollisionDispatcher* mDispatcher;
-		btSequentialImpulseConstraintSolver* mSolver;
-		btDiscreteDynamicsWorld* mDynamicsWorld;
+		enum class RuntimeLifecycleState : std::uint8_t
+		{
+			Stopped,
+			Starting,
+			Started,
+			Stopping
+		};
 
-		static Utils::BulletDrawer mDebugDrawer;
+		void EnsureJoltInitialized();
+		void ShutdownJoltIfNeeded() noexcept;
+		void ReleaseRuntimeJoltIfNeeded() noexcept;
+		void EnsureEditorDebugJoltInitialized();
+		void ReleaseEditorDebugJoltIfNeeded() noexcept;
+		void BuildRuntimeRigidBodies();
+		void ClearRuntimeRigidBodies();
+		void CleanupRuntimeState();
+		void DrawDebugBodies();
+		void ApplyCharacterVirtualDebugFlags() const;
+		#ifdef JPH_DEBUG_RENDERER
+		JPH::BodyManager::DrawSettings BuildJoltDrawSettings() const;
+		#endif
+
+		std::unique_ptr<JPH::PhysicsSystem> mPhysicsSystem;
+		std::unique_ptr<JPH::TempAllocatorImpl> mTempAllocator;
+		std::unique_ptr<JPH::JobSystemThreadPool> mJobSystem;
+
+		std::unique_ptr<JPH::BroadPhaseLayerInterfaceTable> mBroadPhaseLayerInterface;
+		std::unique_ptr<JPH::ObjectLayerPairFilterTable> mObjectLayerPairFilter;
+		std::unique_ptr<JPH::ObjectVsBroadPhaseLayerFilterTable> mObjectVsBroadPhaseLayerFilter;
+
+		RuntimeLifecycleState mRuntimeState = RuntimeLifecycleState::Stopped;
+		bool mRuntimeJoltInitialized = false;
+		bool mEditorJoltInitialized = false;
+		#ifdef JPH_DEBUG_RENDERER
+		std::unique_ptr<JoltDebugRendererAdapter> mDebugRenderer;
+		#endif
+
+		static PhysicsDebugDrawModeFlag mDebugMode;
+		static int sJoltInitRefCount;
     };
 }

@@ -1,10 +1,12 @@
 #pragma once
+#include "Runtime/Core/Meta/Reflection/Reflection.h"
 
 #include <glm/glm.hpp>
 
 namespace HEngine
 {
-    class Camera
+    REFLECTION_TYPE(TransformComponent)
+    CLASS(Camera, WhiteListFields)
     {
     public:
         Camera() = default;

@@ -1,0 +1,73 @@
+struct StructuredInput
+{
+    float3 Position;
+    uint Reserved;
+    uint Normal;
+    uint Tangent;
+    uint UV;
+    uint Color;
+};
+
+struct OutputData
+{
+    float3 Position;
+    uint Normal;
+    uint Tangent;
+    uint Color;
+    uint Padding0;
+    uint Padding1;
+};
+
+ByteAddressBuffer Input : register(t1);
+RWByteAddressBuffer Output : register(u0);
+
+static uint3 gl_GlobalInvocationID;
+struct SPIRV_Cross_Input
+{
+    uint3 gl_GlobalInvocationID : SV_DispatchThreadID;
+};
+
+void _main(uint3 dtid)
+{
+    StructuredInput _31;
+    _31.Position = asfloat(Input.Load3(dtid.x * 32 + 0));
+    _31.Reserved = Input.Load(dtid.x * 32 + 12);
+    _31.Normal = Input.Load(dtid.x * 32 + 16);
+    _31.Tangent = Input.Load(dtid.x * 32 + 20);
+    _31.UV = Input.Load(dtid.x * 32 + 24);
+    _31.Color = Input.Load(dtid.x * 32 + 28);
+    StructuredInput _input;
+    _input.Position = _31.Position;
+    _input.Reserved = _31.Reserved;
+    _input.Normal = _31.Normal;
+    _input.Tangent = _31.Tangent;
+    _input.UV = _31.UV;
+    _input.Color = _31.Color;
+    OutputData _output;
+    _output.Position = _input.Position + float3(1.0f, 2.0f, 3.0f);
+    _output.Normal = _input.Normal;
+    _output.Tangent = _input.Tangent;
+    _output.Color = (_input.Color ^ _input.UV) ^ _input.Reserved;
+    _output.Padding0 = 0u;
+    _output.Padding1 = 0u;
+    Output.Store3(dtid.x * 32 + 0, asuint(_output.Position));
+    Output.Store(dtid.x * 32 + 12, _output.Normal);
+    Output.Store(dtid.x * 32 + 16, _output.Tangent);
+    Output.Store(dtid.x * 32 + 20, _output.Color);
+    Output.Store(dtid.x * 32 + 24, _output.Padding0);
+    Output.Store(dtid.x * 32 + 28, _output.Padding1);
+}
+
+void comp_main()
+{
+    uint3 dtid = gl_GlobalInvocationID;
+    uint3 param = dtid;
+    _main(param);
+}
+
+[numthreads(1, 1, 1)]
+void main(SPIRV_Cross_Input stage_input)
+{
+    gl_GlobalInvocationID = stage_input.gl_GlobalInvocationID;
+    comp_main();
+}

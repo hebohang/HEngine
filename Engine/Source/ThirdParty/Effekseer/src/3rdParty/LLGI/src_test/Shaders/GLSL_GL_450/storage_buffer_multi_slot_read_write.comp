@@ -1,0 +1,124 @@
+#version 450
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+struct SPIRV_Cross_Input
+{
+    uvec3 _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+};
+
+struct InputA
+{
+    vec3 Values;
+    uint Tag;
+};
+
+struct InputB
+{
+    uint X;
+    uint Y;
+    uint Z;
+    uint W;
+};
+
+struct OutputA
+{
+    float Value;
+    uint Tag;
+    uint Mix;
+    uint Padding;
+};
+
+struct OutputB
+{
+    vec3 Values;
+    uint Checksum;
+};
+
+layout(binding = 1, std430) readonly buffer Input1
+{
+    uint _data[];
+} Input1_1;
+
+layout(binding = 2, std430) readonly buffer Input2
+{
+    uint _data[];
+} Input2_1;
+
+layout(binding = 0, std430) buffer Output0
+{
+    uint _data[];
+} Output0_1;
+
+layout(binding = 3, std430) buffer Output3
+{
+    uint _data[];
+} Output3_1;
+
+uvec3 _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+
+void _main(uvec3 dtid)
+{
+    uint index = dtid.x;
+    int byteAddrTemp = int(((index * 16u) + 0u) >> uint(2));
+    InputA _RESERVED_IDENTIFIER_FIXUP_33;
+    _RESERVED_IDENTIFIER_FIXUP_33.Values = uintBitsToFloat(uvec3(Input1_1._data[byteAddrTemp], Input1_1._data[byteAddrTemp + 1], Input1_1._data[byteAddrTemp + 2]));
+    _RESERVED_IDENTIFIER_FIXUP_33.Tag = Input1_1._data[int(((index * 16u) + 12u) >> uint(2))];
+    InputA a;
+    a.Values = _RESERVED_IDENTIFIER_FIXUP_33.Values;
+    a.Tag = _RESERVED_IDENTIFIER_FIXUP_33.Tag;
+    InputB _RESERVED_IDENTIFIER_FIXUP_51;
+    _RESERVED_IDENTIFIER_FIXUP_51.X = Input2_1._data[int(((index * 16u) + 0u) >> uint(2))];
+    _RESERVED_IDENTIFIER_FIXUP_51.Y = Input2_1._data[int(((index * 16u) + 4u) >> uint(2))];
+    _RESERVED_IDENTIFIER_FIXUP_51.Z = Input2_1._data[int(((index * 16u) + 8u) >> uint(2))];
+    _RESERVED_IDENTIFIER_FIXUP_51.W = Input2_1._data[int(((index * 16u) + 12u) >> uint(2))];
+    InputB b;
+    b.X = _RESERVED_IDENTIFIER_FIXUP_51.X;
+    b.Y = _RESERVED_IDENTIFIER_FIXUP_51.Y;
+    b.Z = _RESERVED_IDENTIFIER_FIXUP_51.Z;
+    b.W = _RESERVED_IDENTIFIER_FIXUP_51.W;
+    uint _mix = (((a.Tag ^ b.X) ^ b.Y) ^ b.Z) ^ b.W;
+    OutputA outA;
+    outA.Value = ((a.Values.x + a.Values.y) + a.Values.z) + float(b.X & 255u);
+    outA.Tag = a.Tag;
+    outA.Mix = _mix;
+    outA.Padding = 0u;
+    int byteAddrTemp_1 = int(((index * 16u) + 0u) >> uint(2));
+    Output0_1._data[byteAddrTemp_1] = floatBitsToUint(outA.Value);
+    int byteAddrTemp_2 = int(((index * 16u) + 4u) >> uint(2));
+    Output0_1._data[byteAddrTemp_2] = outA.Tag;
+    int byteAddrTemp_3 = int(((index * 16u) + 8u) >> uint(2));
+    Output0_1._data[byteAddrTemp_3] = outA.Mix;
+    int byteAddrTemp_4 = int(((index * 16u) + 12u) >> uint(2));
+    Output0_1._data[byteAddrTemp_4] = outA.Padding;
+    OutputB outB;
+    outB.Values = a.Values * vec3(2.0, 3.0, 4.0);
+    outB.Checksum = _mix + index;
+    int byteAddrTemp_5 = int(((index * 16u) + 0u) >> uint(2));
+    Output3_1._data[byteAddrTemp_5] = floatBitsToUint(outB.Values).x;
+    Output3_1._data[byteAddrTemp_5 + 1] = floatBitsToUint(outB.Values).y;
+    Output3_1._data[byteAddrTemp_5 + 2] = floatBitsToUint(outB.Values).z;
+    int byteAddrTemp_6 = int(((index * 16u) + 12u) >> uint(2));
+    Output3_1._data[byteAddrTemp_6] = outB.Checksum;
+}
+
+void comp_main()
+{
+    uvec3 dtid = _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+    uvec3 param = dtid;
+    uvec3 param_1 = param;
+    _main(param_1);
+}
+
+void _main(SPIRV_Cross_Input stage_input)
+{
+    _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID = stage_input._RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+    comp_main();
+}
+
+void main()
+{
+    SPIRV_Cross_Input stage_input;
+    stage_input._RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID = gl_GlobalInvocationID;
+    SPIRV_Cross_Input param = stage_input;
+    _main(param);
+}

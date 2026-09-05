@@ -1,0 +1,161 @@
+{
+    "accessorVec": [
+        {
+            "bufferViewIndex": 0,
+            "byteOffset": 0,
+            "componentType": 5123,
+            "count": 36,
+            "max": [
+                35.0
+            ],
+            "min": [
+                0.0
+            ],
+            "name": "",
+            "normalized": false,
+            "type": "SCALAR"
+        },
+        {
+            "bufferViewIndex": 1,
+            "byteOffset": 0,
+            "componentType": 5126,
+            "count": 36,
+            "max": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "min": [
+                -1.0,
+                -1.0,
+                -1.0
+            ],
+            "name": "",
+            "normalized": false,
+            "type": "VEC3"
+        },
+        {
+            "bufferViewIndex": 2,
+            "byteOffset": 0,
+            "componentType": 5126,
+            "count": 36,
+            "max": [
+                1.0,
+                1.0,
+                1.0000009536743164
+            ],
+            "min": [
+                -1.0,
+                -1.0,
+                -1.0
+            ],
+            "name": "",
+            "normalized": false,
+            "type": "VEC3"
+        },
+        {
+            "bufferViewIndex": 3,
+            "byteOffset": 0,
+            "componentType": 5126,
+            "count": 36,
+            "max": [
+                1.0,
+                -0.0,
+                -0.0,
+                1.0
+            ],
+            "min": [
+                0.0,
+                -0.0,
+                -1.0,
+                -1.0
+            ],
+            "name": "",
+            "normalized": false,
+            "type": "VEC4"
+        },
+        {
+            "bufferViewIndex": 4,
+            "byteOffset": 0,
+            "componentType": 5126,
+            "count": 36,
+            "max": [
+                1.0,
+                1.0
+            ],
+            "min": [
+                -1.0,
+                -1.0
+            ],
+            "name": "",
+            "normalized": false,
+            "type": "VEC2"
+        }
+    ],
+    "bufferVec": [
+        {
+            "byteLength": 1800,
+            "data": [],
+            "name": "",
+            "uri": "Assets\\Models\\Cube\\Cube.bin"
+        }
+    ],
+    "bufferViewVec": [
+        {
+            "bufferIndex": 0,
+            "byteLength": 72,
+            "byteOffset": 0,
+            "byteStride": 0,
+            "name": "",
+            "target": 34963
+        },
+        {
+            "bufferIndex": 0,
+            "byteLength": 432,
+            "byteOffset": 504,
+            "byteStride": 0,
+            "name": "",
+            "target": 34962
+        },
+        {
+            "bufferIndex": 0,
+            "byteLength": 432,
+            "byteOffset": 72,
+            "byteStride": 0,
+            "name": "",
+            "target": 34962
+        },
+        {
+            "bufferIndex": 0,
+            "byteLength": 576,
+            "byteOffset": 936,
+            "byteStride": 0,
+            "name": "",
+            "target": 34962
+        },
+        {
+            "bufferIndex": 0,
+            "byteLength": 288,
+            "byteOffset": 1512,
+            "byteStride": 0,
+            "name": "",
+            "target": 34962
+        }
+    ],
+    "name": "Cube",
+    "primitives": [
+        {
+            "attributes": {
+                "NORMAL": 1,
+                "POSITION": 2,
+                "TANGENT": 3,
+                "TEXCOORD_0": 4
+            },
+            "indices": 0,
+            "materialResPath": "Assets\\Models\\Cube\\Cube.hmat",
+            "mode": 4,
+            "targets": []
+        }
+    ],
+    "weights": []
+}

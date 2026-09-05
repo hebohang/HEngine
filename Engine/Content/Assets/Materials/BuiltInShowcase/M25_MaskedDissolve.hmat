@@ -1,0 +1,145 @@
+{
+  "SchemaVersion": 2,
+  "Type": "Custom",
+  "PassName": "MaskedDissolve",
+  "ShaderPath": "Shaders/Materials/BuiltInShowcase/MaskedDissolve.hlsl",
+  "VariantKeywords": [],
+  "Domain": "Surface",
+  "ShadingModel": "Lit",
+  "BlendMode": "Mask",
+  "CullMode": "None",
+  "DepthWrite": true,
+  "AlphaCutoff": 0.5,
+  "Parameters": {
+    "g_BaseColorFactor": {
+      "StableId": "dissolve.base_color",
+      "Type": "color",
+      "Value": [
+        0.08,
+        0.22,
+        0.62,
+        1
+      ]
+    },
+    "g_EdgeColor": {
+      "StableId": "dissolve.edge_color",
+      "Type": "color",
+      "Value": [
+        0.05,
+        1,
+        0.85,
+        1
+      ]
+    },
+    "g_MetallicFactor": {
+      "StableId": "dissolve.metallic",
+      "Type": "float",
+      "Value": 0.25
+    },
+    "g_RoughnessFactor": {
+      "StableId": "dissolve.roughness",
+      "Type": "float",
+      "Value": 0.32
+    },
+    "g_Dissolve": {
+      "StableId": "dissolve.threshold",
+      "Type": "float",
+      "Value": 0.5
+    },
+    "g_EdgeWidth": {
+      "StableId": "dissolve.edge_width",
+      "Type": "float",
+      "Value": 0.09
+    },
+    "g_NoiseScale": {
+      "StableId": "dissolve.noise_scale",
+      "Type": "float",
+      "Value": 11
+    },
+    "g_FlowSpeed": {
+      "StableId": "dissolve.flow_speed",
+      "Type": "float",
+      "Value": 0.16
+    }
+  },
+  "Textures": {},
+  "OrphanedParameters": {},
+  "Properties": {
+    "name": "Masked Dissolve",
+    "pbrMetallicRoughness": {
+      "baseColorFactor": [
+        0.08,
+        0.22,
+        0.62,
+        1
+      ],
+      "metallicFactor": 0.25,
+      "roughnessFactor": 0.32,
+      "baseColorTexture": {
+        "texCoord": 0,
+        "textureRes": {
+          "textureSourcePath": ""
+        }
+      },
+      "metallicRoughnessTexture": {
+        "texCoord": 0,
+        "textureRes": {
+          "textureSourcePath": ""
+        }
+      }
+    },
+    "normalTexture": {
+      "scale": 1,
+      "texCoord": 0,
+      "textureRes": {
+        "textureSourcePath": ""
+      }
+    },
+    "occlusionTexture": {
+      "strength": 1,
+      "texCoord": 0,
+      "textureRes": {
+        "textureSourcePath": ""
+      }
+    },
+    "emissiveTexture": {
+      "texCoord": 0,
+      "textureRes": {
+        "textureSourcePath": ""
+      }
+    },
+    "emissiveFactor": [
+      0.02,
+      0.4,
+      0.34
+    ],
+    "alphaMode": "MASK",
+    "alphaCutoff": 0.5,
+    "doubleSided": true,
+    "bUseAlbedoMap": false,
+    "bUseNormalMap": false,
+    "bUseMetallicRoughnessMap": false,
+    "bUseAoMap": false,
+    "bUseEmissiveMap": false,
+    "ExposedProperties": {
+      "g_BaseColorFactor": [
+        0.08,
+        0.22,
+        0.62,
+        1
+      ],
+      "g_EdgeColor": [
+        0.05,
+        1,
+        0.85,
+        1
+      ],
+      "g_MetallicFactor": 0.25,
+      "g_RoughnessFactor": 0.32,
+      "g_Dissolve": 0.5,
+      "g_EdgeWidth": 0.09,
+      "g_NoiseScale": 11,
+      "g_FlowSpeed": 0.16
+    }
+  }
+}

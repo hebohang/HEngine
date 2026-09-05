@@ -1,0 +1,42 @@
+diagnostic(off, derivative_uniformity);
+
+struct CS_OUTPUT {
+  value : f32,
+}
+
+struct S {
+  m : array<CS_OUTPUT>,
+}
+
+@group(2) @binding(1) var<storage, read_write> write_1 : S;
+
+struct CS_INPUT {
+  value1 : f32,
+  value2 : f32,
+}
+
+struct read_2 {
+  m_1 : array<CS_INPUT>,
+}
+
+@group(2) @binding(0) var<storage, read_write> read_1 : read_2;
+
+struct CB {
+  offset : f32,
+}
+
+@group(0) @binding(0) var<uniform> v : CB;
+
+@compute @workgroup_size(1u, 1u, 1u)
+fn main(@builtin(global_invocation_id) dtid : vec3<u32>) {
+  var dtid_1 : vec3<u32>;
+  var param : vec3<u32>;
+  dtid_1 = dtid;
+  param = dtid_1;
+  v_1(&(param));
+}
+
+fn v_1(dtid : ptr<function, vec3<u32>>) {
+  let v_2 = (*(dtid)).x;
+  write_1.m[v_2].value = ((read_1.m_1[(*(dtid)).x].value1 * read_1.m_1[(*(dtid)).x].value2) + v.offset);
+}

@@ -4,16 +4,18 @@
 
 namespace HEngine
 {
-    class PythonScriptComponent : public ComponentBase
+    REFLECTION_TYPE(PythonScriptComponent)
+    CLASS(PythonScriptComponent : public ComponentBase, Fields)
     {
+        REFLECTION_COMPONENT_BODY(PythonScriptComponent);
     public:
         PythonScriptComponent() = default;
         PythonScriptComponent(const PythonScriptComponent&) = default;
-        PythonScriptComponent(const std::string& path)
-            : Path(path)
-        {}
+		PythonScriptComponent(const std::string& path)
+			: Path(path)
+		{}
 
-        std::string Path;
-        static bool UseScript;
-    };
+		std::string Path = "None";
+	};
+	REGISTER_COMPONENT_TYPE(PythonScriptComponent)
 }

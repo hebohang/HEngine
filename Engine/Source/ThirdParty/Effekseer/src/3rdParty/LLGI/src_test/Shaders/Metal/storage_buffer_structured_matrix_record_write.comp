@@ -1,0 +1,94 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct StructuredMatrixRecord
+{
+    uint Flags;
+    float Age;
+    uint2 Packed;
+    float4x3 Transform;
+    float3 Direction;
+    uint Color;
+};
+
+struct StructuredMatrixRecord_1
+{
+    uint Flags;
+    float Age;
+    uint2 Packed;
+    float3x4 Transform;
+    packed_float3 Direction;
+    uint Color;
+};
+
+struct Records
+{
+    StructuredMatrixRecord_1 _data[1];
+};
+
+static inline __attribute__((always_inline))
+float TransformValue(thread const uint& index, thread const uint& row, thread const uint& column)
+{
+    return float(((index + 1u) * (row + 2u)) + column) * 0.125;
+}
+
+static inline __attribute__((always_inline))
+void _main(thread const uint3& dtid, device Records& Records_1)
+{
+    uint index = dtid.x;
+    StructuredMatrixRecord record;
+    record.Flags = 301989888u + (index * 17u);
+    record.Age = 0.5 + (float(index) * 0.125);
+    record.Packed = uint2(1048576u + (index * 19u), 131072u + (index * 23u));
+    uint param = index;
+    uint param_1 = 0u;
+    uint param_2 = 0u;
+    uint param_3 = index;
+    uint param_4 = 0u;
+    uint param_5 = 1u;
+    uint param_6 = index;
+    uint param_7 = 0u;
+    uint param_8 = 2u;
+    record.Transform[0] = float3(TransformValue(param, param_1, param_2), TransformValue(param_3, param_4, param_5), TransformValue(param_6, param_7, param_8));
+    uint param_9 = index;
+    uint param_10 = 1u;
+    uint param_11 = 0u;
+    uint param_12 = index;
+    uint param_13 = 1u;
+    uint param_14 = 1u;
+    uint param_15 = index;
+    uint param_16 = 1u;
+    uint param_17 = 2u;
+    record.Transform[1] = float3(TransformValue(param_9, param_10, param_11), TransformValue(param_12, param_13, param_14), TransformValue(param_15, param_16, param_17));
+    uint param_18 = index;
+    uint param_19 = 2u;
+    uint param_20 = 0u;
+    uint param_21 = index;
+    uint param_22 = 2u;
+    uint param_23 = 1u;
+    uint param_24 = index;
+    uint param_25 = 2u;
+    uint param_26 = 2u;
+    record.Transform[2] = float3(TransformValue(param_18, param_19, param_20), TransformValue(param_21, param_22, param_23), TransformValue(param_24, param_25, param_26));
+    record.Transform[3] = float3((-0.75) + (float(index) * 0.03125), 0.25 - (float(index) * 0.015625), 1.5 + (float(index) * 0.0625));
+    record.Direction = float3(0.25 + (float(index) * 0.015625), (-0.5) + (float(index) * 0.03125), 0.75 - (float(index) * 0.0078125));
+    record.Color = 2151686160u + (index * 29u);
+    Records_1._data[index].Flags = record.Flags;
+    Records_1._data[index].Age = record.Age;
+    Records_1._data[index].Packed = record.Packed;
+    Records_1._data[index].Transform = transpose(record.Transform);
+    Records_1._data[index].Direction = record.Direction;
+    Records_1._data[index].Color = record.Color;
+}
+
+kernel void main0(device Records& Records_1 [[buffer(11)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    uint3 dtid = gl_GlobalInvocationID;
+    uint3 param = dtid;
+    _main(param, Records_1);
+}
+

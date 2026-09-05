@@ -1,4 +1,5 @@
 RUNTIME_ADD_SOURCE(
-    bone.h
-    animdata.h animator.h animation.h animation.cpp
+    Bone.h
+    Animdata.h Animator.h Animation.h Animation.cpp
+    AnimationStateMachine.h AnimationStateMachine.cpp
 )

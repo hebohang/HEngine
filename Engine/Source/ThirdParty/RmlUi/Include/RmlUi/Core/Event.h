@@ -1,0 +1,121 @@
+#pragma once
+
+#include "Dictionary.h"
+#include "Header.h"
+#include "ID.h"
+#include "ScriptInterface.h"
+
+namespace Rml {
+
+class Factory;
+class Element;
+class EventInstancer;
+struct EventSpecification;
+
+enum class EventPhase { None, Capture = 1, Target = 2, Bubble = 4 };
+enum class DefaultActionPhase { None, Target = (int)EventPhase::Target, TargetAndBubble = ((int)Target | (int)EventPhase::Bubble) };
+
+/**
+    An event that propagates through the element hierarchy. Events follow the DOM3 event specification. See
+    http://www.w3.org/TR/DOM-Level-3-Events/events.html.
+ */
+
+class RMLUICORE_API Event : public ScriptInterface {
+public:
+	/// Constructor
+	Event();
+	/// Constructor
+	/// @param[in] target The target element of this event
+	/// @param[in] id The event id
+	/// @param[in] type The event type
+	/// @param[in] parameters The event parameters
+	/// @param[in] interruptible Can this event have is propagation stopped?
+	Event(Element* target, EventId id, const String& type, const Dictionary& parameters, bool interruptible);
+	/// Destructor
+	virtual ~Event();
+
+	/// Get the current propagation phase.
+	EventPhase GetPhase() const;
+	/// Set the current propagation phase
+	void SetPhase(EventPhase phase);
+
+	/// Set the current element in the propagation.
+	void SetCurrentElement(Element* element);
+	/// Get the current element in the propagation.
+	Element* GetCurrentElement() const;
+	/// Get the target element of this event.
+	Element* GetTargetElement() const;
+
+	/// Get the event type.
+	const String& GetType() const;
+	/// Get the event id.
+	EventId GetId() const;
+
+	/// Stops propagation of the event if it is interruptible, but finish all listeners on the current element.
+	void StopPropagation();
+	/// Stops propagation of the event if it is interruptible, including to any other listeners on the current element.
+	void StopImmediatePropagation();
+
+	/// Returns true if the event can be interrupted, that is, stopped from propagating.
+	bool IsInterruptible() const;
+	/// Returns true if the event is still propagating.
+	bool IsPropagating() const;
+	/// Returns true if the event is still immediate propagating.
+	bool IsImmediatePropagating() const;
+
+	/// Checks if the event is of a certain type.
+	/// @param type The name of the type to check for.
+	/// @return True if the event is of the requested type, false otherwise.
+	bool operator==(const String& type) const;
+	/// Checks if the event is of a certain id.
+	bool operator==(EventId id) const;
+
+	/// Returns the value of one of the event's parameters.
+	/// @param key[in] The name of the desired parameter.
+	/// @param default_value[in] The default value.
+	/// @return The value of the requested parameter, or the default value if the key does not exist.
+	template <typename T>
+	T GetParameter(const String& key, const T& default_value) const
+	{
+		return Get(parameters, key, default_value);
+	}
+	/// Access the dictionary of parameters
+	/// @return The dictionary of parameters
+	const Dictionary& GetParameters() const;
+
+	/// Return the unprojected mouse screen position.
+	/// Note: Only specified for events with 'mouse_x' and 'mouse_y' parameters.
+	Vector2f GetUnprojectedMouseScreenPos() const;
+
+protected:
+	Dictionary parameters;
+
+	Element* target_element = nullptr;
+	Element* current_element = nullptr;
+
+private:
+	/// Project the mouse coordinates to the current element to enable
+	/// interacting with transformed elements.
+	void ProjectMouse(Element* element);
+
+	/// Release this event through its instancer.
+	void Release() override;
+
+	String type;
+	EventId id = EventId::Invalid;
+	bool interruptible = false;
+
+	bool interrupted = false;
+	bool interrupted_immediate = false;
+
+	bool has_mouse_position = false;
+	Vector2f mouse_screen_position = Vector2f(0, 0);
+
+	EventPhase phase = EventPhase::None;
+
+	EventInstancer* instancer = nullptr;
+
+	friend class Rml::Factory;
+};
+
+} // namespace Rml

@@ -1,0 +1,107 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct SPIRV_Cross_Input
+{
+    uint3 _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+};
+
+struct TransformData
+{
+    uint _data[1];
+};
+
+static inline __attribute__((always_inline))
+void StoreTransform(thread const uint& index, thread const float3& translation, device TransformData& TransformData_1)
+{
+    uint base = index * 80u;
+    int byteAddrTemp = int((base + 0u) >> uint(2));
+    TransformData_1._data[byteAddrTemp] = 1u;
+    int byteAddrTemp_1 = int((base + 4u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_1] = index;
+    int byteAddrTemp_2 = int((base + 8u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_2] = as_type<uint>(0.0);
+    int byteAddrTemp_3 = int((base + 12u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_3] = 0u;
+    int byteAddrTemp_4 = int((base + 16u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_4] = 0u;
+    int byteAddrTemp_5 = int((base + 20u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_5] = 0u;
+    int byteAddrTemp_6 = int((base + 24u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_6] = 0u;
+    TransformData_1._data[byteAddrTemp_6 + 1] = 0u;
+    int byteAddrTemp_7 = int((base + 32u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_7] = as_type<uint>(1.0);
+    int byteAddrTemp_8 = int((base + 36u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_8] = as_type<uint>(0.0);
+    int byteAddrTemp_9 = int((base + 40u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_9] = as_type<uint>(0.0);
+    int byteAddrTemp_10 = int((base + 44u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_10] = as_type<uint>(translation.x);
+    int byteAddrTemp_11 = int((base + 48u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_11] = as_type<uint>(0.0);
+    int byteAddrTemp_12 = int((base + 52u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_12] = as_type<uint>(1.0);
+    int byteAddrTemp_13 = int((base + 56u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_13] = as_type<uint>(0.0);
+    int byteAddrTemp_14 = int((base + 60u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_14] = as_type<uint>(translation.y);
+    int byteAddrTemp_15 = int((base + 64u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_15] = as_type<uint>(0.0);
+    int byteAddrTemp_16 = int((base + 68u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_16] = as_type<uint>(0.0);
+    int byteAddrTemp_17 = int((base + 72u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_17] = as_type<uint>(1.0);
+    int byteAddrTemp_18 = int((base + 76u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_18] = as_type<uint>(translation.z);
+}
+
+static inline __attribute__((always_inline))
+void _main(thread const uint3& dtid, device TransformData& TransformData_1)
+{
+    uint index = dtid.x;
+    if (index == 0u)
+    {
+        uint param = index;
+        float3 param_1 = float3(-0.3499999940395355224609375, 0.0, 0.0);
+        StoreTransform(param, param_1, TransformData_1);
+    }
+    else
+    {
+        if (index == 1u)
+        {
+            uint param_2 = index;
+            float3 param_3 = float3(0.3499999940395355224609375, 0.0, 0.0);
+            StoreTransform(param_2, param_3, TransformData_1);
+        }
+    }
+}
+
+static inline __attribute__((always_inline))
+void comp_main(device TransformData& TransformData_1, thread uint3& _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID)
+{
+    uint3 dtid = _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+    uint3 param = dtid;
+    _main(param, TransformData_1);
+}
+
+static inline __attribute__((always_inline))
+void _main(thread const SPIRV_Cross_Input& stage_input, device TransformData& TransformData_1, thread uint3& _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID)
+{
+    _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID = stage_input._RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+    comp_main(TransformData_1, _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID);
+}
+
+kernel void main0(device TransformData& TransformData_1 [[buffer(10)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    SPIRV_Cross_Input stage_input;
+    stage_input._RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID = gl_GlobalInvocationID;
+    SPIRV_Cross_Input param = stage_input;
+    uint3 _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+    _main(param, TransformData_1, _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID);
+}
+

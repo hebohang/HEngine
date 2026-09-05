@@ -46,10 +46,10 @@ if (ANDROID)
 # Tests in glslc and SPIRV-Tools tests require Python 3, or a Python 2
 # with the "future" package.  Require Python 3 because we can't force
 # developers to manually install the "future" package.
-find_host_package(PythonInterp 3 REQUIRED)
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
 find_host_package(BISON)
 else()
-find_package(PythonInterp 3 REQUIRED)
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
 endif()
 
 

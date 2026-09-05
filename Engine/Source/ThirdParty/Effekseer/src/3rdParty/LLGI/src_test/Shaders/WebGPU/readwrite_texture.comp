@@ -1,0 +1,26 @@
+diagnostic(off, derivative_uniformity);
+
+@group(1) @binding(1) var read1 : texture_storage_2d<rgba32float, read_write>;
+
+@group(1) @binding(2) var read2 : texture_2d<f32>;
+
+@group(2) @binding(2) var read2_sampler : sampler;
+
+@group(1) @binding(0) var v : texture_storage_2d<rgba32float, read_write>;
+
+@compute @workgroup_size(1u, 1u, 1u)
+fn main(@builtin(global_invocation_id) dtid : vec3<u32>) {
+  var dtid_1 : vec3<u32>;
+  var param : vec3<u32>;
+  dtid_1 = dtid;
+  param = dtid_1;
+  v_1(&(param));
+}
+
+fn v_1(dtid : ptr<function, vec3<u32>>) {
+  var index : vec2<u32>;
+  var storeTemp : vec4<f32>;
+  index = (*(dtid)).xy;
+  storeTemp = (textureLoad(read1, index) + textureSampleLevel(read2, read2_sampler, vec2<f32>(), 0.0f));
+  textureStore(v, index, storeTemp);
+}

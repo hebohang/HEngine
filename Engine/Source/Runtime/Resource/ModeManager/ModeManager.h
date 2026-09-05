@@ -1,6 +1,8 @@
 #pragma once
 
-#include "Runtime/Core/Base/PublicSingleton.h"
+#include "Runtime/Core/Templates/PublicSingleton.h"
+
+#include <cstdint>
 
 namespace HEngine
 {
@@ -15,34 +17,51 @@ namespace HEngine
         MeshPaint = 4
     };
 
-    enum class SceneMode
+    enum class PhysicsDebugDrawModeFlag : uint32_t
     {
         None = 0,
-        EnvironmentHdr = 1,
-        SkyBox = 2,
+        DrawShape = 1 << 0,
+        DrawShapeWireframe = 1 << 1,
+        DrawBoundingBox = 1 << 2,
+        DrawCenterOfMassTransform = 1 << 3,
+        DrawWorldTransform = 1 << 4,
+        DrawVelocity = 1 << 5,
+        DrawMassAndInertia = 1 << 6,
+        DrawSleepStats = 1 << 7,
+        DrawConstraints = 1 << 8,
+        DrawConstraintLimits = 1 << 9,
+        DrawConstraintReferenceFrame = 1 << 10,
+        CharacterVirtualDrawConstraints = 1 << 11,
+        CharacterVirtualDrawWalkStairs = 1 << 12,
+        CharacterVirtualDrawStickToFloor = 1 << 13
     };
 
-    enum class PhysicsDebugDrawModeFlag
+    inline PhysicsDebugDrawModeFlag operator|(PhysicsDebugDrawModeFlag lhs, PhysicsDebugDrawModeFlag rhs)
     {
-        HEngine_NoDebug = 0,
-        HEngine_DrawWireframe = 1,
-        HEngine_DrawAabb = 2,
-        HEngine_DrawFeaturesText = 4,
-        HEngine_DrawContactPoints = 8,
-        HEngine_NoDeactivation = 16,
-        HEngine_NoHelpText = 32,
-        HEngine_DrawText = 64,
-        HEngine_ProfileTimings = 128,
-        HEngine_EnableSatComparison = 256,
-        HEngine_DisableBulletLCP = 512,
-        HEngine_EnableCCD = 1024,
-        HEngine_DrawConstraints = (1 << 11),
-        HEngine_DrawConstraintLimits = (1 << 12),
-        HEngine_FastWireframe = (1 << 13),
-        HEngine_DrawNormals = (1 << 14),
-        HEngine_DrawFrames = (1 << 15),
-        HEngine_MAX_DEBUG_DRAW_MODE
-    };
+        return static_cast<PhysicsDebugDrawModeFlag>(static_cast<uint32_t>(lhs) | static_cast<uint32_t>(rhs));
+    }
+
+    inline PhysicsDebugDrawModeFlag operator&(PhysicsDebugDrawModeFlag lhs, PhysicsDebugDrawModeFlag rhs)
+    {
+        return static_cast<PhysicsDebugDrawModeFlag>(static_cast<uint32_t>(lhs) & static_cast<uint32_t>(rhs));
+    }
+
+    inline PhysicsDebugDrawModeFlag operator~(PhysicsDebugDrawModeFlag value)
+    {
+        return static_cast<PhysicsDebugDrawModeFlag>(~static_cast<uint32_t>(value));
+    }
+
+    inline PhysicsDebugDrawModeFlag& operator|=(PhysicsDebugDrawModeFlag& lhs, PhysicsDebugDrawModeFlag rhs)
+    {
+        lhs = lhs | rhs;
+        return lhs;
+    }
+
+    inline PhysicsDebugDrawModeFlag& operator&=(PhysicsDebugDrawModeFlag& lhs, PhysicsDebugDrawModeFlag rhs)
+    {
+        lhs = lhs & rhs;
+        return lhs;
+    }
 
     class ModeManager final : public PublicSingleton<ModeManager>
     {
@@ -51,10 +70,11 @@ namespace HEngine
         static void ChangeState() { ModeManager::GetInstance().bEditState = !ModeManager::GetInstance().bEditState; }
     public:
         static int b3DMode;  // 0 for 2D, 1 for 3D
-        static bool bHdrUse;
-        static SceneMode mSceneMode;
         static bool bShowPhysicsColliders;
         static PhysicsDebugDrawModeFlag mPhysicsDebugDrawModeFlag;
+#if WITH_EDITOR
+		static bool bRealtimePreview;
+#endif
     private:
         static bool bEditState;
         static EditMode mEditMode;

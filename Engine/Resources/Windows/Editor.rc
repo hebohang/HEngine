@@ -1,0 +1,5 @@
+#include <windows.h>
+
+#define IDI_ENGINE_ICON 101
+
+IDI_ENGINE_ICON ICON "../Icons/EngineIcon.ico"

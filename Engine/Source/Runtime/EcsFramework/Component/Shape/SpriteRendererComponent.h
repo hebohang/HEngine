@@ -1,17 +1,23 @@
 #pragma once
 
 #include "Runtime/EcsFramework/Component/ComponentBase.h"
-#include "Runtime/Renderer/Texture.h"
 
 #include <glm/glm.hpp>
 
+#include <string>
+
 namespace HEngine
 {
-	class SpriteRendererComponent : public ComponentBase
+	REFLECTION_TYPE(SpriteRendererComponent)
+	CLASS(SpriteRendererComponent : public ComponentBase, Fields)
 	{
+		REFLECTION_COMPONENT_BODY(SpriteRendererComponent);
 	public:
 		glm::vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
-		Ref<Texture2D> Texture;
+
+		PROPERTY(Disable)
+		std::string Texture;
+
 		float TilingFactor = 1.0f;
 
 		SpriteRendererComponent() = default;
@@ -19,4 +25,5 @@ namespace HEngine
 		SpriteRendererComponent(const glm::vec4 & color)
 			: Color(color) {}
 	};
+	REGISTER_COMPONENT_TYPE(SpriteRendererComponent)
 }

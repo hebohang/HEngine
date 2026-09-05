@@ -1,0 +1,82 @@
+diagnostic(off, derivative_uniformity);
+
+struct MatrixIndexingRecord_2_1 {
+  Clip : mat4x4<f32>,
+  Transform : mat3x4<f32>,
+  Local : vec4<f32>,
+  Row : u32,
+  Flags : u32,
+  Padding : vec2<u32>,
+}
+
+struct Records_1_1 {
+  m : array<MatrixIndexingRecord_2_1>,
+}
+
+@group(2) @binding(1) var<storage, read> Records_2 : Records_1_1;
+
+struct MatrixIndexingOutput {
+  Clip : vec4<f32>,
+  Indexed : vec3<f32>,
+  Checksum : u32,
+}
+
+struct Output {
+  m_1 : array<MatrixIndexingOutput>,
+}
+
+@group(2) @binding(0) var<storage, read_write> Output_1 : Output;
+
+@compute @workgroup_size(1u, 1u, 1u)
+fn main(@builtin(global_invocation_id) dtid : vec3<u32>) {
+  var dtid_1 : vec3<u32>;
+  var param : vec3<u32>;
+  dtid_1 = dtid;
+  param = dtid_1;
+  v(&(param));
+}
+
+struct MatrixIndexingRecord_1 {
+  Clip : mat4x4<f32>,
+  Transform : mat4x3<f32>,
+  Local : vec4<f32>,
+  Row : u32,
+  Flags : u32,
+  Padding : vec2<u32>,
+}
+
+struct MatrixIndexingOutput_1 {
+  Clip : vec4<f32>,
+  Indexed : vec3<f32>,
+  Checksum : u32,
+}
+
+fn v(dtid : ptr<function, vec3<u32>>) {
+  var record : MatrixIndexingRecord_1;
+  var world : vec3<f32>;
+  var clip : vec4<f32>;
+  var row : u32;
+  var nextRow : u32;
+  var output : MatrixIndexingOutput_1;
+  let v_1 = Records_2.m[(*(dtid)).x];
+  record.Clip = transpose(v_1.Clip);
+  record.Transform = transpose(v_1.Transform);
+  record.Local = v_1.Local;
+  record.Row = v_1.Row;
+  record.Flags = v_1.Flags;
+  record.Padding = v_1.Padding;
+  world = (record.Transform * record.Local);
+  let v_2 = world;
+  clip = (vec4<f32>(v_2.x, v_2.y, v_2.z, 1.0f) * record.Clip);
+  row = (record.Row & 3u);
+  nextRow = ((row + 1u) & 3u);
+  output.Clip = clip;
+  output.Indexed = (record.Transform[row] + (record.Transform[nextRow] * 0.25f));
+  output.Checksum = ((record.Flags ^ record.Row) ^ bitcast<u32>(record.Local.w));
+  let v_3 = (*(dtid)).x;
+  let v_4 = output;
+  let v_5 = &(Output_1.m_1[v_3]);
+  (*(v_5)).Clip = v_4.Clip;
+  (*(v_5)).Indexed = v_4.Indexed;
+  (*(v_5)).Checksum = v_4.Checksum;
+}

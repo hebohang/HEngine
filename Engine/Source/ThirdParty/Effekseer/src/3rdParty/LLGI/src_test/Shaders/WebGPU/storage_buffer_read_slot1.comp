@@ -1,0 +1,75 @@
+diagnostic(off, derivative_uniformity);
+
+struct SlotData {
+  Position : vec3<f32>,
+  Direction : u32,
+}
+
+struct Data {
+  m : array<SlotData>,
+}
+
+@group(2) @binding(1) var<storage, read> Data_1 : Data;
+
+struct OutputData {
+  Position : vec3<f32>,
+  Direction : u32,
+  Checksum : u32,
+  Padding0 : u32,
+  Padding1 : u32,
+  Padding2 : u32,
+}
+
+struct Output {
+  m_1 : array<OutputData>,
+}
+
+@group(2) @binding(0) var<storage, read_write> Output_1 : Output;
+
+@compute @workgroup_size(1u, 1u, 1u)
+fn main(@builtin(global_invocation_id) dtid : vec3<u32>) {
+  var dtid_1 : vec3<u32>;
+  var param : vec3<u32>;
+  dtid_1 = dtid;
+  param = dtid_1;
+  v(&(param));
+}
+
+struct SlotData_1 {
+  Position : vec3<f32>,
+  Direction : u32,
+}
+
+struct OutputData_1 {
+  Position : vec3<f32>,
+  Direction : u32,
+  Checksum : u32,
+  Padding0 : u32,
+  Padding1 : u32,
+  Padding2 : u32,
+}
+
+fn v(dtid : ptr<function, vec3<u32>>) {
+  var index : u32;
+  var data : SlotData_1;
+  var output : OutputData_1;
+  index = (*(dtid)).x;
+  let v_1 = Data_1.m[index];
+  data.Position = v_1.Position;
+  data.Direction = v_1.Direction;
+  output.Position = (data.Position + vec3<f32>(10.0f, 20.0f, 30.0f));
+  output.Direction = data.Direction;
+  output.Checksum = (data.Direction ^ (index * 16843009u));
+  output.Padding0 = 0u;
+  output.Padding1 = 0u;
+  output.Padding2 = 0u;
+  let v_2 = index;
+  let v_3 = output;
+  let v_4 = &(Output_1.m_1[v_2]);
+  (*(v_4)).Position = v_3.Position;
+  (*(v_4)).Direction = v_3.Direction;
+  (*(v_4)).Checksum = v_3.Checksum;
+  (*(v_4)).Padding0 = v_3.Padding0;
+  (*(v_4)).Padding1 = v_3.Padding1;
+  (*(v_4)).Padding2 = v_3.Padding2;
+}

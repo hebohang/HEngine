@@ -1,0 +1,91 @@
+{
+  "2db5c629-8172-54f8-8b8c-955c6ef07c7a": {
+    "MeshComponent": {
+      "Path": "Assets/CornellBox/CornellBox.hmesh",
+      "meshResPath": "Assets/CornellBox/CornellBox.hmesh"
+    },
+    "TagComponent": {
+      "Tag": "Cornell Box Identity Mesh"
+    },
+    "TransformComponent": {
+      "Rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "Scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "Translation": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "576c2ac0-bf6f-59c5-aa98-e11313004508": {
+    "CameraComponent": {
+      "Camera": {
+        "mAspectRatio": 1.0,
+        "mOrthographicFar": 1.0,
+        "mOrthographicNear": -1.0,
+        "mOrthographicSize": 10.0,
+        "mPerspectiveFOV": 0.686047881,
+        "mPerspectiveFar": 10.0,
+        "mPerspectiveNear": 0.01,
+        "mProjectionType": 0
+      },
+      "FixedAspectRatio": true,
+      "Primary": true
+    },
+    "TagComponent": {
+      "Tag": "Cornell Official Camera"
+    },
+    "TransformComponent": {
+      "Rotation": [
+        0.0,
+        3.14159265,
+        0.0
+      ],
+      "Scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "Translation": [
+        0.278,
+        0.273,
+        -0.8
+      ]
+    }
+  },
+  "95c55b69-a4df-560f-8d1d-f1cdbd35b152": {
+    "EnvironmentLightComponent": {
+      "Exposure": 1.0,
+      "HdrTexturePath": "",
+      "IBLIntensity": 0.0
+    },
+    "TagComponent": {
+      "Tag": "Cornell Fixed Exposure"
+    },
+    "TransformComponent": {
+      "Rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "Scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "Translation": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  }
+}

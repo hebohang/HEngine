@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "dependencies": [
+    {
+      "name": "LunaSVG",
+      "upstream": "https://github.com/sammycage/lunasvg",
+      "tag": "v3.0.1",
+      "commit": "23578c7461634623a5de903370310b3af5140536",
+      "license": "MIT",
+      "path": "LunaSVG"
+    },
+    {
+      "name": "PlutoVG",
+      "upstream": "https://github.com/sammycage/plutovg",
+      "tag": "v0.0.4",
+      "commit": "0e4604d0dc29e3c58abaa9b9e9a5a64f8199c9bf",
+      "license": "MIT",
+      "path": "PlutoVG"
+    },
+    {
+      "name": "rlottie",
+      "upstream": "https://github.com/Samsung/rlottie",
+      "tag": "v0.2",
+      "commit": "bf3d272df3916a0c34575ac8286cb0fe672fd0d4",
+      "license": "MIT with bundled third-party notices",
+      "path": "rlottie"
+    }
+  ]
+}

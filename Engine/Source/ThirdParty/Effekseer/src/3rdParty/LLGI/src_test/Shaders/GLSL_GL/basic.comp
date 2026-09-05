@@ -1,0 +1,41 @@
+#version 430
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+struct CS_OUTPUT
+{
+    float value;
+};
+
+struct CS_INPUT
+{
+    float value1;
+    float value2;
+};
+
+layout(binding = 1, std430) buffer write
+{
+    CS_OUTPUT _data[];
+} write_1;
+
+layout(binding = 0, std430) buffer read
+{
+    CS_INPUT _data[];
+} read_1;
+
+layout(binding = 0, std140) uniform CB
+{
+    float offset;
+} CBCS0;
+
+void _main(uvec3 dtid)
+{
+    write_1._data[dtid.x].value = (read_1._data[dtid.x].value1 * read_1._data[dtid.x].value2) + CBCS0.offset;
+}
+
+void main()
+{
+    uvec3 dtid = gl_GlobalInvocationID;
+    uvec3 param = dtid;
+    _main(param);
+}
+

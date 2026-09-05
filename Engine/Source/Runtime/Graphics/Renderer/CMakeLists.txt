@@ -1,0 +1,16 @@
+RUNTIME_ADD_SOURCE(
+    AntiAliasing.cpp
+    AntiAliasing.h
+    RuntimeRenderer.cpp
+    RuntimeRenderer.h
+    RuntimeUiRenderGraphPass.cpp
+    RuntimeUiRenderGraphPass.h
+    SceneRenderer.cpp
+    SceneRenderer.h
+    SceneAntiAliasingPass.cpp
+    SceneAntiAliasingPass.h
+    ViewportRendererExtension.cpp
+    ViewportRendererExtension.h
+    ViewportMode.cpp
+    ViewportMode.h
+)

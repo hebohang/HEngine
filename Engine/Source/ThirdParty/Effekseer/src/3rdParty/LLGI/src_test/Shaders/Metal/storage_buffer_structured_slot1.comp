@@ -1,0 +1,108 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct SPIRV_Cross_Input
+{
+    uint3 _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+};
+
+struct StructuredInput
+{
+    float3 Position;
+    uint Reserved;
+    uint Normal;
+    uint Tangent;
+    uint UV;
+    uint Color;
+};
+
+struct Input
+{
+    uint _data[1];
+};
+
+struct OutputData
+{
+    float3 Position;
+    uint Normal;
+    uint Tangent;
+    uint Color;
+    uint Padding0;
+    uint Padding1;
+};
+
+struct Output
+{
+    uint _data[1];
+};
+
+static inline __attribute__((always_inline))
+void _main(thread const uint3& dtid, const device Input& Input_1, device Output& Output_1)
+{
+    int byteAddrTemp = int(((dtid.x * 32u) + 0u) >> uint(2));
+    StructuredInput _RESERVED_IDENTIFIER_FIXUP_31;
+    _RESERVED_IDENTIFIER_FIXUP_31.Position = as_type<float3>(uint3(Input_1._data[byteAddrTemp], Input_1._data[byteAddrTemp + 1], Input_1._data[byteAddrTemp + 2]));
+    _RESERVED_IDENTIFIER_FIXUP_31.Reserved = Input_1._data[int(((dtid.x * 32u) + 12u) >> uint(2))];
+    _RESERVED_IDENTIFIER_FIXUP_31.Normal = Input_1._data[int(((dtid.x * 32u) + 16u) >> uint(2))];
+    _RESERVED_IDENTIFIER_FIXUP_31.Tangent = Input_1._data[int(((dtid.x * 32u) + 20u) >> uint(2))];
+    _RESERVED_IDENTIFIER_FIXUP_31.UV = Input_1._data[int(((dtid.x * 32u) + 24u) >> uint(2))];
+    _RESERVED_IDENTIFIER_FIXUP_31.Color = Input_1._data[int(((dtid.x * 32u) + 28u) >> uint(2))];
+    StructuredInput _input;
+    _input.Position = _RESERVED_IDENTIFIER_FIXUP_31.Position;
+    _input.Reserved = _RESERVED_IDENTIFIER_FIXUP_31.Reserved;
+    _input.Normal = _RESERVED_IDENTIFIER_FIXUP_31.Normal;
+    _input.Tangent = _RESERVED_IDENTIFIER_FIXUP_31.Tangent;
+    _input.UV = _RESERVED_IDENTIFIER_FIXUP_31.UV;
+    _input.Color = _RESERVED_IDENTIFIER_FIXUP_31.Color;
+    OutputData _output;
+    _output.Position = _input.Position + float3(1.0, 2.0, 3.0);
+    _output.Normal = _input.Normal;
+    _output.Tangent = _input.Tangent;
+    _output.Color = (_input.Color ^ _input.UV) ^ _input.Reserved;
+    _output.Padding0 = 0u;
+    _output.Padding1 = 0u;
+    int byteAddrTemp_1 = int(((dtid.x * 32u) + 0u) >> uint(2));
+    Output_1._data[byteAddrTemp_1] = as_type<uint3>(_output.Position).x;
+    Output_1._data[byteAddrTemp_1 + 1] = as_type<uint3>(_output.Position).y;
+    Output_1._data[byteAddrTemp_1 + 2] = as_type<uint3>(_output.Position).z;
+    int byteAddrTemp_2 = int(((dtid.x * 32u) + 12u) >> uint(2));
+    Output_1._data[byteAddrTemp_2] = _output.Normal;
+    int byteAddrTemp_3 = int(((dtid.x * 32u) + 16u) >> uint(2));
+    Output_1._data[byteAddrTemp_3] = _output.Tangent;
+    int byteAddrTemp_4 = int(((dtid.x * 32u) + 20u) >> uint(2));
+    Output_1._data[byteAddrTemp_4] = _output.Color;
+    int byteAddrTemp_5 = int(((dtid.x * 32u) + 24u) >> uint(2));
+    Output_1._data[byteAddrTemp_5] = _output.Padding0;
+    int byteAddrTemp_6 = int(((dtid.x * 32u) + 28u) >> uint(2));
+    Output_1._data[byteAddrTemp_6] = _output.Padding1;
+}
+
+static inline __attribute__((always_inline))
+void comp_main(const device Input& Input_1, device Output& Output_1, thread uint3& _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID)
+{
+    uint3 dtid = _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+    uint3 param = dtid;
+    uint3 param_1 = param;
+    _main(param_1, Input_1, Output_1);
+}
+
+static inline __attribute__((always_inline))
+void _main(thread const SPIRV_Cross_Input& stage_input, const device Input& Input_1, device Output& Output_1, thread uint3& _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID)
+{
+    _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID = stage_input._RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+    comp_main(Input_1, Output_1, _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID);
+}
+
+kernel void main0(device Output& Output_1 [[buffer(10)]], const device Input& Input_1 [[buffer(11)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    SPIRV_Cross_Input stage_input;
+    stage_input._RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID = gl_GlobalInvocationID;
+    SPIRV_Cross_Input param = stage_input;
+    uint3 _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+    _main(param, Input_1, Output_1, _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID);
+}
+

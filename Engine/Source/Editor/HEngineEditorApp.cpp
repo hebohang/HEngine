@@ -1,18 +1,32 @@
 #include "EditorLayer.h"
-#include "Editor/RawRenderTest/RawLayer.h"
+#include "Runtime/Core/Modules/ModuleManager.h"
 
 #include <HEngine.h>
 
-#include <imgui/imgui.h>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
-
 namespace HEngine
 {
+	void RegisterStaticPluginsForEditor(PluginManager& pluginManager);
+
 	void MyAppInitialize(Application& app)
 	{
+		auto& moduleManager = ModuleManager::GetInstance();
+		moduleManager.ConfigurePluginHost(PluginHostEnvironment{
+			.Host = PluginHost::Editor,
+			.BuildDistribution = PluginBuildDistribution::Development,
+			.Platform = PluginPlatform::Windows,
+#if HE_DEBUG
+			.Configuration = PluginConfiguration::Debug,
+#else
+			.Configuration = PluginConfiguration::Release,
+#endif
+		});
+		RegisterStaticPluginsForEditor(moduleManager.GetPluginManager());
+
+		auto editorLayer = new EditorLayer();
 		app.Init("HEngine Editor");
-		app.PushLayer(new EditorLayer());
-		//app.PushLayer(new RawLayer());
+		app.PushLayer(editorLayer);
+		const std::string windowTitle = std::string("HEngine Editor [") +
+			ToString(app.GetRenderBackend()) + "]";
+		app.GetWindow().SetWindowTitle(windowTitle.c_str());
 	}
 }

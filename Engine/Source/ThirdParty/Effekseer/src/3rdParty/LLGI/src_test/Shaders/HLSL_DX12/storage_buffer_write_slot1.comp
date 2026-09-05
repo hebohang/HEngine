@@ -1,0 +1,37 @@
+struct SlotData
+{
+    float3 Position;
+    uint Direction;
+};
+
+RWByteAddressBuffer Data : register(u1);
+
+static uint3 gl_GlobalInvocationID;
+struct SPIRV_Cross_Input
+{
+    uint3 gl_GlobalInvocationID : SV_DispatchThreadID;
+};
+
+void _main(uint3 dtid)
+{
+    uint index = dtid.x;
+    SlotData data;
+    data.Position = float3((float(index) * 2.0f) + 0.25f, (float(index) * (-3.0f)) + 0.5f, (float(index) * 4.0f) - 0.75f);
+    data.Direction = 305397760u + (index * 31u);
+    Data.Store3(index * 16 + 0, asuint(data.Position));
+    Data.Store(index * 16 + 12, data.Direction);
+}
+
+void comp_main()
+{
+    uint3 dtid = gl_GlobalInvocationID;
+    uint3 param = dtid;
+    _main(param);
+}
+
+[numthreads(1, 1, 1)]
+void main(SPIRV_Cross_Input stage_input)
+{
+    gl_GlobalInvocationID = stage_input.gl_GlobalInvocationID;
+    comp_main();
+}

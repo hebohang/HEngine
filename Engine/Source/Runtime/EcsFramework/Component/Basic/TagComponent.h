@@ -6,8 +6,10 @@
 
 namespace HEngine
 {
-    class TagComponent : public ComponentBase
+    REFLECTION_TYPE(TagComponent)
+    CLASS(TagComponent : public ComponentBase, Fields)
     {
+        REFLECTION_COMPONENT_BODY(TagComponent);
     public:
         std::string Tag;
 

@@ -1,0 +1,23 @@
+# Platform-neutral GI implementations; backend selection remains below NVRHI.
+RUNTIME_ADD_SOURCE(
+    GlobalIllumination.h
+    GlobalIllumination.cpp
+    GlobalIlluminationTechniqueRegistry.h
+    GlobalIlluminationTechniqueRegistry.cpp
+    GlobalIlluminationSignal.h
+    GlobalIlluminationSignal.cpp
+    GlobalIlluminationSettingsJson.h
+    GlobalIlluminationSettingsJson.cpp
+    DepthPyramidPass.h
+    DepthPyramidPass.cpp
+    SceneSurfaceDataPass.h
+    SceneSurfaceDataPass.cpp
+    RealtimeRayTracedGlobalIllumination.h
+    RealtimeRayTracedGlobalIllumination.cpp
+    ScreenSpaceGlobalIllumination.h
+    ScreenSpaceGlobalIllumination.cpp
+    SvgfDenoiser.h
+    SvgfDenoiser.cpp
+    GlobalIlluminationCompositePass.h
+    GlobalIlluminationCompositePass.cpp
+)

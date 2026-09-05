@@ -1,0 +1,62 @@
+<rml>
+<head>
+	<title>Nested overflow</title>
+	<link type="text/rcss" href="../style.rcss"/>
+	<meta name="Description" content="The deepest element in the tree, whose overflow property is not visible, should catch the overflow." />
+	<style>
+		body {
+			display: block;
+			background: #ddd;
+			color: #444;
+		}
+		div.overflow { overflow: auto; }
+		div.outer {
+			width: 200dp;
+			height: 150dp;
+			border: 1dp #fff;
+			margin-bottom: 30dp;
+		}
+		div.inner {
+			border: 1dp black;
+			width: 150dp;
+			height: 100dp;
+		}
+		div.wide {
+			width: 300dp;
+			height: 20dp;
+			text-align: center;
+			border: 1dp #0a0;
+			margin: 5dp;
+			background-color: #eee;
+		}
+		div.float {
+			float: left;
+			width: 40dp;
+			height: 70%;
+			border: 1dp black;
+		}
+	</style>
+</head>
+
+<body>
+<p>There should should only be one scroll bar visible, inside the black border.</p>
+<div class="outer overflow">
+	<div class="inner overflow">
+		<div class="wide">Wide element</div>
+	</div>
+</div>
+
+<p>There should should only be one scroll bar visible, inside the white border.</p>
+<div class="outer overflow">
+	<div class="inner">
+		<div class="wide">Wide element</div>
+	</div>
+</div>
+
+<div class="outer overflow">
+	<div class="float">
+		The text in this box should overflow its scroll container, thereby producing a scrollbar inside the white border.
+	</div>
+</div>
+</body>
+</rml>

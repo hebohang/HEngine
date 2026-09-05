@@ -1,8 +1,8 @@
-#include "hepch.h"
+#include "Hepch.h"
 #include "OrthographicCameraController.h"
 
-#include "Runtime/Input/Input.h"
-#include "Runtime/Input/KeyCodes.h"
+#include "Runtime/Core/Input/Input.h"
+#include "Runtime/Core/Input/KeyCodes.h"
 
 namespace HEngine
 {

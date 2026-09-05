@@ -1,0 +1,139 @@
+{
+  "SchemaVersion": 2,
+  "Type": "Custom",
+  "PassName": "ProceduralPattern",
+  "ShaderPath": "Shaders/Materials/BuiltInShowcase/ProceduralPattern.hlsl",
+  "VariantKeywords": [],
+  "Domain": "Surface",
+  "ShadingModel": "Unlit",
+  "BlendMode": "Opaque",
+  "CullMode": "None",
+  "DepthWrite": true,
+  "AlphaCutoff": 0.5,
+  "Parameters": {
+    "g_ColorA": {
+      "StableId": "pattern.color_a",
+      "Type": "color",
+      "Value": [
+        0.95,
+        0.65,
+        0.08,
+        1
+      ]
+    },
+    "g_ColorB": {
+      "StableId": "pattern.color_b",
+      "Type": "color",
+      "Value": [
+        0.08,
+        0.18,
+        0.62,
+        1
+      ]
+    },
+    "g_PatternMode": {
+      "StableId": "pattern.mode",
+      "Type": "int",
+      "Value": 1
+    },
+    "g_PatternScale": {
+      "StableId": "pattern.scale",
+      "Type": "float",
+      "Value": 8
+    },
+    "g_BandCount": {
+      "StableId": "pattern.band_count",
+      "Type": "float",
+      "Value": 4
+    },
+    "g_FlowSpeed": {
+      "StableId": "pattern.flow_speed",
+      "Type": "float",
+      "Value": 0.12
+    },
+    "g_EmissiveStrength": {
+      "StableId": "pattern.emissive",
+      "Type": "float",
+      "Value": 0.08
+    }
+  },
+  "Textures": {},
+  "OrphanedParameters": {},
+  "Properties": {
+    "name": "Toon Bands",
+    "pbrMetallicRoughness": {
+      "baseColorFactor": [
+        0.95,
+        0.65,
+        0.08,
+        1
+      ],
+      "metallicFactor": 0,
+      "roughnessFactor": 0.55,
+      "baseColorTexture": {
+        "texCoord": 0,
+        "textureRes": {
+          "textureSourcePath": ""
+        }
+      },
+      "metallicRoughnessTexture": {
+        "texCoord": 0,
+        "textureRes": {
+          "textureSourcePath": ""
+        }
+      }
+    },
+    "normalTexture": {
+      "scale": 1,
+      "texCoord": 0,
+      "textureRes": {
+        "textureSourcePath": ""
+      }
+    },
+    "occlusionTexture": {
+      "strength": 1,
+      "texCoord": 0,
+      "textureRes": {
+        "textureSourcePath": ""
+      }
+    },
+    "emissiveTexture": {
+      "texCoord": 0,
+      "textureRes": {
+        "textureSourcePath": ""
+      }
+    },
+    "emissiveFactor": [
+      0.076,
+      0.052000000000000005,
+      0.0064
+    ],
+    "alphaMode": "OPAQUE",
+    "alphaCutoff": 0.5,
+    "doubleSided": true,
+    "bUseAlbedoMap": false,
+    "bUseNormalMap": false,
+    "bUseMetallicRoughnessMap": false,
+    "bUseAoMap": false,
+    "bUseEmissiveMap": false,
+    "ExposedProperties": {
+      "g_ColorA": [
+        0.95,
+        0.65,
+        0.08,
+        1
+      ],
+      "g_ColorB": [
+        0.08,
+        0.18,
+        0.62,
+        1
+      ],
+      "g_PatternMode": 1,
+      "g_PatternScale": 8,
+      "g_BandCount": 4,
+      "g_FlowSpeed": 0.12,
+      "g_EmissiveStrength": 0.08
+    }
+  }
+}

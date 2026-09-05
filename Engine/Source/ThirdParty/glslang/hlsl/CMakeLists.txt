@@ -38,7 +38,7 @@
 # projects that referenced this target.
 
 add_library(HLSL ${LIB_TYPE} "stub.cpp")
-set_property(TARGET HLSL PROPERTY FOLDER hlsl)
+set_property(TARGET HLSL PROPERTY FOLDER ${ThirdPartyFolder}/glslang/hlsl)
 set_property(TARGET HLSL PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 if(WIN32 AND BUILD_SHARED_LIBS)

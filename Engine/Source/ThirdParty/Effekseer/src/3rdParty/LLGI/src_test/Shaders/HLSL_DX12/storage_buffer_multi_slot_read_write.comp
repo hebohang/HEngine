@@ -1,0 +1,88 @@
+struct InputA
+{
+    float3 Values;
+    uint Tag;
+};
+
+struct InputB
+{
+    uint X;
+    uint Y;
+    uint Z;
+    uint W;
+};
+
+struct OutputA
+{
+    float Value;
+    uint Tag;
+    uint Mix;
+    uint Padding;
+};
+
+struct OutputB
+{
+    float3 Values;
+    uint Checksum;
+};
+
+ByteAddressBuffer Input1 : register(t1);
+ByteAddressBuffer Input2 : register(t2);
+RWByteAddressBuffer Output0 : register(u0);
+RWByteAddressBuffer Output3 : register(u3);
+
+static uint3 gl_GlobalInvocationID;
+struct SPIRV_Cross_Input
+{
+    uint3 gl_GlobalInvocationID : SV_DispatchThreadID;
+};
+
+void _main(uint3 dtid)
+{
+    uint index = dtid.x;
+    InputA _33;
+    _33.Values = asfloat(Input1.Load3(index * 16 + 0));
+    _33.Tag = Input1.Load(index * 16 + 12);
+    InputA a;
+    a.Values = _33.Values;
+    a.Tag = _33.Tag;
+    InputB _51;
+    _51.X = Input2.Load(index * 16 + 0);
+    _51.Y = Input2.Load(index * 16 + 4);
+    _51.Z = Input2.Load(index * 16 + 8);
+    _51.W = Input2.Load(index * 16 + 12);
+    InputB b;
+    b.X = _51.X;
+    b.Y = _51.Y;
+    b.Z = _51.Z;
+    b.W = _51.W;
+    uint _mix = (((a.Tag ^ b.X) ^ b.Y) ^ b.Z) ^ b.W;
+    OutputA outA;
+    outA.Value = ((a.Values.x + a.Values.y) + a.Values.z) + float(b.X & 255u);
+    outA.Tag = a.Tag;
+    outA.Mix = _mix;
+    outA.Padding = 0u;
+    Output0.Store(index * 16 + 0, asuint(outA.Value));
+    Output0.Store(index * 16 + 4, outA.Tag);
+    Output0.Store(index * 16 + 8, outA.Mix);
+    Output0.Store(index * 16 + 12, outA.Padding);
+    OutputB outB;
+    outB.Values = a.Values * float3(2.0f, 3.0f, 4.0f);
+    outB.Checksum = _mix + index;
+    Output3.Store3(index * 16 + 0, asuint(outB.Values));
+    Output3.Store(index * 16 + 12, outB.Checksum);
+}
+
+void comp_main()
+{
+    uint3 dtid = gl_GlobalInvocationID;
+    uint3 param = dtid;
+    _main(param);
+}
+
+[numthreads(1, 1, 1)]
+void main(SPIRV_Cross_Input stage_input)
+{
+    gl_GlobalInvocationID = stage_input.gl_GlobalInvocationID;
+    comp_main();
+}

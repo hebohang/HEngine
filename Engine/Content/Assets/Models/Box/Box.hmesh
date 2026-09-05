@@ -1,0 +1,127 @@
+{
+    "accessorVec": [
+        {
+            "bufferViewIndex": 0,
+            "byteOffset": 0,
+            "componentType": 5126,
+            "count": 24,
+            "max": [],
+            "min": [],
+            "name": "",
+            "normalized": false,
+            "type": "VEC3"
+        },
+        {
+            "bufferViewIndex": 1,
+            "byteOffset": 0,
+            "componentType": 5126,
+            "count": 24,
+            "max": [],
+            "min": [],
+            "name": "",
+            "normalized": false,
+            "type": "VEC3"
+        },
+        {
+            "bufferViewIndex": 2,
+            "byteOffset": 0,
+            "componentType": 5126,
+            "count": 24,
+            "max": [],
+            "min": [],
+            "name": "",
+            "normalized": false,
+            "type": "VEC2"
+        },
+        {
+            "bufferViewIndex": 3,
+            "byteOffset": 0,
+            "componentType": 5126,
+            "count": 24,
+            "max": [],
+            "min": [],
+            "name": "",
+            "normalized": false,
+            "type": "VEC3"
+        },
+        {
+            "bufferViewIndex": 4,
+            "byteOffset": 0,
+            "componentType": 5125,
+            "count": 36,
+            "max": [],
+            "min": [],
+            "name": "",
+            "normalized": false,
+            "type": "SCALAR"
+        }
+    ],
+    "bufferVec": [
+        {
+            "byteLength": 1200,
+            "data": [],
+            "name": "Box",
+            "uri": "Assets\\Models\\Box\\Box.bin"
+        }
+    ],
+    "bufferViewVec": [
+        {
+            "bufferIndex": 0,
+            "byteLength": 288,
+            "byteOffset": 0,
+            "byteStride": 0,
+            "name": "",
+            "target": 0
+        },
+        {
+            "bufferIndex": 0,
+            "byteLength": 288,
+            "byteOffset": 288,
+            "byteStride": 0,
+            "name": "",
+            "target": 0
+        },
+        {
+            "bufferIndex": 0,
+            "byteLength": 192,
+            "byteOffset": 576,
+            "byteStride": 0,
+            "name": "",
+            "target": 0
+        },
+        {
+            "bufferIndex": 0,
+            "byteLength": 288,
+            "byteOffset": 768,
+            "byteStride": 0,
+            "name": "",
+            "target": 0
+        },
+        {
+            "bufferIndex": 0,
+            "byteLength": 144,
+            "byteOffset": 1056,
+            "byteStride": 0,
+            "name": "",
+            "target": 0
+        }
+    ],
+    "name": "Box",
+    "primitives": [
+        {
+            "attributes": {
+                "NORMAL": 1,
+                "POSITION": 0,
+                "TANGENT": 3,
+                "TEXCOORD_0": 2
+            },
+            "indices": 4,
+            "materialResPath": "Assets\\Models\\Box\\Material.hmat",
+            "mode": 4,
+            "targets": []
+        }
+    ],
+    "skeletonPath": "",
+    "version": 1,
+    "weights": []
+}

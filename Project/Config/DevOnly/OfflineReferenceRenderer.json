@@ -1,0 +1,25 @@
+{
+    "AutoReset": true,
+    "DirectOnly": false,
+    "EnvironmentRadiance": [
+        0.0,
+        0.0,
+        0.0
+    ],
+    "FixedHeight": 0,
+    "FixedWidth": 0,
+    "LockAspectRatio": true,
+    "MaxBounces": 8,
+    "MaximumRayDistance": 1000.0,
+    "OutputDirectory": "C:\\WorkSpace\\HEngineDev\\Project\\Saved\\OfflineRenders",
+    "OutputFileName": "Reference",
+    "OutputFormat": 0,
+    "PreviewAov": 0,
+    "RenderScale": 1.0,
+    "SamplesPerFrame": 46,
+    "Schema": "hengine.offline-reference-renderer-settings.v1",
+    "Seed": 1212501575,
+    "SeedMode": "Fixed",
+    "TargetSamples": 256,
+    "UseSceneEnvironment": true
+}

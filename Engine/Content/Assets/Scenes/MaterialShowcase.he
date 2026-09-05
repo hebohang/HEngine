@@ -1,0 +1,921 @@
+{
+    "09973c72-ee2a-54f3-a7ea-34413e70dee2": {
+        "MeshComponent": {
+            "MaterialOverrides": [
+                "Assets/Materials/BuiltInShowcase/M13_SapphireGem.hmat"
+            ],
+            "Path": "Assets/Models/MaterialPreview/MaterialBall.hmesh",
+            "meshResPath": "Assets/Models/MaterialPreview/MaterialBall.hmesh"
+        },
+        "TagComponent": {
+            "Tag": "M13 - Sapphire Gem"
+        },
+        "TransformComponent": {
+            "ParentUuid": "",
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Translation": [
+                0.0,
+                0.0,
+                0.0
+            ]
+        }
+    },
+    "0e26af1c-8ab5-5738-b342-2e205b44e792": {
+        "MeshComponent": {
+            "MaterialOverrides": [
+                "Assets/Materials/BuiltInShowcase/M08_WarmGold.hmat"
+            ],
+            "Path": "Assets/Models/MaterialPreview/MaterialBall.hmesh",
+            "meshResPath": "Assets/Models/MaterialPreview/MaterialBall.hmesh"
+        },
+        "TagComponent": {
+            "Tag": "M08 - Warm Gold"
+        },
+        "TransformComponent": {
+            "ParentUuid": "",
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Translation": [
+                0.0,
+                0.0,
+                -3.5
+            ]
+        }
+    },
+    "17c146d8-291f-58b3-832c-009d7d6893db": {
+        "MeshComponent": {
+            "MaterialOverrides": [
+                "Assets/Materials/BuiltInShowcase/M21_ToonBands.hmat"
+            ],
+            "Path": "Assets/Models/MaterialPreview/MaterialBall.hmesh",
+            "meshResPath": "Assets/Models/MaterialPreview/MaterialBall.hmesh"
+        },
+        "TagComponent": {
+            "Tag": "M21 - Toon Bands"
+        },
+        "TransformComponent": {
+            "ParentUuid": "",
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Translation": [
+                -7.0,
+                0.0,
+                7.0
+            ]
+        }
+    },
+    "19d402ca-8f52-5a24-8991-e39ceb7ab0c6": {
+        "MeshComponent": {
+            "MaterialOverrides": [
+                "Assets/Materials/BuiltInShowcase/M12_RubyGem.hmat"
+            ],
+            "Path": "Assets/Models/MaterialPreview/MaterialBall.hmesh",
+            "meshResPath": "Assets/Models/MaterialPreview/MaterialBall.hmesh"
+        },
+        "TagComponent": {
+            "Tag": "M12 - Ruby Gem"
+        },
+        "TransformComponent": {
+            "ParentUuid": "",
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Translation": [
+                -3.5,
+                0.0,
+                0.0
+            ]
+        }
+    },
+    "1a93a3fa-d829-5f61-a7ed-cddb4b0b4523": {
+        "MeshComponent": {
+            "MaterialOverrides": [
+                "Assets/Materials/BuiltInShowcase/M25_MaskedDissolve.hmat"
+            ],
+            "Path": "Assets/Models/MaterialPreview/MaterialBall.hmesh",
+            "meshResPath": "Assets/Models/MaterialPreview/MaterialBall.hmesh"
+        },
+        "TagComponent": {
+            "Tag": "M25 - Masked Dissolve"
+        },
+        "TransformComponent": {
+            "ParentUuid": "",
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Translation": [
+                7.0,
+                0.0,
+                7.0
+            ]
+        }
+    },
+    "3b6e4746-994d-52f8-856a-1e152e16e8e1": {
+        "MeshComponent": {
+            "MaterialOverrides": [
+                "Assets/Materials/BuiltInShowcase/M22_DoubleSidedStripes.hmat"
+            ],
+            "Path": "Assets/Models/MaterialPreview/MaterialBall.hmesh",
+            "meshResPath": "Assets/Models/MaterialPreview/MaterialBall.hmesh"
+        },
+        "TagComponent": {
+            "Tag": "M22 - Double-Sided Stripes"
+        },
+        "TransformComponent": {
+            "ParentUuid": "",
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Translation": [
+                -3.5,
+                0.0,
+                7.0
+            ]
+        }
+    },
+    "3bd8ebf9-450d-5250-ac10-06baaf3061d9": {
+        "MeshComponent": {
+            "MaterialOverrides": [
+                "Assets/Materials/BuiltInShowcase/M11_Jade.hmat"
+            ],
+            "Path": "Assets/Models/MaterialPreview/MaterialBall.hmesh",
+            "meshResPath": "Assets/Models/MaterialPreview/MaterialBall.hmesh"
+        },
+        "TagComponent": {
+            "Tag": "M11 - Jade"
+        },
+        "TransformComponent": {
+            "ParentUuid": "",
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Translation": [
+                -7.0,
+                0.0,
+                0.0
+            ]
+        }
+    },
+    "3be04f8d-633a-5110-b31f-5b36d54f4a7f": {
+        "MeshComponent": {
+            "MaterialOverrides": [
+                "Assets/Materials/BuiltInShowcase/M03_MatteRubber.hmat"
+            ],
+            "Path": "Assets/Models/MaterialPreview/MaterialBall.hmesh",
+            "meshResPath": "Assets/Models/MaterialPreview/MaterialBall.hmesh"
+        },
+        "TagComponent": {
+            "Tag": "M03 - Matte Rubber"
+        },
+        "TransformComponent": {
+            "ParentUuid": "",
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Translation": [
+                0.0,
+                0.0,
+                -7.0
+            ]
+        }
+    },
+    "3ea95f95-9f49-5d7a-9b88-81ba4230bb94": {
+        "MeshComponent": {
+            "MaterialOverrides": [
+                "Assets/Materials/BuiltInShowcase/M14_NormalDetail.hmat"
+            ],
+            "Path": "Assets/Models/MaterialPreview/MaterialBall.hmesh",
+            "meshResPath": "Assets/Models/MaterialPreview/MaterialBall.hmesh"
+        },
+        "TagComponent": {
+            "Tag": "M14 - Normal Detail"
+        },
+        "TransformComponent": {
+            "ParentUuid": "",
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Translation": [
+                3.5,
+                0.0,
+                0.0
+            ]
+        }
+    },
+    "5355e8a0-612f-528b-9a6a-266fd772386b": {
+        "MeshComponent": {
+            "MaterialOverrides": [
+                "Assets/Materials/BuiltInShowcase/M23_ClearGlass.hmat"
+            ],
+            "Path": "Assets/Models/MaterialPreview/MaterialBall.hmesh",
+            "meshResPath": "Assets/Models/MaterialPreview/MaterialBall.hmesh"
+        },
+        "TagComponent": {
+            "Tag": "M23 - Clear Glass"
+        },
+        "TransformComponent": {
+            "ParentUuid": "",
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Translation": [
+                0.0,
+                0.0,
+                7.0
+            ]
+        }
+    },
+    "5dfd3b5f-f7b7-57b5-9bfa-de4eb0a59abc": {
+        "EnvironmentLightComponent": {
+            "Exposure": 0.82,
+            "HdrTexturePath": "Assets/Textures/Hdr/Default.hdr",
+            "IBLIntensity": 1.15
+        },
+        "TagComponent": {
+            "Tag": "Material Showcase Environment"
+        },
+        "TransformComponent": {
+            "ParentUuid": "",
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Translation": [
+                0.0,
+                0.0,
+                0.0
+            ]
+        }
+    },
+    "603162ca-3e66-5965-99e8-3e89a4966755": {
+        "MeshComponent": {
+            "MaterialOverrides": [
+                "Assets/Materials/BuiltInShowcase/M18_IridescentPearl.hmat"
+            ],
+            "Path": "Assets/Models/MaterialPreview/MaterialBall.hmesh",
+            "meshResPath": "Assets/Models/MaterialPreview/MaterialBall.hmesh"
+        },
+        "TagComponent": {
+            "Tag": "M18 - Iridescent Pearl"
+        },
+        "TransformComponent": {
+            "ParentUuid": "",
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Translation": [
+                0.0,
+                0.0,
+                3.5
+            ]
+        }
+    },
+    "630a87cd-4c6a-5511-bec8-4d6a94cc990b": {
+        "PointLightComponent": {
+            "FalloffExponent": 2.0,
+            "Intensity": 5.0,
+            "LightColor": [
+                0.38,
+                0.72,
+                1.0
+            ],
+            "Radius": 28.0
+        },
+        "TagComponent": {
+            "Tag": "Material Showcase Fill Light"
+        },
+        "TransformComponent": {
+            "ParentUuid": "",
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Translation": [
+                -7.0,
+                7.0,
+                10.0
+            ]
+        }
+    },
+    "65fbffd1-d00d-56fe-a485-02da48085385": {
+        "MeshComponent": {
+            "MaterialOverrides": [
+                "Assets/Materials/BuiltInShowcase/M09_AgedCopper.hmat"
+            ],
+            "Path": "Assets/Models/MaterialPreview/MaterialBall.hmesh",
+            "meshResPath": "Assets/Models/MaterialPreview/MaterialBall.hmesh"
+        },
+        "TagComponent": {
+            "Tag": "M09 - Aged Copper"
+        },
+        "TransformComponent": {
+            "ParentUuid": "",
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Translation": [
+                3.5,
+                0.0,
+                -3.5
+            ]
+        }
+    },
+    "6bb536ab-5de9-57dc-b38c-5b89e9077499": {
+        "MeshComponent": {
+            "MaterialOverrides": [
+                "Assets/Materials/BuiltInShowcase/M05_GlazedCeramic.hmat"
+            ],
+            "Path": "Assets/Models/MaterialPreview/MaterialBall.hmesh",
+            "meshResPath": "Assets/Models/MaterialPreview/MaterialBall.hmesh"
+        },
+        "TagComponent": {
+            "Tag": "M05 - Glazed Ceramic"
+        },
+        "TransformComponent": {
+            "ParentUuid": "",
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Translation": [
+                7.0,
+                0.0,
+                -7.0
+            ]
+        }
+    },
+    "7236c08d-4517-5e15-874b-b2ea3ff200fb": {
+        "CameraComponent": {
+            "Camera": {
+                "mAspectRatio": 1.7777777777777777,
+                "mOrthographicFar": 1.0,
+                "mOrthographicNear": -1.0,
+                "mOrthographicSize": 10.0,
+                "mPerspectiveFOV": 0.4886921905584123,
+                "mPerspectiveFar": 120.0,
+                "mPerspectiveNear": 0.1,
+                "mProjectionType": 0
+            },
+            "FixedAspectRatio": false,
+            "Primary": true
+        },
+        "TagComponent": {
+            "Tag": "Material Showcase Camera"
+        },
+        "TransformComponent": {
+            "ParentUuid": "",
+            "Rotation": [
+                -0.3665191429188092,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Translation": [
+                0.0,
+                13.0,
+                32.0
+            ]
+        }
+    },
+    "7345650a-2e53-5682-af54-6908b8f0045f": {
+        "MeshComponent": {
+            "MaterialOverrides": [
+                "Assets/Materials/BuiltInShowcase/M17_FresnelMagenta.hmat"
+            ],
+            "Path": "Assets/Models/MaterialPreview/MaterialBall.hmesh",
+            "meshResPath": "Assets/Models/MaterialPreview/MaterialBall.hmesh"
+        },
+        "TagComponent": {
+            "Tag": "M17 - Fresnel Magenta"
+        },
+        "TransformComponent": {
+            "ParentUuid": "",
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Translation": [
+                -3.5,
+                0.0,
+                3.5
+            ]
+        }
+    },
+    "84343acf-2ee8-54ab-a0dd-01f8f748adaa": {
+        "MeshComponent": {
+            "MaterialOverrides": [
+                "Assets/Materials/BuiltInShowcase/M15_EmissiveLava.hmat"
+            ],
+            "Path": "Assets/Models/MaterialPreview/MaterialBall.hmesh",
+            "meshResPath": "Assets/Models/MaterialPreview/MaterialBall.hmesh"
+        },
+        "TagComponent": {
+            "Tag": "M15 - Emissive Lava"
+        },
+        "TransformComponent": {
+            "ParentUuid": "",
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Translation": [
+                7.0,
+                0.0,
+                0.0
+            ]
+        }
+    },
+    "93586a28-c51e-5dbf-9e83-a023b3e99546": {
+        "MeshComponent": {
+            "MaterialOverrides": [
+                "Assets/Materials/BuiltInShowcase/M04_RoughCeramic.hmat"
+            ],
+            "Path": "Assets/Models/MaterialPreview/MaterialBall.hmesh",
+            "meshResPath": "Assets/Models/MaterialPreview/MaterialBall.hmesh"
+        },
+        "TagComponent": {
+            "Tag": "M04 - Rough Ceramic"
+        },
+        "TransformComponent": {
+            "ParentUuid": "",
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Translation": [
+                3.5,
+                0.0,
+                -7.0
+            ]
+        }
+    },
+    "992f0525-6b1e-5445-a504-3b2076f046f8": {
+        "MeshComponent": {
+            "MaterialOverrides": [
+                "Assets/Materials/BuiltInShowcase/M16_FresnelAzure.hmat"
+            ],
+            "Path": "Assets/Models/MaterialPreview/MaterialBall.hmesh",
+            "meshResPath": "Assets/Models/MaterialPreview/MaterialBall.hmesh"
+        },
+        "TagComponent": {
+            "Tag": "M16 - Fresnel Azure"
+        },
+        "TransformComponent": {
+            "ParentUuid": "",
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Translation": [
+                -7.0,
+                0.0,
+                3.5
+            ]
+        }
+    },
+    "a4a39d38-0b00-57b5-8c9e-50b648f520cd": {
+        "MeshComponent": {
+            "MaterialOverrides": [
+                "Assets/Materials/BuiltInShowcase/M24_HologramScan.hmat"
+            ],
+            "Path": "Assets/Models/MaterialPreview/MaterialBall.hmesh",
+            "meshResPath": "Assets/Models/MaterialPreview/MaterialBall.hmesh"
+        },
+        "TagComponent": {
+            "Tag": "M24 - Hologram Scan"
+        },
+        "TransformComponent": {
+            "ParentUuid": "",
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Translation": [
+                3.5,
+                0.0,
+                7.0
+            ]
+        }
+    },
+    "a561a8f3-85cb-577f-9301-8ec0430a03d7": {
+        "DirectionalLightComponent": {
+            "CascadeCount": 4,
+            "CascadeLambda": 0.75,
+            "Color": [
+                1.0,
+                0.96,
+                0.88
+            ],
+            "DepthBias": 0.0015,
+            "Intensity": 2.8,
+            "NormalBias": 0.05,
+            "PCFRadius": 1.5,
+            "ShadowDistance": 80.0,
+            "ShadowMapSize": 2048,
+            "ShadowStrength": 1.0,
+            "bCastShadows": true,
+            "bUsePCF": true
+        },
+        "TagComponent": {
+            "Tag": "Material Showcase Key Light"
+        },
+        "TransformComponent": {
+            "ParentUuid": "",
+            "Rotation": [
+                -2.303834612632515,
+                -0.6108652381980153,
+                -0.3490658503988659
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Translation": [
+                0.0,
+                8.0,
+                0.0
+            ]
+        }
+    },
+    "b66e3318-fbd2-5292-b83f-bb593cd01c7d": {
+        "MeshComponent": {
+            "MaterialOverrides": [
+                "Assets/Materials/BuiltInShowcase/M07_PolishedSilver.hmat"
+            ],
+            "Path": "Assets/Models/MaterialPreview/MaterialBall.hmesh",
+            "meshResPath": "Assets/Models/MaterialPreview/MaterialBall.hmesh"
+        },
+        "TagComponent": {
+            "Tag": "M07 - Polished Silver"
+        },
+        "TransformComponent": {
+            "ParentUuid": "",
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Translation": [
+                -3.5,
+                0.0,
+                -3.5
+            ]
+        }
+    },
+    "c76e9222-b4ea-5702-bc70-2cb3bb371219": {
+        "MeshComponent": {
+            "MaterialOverrides": [
+                "Assets/Materials/BuiltInShowcase/M19_LaserChrome.hmat"
+            ],
+            "Path": "Assets/Models/MaterialPreview/MaterialBall.hmesh",
+            "meshResPath": "Assets/Models/MaterialPreview/MaterialBall.hmesh"
+        },
+        "TagComponent": {
+            "Tag": "M19 - Laser Chrome"
+        },
+        "TransformComponent": {
+            "ParentUuid": "",
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Translation": [
+                3.5,
+                0.0,
+                3.5
+            ]
+        }
+    },
+    "ca52ac02-0d4d-5abf-81ab-cf3619abf756": {
+        "MeshComponent": {
+            "MaterialOverrides": [
+                "Assets/Materials/BuiltInShowcase/MaterialShowcaseFloor.hmat"
+            ],
+            "Path": "Assets/Models/Box/Box.hmesh",
+            "meshResPath": "Assets/Models/Box/Box.hmesh"
+        },
+        "TagComponent": {
+            "Tag": "Material Showcase Floor"
+        },
+        "TransformComponent": {
+            "ParentUuid": "",
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                80.0,
+                0.2,
+                80.0
+            ],
+            "Translation": [
+                0.0,
+                -0.1,
+                0.0
+            ]
+        }
+    },
+    "d1f6eff6-8b0c-520f-bce7-13386d405f27": {
+        "MeshComponent": {
+            "MaterialOverrides": [
+                "Assets/Materials/BuiltInShowcase/M10_Gunmetal.hmat"
+            ],
+            "Path": "Assets/Models/MaterialPreview/MaterialBall.hmesh",
+            "meshResPath": "Assets/Models/MaterialPreview/MaterialBall.hmesh"
+        },
+        "TagComponent": {
+            "Tag": "M10 - Gunmetal"
+        },
+        "TransformComponent": {
+            "ParentUuid": "",
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Translation": [
+                7.0,
+                0.0,
+                -3.5
+            ]
+        }
+    },
+    "dee4e6bd-7095-57c0-92aa-5250c3f86744": {
+        "MeshComponent": {
+            "MaterialOverrides": [
+                "Assets/Materials/BuiltInShowcase/M20_ProceduralChecker.hmat"
+            ],
+            "Path": "Assets/Models/MaterialPreview/MaterialBall.hmesh",
+            "meshResPath": "Assets/Models/MaterialPreview/MaterialBall.hmesh"
+        },
+        "TagComponent": {
+            "Tag": "M20 - Procedural Checker"
+        },
+        "TransformComponent": {
+            "ParentUuid": "",
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Translation": [
+                7.0,
+                0.0,
+                3.5
+            ]
+        }
+    },
+    "e0a6dc86-2f20-5e7e-a757-0bf2e01473af": {
+        "MeshComponent": {
+            "MaterialOverrides": [
+                "Assets/Materials/BuiltInShowcase/M06_BrushedAluminum.hmat"
+            ],
+            "Path": "Assets/Models/MaterialPreview/MaterialBall.hmesh",
+            "meshResPath": "Assets/Models/MaterialPreview/MaterialBall.hmesh"
+        },
+        "TagComponent": {
+            "Tag": "M06 - Brushed Aluminum"
+        },
+        "TransformComponent": {
+            "ParentUuid": "",
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Translation": [
+                -7.0,
+                0.0,
+                -3.5
+            ]
+        }
+    },
+    "ef5ce7e0-6655-574d-a558-4058dccaa389": {
+        "MeshComponent": {
+            "MaterialOverrides": [
+                "Assets/Materials/BuiltInShowcase/M01_RubyPlastic.hmat"
+            ],
+            "Path": "Assets/Models/MaterialPreview/MaterialBall.hmesh",
+            "meshResPath": "Assets/Models/MaterialPreview/MaterialBall.hmesh"
+        },
+        "TagComponent": {
+            "Tag": "M01 - Ruby Plastic"
+        },
+        "TransformComponent": {
+            "ParentUuid": "",
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Translation": [
+                -7.0,
+                0.0,
+                -7.0
+            ]
+        }
+    },
+    "f70931b8-e508-5e99-b385-6761df2bf72a": {
+        "MeshComponent": {
+            "MaterialOverrides": [
+                "Assets/Materials/BuiltInShowcase/M02_IvoryPlastic.hmat"
+            ],
+            "Path": "Assets/Models/MaterialPreview/MaterialBall.hmesh",
+            "meshResPath": "Assets/Models/MaterialPreview/MaterialBall.hmesh"
+        },
+        "TagComponent": {
+            "Tag": "M02 - Ivory Plastic"
+        },
+        "TransformComponent": {
+            "ParentUuid": "",
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Translation": [
+                -3.5,
+                0.0,
+                -7.0
+            ]
+        }
+    }
+}

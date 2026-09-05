@@ -1,0 +1,90 @@
+#version 450
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+struct SPIRV_Cross_Input
+{
+    uvec3 _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+};
+
+struct SlotData
+{
+    vec3 Position;
+    uint Direction;
+};
+
+struct OutputData
+{
+    vec3 Position;
+    uint Direction;
+    uint Checksum;
+    uint Padding0;
+    uint Padding1;
+    uint Padding2;
+};
+
+layout(binding = 1, std430) readonly buffer Data
+{
+    uint _data[];
+} Data_1;
+
+layout(binding = 0, std430) buffer Output
+{
+    uint _data[];
+} Output_1;
+
+uvec3 _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+
+void _main(uvec3 dtid)
+{
+    uint index = dtid.x;
+    int byteAddrTemp = int(((index * 16u) + 0u) >> uint(2));
+    SlotData _RESERVED_IDENTIFIER_FIXUP_33;
+    _RESERVED_IDENTIFIER_FIXUP_33.Position = uintBitsToFloat(uvec3(Data_1._data[byteAddrTemp], Data_1._data[byteAddrTemp + 1], Data_1._data[byteAddrTemp + 2]));
+    _RESERVED_IDENTIFIER_FIXUP_33.Direction = Data_1._data[int(((index * 16u) + 12u) >> uint(2))];
+    SlotData data;
+    data.Position = _RESERVED_IDENTIFIER_FIXUP_33.Position;
+    data.Direction = _RESERVED_IDENTIFIER_FIXUP_33.Direction;
+    OutputData _output;
+    _output.Position = data.Position + vec3(10.0, 20.0, 30.0);
+    _output.Direction = data.Direction;
+    _output.Checksum = data.Direction ^ (index * 16843009u);
+    _output.Padding0 = 0u;
+    _output.Padding1 = 0u;
+    _output.Padding2 = 0u;
+    int byteAddrTemp_1 = int(((index * 32u) + 0u) >> uint(2));
+    Output_1._data[byteAddrTemp_1] = floatBitsToUint(_output.Position).x;
+    Output_1._data[byteAddrTemp_1 + 1] = floatBitsToUint(_output.Position).y;
+    Output_1._data[byteAddrTemp_1 + 2] = floatBitsToUint(_output.Position).z;
+    int byteAddrTemp_2 = int(((index * 32u) + 12u) >> uint(2));
+    Output_1._data[byteAddrTemp_2] = _output.Direction;
+    int byteAddrTemp_3 = int(((index * 32u) + 16u) >> uint(2));
+    Output_1._data[byteAddrTemp_3] = _output.Checksum;
+    int byteAddrTemp_4 = int(((index * 32u) + 20u) >> uint(2));
+    Output_1._data[byteAddrTemp_4] = _output.Padding0;
+    int byteAddrTemp_5 = int(((index * 32u) + 24u) >> uint(2));
+    Output_1._data[byteAddrTemp_5] = _output.Padding1;
+    int byteAddrTemp_6 = int(((index * 32u) + 28u) >> uint(2));
+    Output_1._data[byteAddrTemp_6] = _output.Padding2;
+}
+
+void comp_main()
+{
+    uvec3 dtid = _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+    uvec3 param = dtid;
+    uvec3 param_1 = param;
+    _main(param_1);
+}
+
+void _main(SPIRV_Cross_Input stage_input)
+{
+    _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID = stage_input._RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+    comp_main();
+}
+
+void main()
+{
+    SPIRV_Cross_Input stage_input;
+    stage_input._RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID = gl_GlobalInvocationID;
+    SPIRV_Cross_Input param = stage_input;
+    _main(param);
+}

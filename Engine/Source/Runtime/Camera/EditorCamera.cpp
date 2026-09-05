@@ -1,8 +1,8 @@
-#include "hepch.h"
+#include "Hepch.h"
 
-#include "Runtime/Input/Input.h"
-#include "Runtime/Input/KeyCodes.h"
-#include "Runtime/Input/MouseCodes.h"
+#include "Runtime/Core/Input/Input.h"
+#include "Runtime/Core/Input/KeyCodes.h"
+#include "Runtime/Core/Input/MouseCodes.h"
 #include "Runtime/Camera/EditorCamera.h"
 
 #include <glfw/glfw3.h>
@@ -52,7 +52,7 @@ namespace HEngine
 
 	float EditorCamera::RotationSpeed() const
 	{
-		return 0.8f;
+		return 0.5f;
 	}
 
 	float EditorCamera::ZoomSpeed() const
@@ -81,6 +81,21 @@ namespace HEngine
 		}
 		else if (Input::IsMouseButtonPressed(Mouse::ButtonRight))
 		{
+			const glm::vec2& mouse{ Input::GetMouseX(), Input::GetMouseY() };
+			glm::vec2 deltaRotate = (mouse - mInitialMousePosition) * 0.003f;
+			if (bInit)
+				deltaRotate = { 0.0f, 0.0f };
+			mInitialMousePosition = mouse;
+
+			if (Input::IsMouseButtonPressed(Mouse::ButtonRight))
+			{
+				bInit = false;
+				MouseRotate(deltaRotate);
+
+				// 重新计算聚焦位置，保证摄像机位置不变
+				mFocalPoint = mPosition + GetForwardDirection() * mDistance;
+			}
+
 			glm::vec2 deltaMove = { 0.0f, 0.0f };
 
 			if (Input::IsKeyPressed(HE_KEY_A))
@@ -95,18 +110,6 @@ namespace HEngine
 				mFocalPoint -= glm::vec3(0.0f, 1.0f, 0.0f) * mCameraSpeed * 0.05f;
 			if (Input::IsKeyPressed(HE_KEY_E))
 				mFocalPoint += glm::vec3(0.0f, 1.0f, 0.0f) * mCameraSpeed * 0.05f;
-
-			const glm::vec2& mouse{ Input::GetMouseX(), Input::GetMouseY() };
-			glm::vec2 deltaRotate = (mouse - mInitialMousePosition) * 0.003f;
-			if (bInit)
-				deltaRotate = { 0.0f, 0.0f };
-			mInitialMousePosition = mouse;
-
-			if (Input::IsMouseButtonPressed(Mouse::ButtonRight))
-			{
-				bInit = false;
-				MouseRotate(deltaRotate);
-			}
 		}
 		else if (Input::IsMouseButtonReleased(Mouse::ButtonRight))
 		{
@@ -124,6 +127,13 @@ namespace HEngine
 
 	bool EditorCamera::OnMouseScroll(MouseScrolledEvent& e)
 	{
+		if (Input::IsMouseButtonPressed(Mouse::ButtonRight))
+		{
+			float delta = e.GetYOffset() * 0.1f;
+			mCameraSpeed += delta;
+			mCameraSpeed = std::clamp(mCameraSpeed, 0.1f, 100.0f);
+			return false;
+		}
 		float delta = e.GetYOffset() * 0.1f;
 		MouseZoom(delta);
 		UpdateView();
@@ -177,5 +187,13 @@ namespace HEngine
 	glm::quat EditorCamera::GetOrientation() const
 	{
 		return glm::quat(glm::vec3(-mPitch, -mYaw, 0.0f));
+	}
+
+	void EditorCamera::SetOrientation(const glm::quat& orientation)
+	{
+		const glm::vec3 eulerAngles = glm::eulerAngles(glm::normalize(orientation));
+		mPitch = -eulerAngles.x;
+		mYaw = -eulerAngles.y;
+		UpdateView();
 	}
 }

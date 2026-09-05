@@ -1,0 +1,81 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct MatrixIndexingRecord
+{
+    float4x4 Clip;
+    float4x3 Transform;
+    float4 Local;
+    uint Row;
+    uint Flags;
+    uint2 Padding;
+};
+
+struct MatrixIndexingRecord_1
+{
+    float4x4 Clip;
+    float3x4 Transform;
+    float4 Local;
+    uint Row;
+    uint Flags;
+    uint2 Padding;
+};
+
+struct Records
+{
+    MatrixIndexingRecord_1 _data[1];
+};
+
+struct MatrixIndexingOutput
+{
+    float4 Clip;
+    float3 Indexed;
+    uint Checksum;
+};
+
+struct MatrixIndexingOutput_1
+{
+    float4 Clip;
+    packed_float3 Indexed;
+    uint Checksum;
+};
+
+struct Output
+{
+    MatrixIndexingOutput_1 _data[1];
+};
+
+static inline __attribute__((always_inline))
+void _main(thread const uint3& dtid, const device Records& Records_1, device Output& Output_1)
+{
+    MatrixIndexingRecord record;
+    record.Clip = transpose(Records_1._data[dtid.x].Clip);
+    record.Transform = transpose(Records_1._data[dtid.x].Transform);
+    record.Local = Records_1._data[dtid.x].Local;
+    record.Row = Records_1._data[dtid.x].Row;
+    record.Flags = Records_1._data[dtid.x].Flags;
+    record.Padding = Records_1._data[dtid.x].Padding;
+    float3 world = record.Transform * record.Local;
+    float4 clip = float4(world, 1.0) * record.Clip;
+    uint row = record.Row & 3u;
+    uint nextRow = (row + 1u) & 3u;
+    MatrixIndexingOutput _output;
+    _output.Clip = clip;
+    _output.Indexed = record.Transform[row] + (record.Transform[nextRow] * 0.25);
+    _output.Checksum = (record.Flags ^ record.Row) ^ as_type<uint>(record.Local.w);
+    Output_1._data[dtid.x].Clip = _output.Clip;
+    Output_1._data[dtid.x].Indexed = _output.Indexed;
+    Output_1._data[dtid.x].Checksum = _output.Checksum;
+}
+
+kernel void main0(device Output& Output_1 [[buffer(10)]], const device Records& Records_1 [[buffer(11)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    uint3 dtid = gl_GlobalInvocationID;
+    uint3 param = dtid;
+    _main(param, Records_1, Output_1);
+}
+

@@ -1,0 +1,23 @@
+{
+  "SchemaVersion": 1,
+  "RootFiles": [
+    "Config/DefaultEngine.json",
+    "Assets/Scenes/MaterialShowcase.he",
+    "Assets/Models/Box/Box.hmesh",
+    "Assets/Textures/DefaultTexture.png",
+    "Assets/Textures/DefaultNormal.png",
+    "Assets/Textures/black.png",
+    "Assets/Textures/Hdr/Default.hdr",
+    "Assets/Fonts/opensans/OpenSans-Regular.ttf",
+    "Assets/Fonts/opensans/OpenSans-Bold.ttf",
+    "Assets/Fonts/Noto_Sans_SC/NotoSansSC-Regular.otf",
+    "Assets/Fonts/Noto_Sans_SC/NotoSansSC-Bold.otf"
+  ],
+  "IncludeDirectories": [
+    "Scripts/Lib",
+    "Shaders/CACHES"
+  ],
+  "VirtualFiles": [
+    "Assets/Textures/white.png"
+  ]
+}

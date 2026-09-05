@@ -3,7 +3,7 @@
 Open Asset Import Library - Java Binding (jassimp)
 ---------------------------------------------------------------------------
 
-Copyright (c) 2006-2012, assimp team
+Copyright (c) 2006-2020, assimp team
 
 All rights reserved.
 
@@ -314,7 +314,7 @@ public final class AiMesh {
      * @return true if tangents and bitangents are available
      */
     public boolean hasTangentsAndBitangents() {
-        return m_tangents != null && m_tangents != null;
+        return m_tangents != null && m_bitangents != null;
     }
     
     

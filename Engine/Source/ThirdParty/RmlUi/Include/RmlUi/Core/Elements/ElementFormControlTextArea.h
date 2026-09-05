@@ -1,0 +1,110 @@
+#pragma once
+
+#include "../Header.h"
+#include "ElementFormControl.h"
+
+namespace Rml {
+
+class WidgetTextInputMultiLine;
+
+/**
+    Default RmlUi implementation of a text area.
+ */
+
+class RMLUICORE_API ElementFormControlTextArea : public ElementFormControl {
+public:
+	RMLUI_RTTI_DefineWithParent(ElementFormControlTextArea, ElementFormControl)
+
+	/// Constructs a new ElementFormControlTextArea. This should not be called directly; use the
+	/// Factory instead.
+	/// @param[in] tag The tag the element was declared as in RML.
+	ElementFormControlTextArea(const String& tag);
+	virtual ~ElementFormControlTextArea();
+
+	/// Returns a string representation of the current value of the form control. This is the value of the control
+	/// regardless of whether it has been selected / checked (as appropriate for the control).
+	/// @return The value of the form control.
+	String GetValue() const override;
+	/// Sets the current value of the form control.
+	/// @param[in] value The new value of the form control.
+	void SetValue(const String& value) override;
+
+	/// Sets the number of characters visible across the text area. Note that this will only be precise when using
+	/// a fixed-width font.
+	/// @param[in] num_columns The number of visible columns (characters).
+	void SetNumColumns(int num_columns);
+	/// Returns the approximate number of characters visible at once.
+	/// @return The number of visible characters.
+	int GetNumColumns() const;
+
+	/// Sets the number of visible lines of text in the text area.
+	/// @param[in] num_rows The new number of visible lines of text.
+	void SetNumRows(int num_rows);
+	/// Returns the number of visible lines of text in the text area.
+	/// @return The number of visible lines of text.
+	int GetNumRows() const;
+
+	/// Sets the maximum length (in characters) of this text area.
+	/// @param[in] max_length The new maximum length of the text area. A number lower than zero will mean infinite
+	/// characters.
+	void SetMaxLength(int max_length);
+	/// Returns the maximum length (in characters) of this text area.
+	/// @return The maximum number of characters allowed in this text area.
+	int GetMaxLength() const;
+
+	/// Enables or disables word-wrapping in the text area.
+	/// @param[in] word_wrap True to enable word-wrapping, false to disable.
+	void SetWordWrap(bool word_wrap);
+	/// Returns the state of word-wrapping in the text area.
+	/// @return True if the text area is word-wrapping, false otherwise.
+	bool GetWordWrap();
+
+	/// Selects all text.
+	void Select();
+	/// Selects the text in the given character range.
+	/// @param[in] selection_start The first character to be selected.
+	/// @param[in] selection_end The first character *after* the selection.
+	void SetSelectionRange(int selection_start, int selection_end);
+	/// Retrieves the selection range and text.
+	/// @param[out] selection_start The first character selected.
+	/// @param[out] selection_end The first character *after* the selection.
+	/// @param[out] selected_text The selected text.
+	void GetSelection(int* selection_start, int* selection_end, String* selected_text) const;
+
+	/// Sets visual feedback used for the IME composition in the range.
+	/// @param[in] range_start The first character to be selected.
+	/// @param[in] range_end The first character *after* the selection.
+	void SetCompositionRange(int range_start, int range_end);
+
+	/// Returns the control's inherent size, based on the length of the input field and the current font size.
+	/// @return True.
+	bool GetIntrinsicDimensions(Vector2f& dimensions, float& ratio) override;
+
+protected:
+	/// Updates the control's widget.
+	void OnUpdate() override;
+	/// Renders the control's widget.
+	void OnRender() override;
+	/// Resizes and positions the control's widget.
+	void OnResize() override;
+	/// Formats the element.
+	void OnLayout() override;
+
+	/// Called when attributes on the element are changed.
+	void OnAttributeChange(const ElementAttributes& changed_attributes) override;
+	/// Called when properties on the control are changed.
+	/// @param[in] changed_properties The properties changed on the element.
+	void OnPropertyChange(const PropertyIdSet& changed_properties) override;
+
+	/// Returns the text content of the element.
+	/// @param[out] content The content of the element.
+	void GetInnerRML(String& content) const override;
+
+private:
+	/// Sets the necessary properties to display the widget in the current word wrap state.
+	void SetWordWrapProperties();
+
+	UniquePtr<WidgetTextInputMultiLine> widget;
+};
+
+} // namespace Rml

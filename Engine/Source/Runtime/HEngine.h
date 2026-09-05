@@ -2,15 +2,21 @@
 
 // For use by HEngine applications
 
+#include <HEngine/EngineVersion.h>
+
 #include "Runtime/Core/AppFramework/Application.h"
 #include "Runtime/Core/AppFramework/Layer/Layer.h"
 #include "Runtime/Core/Log/Log.h"
 
 #include "Runtime/Core/Timestep.h"
+#include "Runtime/Core/SimulationClock.h"
+#include "Runtime/Core/PresentationClock.h"
 
-#include "Runtime/Input/Input.h"
-#include "Runtime/Input/KeyCodes.h"
-#include "Runtime/Input/MouseCodes.h"
+#include "Runtime/Core/Input/Input.h"
+#include "Runtime/Core/Input/KeyCodes.h"
+#include "Runtime/Core/Input/MouseCodes.h"
+
+#include "Runtime/Audio/AudioEngine.h"
 
 #include "Runtime/ImGui/ImGuiLayer.h"
 
@@ -24,16 +30,5 @@
 #include "Runtime/Resource/ModeManager/ModeManager.h"
 
 // ---Renderer-----------------------
-#include "Runtime/Renderer/Renderer.h"
-#include "Runtime/Renderer/Renderer2D.h"
-#include "Runtime/Renderer/Renderer3D.h"
-#include "Runtime/Renderer/RenderCommand.h"
-
-#include "Runtime/Renderer/VertexBuffer.h"
-#include "Runtime/Renderer/IndexBuffer.h"
-#include "Runtime/Renderer/Shader.h"
-#include "Runtime/Renderer/Framebuffer.h"
-#include "Runtime/Renderer/Texture.h"
-#include "Runtime/Renderer/SubTexture2D.h"
-#include "Runtime/Renderer/VertexArray.h"
+#include "Runtime/Graphics/Renderer2D.h"
 // ----------------------------------

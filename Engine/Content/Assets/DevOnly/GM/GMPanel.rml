@@ -1,0 +1,36 @@
+<rml>
+  <head>
+    <title>HEngine GM</title>
+    <link type="text/rcss" href="GMPanel.rcss" />
+  </head>
+  <body id="gm_canvas">
+    <div id="gm_backdrop">
+      <div id="gm_panel">
+        <div id="gm_header">
+          <div id="gm_title">
+            <h1>HEngine GM</h1>
+            <p>参数定义驱动的开发命令 · F10</p>
+          </div>
+          <div id="gm_header_actions">
+            <span id="gm_taint_state">干净</span>
+            <button id="gm_refresh">刷新</button>
+            <button id="gm_close">关闭</button>
+          </div>
+        </div>
+        <div id="gm_body">
+          <div id="gm_sidebar">
+            <div id="gm_command_list" />
+          </div>
+          <div id="gm_content">
+            <div id="gm_command_form">
+              <p class="gm-empty">请选择命令查看参数定义。</p>
+            </div>
+            <div id="gm_status">就绪。</div>
+            <h3 id="gm_history_title">执行记录</h3>
+            <div id="gm_history" />
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</rml>

@@ -3,14 +3,12 @@
 Open Asset Import Library (assimp)
 ---------------------------------------------------------------------------
 
-Copyright (c) 2006-2019, assimp team
-
-
+Copyright (c) 2006-2026, assimp team
 
 All rights reserved.
 
-Redistribution and use of this software in source and binary forms, 
-with or without modification, are permitted provided that the following 
+Redistribution and use of this software in source and binary forms,
+with or without modification, are permitted provided that the following
 conditions are met:
 
 * Redistributions of source code must retain the above
@@ -27,16 +25,16 @@ conditions are met:
   derived from this software without specific prior
   written permission of the assimp team.
 
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS 
-"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT 
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
 LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT 
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
 OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT 
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
 LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY 
-THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT 
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ---------------------------------------------------------------------------
 */
@@ -47,7 +45,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "Main.h"
 
-const char* AICMD_MSG_ABOUT = 
+#include <assimp/ProgressHandler.hpp>
+#include <iostream>
+
+class ConsoleProgressHandler : public ProgressHandler {
+public:
+	ConsoleProgressHandler() :
+			ProgressHandler() {
+		// empty
+	}
+
+	~ConsoleProgressHandler() override = default;
+
+	bool Update(float percentage) override {
+        std::cout << "\r" << percentage * 100.0f << " %";
+		return true;
+    }
+};
+
+constexpr char AICMD_MSG_ABOUT[] =
 "------------------------------------------------------ \n"
 "Open Asset Import Library (\"Assimp\", https://github.com/assimp/assimp) \n"
 " -- Commandline toolchain --\n"
@@ -55,7 +71,7 @@ const char* AICMD_MSG_ABOUT =
 
 "Version %i.%i %s%s%s%s%s(GIT commit %x)\n\n";
 
-const char* AICMD_MSG_HELP = 
+constexpr char AICMD_MSG_HELP[] =
 "assimp <verb> <parameters>\n\n"
 " verbs:\n"
 " \tinfo       - Quick file stats\n"
@@ -73,19 +89,18 @@ const char* AICMD_MSG_HELP =
 "\n Use \'assimp <verb> --help\' for detailed help on a command.\n"
 ;
 
-/*extern*/ Assimp::Importer* globalImporter = NULL;
+/*extern*/ Assimp::Importer* globalImporter = nullptr;
 
 #ifndef ASSIMP_BUILD_NO_EXPORT
-/*extern*/ Assimp::Exporter* globalExporter = NULL;
+/*extern*/ Assimp::Exporter* globalExporter = nullptr;
 #endif
 
 // ------------------------------------------------------------------------------
 // Application entry point
-int main (int argc, char* argv[])
-{
+int main (int argc, char* argv[]) {
 	if (argc <= 1)	{
 		printf("assimp: No command specified. Use \'assimp help\' for a detailed command list\n");
-		return 0;
+		return AssimpCmdError::Success;
 	}
 
 	// assimp version
@@ -102,19 +117,19 @@ int main (int argc, char* argv[])
 			(flags & ASSIMP_CFLAGS_STLPORT ?		"-stlport " : ""),
 			aiGetVersionRevision());
 
-		return 0;
+		return AssimpCmdError::Success;
 	}
 
 	// assimp help
-	// Display some basic help (--help and -h work as well 
+	// Display some basic help (--help and -h work as well
 	// because people could try them intuitively)
 	if (!strcmp(argv[1], "help") || !strcmp(argv[1], "--help") || !strcmp(argv[1], "-h")) {
 		printf("%s",AICMD_MSG_HELP);
-		return 0;
+		return AssimpCmdError::Success;
 	}
 
 	// assimp cmpdump
-	// Compare two mini model dumps (regression suite) 
+	// Compare two mini model dumps (regression suite)
 	if (! strcmp(argv[1], "cmpdump")) {
 		return Assimp_CompareDump (&argv[2],argc-2);
 	}
@@ -125,7 +140,7 @@ int main (int argc, char* argv[])
 	globalImporter = &imp;
 
 #ifndef ASSIMP_BUILD_NO_EXPORT
-	// 
+	//
 	Assimp::Exporter exp;
 	globalExporter = &exp;
 #endif
@@ -137,7 +152,7 @@ int main (int argc, char* argv[])
 		imp.GetExtensionList(s);
 
 		printf("%s\n",s.data);
-		return 0;
+		return AssimpCmdError::Success;
 	}
 
 #ifndef ASSIMP_BUILD_NO_EXPORT
@@ -145,7 +160,7 @@ int main (int argc, char* argv[])
 	// List all export file formats supported by Assimp (not the file extensions, just the format identifiers!)
 	if (! strcmp(argv[1], "listexport")) {
 		aiString s;
-		
+
 		for(size_t i = 0, end = exp.GetExportFormatCount(); i < end; ++i) {
 			const aiExportFormatDesc* const e = exp.GetExportFormatDescription(i);
 			s.Append( e->id );
@@ -155,7 +170,7 @@ int main (int argc, char* argv[])
 		}
 
 		printf("%s\n",s.data);
-		return 0;
+		return AssimpCmdError::Success;
 	}
 
 
@@ -166,19 +181,19 @@ int main (int argc, char* argv[])
 
 		if (argc<3) {
 			printf("Expected file format id\n");
-			return -11;
+			return AssimpCmdError::NoFileFormatSpecified;
 		}
 
 		for(size_t i = 0, end = exp.GetExportFormatCount(); i < end; ++i) {
 			const aiExportFormatDesc* const e = exp.GetExportFormatDescription(i);
 			if (!strcmp(e->id,argv[2])) {
 				printf("%s\n%s\n%s\n",e->id,e->fileExtension,e->description);
-				return 0;
+				return AssimpCmdError::Success;
 			}
 		}
-		
+
 		printf("Unknown file format id: \'%s\'\n",argv[2]);
-		return -12;
+		return AssimpCmdError::UnknownFileFormat;
 	}
 
 	// assimp export
@@ -194,11 +209,11 @@ int main (int argc, char* argv[])
 	if (! strcmp(argv[1], "knowext")) {
 		if (argc<3) {
 			printf("Expected file extension");
-			return -10;
+			return AssimpCmdError::NoFileExtensionSpecified;
 		}
 		const bool b = imp.IsExtensionSupported(argv[2]);
 		printf("File extension \'%s\'  is %sknown\n",argv[2],(b?"":"not "));
-		return b?0:-1;
+		return b? AssimpCmdError::Success : AssimpCmdError::UnknownFileExtension;
 	}
 
 	// assimp info
@@ -207,13 +222,13 @@ int main (int argc, char* argv[])
 		return Assimp_Info ((const char**)&argv[2],argc-2);
 	}
 
-	// assimp dump 
-	// Dump a model to a file 
+	// assimp dump
+	// Dump a model to a file
 	if (! strcmp(argv[1], "dump")) {
 		return Assimp_Dump (&argv[2],argc-2);
 	}
 
-	// assimp extract 
+	// assimp extract
 	// Extract an embedded texture from a file
 	if (! strcmp(argv[1], "extract")) {
 		return Assimp_Extract (&argv[2],argc-2);
@@ -228,7 +243,7 @@ int main (int argc, char* argv[])
 	}
 
 	printf("Unrecognized command. Use \'assimp help\' for a detailed command list\n");
-	return 1;
+	return AssimpCmdError::UnrecognizedCommand;
 }
 
 
@@ -236,7 +251,7 @@ int main (int argc, char* argv[])
 void SetLogStreams(const ImportData& imp)
 {
 	printf("\nAttaching log stream   ...           OK\n");
-		
+
 	unsigned int flags = 0;
 	if (imp.logFile.length()) {
 		flags |= aiDefaultLogStream_FILE;
@@ -264,7 +279,7 @@ void PrintHorBar()
 // ------------------------------------------------------------------------------
 // Import a specific file
 const aiScene* ImportModel(
-	const ImportData& imp, 
+	const ImportData& imp,
 	const std::string& path)
 {
 	// Attach log streams
@@ -276,16 +291,19 @@ const aiScene* ImportModel(
 	// Now validate this flag combination
 	if(!globalImporter->ValidateFlags(imp.ppFlags)) {
 		printf("ERROR: Unsupported post-processing flags \n");
-		return NULL;
+		return nullptr;
 	}
 	printf("Validating postprocessing flags ...  OK\n");
 	if (imp.showLog) {
 		PrintHorBar();
 	}
-		
+
 
 	// do the actual import, measure time
 	const clock_t first = clock();
+    ConsoleProgressHandler *ph = new ConsoleProgressHandler;
+    globalImporter->SetProgressHandler(ph);
+
 	const aiScene* scene = globalImporter->ReadFile(path,imp.ppFlags);
 
 	if (imp.showLog) {
@@ -293,7 +311,7 @@ const aiScene* ImportModel(
 	}
 	if (!scene) {
 		printf("ERROR: Failed to load file: %s\n", globalImporter->GetErrorString());
-		return NULL;
+		return nullptr;
 	}
 
 	const clock_t second = ::clock();
@@ -302,16 +320,19 @@ const aiScene* ImportModel(
 	printf("Importing file ...                   OK \n   import took approx. %.5f seconds\n"
 		"\n",seconds);
 
-	if (imp.log) { 
+	if (imp.log) {
 		FreeLogStreams();
 	}
+    globalImporter->SetProgressHandler(nullptr);
+    delete ph;
+
 	return scene;
 }
 
 #ifndef ASSIMP_BUILD_NO_EXPORT
 // ------------------------------------------------------------------------------
-bool ExportModel(const aiScene* pOut,  
-	const ImportData& imp, 
+bool ExportModel(const aiScene* pOut,
+	const ImportData& imp,
 	const std::string& path,
 	const char* pID)
 {
@@ -324,6 +345,14 @@ bool ExportModel(const aiScene* pOut,
 	if (imp.showLog) {
 		PrintHorBar();
 	}
+
+	aiMatrix4x4 rx, ry, rz;
+    aiMatrix4x4::RotationX(imp.rot.x, rx);
+    aiMatrix4x4::RotationY(imp.rot.y, ry);
+    aiMatrix4x4::RotationZ(imp.rot.z, rz);
+	pOut->mRootNode->mTransformation *= rx;
+    pOut->mRootNode->mTransformation *= ry;
+    pOut->mRootNode->mTransformation *= rz;
 
 	// do the actual export, measure time
 	const clock_t first = clock();
@@ -344,7 +373,7 @@ bool ExportModel(const aiScene* pOut,
 	printf("Exporting file ...                   OK \n   export took approx. %.5f seconds\n"
 		"\n",seconds);
 
-	if (imp.log) { 
+	if (imp.log) {
 		FreeLogStreams();
 	}
 
@@ -355,7 +384,7 @@ bool ExportModel(const aiScene* pOut,
 // ------------------------------------------------------------------------------
 // Process standard arguments
 int ProcessStandardArguments(
-	ImportData& fill, 
+	ImportData& fill,
 	const char* const * params,
 	unsigned int num)
 {
@@ -388,7 +417,7 @@ int ProcessStandardArguments(
 	//
 	// -c<file> --config-file=<file>
 
-	for (unsigned int i = 0; i < num;++i) 
+	for (unsigned int i = 0; i < num;++i)
 	{
         const char *param = params[ i ];
         printf( "param = %s\n", param );
@@ -493,6 +522,18 @@ int ProcessStandardArguments(
 		else if (! strcmp( param, "-v") || ! strcmp( param, "--verbose")) {
 			fill.verbose = true;
 		}
+		else if (!strncmp(params[i], "-rx=", 4) || !strncmp(params[i], "--rotation-x=", 13)) {
+            std::string value = std::string(params[i] + (params[i][1] == '-' ? 13 : 4));
+            fill.rot.x = std::stof(value);
+		}
+		else if (!strncmp(params[i], "-ry=", 4) || !strncmp(params[i], "--rotation-y=", 13)) {
+            std::string value = std::string(params[i] + (params[i][1] == '-' ? 13 : 4));
+            fill.rot.y = std::stof(value);
+        }
+		else if (!strncmp(params[i], "-rz=", 4) || !strncmp(params[i], "--rotation-z=", 13)) {
+            std::string value = std::string(params[i] + (params[i][1] == '-' ? 13 : 4));
+            fill.rot.z = std::stof(value);
+        }
 		else if (! strncmp( param, "--log-out=",10) || ! strncmp( param, "-lo",3)) {
 			fill.logFile = std::string(params[i]+(params[i][1] == '-' ? 10 : 3));
 			if (!fill.logFile.length()) {
@@ -505,17 +546,14 @@ int ProcessStandardArguments(
 		fill.log = true;
 	}
 
-	return 0;
+	return AssimpCmdError::Success;
 }
 
 // ------------------------------------------------------------------------------
-int Assimp_TestBatchLoad (
-	const char* const* params, 
-	unsigned int num)
-{
+int Assimp_TestBatchLoad(const char* const* params, unsigned int num) {
 	for(unsigned int i = 0; i < num; ++i) {
 		globalImporter->ReadFile(params[i],aiProcessPreset_TargetRealtime_MaxQuality);
 		// we're totally silent. scene destructs automatically.
 	}
-	return 0;
+	return AssimpCmdError::Success;
 }

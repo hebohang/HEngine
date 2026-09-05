@@ -2,8 +2,7 @@
 Open Asset Import Library (assimp)
 ----------------------------------------------------------------------
 
-Copyright (c) 2006-2019, assimp team
-
+Copyright (c) 2006-2026, assimp team
 
 All rights reserved.
 
@@ -43,57 +42,60 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /** @file Profiler.h
  *  @brief Utility to measure the respective runtime of each import step
  */
-#ifndef INCLUDED_PROFILER_H
-#define INCLUDED_PROFILER_H
+#pragma once
+#ifndef AI_INCLUDED_PROFILER_H
+#define AI_INCLUDED_PROFILER_H
+
+#ifdef __GNUC__
+#   pragma GCC system_header
+#endif
 
 #include <chrono>
 #include <assimp/DefaultLogger.hpp>
-#include "TinyFormatter.h"
+#include <assimp/TinyFormatter.h>
 
 #include <map>
 
-namespace Assimp {
-namespace Profiling {
+namespace Assimp::Profiling {
 
 using namespace Formatter;
 
 // ------------------------------------------------------------------------------------------------
-/** Simple wrapper around boost::timer to simplify reporting. Timings are automatically
- *  dumped to the log file.
- */
+/// @brief Simple wrapper around boost::timer to simplify reporting. 
+///
+/// Timings are automatically dumped to the log file.
 class Profiler {
 public:
-    Profiler() {
-        // empty
-    }
+    /// @brief The class constructor.
+    Profiler() = default;
 
-public:
+    /// @brief The class destructor.
+    ~Profiler() = default;
 
-    /** Start a named timer */
+    /// @brief Starts a named timer.
+    /// @param region    The profiling region name.
     void BeginRegion(const std::string& region) {
-        regions[region] = std::chrono::system_clock::now();
-        ASSIMP_LOG_DEBUG((format("START `"),region,"`"));
+        mRegions[region] = std::chrono::system_clock::now();
+        ASSIMP_LOG_DEBUG("START `",region,"`");
     }
 
-
-    /** End a specific named timer and write its end time to the log */
+    /// @brief End a specific named timer and write its end time to the log.
+    /// @param region    The profiling region name.
     void EndRegion(const std::string& region) {
-        RegionMap::const_iterator it = regions.find(region);
-        if (it == regions.end()) {
+        if (auto it = mRegions.find(region); it == mRegions.end()) {
             return;
         }
 
-        std::chrono::duration<double> elapsedSeconds = std::chrono::system_clock::now() - regions[region];
-        ASSIMP_LOG_DEBUG((format("END   `"),region,"`, dt= ", elapsedSeconds.count()," s"));
+        auto elapsedSeconds = std::chrono::system_clock::now() - mRegions[region];
+        ASSIMP_LOG_DEBUG("END   `",region,"`, dt= ", elapsedSeconds.count()," s");
     }
 
 private:
-    typedef std::map<std::string,std::chrono::time_point<std::chrono::system_clock>> RegionMap;
-    RegionMap regions;
+    using RegionMap = std::map<std::string,std::chrono::time_point<std::chrono::system_clock>>;
+    RegionMap mRegions{};
 };
 
-}
-}
+} // namespace Assimp::Profiling
 
-#endif
+#endif // AI_INCLUDED_PROFILER_H
 

@@ -1,0 +1,9 @@
+include=Engine/Source
+include=Engine/Source/ThirdParty/glm
+include=Engine/Source/ThirdParty/json/include
+include=Engine/Source/ThirdParty/pybind11/include
+include=Engine/Source/ThirdParty/Python/include
+sourceRoot=Engine/Source|engine
+arg=-fms-extensions
+arg=-fms-compatibility
+arg=-fdelayed-template-parsing

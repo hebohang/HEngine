@@ -1,0 +1,15 @@
+
+RWTexture2D<float4> write : register(u0);
+
+RWTexture2D<float4> read1 : register(u1);
+//SamplerState read_sampler : register(s1);
+
+Texture2D<float4> read2 : register(t2);
+SamplerState read2_sampler : register(s2);
+
+[numthreads(1, 1, 1)]
+void main(uint3 dtid : SV_DispatchThreadID)
+{
+    uint2 index = uint2(dtid.xy);
+    write[index] = read1[index] + read2.SampleLevel(read2_sampler, float2(0.0f, 0.0f), 0);
+}

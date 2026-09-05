@@ -1,0 +1,38 @@
+struct StructuredMatrixRecord
+{
+    uint Flags;
+    float Age;
+    uint2 Packed;
+    float4x3 Transform;
+    float3 Direction;
+    uint Color;
+};
+
+struct StructuredMatrixOutput
+{
+    float3 Translation;
+    uint Flags;
+    float3 Direction;
+    uint Color;
+    float3 Axis0;
+    uint Checksum;
+};
+
+StructuredBuffer<StructuredMatrixRecord> Records : register(t1);
+RWStructuredBuffer<StructuredMatrixOutput> Output : register(u0);
+
+[numthreads(1, 1, 1)]
+void main(uint3 dtid : SV_DispatchThreadID)
+{
+    StructuredMatrixRecord record = Records[dtid.x];
+
+    StructuredMatrixOutput output;
+    output.Translation = record.Transform[3];
+    output.Flags = record.Flags ^ asuint(record.Age);
+    output.Direction = record.Direction + record.Transform[2] * 0.25f;
+    output.Color = record.Color;
+    output.Axis0 = record.Transform[0] * record.Age + record.Direction;
+    output.Checksum = record.Flags ^ record.Packed.x ^ record.Packed.y ^ record.Color;
+
+    Output[dtid.x] = output;
+}

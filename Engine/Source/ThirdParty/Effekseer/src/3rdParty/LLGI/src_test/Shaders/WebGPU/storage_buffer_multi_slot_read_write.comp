@@ -1,0 +1,119 @@
+diagnostic(off, derivative_uniformity);
+
+struct InputA {
+  Values : vec3<f32>,
+  Tag : u32,
+}
+
+struct Input1 {
+  m : array<InputA>,
+}
+
+@group(2) @binding(1) var<storage, read> Input1_1 : Input1;
+
+struct InputB {
+  X : u32,
+  Y : u32,
+  Z : u32,
+  W : u32,
+}
+
+struct Input2 {
+  m_1 : array<InputB>,
+}
+
+@group(2) @binding(2) var<storage, read> Input2_1 : Input2;
+
+struct OutputA {
+  Value : f32,
+  Tag : u32,
+  Mix : u32,
+  Padding : u32,
+}
+
+struct Output0 {
+  m_2 : array<OutputA>,
+}
+
+@group(2) @binding(0) var<storage, read_write> Output0_1 : Output0;
+
+struct OutputB {
+  Values : vec3<f32>,
+  Checksum : u32,
+}
+
+struct Output3 {
+  m_3 : array<OutputB>,
+}
+
+@group(2) @binding(3) var<storage, read_write> Output3_1 : Output3;
+
+@compute @workgroup_size(1u, 1u, 1u)
+fn main(@builtin(global_invocation_id) dtid : vec3<u32>) {
+  var dtid_1 : vec3<u32>;
+  var param : vec3<u32>;
+  dtid_1 = dtid;
+  param = dtid_1;
+  v(&(param));
+}
+
+struct InputA_1 {
+  Values : vec3<f32>,
+  Tag : u32,
+}
+
+struct InputB_1 {
+  X : u32,
+  Y : u32,
+  Z : u32,
+  W : u32,
+}
+
+struct OutputA_1 {
+  Value : f32,
+  Tag : u32,
+  Mix : u32,
+  Padding : u32,
+}
+
+struct OutputB_1 {
+  Values : vec3<f32>,
+  Checksum : u32,
+}
+
+fn v(dtid : ptr<function, vec3<u32>>) {
+  var index : u32;
+  var a : InputA_1;
+  var b : InputB_1;
+  var mix : u32;
+  var outA : OutputA_1;
+  var outB : OutputB_1;
+  index = (*(dtid)).x;
+  let v_1 = Input1_1.m[index];
+  a.Values = v_1.Values;
+  a.Tag = v_1.Tag;
+  let v_2 = Input2_1.m_1[index];
+  b.X = v_2.X;
+  b.Y = v_2.Y;
+  b.Z = v_2.Z;
+  b.W = v_2.W;
+  mix = ((((a.Tag ^ b.X) ^ b.Y) ^ b.Z) ^ b.W);
+  outA.Value = (((a.Values.x + a.Values.y) + a.Values.z) + f32((b.X & 255u)));
+  outA.Tag = a.Tag;
+  outA.Mix = mix;
+  outA.Padding = 0u;
+  let v_3 = index;
+  let v_4 = outA;
+  let v_5 = &(Output0_1.m_2[v_3]);
+  (*(v_5)).Value = v_4.Value;
+  (*(v_5)).Tag = v_4.Tag;
+  (*(v_5)).Mix = v_4.Mix;
+  (*(v_5)).Padding = v_4.Padding;
+  outB.Values = (a.Values * vec3<f32>(2.0f, 3.0f, 4.0f));
+  outB.Checksum = (mix + index);
+  let v_6 = index;
+  let v_7 = outB;
+  let v_8 = &(Output3_1.m_3[v_6]);
+  (*(v_8)).Values = v_7.Values;
+  (*(v_8)).Checksum = v_7.Checksum;
+}

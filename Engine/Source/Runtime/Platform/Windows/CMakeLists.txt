@@ -1,5 +1,6 @@
 RUNTIME_ADD_SOURCE(
-    WindowsWindow.h WindowsWindow.cpp
-    WindowsInput.cpp
     WindowsPlatformUtils.cpp
+    WindowsPlatformPaths.cpp
+    WindowsPlatformFileSystem.cpp
+    WindowsPlatformProcess.cpp
 )

@@ -1,0 +1,9 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = crlf
+insert_final_newline = true
+
+[*.{cpp,h,hpp,cc,c,cmake,json,md,ps1,bat,py,hlsl,glsl,vert,frag}]
+trim_trailing_whitespace = true

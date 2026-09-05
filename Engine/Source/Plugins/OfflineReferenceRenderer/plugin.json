@@ -1,0 +1,33 @@
+{
+    "SchemaVersion": 1,
+    "Id": "he.offline-reference-renderer",
+    "DisplayName": "Path Tracing",
+    "Version": "1.0.0",
+    "ApiVersion": 1,
+    "RequiredHostApiVersion": 1,
+    "ModuleName": "OfflineReferenceRenderer",
+    "EntrySymbol": "HEngineCreateOfflineReferenceRendererPluginModule",
+    "Dependencies": [],
+    "OptionalDependencies": [],
+    "LoadPhase": "PostDevice",
+    "SupportedHosts": [
+        "Editor",
+        "Tests",
+        "RenderSmoke"
+    ],
+    "Distribution": "DeveloperOnly",
+    "PackagePolicy": "Never",
+    "ShaderRoots": [
+        "Shaders"
+    ],
+    "ContentRoots": [],
+    "Platforms": [
+        "Windows"
+    ],
+    "Configurations": [
+        "Debug",
+        "Release",
+        "RelWithDebInfo",
+        "MinSizeRel"
+    ]
+}

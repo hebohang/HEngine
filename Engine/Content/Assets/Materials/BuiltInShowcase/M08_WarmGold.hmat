@@ -1,0 +1,164 @@
+{
+  "SchemaVersion": 2,
+  "Type": "Custom",
+  "PassName": "ShowcasePBR",
+  "ShaderPath": "Shaders/Materials/BuiltInShowcase/ShowcasePBR.hlsl",
+  "VariantKeywords": [],
+  "Domain": "Surface",
+  "ShadingModel": "Lit",
+  "BlendMode": "Opaque",
+  "CullMode": "Back",
+  "DepthWrite": true,
+  "AlphaCutoff": 0.5,
+  "Parameters": {
+    "g_BaseColorFactor": {
+      "StableId": "pbr.base_color",
+      "Type": "color",
+      "Value": [
+        1,
+        0.56,
+        0.12,
+        1
+      ]
+    },
+    "g_MetallicFactor": {
+      "StableId": "pbr.metallic",
+      "Type": "float",
+      "Value": 1
+    },
+    "g_RoughnessFactor": {
+      "StableId": "pbr.roughness",
+      "Type": "float",
+      "Value": 0.16
+    },
+    "g_AoStrength": {
+      "StableId": "pbr.ao",
+      "Type": "float",
+      "Value": 1
+    },
+    "g_EmissiveFactor": {
+      "StableId": "pbr.emissive",
+      "Type": "color",
+      "Value": [
+        0,
+        0,
+        0,
+        1
+      ]
+    },
+    "g_NormalStrength": {
+      "StableId": "pbr.normal_strength",
+      "Type": "float",
+      "Value": 1
+    },
+    "g_DetailNormalStrength": {
+      "StableId": "pbr.detail_strength",
+      "Type": "float",
+      "Value": 0
+    },
+    "g_DetailScale": {
+      "StableId": "pbr.detail_scale",
+      "Type": "float",
+      "Value": 12
+    }
+  },
+  "Textures": {
+    "g_AlbedoMap": {
+      "StableId": "pbr.albedo_map",
+      "Type": "texture2d",
+      "Path": "",
+      "Fallback": "white",
+      "ColorSpace": "SRGB",
+      "Semantic": "BaseColor"
+    },
+    "g_NormalMap": {
+      "StableId": "pbr.normal_map",
+      "Type": "texture2d",
+      "Path": "",
+      "Fallback": "normal",
+      "ColorSpace": "Linear",
+      "Semantic": "Normal"
+    }
+  },
+  "OrphanedParameters": {},
+  "Properties": {
+    "name": "Warm Gold",
+    "pbrMetallicRoughness": {
+      "baseColorFactor": [
+        1,
+        0.56,
+        0.12,
+        1
+      ],
+      "metallicFactor": 1,
+      "roughnessFactor": 0.16,
+      "baseColorTexture": {
+        "texCoord": 0,
+        "textureRes": {
+          "textureSourcePath": ""
+        }
+      },
+      "metallicRoughnessTexture": {
+        "texCoord": 0,
+        "textureRes": {
+          "textureSourcePath": ""
+        }
+      }
+    },
+    "normalTexture": {
+      "scale": 1,
+      "texCoord": 0,
+      "textureRes": {
+        "textureSourcePath": ""
+      }
+    },
+    "occlusionTexture": {
+      "strength": 1,
+      "texCoord": 0,
+      "textureRes": {
+        "textureSourcePath": ""
+      }
+    },
+    "emissiveTexture": {
+      "texCoord": 0,
+      "textureRes": {
+        "textureSourcePath": ""
+      }
+    },
+    "emissiveFactor": [
+      0,
+      0,
+      0
+    ],
+    "alphaMode": "OPAQUE",
+    "alphaCutoff": 0.5,
+    "doubleSided": false,
+    "bUseAlbedoMap": false,
+    "bUseNormalMap": false,
+    "bUseMetallicRoughnessMap": false,
+    "bUseAoMap": false,
+    "bUseEmissiveMap": false,
+    "ExposedProperties": {
+      "g_BaseColorFactor": [
+        1,
+        0.56,
+        0.12,
+        1
+      ],
+      "g_MetallicFactor": 1,
+      "g_RoughnessFactor": 0.16,
+      "g_AoStrength": 1,
+      "g_EmissiveFactor": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "g_AlbedoMap": "white",
+      "g_NormalMap": "normal",
+      "g_NormalStrength": 1,
+      "g_DetailNormalStrength": 0,
+      "g_DetailScale": 12
+    }
+  }
+}

@@ -1,0 +1,125 @@
+diagnostic(off, derivative_uniformity);
+
+struct HistoryRecord {
+  Position : vec3<f32>,
+  ColorTag : u32,
+  Tangent : vec3<f32>,
+  Sequence : u32,
+}
+
+struct HistoryData {
+  m : array<HistoryRecord>,
+}
+
+@group(2) @binding(0) var<storage, read_write> HistoryData_1 : HistoryData;
+
+struct RibbonRecord {
+  BaseIndex : u32,
+  Count : u32,
+  Head : u32,
+  Width : f32,
+  ColorTag : u32,
+  Reserved0 : u32,
+  Reserved1 : u32,
+  Reserved2 : u32,
+}
+
+struct RibbonData {
+  m_1 : array<RibbonRecord>,
+}
+
+@group(2) @binding(1) var<storage, read_write> RibbonData_1 : RibbonData;
+
+@compute @workgroup_size(1u, 1u, 1u)
+fn main(@builtin(global_invocation_id) dtid : vec3<u32>) {
+  var dtid_1 : vec3<u32>;
+  var param : vec3<u32>;
+  dtid_1 = dtid;
+  param = dtid_1;
+  v(&(param));
+}
+
+struct HistoryRecord_1 {
+  Position : vec3<f32>,
+  ColorTag : u32,
+  Tangent : vec3<f32>,
+  Sequence : u32,
+}
+
+struct RibbonRecord_1 {
+  BaseIndex : u32,
+  Count : u32,
+  Head : u32,
+  Width : f32,
+  ColorTag : u32,
+  Reserved0 : u32,
+  Reserved1 : u32,
+  Reserved2 : u32,
+}
+
+fn v(dtid : ptr<function, vec3<u32>>) {
+  var id : u32;
+  var local : u32;
+  var instance : u32;
+  var record : HistoryRecord_1;
+  var x : f32;
+  var x_1 : f32;
+  var record_1 : RibbonRecord_1;
+  id = (*(dtid)).x;
+  if ((id < 8u)) {
+    local = (id & 3u);
+    instance = (id >> 2u);
+    record.Tangent = vec3<f32>(0.0f, 1.0f, 0.0f);
+    record.ColorTag = instance;
+    record.Sequence = local;
+    if ((instance == 0u)) {
+      x = -0.15000000596046447754f;
+      if ((local == 1u)) {
+        x = -0.75f;
+      } else if ((local == 2u)) {
+        x = -0.55000001192092895508f;
+      } else if ((local == 3u)) {
+        x = -0.34999999403953552246f;
+      }
+      record.Position = vec3<f32>(x, -0.28000000119209289551f, 0.0f);
+    } else {
+      x_1 = 0.55000001192092895508f;
+      if ((local == 1u)) {
+        x_1 = 0.75f;
+      } else if ((local == 2u)) {
+        x_1 = 0.15000000596046447754f;
+      } else if ((local == 3u)) {
+        x_1 = 0.34999999403953552246f;
+      }
+      record.Position = vec3<f32>(x_1, 0.25999999046325683594f, 0.0f);
+    }
+    let v_1 = id;
+    let v_2 = record;
+    let v_3 = &(HistoryData_1.m[v_1]);
+    (*(v_3)).Position = v_2.Position;
+    (*(v_3)).ColorTag = v_2.ColorTag;
+    (*(v_3)).Tangent = v_2.Tangent;
+    (*(v_3)).Sequence = v_2.Sequence;
+  }
+  if ((id < 2u)) {
+    record_1.BaseIndex = (id * 4u);
+    record_1.Count = 4u;
+    record_1.Head = select(2u, 1u, (id == 0u));
+    record_1.Width = 0.05499999970197677612f;
+    record_1.ColorTag = id;
+    record_1.Reserved0 = 0u;
+    record_1.Reserved1 = 0u;
+    record_1.Reserved2 = 0u;
+    let v_4 = id;
+    let v_5 = record_1;
+    let v_6 = &(RibbonData_1.m_1[v_4]);
+    (*(v_6)).BaseIndex = v_5.BaseIndex;
+    (*(v_6)).Count = v_5.Count;
+    (*(v_6)).Head = v_5.Head;
+    (*(v_6)).Width = v_5.Width;
+    (*(v_6)).ColorTag = v_5.ColorTag;
+    (*(v_6)).Reserved0 = v_5.Reserved0;
+    (*(v_6)).Reserved1 = v_5.Reserved1;
+    (*(v_6)).Reserved2 = v_5.Reserved2;
+  }
+}

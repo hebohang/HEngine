@@ -1,0 +1,21 @@
+#version 450
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout(binding = 1, rgba32f) uniform readonly image2D read1;
+layout(binding = 0, rgba32f) uniform writeonly image2D write;
+layout(binding = 2) uniform sampler2D _55;
+
+void _main(uvec3 dtid)
+{
+    uvec2 index = dtid.xy;
+    vec4 storeTemp = imageLoad(read1, ivec2(index)) + textureLod(_55, vec2(0.0), 0.0);
+    imageStore(write, ivec2(index), storeTemp);
+}
+
+void main()
+{
+    uvec3 dtid = gl_GlobalInvocationID;
+    uvec3 param = dtid;
+    _main(param);
+}
+

@@ -31,7 +31,7 @@
 # ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-find_host_package(PythonInterp 3 REQUIRED)
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 set(GLSLANG_INTRINSIC_H          "${GLSLANG_GENERATED_INCLUDEDIR}/glslang/glsl_intrinsic_header.h")
 set(GLSLANG_INTRINSIC_PY         "${CMAKE_CURRENT_SOURCE_DIR}/../gen_extension_headers.py")
@@ -50,7 +50,7 @@ add_custom_command(
 add_library(glslang-default-resource-limits
             ${CMAKE_CURRENT_SOURCE_DIR}/ResourceLimits.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/resource_limits_c.cpp)
-set_property(TARGET glslang-default-resource-limits PROPERTY FOLDER glslang)
+set_property(TARGET glslang-default-resource-limits PROPERTY FOLDER ${ThirdPartyFolder}/glslang)
 set_property(TARGET glslang-default-resource-limits PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 target_include_directories(glslang-default-resource-limits
@@ -60,7 +60,7 @@ target_include_directories(glslang-default-resource-limits
 set(SOURCES StandAlone.cpp DirStackFileIncluder.h  ${GLSLANG_INTRINSIC_H})
 
 add_executable(glslangValidator ${SOURCES})
-set_property(TARGET glslangValidator PROPERTY FOLDER tools)
+set_property(TARGET glslangValidator PROPERTY FOLDER ${ThirdPartyFolder}/glslang/tools)
 glslang_set_link_args(glslangValidator)
 
 set(LIBRARIES
@@ -94,7 +94,7 @@ endif()
 if(ENABLE_SPVREMAPPER)
     set(REMAPPER_SOURCES spirv-remap.cpp)
     add_executable(spirv-remap ${REMAPPER_SOURCES})
-    set_property(TARGET spirv-remap PROPERTY FOLDER tools)
+    set_property(TARGET spirv-remap PROPERTY FOLDER ${ThirdPartyFolder}/glslang/tools)
     glslang_set_link_args(spirv-remap)
     target_link_libraries(spirv-remap ${LIBRARIES})
 endif()

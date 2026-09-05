@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160">
+  <defs>
+    <radialGradient id="bloom" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#fffdf5" stop-opacity="0.96"/>
+      <stop offset="0.48" stop-color="#fff0a6" stop-opacity="0.64"/>
+      <stop offset="1" stop-color="#8ce7d1" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="80" cy="80" r="74" fill="url(#bloom)"/>
+  <g fill="#fff4aa" stroke="#ffffff" stroke-width="3" stroke-linejoin="round">
+    <path d="M80 12 L87 57 L80 72 L73 57 Z"/>
+    <path d="M148 80 L103 87 L88 80 L103 73 Z"/>
+    <path d="M80 148 L73 103 L80 88 L87 103 Z"/>
+    <path d="M12 80 L57 73 L72 80 L57 87 Z"/>
+  </g>
+  <g fill="#c8b8f5" opacity="0.9">
+    <circle cx="37" cy="37" r="6"/>
+    <circle cx="126" cy="43" r="4"/>
+    <circle cx="120" cy="123" r="7"/>
+    <circle cx="38" cy="118" r="4"/>
+  </g>
+</svg>

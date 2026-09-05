@@ -1,0 +1,152 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct MatrixIndexingRecord
+{
+    float4x4 Clip;
+    float4x3 Transform;
+    float4 Local;
+    uint Row;
+    uint Flags;
+    uint2 Padding;
+};
+
+struct MatrixIndexingRecord_1
+{
+    float4x4 Clip;
+    float3x4 Transform;
+    float4 Local;
+    uint Row;
+    uint Flags;
+    uint2 Padding;
+};
+
+struct Records
+{
+    MatrixIndexingRecord_1 _data[1];
+};
+
+static inline __attribute__((always_inline))
+float MakeClip(thread const uint& index, thread const uint& row, thread const uint& column)
+{
+    float diagonal = float(row == column);
+    return diagonal + (float(((int(index) + 1) * (int(row) + 1)) - int(column)) * 0.03125);
+}
+
+static inline __attribute__((always_inline))
+float MakeTransform(thread const uint& index, thread const uint& row, thread const uint& column)
+{
+    return (float((row + 1u) * (column + 2u)) * 0.125) + (float(index) * 0.0078125);
+}
+
+static inline __attribute__((always_inline))
+void _main(thread const uint3& dtid, device Records& Records_1)
+{
+    uint index = dtid.x;
+    uint param = index;
+    uint param_1 = 0u;
+    uint param_2 = 0u;
+    uint param_3 = index;
+    uint param_4 = 0u;
+    uint param_5 = 1u;
+    uint param_6 = index;
+    uint param_7 = 0u;
+    uint param_8 = 2u;
+    uint param_9 = index;
+    uint param_10 = 0u;
+    uint param_11 = 3u;
+    MatrixIndexingRecord record;
+    record.Clip[0] = float4(MakeClip(param, param_1, param_2), MakeClip(param_3, param_4, param_5), MakeClip(param_6, param_7, param_8), MakeClip(param_9, param_10, param_11));
+    uint param_12 = index;
+    uint param_13 = 1u;
+    uint param_14 = 0u;
+    uint param_15 = index;
+    uint param_16 = 1u;
+    uint param_17 = 1u;
+    uint param_18 = index;
+    uint param_19 = 1u;
+    uint param_20 = 2u;
+    uint param_21 = index;
+    uint param_22 = 1u;
+    uint param_23 = 3u;
+    record.Clip[1] = float4(MakeClip(param_12, param_13, param_14), MakeClip(param_15, param_16, param_17), MakeClip(param_18, param_19, param_20), MakeClip(param_21, param_22, param_23));
+    uint param_24 = index;
+    uint param_25 = 2u;
+    uint param_26 = 0u;
+    uint param_27 = index;
+    uint param_28 = 2u;
+    uint param_29 = 1u;
+    uint param_30 = index;
+    uint param_31 = 2u;
+    uint param_32 = 2u;
+    uint param_33 = index;
+    uint param_34 = 2u;
+    uint param_35 = 3u;
+    record.Clip[2] = float4(MakeClip(param_24, param_25, param_26), MakeClip(param_27, param_28, param_29), MakeClip(param_30, param_31, param_32), MakeClip(param_33, param_34, param_35));
+    uint param_36 = index;
+    uint param_37 = 3u;
+    uint param_38 = 0u;
+    uint param_39 = index;
+    uint param_40 = 3u;
+    uint param_41 = 1u;
+    uint param_42 = index;
+    uint param_43 = 3u;
+    uint param_44 = 2u;
+    uint param_45 = index;
+    uint param_46 = 3u;
+    uint param_47 = 3u;
+    record.Clip[3] = float4(MakeClip(param_36, param_37, param_38), MakeClip(param_39, param_40, param_41), MakeClip(param_42, param_43, param_44), MakeClip(param_45, param_46, param_47));
+    uint param_48 = index;
+    uint param_49 = 0u;
+    uint param_50 = 0u;
+    uint param_51 = index;
+    uint param_52 = 0u;
+    uint param_53 = 1u;
+    uint param_54 = index;
+    uint param_55 = 0u;
+    uint param_56 = 2u;
+    record.Transform[0] = float3(MakeTransform(param_48, param_49, param_50), MakeTransform(param_51, param_52, param_53), MakeTransform(param_54, param_55, param_56));
+    uint param_57 = index;
+    uint param_58 = 1u;
+    uint param_59 = 0u;
+    uint param_60 = index;
+    uint param_61 = 1u;
+    uint param_62 = 1u;
+    uint param_63 = index;
+    uint param_64 = 1u;
+    uint param_65 = 2u;
+    record.Transform[1] = float3(MakeTransform(param_57, param_58, param_59), MakeTransform(param_60, param_61, param_62), MakeTransform(param_63, param_64, param_65));
+    uint param_66 = index;
+    uint param_67 = 2u;
+    uint param_68 = 0u;
+    uint param_69 = index;
+    uint param_70 = 2u;
+    uint param_71 = 1u;
+    uint param_72 = index;
+    uint param_73 = 2u;
+    uint param_74 = 2u;
+    record.Transform[2] = float3(MakeTransform(param_66, param_67, param_68), MakeTransform(param_69, param_70, param_71), MakeTransform(param_72, param_73, param_74));
+    record.Transform[3] = float3((-0.5) + (float(index) * 0.046875), 0.375 - (float(index) * 0.0234375), 0.25 + (float(index) * 0.015625));
+    record.Local = float4(0.25 + (float(index) * 0.015625), (-0.5) + (float(index) * 0.0078125), 0.75 - (float(index) * 0.00390625), 1.0);
+    record.Row = index & 3u;
+    record.Flags = 1157627904u + (index * 31u);
+    record.Padding = uint2(0u);
+    Records_1._data[index].Clip = transpose(record.Clip);
+    Records_1._data[index].Transform = transpose(record.Transform);
+    Records_1._data[index].Local = record.Local;
+    Records_1._data[index].Row = record.Row;
+    Records_1._data[index].Flags = record.Flags;
+    Records_1._data[index].Padding = record.Padding;
+}
+
+kernel void main0(device Records& Records_1 [[buffer(11)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    uint3 dtid = gl_GlobalInvocationID;
+    uint3 param = dtid;
+    _main(param, Records_1);
+}
+

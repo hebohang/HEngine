@@ -1,0 +1,9 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Root>
+  <Target>127.0.0.1</Target>
+  <Port>60000</Port>
+  <AutoConnect>False</AutoConnect>
+  <SendOnLoad>True</SendOnLoad>
+  <SendOnEdit>False</SendOnEdit>
+  <SendOnSave>True</SendOnSave>
+</Root>

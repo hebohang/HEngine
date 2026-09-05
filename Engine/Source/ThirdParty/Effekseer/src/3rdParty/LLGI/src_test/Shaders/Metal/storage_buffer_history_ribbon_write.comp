@@ -1,0 +1,149 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct HistoryRecord
+{
+    float3 Position;
+    uint ColorTag;
+    float3 Tangent;
+    uint Sequence;
+};
+
+struct HistoryRecord_1
+{
+    packed_float3 Position;
+    uint ColorTag;
+    packed_float3 Tangent;
+    uint Sequence;
+};
+
+struct HistoryData
+{
+    HistoryRecord_1 _data[1];
+};
+
+struct RibbonRecord
+{
+    uint BaseIndex;
+    uint Count;
+    uint Head;
+    float Width;
+    uint ColorTag;
+    uint Reserved0;
+    uint Reserved1;
+    uint Reserved2;
+};
+
+struct RibbonRecord_1
+{
+    uint BaseIndex;
+    uint Count;
+    uint Head;
+    float Width;
+    uint ColorTag;
+    uint Reserved0;
+    uint Reserved1;
+    uint Reserved2;
+};
+
+struct RibbonData
+{
+    RibbonRecord_1 _data[1];
+};
+
+static inline __attribute__((always_inline))
+void _main(thread const uint3& dtid, device HistoryData& HistoryData_1, device RibbonData& RibbonData_1)
+{
+    uint id = dtid.x;
+    if (id < 8u)
+    {
+        uint local = id & 3u;
+        uint instance = id >> 2u;
+        HistoryRecord record;
+        record.Tangent = float3(0.0, 1.0, 0.0);
+        record.ColorTag = instance;
+        record.Sequence = local;
+        if (instance == 0u)
+        {
+            float x = -0.1500000059604644775390625;
+            if (local == 1u)
+            {
+                x = -0.75;
+            }
+            else
+            {
+                if (local == 2u)
+                {
+                    x = -0.550000011920928955078125;
+                }
+                else
+                {
+                    if (local == 3u)
+                    {
+                        x = -0.3499999940395355224609375;
+                    }
+                }
+            }
+            record.Position = float3(x, -0.2800000011920928955078125, 0.0);
+        }
+        else
+        {
+            float x_1 = 0.550000011920928955078125;
+            if (local == 1u)
+            {
+                x_1 = 0.75;
+            }
+            else
+            {
+                if (local == 2u)
+                {
+                    x_1 = 0.1500000059604644775390625;
+                }
+                else
+                {
+                    if (local == 3u)
+                    {
+                        x_1 = 0.3499999940395355224609375;
+                    }
+                }
+            }
+            record.Position = float3(x_1, 0.2599999904632568359375, 0.0);
+        }
+        HistoryData_1._data[id].Position = record.Position;
+        HistoryData_1._data[id].ColorTag = record.ColorTag;
+        HistoryData_1._data[id].Tangent = record.Tangent;
+        HistoryData_1._data[id].Sequence = record.Sequence;
+    }
+    if (id < 2u)
+    {
+        RibbonRecord record_1;
+        record_1.BaseIndex = id * 4u;
+        record_1.Count = 4u;
+        record_1.Head = (id == 0u) ? 1u : 2u;
+        record_1.Width = 0.054999999701976776123046875;
+        record_1.ColorTag = id;
+        record_1.Reserved0 = 0u;
+        record_1.Reserved1 = 0u;
+        record_1.Reserved2 = 0u;
+        RibbonData_1._data[id].BaseIndex = record_1.BaseIndex;
+        RibbonData_1._data[id].Count = record_1.Count;
+        RibbonData_1._data[id].Head = record_1.Head;
+        RibbonData_1._data[id].Width = record_1.Width;
+        RibbonData_1._data[id].ColorTag = record_1.ColorTag;
+        RibbonData_1._data[id].Reserved0 = record_1.Reserved0;
+        RibbonData_1._data[id].Reserved1 = record_1.Reserved1;
+        RibbonData_1._data[id].Reserved2 = record_1.Reserved2;
+    }
+}
+
+kernel void main0(device HistoryData& HistoryData_1 [[buffer(10)]], device RibbonData& RibbonData_1 [[buffer(11)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    uint3 dtid = gl_GlobalInvocationID;
+    uint3 param = dtid;
+    _main(param, HistoryData_1, RibbonData_1);
+}
+

@@ -1,0 +1,29 @@
+{
+    "SchemaVersion": 1,
+    "Id": "he.renderdoc",
+    "DisplayName": "RenderDoc Capture",
+    "Version": "1.0.0",
+    "ApiVersion": 1,
+    "RequiredHostApiVersion": 1,
+    "ModuleName": "RenderDoc",
+    "EntrySymbol": "HEngineCreateRenderDocPluginModule",
+    "Dependencies": [],
+    "OptionalDependencies": [],
+    "LoadPhase": "PreDevice",
+    "SupportedHosts": [
+        "Editor"
+    ],
+    "Distribution": "EditorOnly",
+    "PackagePolicy": "Never",
+    "ShaderRoots": [],
+    "ContentRoots": [],
+    "Platforms": [
+        "Windows"
+    ],
+    "Configurations": [
+        "Debug",
+        "Release",
+        "RelWithDebInfo",
+        "MinSizeRel"
+    ]
+}

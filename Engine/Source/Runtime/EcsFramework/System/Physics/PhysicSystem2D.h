@@ -14,7 +14,9 @@ namespace HEngine
 		void OnRuntiemStart() override;
 		void OnUpdateRuntime(Timestep ts) override;
 		void OnRuntimeStop() override;
+#if WITH_EDITOR
 		void OnUpdateEditor(Timestep ts, EditorCamera& camera) override;
+#endif
 	private:
 		class b2World* mPhysicsWorld = nullptr;
     };

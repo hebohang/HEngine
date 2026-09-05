@@ -1,4 +1,4 @@
-#include "hepch.h"
+#include "Hepch.h"
 
 #include "Runtime/EcsFramework/System/Script/NativeScriptSystem.h"
 #include "Runtime/EcsFramework/Entity/Entity.h"
@@ -9,6 +9,8 @@ namespace HEngine
 {
 	void NativeScriptSystem::OnUpdateRuntime(Timestep ts)
 	{
+		HE_PROFILE;
+
 		mLevel->mRegistry.view<NativeScriptComponent>().each([=](auto entity, auto& nsc)  // nsc: native script component
 			{
 				// TODO: Move to Level::OnScenePlay

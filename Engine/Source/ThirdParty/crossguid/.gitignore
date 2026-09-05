@@ -1,0 +1,7 @@
+build/
+*.tmp
+*.bak
+*.swp
+android/libs/
+android/obj/
+cmake_build

@@ -1,0 +1,122 @@
+diagnostic(off, derivative_uniformity);
+
+struct StructuredMatrixRecord_2_1 {
+  Flags : u32,
+  Age : f32,
+  Packed : vec2<u32>,
+  Transform : mat3x4<f32>,
+  Direction : vec3<f32>,
+  Color : u32,
+}
+
+struct Records_1_1 {
+  m : array<StructuredMatrixRecord_2_1>,
+}
+
+@group(2) @binding(1) var<storage, read_write> Records_2 : Records_1_1;
+
+@compute @workgroup_size(1u, 1u, 1u)
+fn main(@builtin(global_invocation_id) dtid : vec3<u32>) {
+  var dtid_1 : vec3<u32>;
+  var param : vec3<u32>;
+  dtid_1 = dtid;
+  param = dtid_1;
+  v(&(param));
+}
+
+fn v_1(index : ptr<function, u32>, row : ptr<function, u32>, column : ptr<function, u32>) -> f32 {
+  return (f32((((*(index) + 1u) * (*(row) + 2u)) + *(column))) * 0.125f);
+}
+
+struct StructuredMatrixRecord_1 {
+  Flags : u32,
+  Age : f32,
+  Packed : vec2<u32>,
+  Transform : mat4x3<f32>,
+  Direction : vec3<f32>,
+  Color : u32,
+}
+
+fn v(dtid : ptr<function, vec3<u32>>) {
+  var index : u32;
+  var record : StructuredMatrixRecord_1;
+  var param : u32;
+  var param_1 : u32;
+  var param_2 : u32;
+  var param_3 : u32;
+  var param_4 : u32;
+  var param_5 : u32;
+  var param_6 : u32;
+  var param_7 : u32;
+  var param_8 : u32;
+  var param_9 : u32;
+  var param_10 : u32;
+  var param_11 : u32;
+  var param_12 : u32;
+  var param_13 : u32;
+  var param_14 : u32;
+  var param_15 : u32;
+  var param_16 : u32;
+  var param_17 : u32;
+  var param_18 : u32;
+  var param_19 : u32;
+  var param_20 : u32;
+  var param_21 : u32;
+  var param_22 : u32;
+  var param_23 : u32;
+  var param_24 : u32;
+  var param_25 : u32;
+  var param_26 : u32;
+  index = (*(dtid)).x;
+  record.Flags = (301989888u + (index * 17u));
+  record.Age = (0.5f + (f32(index) * 0.125f));
+  record.Packed = vec2<u32>((1048576u + (index * 19u)), (131072u + (index * 23u)));
+  param = index;
+  param_1 = 0u;
+  param_2 = 0u;
+  let v_2 = v_1(&(param), &(param_1), &(param_2));
+  param_3 = index;
+  param_4 = 0u;
+  param_5 = 1u;
+  let v_3 = v_1(&(param_3), &(param_4), &(param_5));
+  param_6 = index;
+  param_7 = 0u;
+  param_8 = 2u;
+  record.Transform[0i] = vec3<f32>(v_2, v_3, v_1(&(param_6), &(param_7), &(param_8)));
+  param_9 = index;
+  param_10 = 1u;
+  param_11 = 0u;
+  let v_4 = v_1(&(param_9), &(param_10), &(param_11));
+  param_12 = index;
+  param_13 = 1u;
+  param_14 = 1u;
+  let v_5 = v_1(&(param_12), &(param_13), &(param_14));
+  param_15 = index;
+  param_16 = 1u;
+  param_17 = 2u;
+  record.Transform[1i] = vec3<f32>(v_4, v_5, v_1(&(param_15), &(param_16), &(param_17)));
+  param_18 = index;
+  param_19 = 2u;
+  param_20 = 0u;
+  let v_6 = v_1(&(param_18), &(param_19), &(param_20));
+  param_21 = index;
+  param_22 = 2u;
+  param_23 = 1u;
+  let v_7 = v_1(&(param_21), &(param_22), &(param_23));
+  param_24 = index;
+  param_25 = 2u;
+  param_26 = 2u;
+  record.Transform[2i] = vec3<f32>(v_6, v_7, v_1(&(param_24), &(param_25), &(param_26)));
+  record.Transform[3i] = vec3<f32>((-0.75f + (f32(index) * 0.03125f)), (0.25f - (f32(index) * 0.015625f)), (1.5f + (f32(index) * 0.0625f)));
+  record.Direction = vec3<f32>((0.25f + (f32(index) * 0.015625f)), (-0.5f + (f32(index) * 0.03125f)), (0.75f - (f32(index) * 0.0078125f)));
+  record.Color = (2151686160u + (index * 29u));
+  let v_8 = index;
+  let v_9 = record;
+  let v_10 = &(Records_2.m[v_8]);
+  (*(v_10)).Flags = v_9.Flags;
+  (*(v_10)).Age = v_9.Age;
+  (*(v_10)).Packed = v_9.Packed;
+  (*(v_10)).Transform = transpose(v_9.Transform);
+  (*(v_10)).Direction = v_9.Direction;
+  (*(v_10)).Color = v_9.Color;
+}

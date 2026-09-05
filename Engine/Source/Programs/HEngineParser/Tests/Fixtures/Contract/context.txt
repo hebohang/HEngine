@@ -1,0 +1,2 @@
+include=Engine/Source/Programs/HEngineParser/Tests/Fixtures/Contract
+sourceRoot=Engine/Source/Programs/HEngineParser/Tests/Fixtures/Contract|fixture

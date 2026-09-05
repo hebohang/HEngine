@@ -1,4 +1,7 @@
 RUNTIME_ADD_SOURCE(
-    VulkanContext.h VulkanContext.cpp
-    VulkanImGuiLayer.h VulkanImGuiLayer.cpp
+    VulkanCapabilities.h
+    VulkanNativeContext.h
+    VulkanNativeContext.cpp
+    VulkanRenderBackend.h
+    VulkanRenderBackend.cpp
 )

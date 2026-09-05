@@ -1,0 +1,43 @@
+{
+    "Schema": "hengine.render-settings",
+    "SchemaVersion": 2,
+    "Rendering": {
+        "Backend": "DX12",
+        "Presentation": { "VSync": false },
+        "AntiAliasing": {
+            "Mode": "None",
+            "MsaaSamples": 4,
+            "FxaaEdgeThreshold": 0.125,
+            "FxaaEdgeThresholdMin": 0.0312,
+            "FxaaSubpixelQuality": 0.75,
+            "SmaaEdgeThreshold": 0.06,
+            "SmaaMaxSearchSteps": 24,
+            "SmaaMaxDiagonalSearchSteps": 8,
+            "SmaaCornerRounding": 0.25,
+            "TaaHistoryWeight": 0.92,
+            "TaaSharpness": 0.15
+        },
+        "GI": {
+            "Technique": "Off",
+            "Denoiser": "SVGF",
+            "UnsupportedFallback": "Off",
+            "RenderScale": 1.0,
+            "SamplesPerPixel": 1,
+            "MaxBounces": 4,
+            "AtrousIterations": 4,
+            "BilateralUpsample": true,
+            "SSGI": {
+                "RayCount": 8,
+                "StepCount": 128,
+                "HiZStartMip": 0,
+                "BinaryRefinementSteps": 6,
+                "MaximumRayDistance": 1.0,
+                "Thickness": 0.015,
+                "EdgeFade": 0.02,
+                "TemporalWeight": 0.97
+            }
+        },
+        "PostProcess": { "Exposure": 0.8 },
+        "Shadows": { "Enabled": true }
+    }
+}

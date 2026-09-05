@@ -1,0 +1,101 @@
+﻿
+#ifndef __EFFEKSEERRSOUND_SOUND_IMPLEMENTED_H__
+#define __EFFEKSEERRSOUND_SOUND_IMPLEMENTED_H__
+
+#include "../EffekseerSoundXAudio2.h"
+#include <X3DAudio.h>
+#include <XAudio2.h>
+
+#if (_WIN32_WINNT < _WIN32_WINNT_WIN8)
+
+#pragma comment(lib, "X3DAudio.lib")
+
+#else
+
+#if _DEBUG
+
+#pragma comment(lib, "xaudio2.lib")
+
+#endif
+
+#endif
+
+namespace EffekseerSound
+{
+
+class SoundVoice;
+class SoundVoiceContainer;
+
+class SoundImplemented : public Sound, public Effekseer::ReferenceObject
+{
+	IXAudio2* xaudio2_ = nullptr;
+	X3DAUDIO_HANDLE x3daudio_ = {};
+	X3DAUDIO_LISTENER listener_ = {};
+
+	SoundVoiceContainer* voiceContainer_[2] = {};
+	bool mute_ = false;
+
+public:
+	SoundImplemented();
+	virtual ~SoundImplemented();
+
+	void Destroy();
+
+	bool Initialize(IXAudio2* xaudio2, int32_t num1chVoices, int32_t num2chVoices);
+
+	void SetListener(const ::Effekseer::Vector3D& pos,
+					 const ::Effekseer::Vector3D& at,
+					 const ::Effekseer::Vector3D& up);
+
+	::Effekseer::SoundPlayerRef CreateSoundPlayer() override;
+
+	::Effekseer::SoundLoaderRef CreateSoundLoader(::Effekseer::FileInterfaceRef fileInterface = NULL) override;
+
+	void StopAllVoices();
+
+	void SetMute(bool mute);
+
+	bool GetMute()
+	{
+		return mute_;
+	}
+
+	IXAudio2* GetDevice()
+	{
+		return xaudio2_;
+	}
+
+	SoundVoice* GetVoice(int32_t channel);
+
+	void StopTag(::Effekseer::SoundTag tag);
+
+	void PauseTag(::Effekseer::SoundTag tag, bool pause);
+
+	bool CheckPlayingTag(::Effekseer::SoundTag tag);
+
+	void StopData(const ::Effekseer::SoundDataRef& soundData);
+
+	void Calculate3DSound(const ::Effekseer::Vector3D& position,
+						  float distance,
+						  int32_t input,
+						  int32_t output,
+						  float matrix[]);
+
+	virtual int GetRef() override
+	{
+		return ::Effekseer::ReferenceObject::GetRef();
+	}
+	virtual int AddRef() override
+	{
+		return ::Effekseer::ReferenceObject::AddRef();
+	}
+	virtual int Release() override
+	{
+		return ::Effekseer::ReferenceObject::Release();
+	}
+};
+using SoundImplementedRef = ::Effekseer::RefPtr<SoundImplemented>;
+
+} // namespace EffekseerSound
+
+#endif // __EFFEKSEERRSOUND_SOUND_IMPLEMENTED_H__

@@ -1,0 +1,38 @@
+#include <windows.h>
+
+#define IDI_GAME_ICON 101
+
+IDI_GAME_ICON ICON "Game.ico"
+CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "Game.manifest"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 1,0,0,0
+ PRODUCTVERSION 1,0,0,0
+ FILEFLAGSMASK 0x3fL
+#ifdef _DEBUG
+ FILEFLAGS VS_FF_DEBUG
+#else
+ FILEFLAGS 0x0L
+#endif
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_APP
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "080404b0"
+        BEGIN
+            VALUE "CompanyName", "HEngine"
+            VALUE "FileDescription", "HEngine Showcase"
+            VALUE "FileVersion", "1.0.0"
+            VALUE "InternalName", "HEngineDemo"
+            VALUE "OriginalFilename", "HEngineDemo.exe"
+            VALUE "ProductName", "HEngine Showcase"
+            VALUE "ProductVersion", "1.0.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0804, 1200
+    END
+END

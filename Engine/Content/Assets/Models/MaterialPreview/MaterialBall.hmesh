@@ -1,0 +1,274 @@
+{
+    "accessorVec": [
+        {
+            "bufferViewIndex": 0,
+            "byteOffset": 0,
+            "componentType": 5126,
+            "count": 36228,
+            "max": [],
+            "min": [],
+            "name": "",
+            "normalized": false,
+            "type": "VEC3"
+        },
+        {
+            "bufferViewIndex": 1,
+            "byteOffset": 0,
+            "componentType": 5126,
+            "count": 36228,
+            "max": [],
+            "min": [],
+            "name": "",
+            "normalized": false,
+            "type": "VEC3"
+        },
+        {
+            "bufferViewIndex": 2,
+            "byteOffset": 0,
+            "componentType": 5126,
+            "count": 36228,
+            "max": [],
+            "min": [],
+            "name": "",
+            "normalized": false,
+            "type": "VEC2"
+        },
+        {
+            "bufferViewIndex": 3,
+            "byteOffset": 0,
+            "componentType": 5126,
+            "count": 36228,
+            "max": [],
+            "min": [],
+            "name": "",
+            "normalized": false,
+            "type": "VEC3"
+        },
+        {
+            "bufferViewIndex": 4,
+            "byteOffset": 0,
+            "componentType": 5126,
+            "count": 36228,
+            "max": [],
+            "min": [],
+            "name": "",
+            "normalized": false,
+            "type": "VEC3"
+        },
+        {
+            "bufferViewIndex": 5,
+            "byteOffset": 0,
+            "componentType": 5125,
+            "count": 212424,
+            "max": [],
+            "min": [],
+            "name": "",
+            "normalized": false,
+            "type": "SCALAR"
+        },
+        {
+            "bufferViewIndex": 6,
+            "byteOffset": 0,
+            "componentType": 5126,
+            "count": 9140,
+            "max": [],
+            "min": [],
+            "name": "",
+            "normalized": false,
+            "type": "VEC3"
+        },
+        {
+            "bufferViewIndex": 7,
+            "byteOffset": 0,
+            "componentType": 5126,
+            "count": 9140,
+            "max": [],
+            "min": [],
+            "name": "",
+            "normalized": false,
+            "type": "VEC3"
+        },
+        {
+            "bufferViewIndex": 8,
+            "byteOffset": 0,
+            "componentType": 5126,
+            "count": 9140,
+            "max": [],
+            "min": [],
+            "name": "",
+            "normalized": false,
+            "type": "VEC2"
+        },
+        {
+            "bufferViewIndex": 9,
+            "byteOffset": 0,
+            "componentType": 5126,
+            "count": 9140,
+            "max": [],
+            "min": [],
+            "name": "",
+            "normalized": false,
+            "type": "VEC3"
+        },
+        {
+            "bufferViewIndex": 10,
+            "byteOffset": 0,
+            "componentType": 5126,
+            "count": 9140,
+            "max": [],
+            "min": [],
+            "name": "",
+            "normalized": false,
+            "type": "VEC3"
+        },
+        {
+            "bufferViewIndex": 11,
+            "byteOffset": 0,
+            "componentType": 5125,
+            "count": 52368,
+            "max": [],
+            "min": [],
+            "name": "",
+            "normalized": false,
+            "type": "SCALAR"
+        }
+    ],
+    "bufferVec": [
+        {
+            "byteLength": 3599776,
+            "data": [],
+            "name": "MaterialBall",
+            "uri": "Assets/Models/MaterialPreview/MaterialBall.bin"
+        }
+    ],
+    "bufferViewVec": [
+        {
+            "bufferIndex": 0,
+            "byteLength": 434736,
+            "byteOffset": 0,
+            "byteStride": 0,
+            "name": "",
+            "target": 0
+        },
+        {
+            "bufferIndex": 0,
+            "byteLength": 434736,
+            "byteOffset": 434736,
+            "byteStride": 0,
+            "name": "",
+            "target": 0
+        },
+        {
+            "bufferIndex": 0,
+            "byteLength": 289824,
+            "byteOffset": 869472,
+            "byteStride": 0,
+            "name": "",
+            "target": 0
+        },
+        {
+            "bufferIndex": 0,
+            "byteLength": 434736,
+            "byteOffset": 1159296,
+            "byteStride": 0,
+            "name": "",
+            "target": 0
+        },
+        {
+            "bufferIndex": 0,
+            "byteLength": 434736,
+            "byteOffset": 1594032,
+            "byteStride": 0,
+            "name": "",
+            "target": 0
+        },
+        {
+            "bufferIndex": 0,
+            "byteLength": 849696,
+            "byteOffset": 2028768,
+            "byteStride": 0,
+            "name": "",
+            "target": 0
+        },
+        {
+            "bufferIndex": 0,
+            "byteLength": 109680,
+            "byteOffset": 2878464,
+            "byteStride": 0,
+            "name": "",
+            "target": 0
+        },
+        {
+            "bufferIndex": 0,
+            "byteLength": 109680,
+            "byteOffset": 2988144,
+            "byteStride": 0,
+            "name": "",
+            "target": 0
+        },
+        {
+            "bufferIndex": 0,
+            "byteLength": 73120,
+            "byteOffset": 3097824,
+            "byteStride": 0,
+            "name": "",
+            "target": 0
+        },
+        {
+            "bufferIndex": 0,
+            "byteLength": 109680,
+            "byteOffset": 3170944,
+            "byteStride": 0,
+            "name": "",
+            "target": 0
+        },
+        {
+            "bufferIndex": 0,
+            "byteLength": 109680,
+            "byteOffset": 3280624,
+            "byteStride": 0,
+            "name": "",
+            "target": 0
+        },
+        {
+            "bufferIndex": 0,
+            "byteLength": 209472,
+            "byteOffset": 3390304,
+            "byteStride": 0,
+            "name": "",
+            "target": 0
+        }
+    ],
+    "name": "MaterialBall",
+    "primitives": [
+        {
+            "attributes": {
+                "BITANGENT": 4,
+                "NORMAL": 1,
+                "POSITION": 0,
+                "TANGENT": 3,
+                "TEXCOORD_0": 2
+            },
+            "indices": 5,
+            "materialResPath": "Assets/Models/MaterialPreview/DefaultMaterial_0.hmat",
+            "mode": 4,
+            "targets": []
+        },
+        {
+            "attributes": {
+                "BITANGENT": 10,
+                "NORMAL": 7,
+                "POSITION": 6,
+                "TANGENT": 9,
+                "TEXCOORD_0": 8
+            },
+            "indices": 11,
+            "materialResPath": "Assets/Models/MaterialPreview/shaderball.hmat",
+            "mode": 4,
+            "targets": []
+        }
+    ],
+    "skeletonPath": "",
+    "version": 1,
+    "weights": []
+}

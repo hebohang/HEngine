@@ -1,0 +1,54 @@
+﻿
+#include "EffekseerRendererLLGI.Shader.h"
+#include "EffekseerRendererLLGI.RendererImplemented.h"
+
+namespace EffekseerRendererLLGI
+{
+
+Shader::Shader(Backend::GraphicsDeviceRef graphicsDevice,
+			   Backend::ShaderRef shader,
+			   Backend::VertexLayoutRef vertexLayout)
+	: graphicsDevice_(graphicsDevice)
+	, shader_(shader)
+	, vertexLayout_(vertexLayout)
+	, vertexConstantBuffer_(nullptr)
+	, pixelConstantBuffer_(nullptr)
+{
+}
+
+Shader::~Shader()
+{
+	ES_SAFE_DELETE_ARRAY(vertexConstantBuffer_);
+	ES_SAFE_DELETE_ARRAY(pixelConstantBuffer_);
+}
+
+Shader* Shader::Create(Effekseer::Backend::GraphicsDeviceRef graphicsDevice,
+					   Effekseer::Backend::ShaderRef shader,
+					   Effekseer::Backend::VertexLayoutRef vertexLayout,
+					   const char* name)
+{
+	assert(graphicsDevice != nullptr);
+	assert(shader != nullptr);
+
+	return new Shader(graphicsDevice.DownCast<Backend::GraphicsDevice>(), shader.DownCast<Backend::Shader>(), vertexLayout.DownCast<Backend::VertexLayout>());
+}
+
+void Shader::SetVertexConstantBufferSize(int32_t size)
+{
+	ES_SAFE_DELETE_ARRAY(vertexConstantBuffer_);
+	vertexConstantBuffer_ = new uint8_t[size];
+	vertexConstantBufferSize = size;
+}
+
+void Shader::SetPixelConstantBufferSize(int32_t size)
+{
+	ES_SAFE_DELETE_ARRAY(pixelConstantBuffer_);
+	pixelConstantBuffer_ = new uint8_t[size];
+	pixelConstantBufferSize = size;
+}
+
+void Shader::SetConstantBuffer()
+{
+}
+
+} // namespace EffekseerRendererLLGI

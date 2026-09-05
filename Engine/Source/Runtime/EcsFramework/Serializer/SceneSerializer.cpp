@@ -1,353 +1,82 @@
-#include "hepch.h"
+#include "Hepch.h"
 
 #include "Runtime/EcsFramework/Serializer/SceneSerializer.h"
+#include "Runtime/EcsFramework/Serializer/SceneDocument.h"
 #include "Runtime/EcsFramework/Entity/Entity.h"
 #include "Runtime/EcsFramework/Component/ComponentGroup.h"
+#include "Runtime/EcsFramework/Component/Animation/AnimatorComponent.h"
+#include "Runtime/Core/Meta/Serializer/Serializer.h"
+#include "Runtime/Graphics/Mesh/MeshRuntimeResource.h"
+#include "Runtime/Resource/ConfigManager/ConfigManager.h"
+#include "Runtime/Resource/RuntimeResourceCatalog/RuntimeResourceCatalog.h"
+#include "Runtime/Utils/JsonUtils/JsonUtils.h"
+#include "all_serializer.h"
 
-#include <yaml-cpp/yaml.h>
+#include <chrono>
+#include <exception>
+#include <stdexcept>
+#include <type_traits>
+#include <utility>
+#include <vector>
 
-#include <fstream>
-
-namespace YAML 
+namespace HEngine
 {
-	template<>
-	struct convert<glm::vec2>
-	{
-		static Node encode(const glm::vec2& rhs)
-		{
-			Node node;
-			node.push_back(rhs.x);
-			node.push_back(rhs.y);
-			node.SetStyle(EmitterStyle::Flow);
-			return node;
-		}
-
-		static bool decode(const Node& node, glm::vec2& rhs)
-		{
-			if (!node.IsSequence() || node.size() != 2)
-				return false;
-
-			rhs.x = node[0].as<float>();
-			rhs.y = node[1].as<float>();
-			return true;
-		}
-	};
-
-	template<>
-	struct convert<glm::vec3>
-	{
-		static Node encode(const glm::vec3& rhs)
-		{
-			Node node;
-			node.push_back(rhs.x);
-			node.push_back(rhs.y);
-			node.push_back(rhs.z);
-			return node;
-		}
-
-		static bool decode(const Node& node, glm::vec3& rhs)
-		{
-			if (!node.IsSequence() || node.size() != 3)
-				return false;
-
-			rhs.x = node[0].as<float>();
-			rhs.y = node[1].as<float>();
-			rhs.z = node[2].as<float>();
-			return true;
-		}
-	};
-
-	template<>
-	struct convert<glm::vec4>
-	{
-		static Node encode(const glm::vec4& rhs)
-		{
-			Node node;
-			node.push_back(rhs.x);
-			node.push_back(rhs.y);
-			node.push_back(rhs.z);
-			node.push_back(rhs.w);
-			return node;
-		}
-
-		static bool decode(const Node& node, glm::vec4& rhs)
-		{
-			if (!node.IsSequence() || node.size() != 4)
-				return false;
-
-			rhs.x = node[0].as<float>();
-			rhs.y = node[1].as<float>();
-			rhs.z = node[2].as<float>();
-			rhs.w = node[3].as<float>();
-			return true;
-		}
-	};
-}
-
-namespace HEngine 
-{
-	YAML::Emitter& operator<<(YAML::Emitter& out, const glm::vec2& v)
-	{
-		out << YAML::Flow;
-		out << YAML::BeginSeq << v.x << v.y << YAML::EndSeq;
-		return out;
-	}
-
-	YAML::Emitter& operator<<(YAML::Emitter& out, const glm::vec3& v)
-	{
-		out << YAML::Flow;
-		out << YAML::BeginSeq << v.x << v.y << v.z << YAML::EndSeq;
-		return out;
-	}
-
-	YAML::Emitter& operator<<(YAML::Emitter& out, const glm::vec4& v)
-	{
-		out << YAML::Flow;
-		out << YAML::BeginSeq << v.x << v.y << v.z << v.w << YAML::EndSeq;
-		return out;
-	}
-
-	static std::string RigidBody2DBodyTypeToString(Rigidbody2DComponent::BodyType bodyType)
-	{
-		switch (bodyType)
-		{
-		case Rigidbody2DComponent::BodyType::Static:    return "Static";
-		case Rigidbody2DComponent::BodyType::Dynamic:   return "Dynamic";
-		case Rigidbody2DComponent::BodyType::Kinematic: return "Kinematic";
-		}
-
-		HE_CORE_ASSERT(false, "Unknown body type");
-		return {};
-	}
-
-	static Rigidbody2DComponent::BodyType RigidBody2DBodyTypeFromString(const std::string& bodyTypeString)
-	{
-		if (bodyTypeString == "Static")    return Rigidbody2DComponent::BodyType::Static;
-		if (bodyTypeString == "Dynamic")   return Rigidbody2DComponent::BodyType::Dynamic;
-		if (bodyTypeString == "Kinematic") return Rigidbody2DComponent::BodyType::Kinematic;
-
-		HE_CORE_ASSERT(false, "Unknown body type");
-		return Rigidbody2DComponent::BodyType::Static;
-	}
-
 	SceneSerializer::SceneSerializer(const Ref<Level>& level)
 		:mLevel(level)
 	{
 
 	}
 
-	static void SerializeEntity(YAML::Emitter& out, Entity entity)
+	static void SerializeEntity(Json& json, Entity entity);
+
+	Json SceneSerializer::SerializeToJson() const
 	{
-		HE_CORE_ASSERT(entity.HasComponent<IDComponent>());
+		Json json;
 
-		out << YAML::BeginMap;//Entity
-		out << YAML::Key << "Entity" << YAML::Value << entity.GetUUID(); 
-
-		if (entity.HasComponent<TagComponent>())
-		{
-			out << YAML::Key << "TagComponent";
-			out << YAML::BeginMap; // TagComponent
-
-			auto& tag = entity.GetComponent<TagComponent>().Tag;
-			out << YAML::Key << "Tag" << YAML::Value << tag;
-
-			out << YAML::EndMap; // TagComponent
-		}
-
-		if (entity.HasComponent<TransformComponent>())
-		{
-			out << YAML::Key << "TransformComponent";
-			out << YAML::BeginMap; // TransformComponent
-
-			auto& tc = entity.GetComponent<TransformComponent>();
-			out << YAML::Key << "Translation" << YAML::Value << tc.Translation;
-			out << YAML::Key << "Rotation" << YAML::Value << tc.Rotation;
-			out << YAML::Key << "Scale" << YAML::Value << tc.Scale;
-
-			out << YAML::EndMap; // TransformComponent
-		}
-
-		if (entity.HasComponent<CameraComponent>())
-		{
-			out << YAML::Key << "CameraComponent";
-			out << YAML::BeginMap; // CameraComponent
-
-			auto& cameraComponent = entity.GetComponent<CameraComponent>();
-			auto& camera = cameraComponent.Camera;
-
-			out << YAML::Key << "Camera" << YAML::Value;
-			out << YAML::BeginMap; // Camera
-			out << YAML::Key << "ProjectionType" << YAML::Value << (int)camera.GetProjectionType();
-			out << YAML::Key << "PerspectiveFOV" << YAML::Value << camera.GetPerspectiveVerticalFOV();
-			out << YAML::Key << "PerspectiveNear" << YAML::Value << camera.GetPerspectiveNearClip();
-			out << YAML::Key << "PerspectiveFar" << YAML::Value << camera.GetPerspectiveFarClip();
-			out << YAML::Key << "OrthographicSize" << YAML::Value << camera.GetOrthographicSize();
-			out << YAML::Key << "OrthographicNear" << YAML::Value << camera.GetOrthographicNearClip();
-			out << YAML::Key << "OrthographicFar" << YAML::Value << camera.GetOrthographicFarClip();
-			out << YAML::EndMap; // Camera
-
-			out << YAML::Key << "Primary" << YAML::Value << cameraComponent.Primary;
-			out << YAML::Key << "FixedAspectRatio" << YAML::Value << cameraComponent.FixedAspectRatio;
-
-			out << YAML::EndMap; // CameraComponent
-		}
-
-		if (entity.HasComponent<SpriteRendererComponent>())
-		{
-			out << YAML::Key << "SpriteRendererComponent";
-			out << YAML::BeginMap; // SpriteRendererComponent
-
-			auto& spriteRendererComponent = entity.GetComponent<SpriteRendererComponent>();
-			out << YAML::Key << "Color" << YAML::Value << spriteRendererComponent.Color;
-
-			out << YAML::EndMap; // SpriteRendererComponent
-		}
-
-		if (entity.HasComponent<CircleRendererComponent>())
-		{
-			out << YAML::Key << "CircleRendererComponent";
-			out << YAML::BeginMap;
-
-			auto& circleComponent = entity.GetComponent<CircleRendererComponent>();
-			out << YAML::Key << "Color" << YAML::Value << circleComponent.Color;
-			out << YAML::Key << "Thickness" << YAML::Value << circleComponent.Thickness;
-			out << YAML::Key << "Fade" << YAML::Value << circleComponent.Fade;
-
-			out << YAML::EndMap;
-		}
-
-		if (entity.HasComponent<Rigidbody2DComponent>())
-		{
-			out << YAML::Key << "Rigidbody2DComponent";
-			out << YAML::BeginMap; // Rigidbody2DComponent
-
-			auto& rb2dComponent = entity.GetComponent<Rigidbody2DComponent>();
-			out << YAML::Key << "BodyType" << YAML::Value << RigidBody2DBodyTypeToString(rb2dComponent.Type);
-			out << YAML::Key << "FixedRotation" << YAML::Value << rb2dComponent.FixedRotation;
-
-			out << YAML::EndMap; // Rigidbody2DComponent
-		}
-
-		if (entity.HasComponent<BoxCollider2DComponent>())
-		{
-			out << YAML::Key << "BoxCollider2DComponent";
-			out << YAML::BeginMap; // BoxCollider2DComponent
-
-			auto& bc2dComponent = entity.GetComponent<BoxCollider2DComponent>();
-			out << YAML::Key << "Offset" << YAML::Value << bc2dComponent.Offset;
-			out << YAML::Key << "Size" << YAML::Value << bc2dComponent.Size;
-			out << YAML::Key << "Density" << YAML::Value << bc2dComponent.Density;
-			out << YAML::Key << "Friction" << YAML::Value << bc2dComponent.Friction;
-			out << YAML::Key << "Restitution" << YAML::Value << bc2dComponent.Restitution;
-			out << YAML::Key << "RestitutionThreshold" << YAML::Value << bc2dComponent.RestitutionThreshold;
-
-			out << YAML::EndMap; // BoxCollider2DComponent
-		}
-
-		if (entity.HasComponent<CircleCollider2DComponent>())
-		{
-			out << YAML::Key << "CircleCollider2DComponent";
-			out << YAML::BeginMap; // CircleCollider2DComponent
-
-			auto& cc2dComponent = entity.GetComponent<CircleCollider2DComponent>();
-			out << YAML::Key << "Offset" << YAML::Value << cc2dComponent.Offset;
-			out << YAML::Key << "Radius" << YAML::Value << cc2dComponent.Radius;
-			out << YAML::Key << "Density" << YAML::Value << cc2dComponent.Density;
-			out << YAML::Key << "Friction" << YAML::Value << cc2dComponent.Friction;
-			out << YAML::Key << "Restitution" << YAML::Value << cc2dComponent.Restitution;
-			out << YAML::Key << "RestitutionThreshold" << YAML::Value << cc2dComponent.RestitutionThreshold;
-
-			out << YAML::EndMap; // CircleCollider2DComponent
-		}
-
-		if (entity.HasComponent<Rigidbody3DComponent>())
-		{
-			out << YAML::Key << "Rigidbody3DComponent";
-			out << YAML::BeginMap;
-
-			auto& rb3dComponent = entity.GetComponent<Rigidbody3DComponent>();
-			out << YAML::Key << "mass" << YAML::Value << rb3dComponent.mass;
-			out << YAML::Key << "type" << YAML::Value << (uint32_t)rb3dComponent.Type;
-			out << YAML::Key << "shape" << YAML::Value << (uint32_t)rb3dComponent.Shape;
-			out << YAML::Key << "linearDamping" << YAML::Value << rb3dComponent.linearDamping;
-			out << YAML::Key << "angularDamping" << YAML::Value << rb3dComponent.angularDamping;
-			out << YAML::Key << "restitution" << YAML::Value << rb3dComponent.restitution;
-			out << YAML::Key << "friction" << YAML::Value << rb3dComponent.friction;
-
-			out << YAML::EndMap;
-		}
-
-		if (entity.HasComponent<MeshComponent>())
-		{
-			out << YAML::Key << "MeshComponent";
-			out << YAML::BeginMap;
-
-			auto& meshComponent = entity.GetComponent<MeshComponent>();
-			out << YAML::Key << "Path" << YAML::Value << meshComponent.Path.c_str();
-
-			// Material 
-			out << YAML::Key << "bUseAlbedoMap" << YAML::Value << meshComponent.mMesh->mMaterial[0]->bUseAlbedoMap;
-			out << YAML::Key << "col" << YAML::Value << meshComponent.mMesh->mMaterial[0]->col;
-
-			out << YAML::Key << "bUseNormalMap" << YAML::Value << meshComponent.mMesh->mMaterial[0]->bUseNormalMap;
-
-			out << YAML::Key << "bUseMetallicMap" << YAML::Value << meshComponent.mMesh->mMaterial[0]->bUseMetallicMap;
-			out << YAML::Key << "metallic" << YAML::Value << meshComponent.mMesh->mMaterial[0]->metallic;
-
-			out << YAML::Key << "bUseRoughnessMap" << YAML::Value << meshComponent.mMesh->mMaterial[0]->bUseRoughnessMap;
-			out << YAML::Key << "roughness" << YAML::Value << meshComponent.mMesh->mMaterial[0]->roughness;
-
-			out << YAML::Key << "bUseAoMap" << YAML::Value << meshComponent.mMesh->mMaterial[0]->bUseRoughnessMap;
-			// End Material
-
-			out << YAML::EndMap;
-		}
-
-		if (entity.HasComponent<PointLightComponent>())
-		{
-			out << YAML::Key << "PointLightComponent";
-			out << YAML::BeginMap;
-
-			auto& lightComponent = entity.GetComponent<PointLightComponent>();
-			out << YAML::Key << "pointIntensity" << YAML::Value << lightComponent.Intensity;
-			out << YAML::Key << "Color" << YAML::Value << lightComponent.LightColor;
-
-			out << YAML::EndMap;
-		}
-
-		if (entity.HasComponent<DirectionalLightComponent>())
-		{
-			out << YAML::Key << "DirectionalLightComponent";
-			out << YAML::BeginMap;
-
-			auto& lightComponent = entity.GetComponent<DirectionalLightComponent>();
-			out << YAML::Key << "dirIntensity" << YAML::Value << lightComponent.Intensity;
-
-			out << YAML::EndMap;
-		}
-
-		out << YAML::EndMap;
-	}
-
-	void SceneSerializer::Serialize(const std::string& filepath)
-	{
-		YAML::Emitter out;
-		out << YAML::BeginMap;
-		out << YAML::Key << "Scene" << YAML::Value << "Untitled";
-		out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
 		mLevel->mRegistry.each([&](auto entityID)
 			{
 				Entity entity = { entityID, mLevel.get() };
 				if (!entity)
 					return;
-				//Serialize Entity
-				SerializeEntity(out, entity);
-			});
-		out << YAML::EndSeq;
-		out << YAML::EndMap;
 
-		std::ofstream fout(filepath);
-		fout << out.c_str();
+				Json entityJson;
+				SerializeEntity(entityJson, entity);
+				json[entity.UUID()] = entityJson;
+			});
+
+		return json;
+	}
+
+	template<Component... C>
+	static void SerializeEntity(Json& json, Entity entity)
+	{
+		([&]()
+			{
+				if (entity.HasComponent<C>())
+				{
+					auto comp = entity.GetComponent<C>();
+					Json compJson;
+					Serializer::Serialize(compJson, comp);
+					json[C::GetTypeName()] = compJson;
+				}
+			}(), ...);
+	}
+
+	template<Component... C>
+	static void SerializeEntity(ComponentGroup<C...>, Json& json, Entity entity)
+	{
+		SerializeEntity<C...>(json, entity);
+	}
+
+	static void SerializeEntity(Json& json, Entity entity)
+	{
+		HE_CORE_ASSERT(entity.HasComponent<IDComponent>());
+		SerializeEntity(ComponentsSerialized{}, json, entity);
+	}
+
+	void SceneSerializer::Serialize(const std::string& filepath)
+	{
+		Utils::SaveJsonToFile(SerializeToJson(), filepath);
 	}
 
 	void SceneSerializer::SerializeRuntime(const std::string& filepath)
@@ -355,167 +84,406 @@ namespace HEngine
 
 	}
 
-	bool SceneSerializer::Deserialize(const std::string& filepath)
+	template<Component... C>
+	static void DeserializeEntity(const Json& valueEntity, Entity& entity)
 	{
-		YAML::Node data;
+		([&]()
+			{
+				if (valueEntity.contains(C::GetTypeName()))
+				{
+					C comp;
+					Serializer::Deserialize(valueEntity[C::GetTypeName()], comp);
+					entity.AddComponent(comp);
+				}
+			}(), ...);
+	}
+
+	template<Component... C>
+	static void DeserializeEntity(ComponentGroup<C...>, const Json& valueEntity, Entity& entity)
+	{
+		DeserializeEntity<C...>(valueEntity, entity);
+	}
+
+	static void DeserializeEntity(const Json& valueEntity, Entity& entity)
+	{
+		DeserializeEntity(ComponentsDeserialized{}, valueEntity, entity);
+	}
+
+	template<Component... C>
+	static void DeserializeStagedEntity(
+		ComponentGroup<C...>,
+		const Json& valueEntity,
+		Entity& entity,
+		Registry& registry)
+	{
+		([&]()
+			{
+				if (!valueEntity.contains(C::GetTypeName()))
+					return;
+
+				C component;
+				Serializer::Deserialize(valueEntity[C::GetTypeName()], component);
+				if constexpr (std::is_same_v<C, PythonScriptComponent>)
+				{
+					// Python modules are registered by PythonScriptSystem::OnRuntiemStart.
+					// Do not publish script-owned global state from a staging scene.
+					registry.emplace<C>(static_cast<EntityHandle>(entity), std::move(component));
+				}
+				else
+				{
+					entity.AddComponent(component);
+				}
+			}(), ...);
+	}
+
+	struct IncrementalSceneMaterializer::Impl
+	{
+		RuntimeResourceRegistry* Registry = nullptr;
+		std::shared_ptr<const SceneDocument> Document;
+		Ref<Level> StagingLevel;
+		Ref<Level> CompletedLevel;
+		std::vector<std::pair<std::string, RuntimeResourceKey>> MeshKeys;
+		std::exception_ptr Failure;
+		SceneMaterializationProgress Progress;
+
+		void RefreshRatio() noexcept
+		{
+			if (Progress.State == SceneMaterializationState::Ready)
+			{
+				Progress.Ratio = 1.0f;
+				return;
+			}
+
+			const size_t totalWork = Progress.Resources.Total + Progress.TotalEntities;
+			if (totalWork == 0)
+			{
+				Progress.Ratio = 0.0f;
+				return;
+			}
+
+			const size_t completedWork =
+				Progress.Resources.Ready + Progress.MaterializedEntities;
+			Progress.Ratio = static_cast<float>(completedWork) /
+				static_cast<float>(totalWork);
+		}
+
+		void ResetOwnedState() noexcept
+		{
+			CompletedLevel.reset();
+			StagingLevel.reset();
+			Document.reset();
+			MeshKeys.clear();
+			Registry = nullptr;
+		}
+
+		void StoreCurrentFailure(const std::string& context) noexcept
+		{
+			const std::exception_ptr cause = std::current_exception();
+			try
+			{
+				if (cause)
+				{
+					try
+					{
+						std::rethrow_exception(cause);
+					}
+					catch (...)
+					{
+						std::throw_with_nested(std::runtime_error(context));
+					}
+				}
+				throw std::runtime_error(context);
+			}
+			catch (...)
+			{
+				Failure = std::current_exception();
+			}
+
+			Progress.State = SceneMaterializationState::Failed;
+			ResetOwnedState();
+			RefreshRatio();
+		}
+	};
+
+	IncrementalSceneMaterializer::IncrementalSceneMaterializer()
+		: mImpl(CreateScope<Impl>())
+	{
+	}
+
+	IncrementalSceneMaterializer::~IncrementalSceneMaterializer() = default;
+
+	void IncrementalSceneMaterializer::Start(
+		RuntimeResourceRegistry& registry,
+		std::shared_ptr<const SceneDocument> document)
+	{
+		Start(
+			registry,
+			std::move(document),
+			ConfigManager::GetInstance().GetRootFolder(),
+			RuntimeResourceCatalog::GetInstance().GetSnapshot());
+	}
+
+	void IncrementalSceneMaterializer::Start(
+		RuntimeResourceRegistry& registry,
+		std::shared_ptr<const SceneDocument> document,
+		const std::filesystem::path& projectRoot,
+		std::shared_ptr<const RuntimeResourceCatalogSnapshot> catalog)
+	{
+		const SceneMaterializationState previousState = mImpl->Progress.State;
+		if (previousState == SceneMaterializationState::WaitingForResources ||
+			previousState == SceneMaterializationState::Materializing)
+		{
+			throw std::logic_error("Cannot restart an active incremental scene materialization.");
+		}
+
+		mImpl->ResetOwnedState();
+		mImpl->Failure = nullptr;
+		mImpl->Progress = {};
+
 		try
 		{
-			data = YAML::LoadFile(filepath);
-		}
-		catch (YAML::ParserException e)
-		{
-			return false;
-		}
+			if (!registry.IsInitialized())
+				throw std::logic_error("Incremental scene materialization requires an initialized resource registry.");
+			if (!document)
+				throw std::invalid_argument("Incremental scene materialization requires a scene document.");
+			if (!catalog)
+				throw std::invalid_argument("Incremental scene materialization requires a catalog snapshot.");
 
-		if (!data["Scene"])
-			return false;
+			std::error_code error;
+			const std::filesystem::path absoluteRoot = std::filesystem::absolute(projectRoot, error);
+			if (error)
+				throw std::invalid_argument("Cannot make the scene materialization project root absolute: " + error.message());
+			const std::filesystem::path resolvedRoot = std::filesystem::weakly_canonical(absoluteRoot, error);
+			if (error || !std::filesystem::is_directory(resolvedRoot, error) || error)
+				throw std::invalid_argument("Cannot resolve the scene materialization project root.");
 
-		std::string sceneName = data["Scene"].as<std::string>();
-		HE_CORE_TRACE("Deserializing scene '{0}'", sceneName);
-
-		auto entities = data["Entities"];
-		if (entities)
-		{
-			for (auto entity : entities)
+			mImpl->Registry = &registry;
+			mImpl->Document = std::move(document);
+			mImpl->Progress.TotalEntities = mImpl->Document->GetEntities().size();
+			mImpl->StagingLevel = CreateRef<Level>();
+			mImpl->StagingLevel->mRuntimeResourceRegistry = &registry;
+			mImpl->StagingLevel->mRuntimeResourceProjectRoot = resolvedRoot;
+			mImpl->StagingLevel->mRuntimeResourceCatalog = catalog;
+			mImpl->StagingLevel->mRuntimeResources = registry.CreateGroup();
+			const ConfigManager& config = ConfigManager::GetInstance();
+			std::filesystem::path activeProjectRoot;
+			if (config.IsInitialized())
 			{
-				uint64_t uuid = entity["Entity"].as<uint64_t>();
+				activeProjectRoot = std::filesystem::weakly_canonical(
+					config.GetRootFolder(),
+					error);
+			}
+			const bool bUseActiveContentOverlay = config.IsInitialized() &&
+				!error && activeProjectRoot == resolvedRoot;
 
-				std::string name;
-				auto tagComponent = entity["TagComponent"];
-				if (tagComponent)
-					name = tagComponent["Tag"].as<std::string>();
-
-				HE_CORE_TRACE("Deserialized entity with ID = {0}, name = {1}", uuid, name);
-
-				Entity deserializedEntity = mLevel->CreateEntityWithUUID(uuid, name);
-
-				auto transformComponent = entity["TransformComponent"];
-				if (transformComponent)
+			for (const std::string& meshPath : mImpl->Document->GetMeshPaths())
+			{
+				std::filesystem::path meshContentRoot = resolvedRoot;
+				if (bUseActiveContentOverlay)
 				{
-					// Entities always have transforms
-					auto& tc = deserializedEntity.GetComponent<TransformComponent>();
-					tc.Translation = transformComponent["Translation"].as<glm::vec3>();
-					tc.Rotation = transformComponent["Rotation"].as<glm::vec3>();
-					tc.Scale = transformComponent["Scale"].as<glm::vec3>();
+					meshContentRoot = ConfigManager::GetContentRootForPath(
+						ConfigManager::GetFullPath(meshPath));
+				}
+				const RuntimeResourceKey key = MeshRuntimeResource::MakeKey(
+					meshContentRoot,
+					meshPath);
+				if (!key.CachePath.ends_with(".hmesh"))
+					continue;
+
+				(void)MeshRuntimeResource::QueueAsync(
+					registry,
+					meshContentRoot,
+					catalog,
+					meshPath,
+					mImpl->StagingLevel->mRuntimeResources);
+				mImpl->MeshKeys.emplace_back(meshPath, key);
+			}
+
+			mImpl->Progress.Resources = mImpl->StagingLevel->mRuntimeResources.Progress();
+			mImpl->Progress.State = SceneMaterializationState::WaitingForResources;
+			mImpl->RefreshRatio();
+		}
+		catch (...)
+		{
+			mImpl->StoreCurrentFailure("Failed to start incremental scene materialization.");
+		}
+	}
+
+	SceneMaterializationProgress IncrementalSceneMaterializer::Pump(
+		SceneMaterializationBudget budget)
+	{
+		if (mImpl->Progress.State == SceneMaterializationState::WaitingForResources)
+		{
+			try
+			{
+				if (!mImpl->Registry || !mImpl->Document || !mImpl->StagingLevel)
+					throw std::logic_error("Incremental scene materialization lost its staging state.");
+
+				mImpl->Progress.Resources = mImpl->StagingLevel->mRuntimeResources.Progress();
+				if (mImpl->Progress.Resources.Failed != 0)
+				{
+					std::string failedPath = "<unknown>";
+					for (const auto& [meshPath, key] : mImpl->MeshKeys)
+					{
+						if (mImpl->Registry->GetState(key) == RuntimeResourceState::Failed)
+						{
+							try
+							{
+								mImpl->Registry->RethrowFailure(key);
+							}
+							catch (...)
+							{
+								std::throw_with_nested(std::runtime_error(
+									"A staged scene mesh failed to load: " + meshPath));
+							}
+							failedPath = meshPath;
+							break;
+						}
+					}
+					throw std::runtime_error("A staged scene mesh failed to load: " + failedPath);
+				}
+				if (mImpl->Progress.Resources.Unloaded != 0 &&
+					mImpl->Progress.Resources.Loading == 0)
+				{
+					throw std::runtime_error("A staged scene mesh became unavailable before materialization.");
 				}
 
-				auto cameraComponent = entity["CameraComponent"];
-				if (cameraComponent)
+				if (mImpl->Progress.Resources.Ready != mImpl->Progress.Resources.Total)
 				{
-					auto& cc = deserializedEntity.AddComponent<CameraComponent>();
-
-					const auto& cameraProps = cameraComponent["Camera"];
-					cc.Camera.SetProjectionType((SceneCamera::ProjectionType)cameraProps["ProjectionType"].as<int>());
-
-					cc.Camera.SetPerspectiveVerticalFOV(cameraProps["PerspectiveFOV"].as<float>());
-					cc.Camera.SetPerspectiveNearClip(cameraProps["PerspectiveNear"].as<float>());
-					cc.Camera.SetPerspectiveFarClip(cameraProps["PerspectiveFar"].as<float>());
-
-					cc.Camera.SetOrthographicSize(cameraProps["OrthographicSize"].as<float>());
-					cc.Camera.SetOrthographicNearClip(cameraProps["OrthographicNear"].as<float>());
-					cc.Camera.SetOrthographicFarClip(cameraProps["OrthographicFar"].as<float>());
-
-					cc.Primary = cameraComponent["Primary"].as<bool>();
-					cc.FixedAspectRatio = cameraComponent["FixedAspectRatio"].as<bool>();
+					mImpl->RefreshRatio();
+					return mImpl->Progress;
 				}
 
-				auto spriteRendererComponent = entity["SpriteRendererComponent"];
-				if (spriteRendererComponent)
-				{
-					auto& src = deserializedEntity.AddComponent<SpriteRendererComponent>();
-					src.Color = spriteRendererComponent["Color"].as<glm::vec4>();
-				}
-
-				auto circleRendererComponent = entity["CircleRendererComponent"];
-				if (circleRendererComponent)
-				{
-					auto& circle = deserializedEntity.AddComponent<CircleRendererComponent>();
-					circle.Color = circleRendererComponent["Color"].as<glm::vec4>();
-					circle.Thickness = circleRendererComponent["Thickness"].as<float>();
-					circle.Fade = circleRendererComponent["Fade"].as<float>();
-				}
-
-				auto rigidbody2DComponent = entity["Rigidbody2DComponent"];
-				if (rigidbody2DComponent)
-				{
-					auto& rb2d = deserializedEntity.AddComponent<Rigidbody2DComponent>();
-					rb2d.Type = RigidBody2DBodyTypeFromString(rigidbody2DComponent["BodyType"].as<std::string>());
-					rb2d.FixedRotation = rigidbody2DComponent["FixedRotation"].as<bool>();
-				}
-
-				auto boxCollider2DComponent = entity["BoxCollider2DComponent"];
-				if (boxCollider2DComponent)
-				{
-					auto& bc2d = deserializedEntity.AddComponent<BoxCollider2DComponent>();
-					bc2d.Offset = boxCollider2DComponent["Offset"].as<glm::vec2>();
-					bc2d.Size = boxCollider2DComponent["Size"].as<glm::vec2>();
-					bc2d.Density = boxCollider2DComponent["Density"].as<float>();
-					bc2d.Friction = boxCollider2DComponent["Friction"].as<float>();
-					bc2d.Restitution = boxCollider2DComponent["Restitution"].as<float>();
-					bc2d.RestitutionThreshold = boxCollider2DComponent["RestitutionThreshold"].as<float>();
-				}
-
-				auto circleCollider2DComponent = entity["CircleCollider2DComponent"];
-				if (circleCollider2DComponent)
-				{
-					auto& cc2d = deserializedEntity.AddComponent<CircleCollider2DComponent>();
-					cc2d.Offset = circleCollider2DComponent["Offset"].as<glm::vec2>();
-					cc2d.Radius = circleCollider2DComponent["Radius"].as<float>();
-					cc2d.Density = circleCollider2DComponent["Density"].as<float>();
-					cc2d.Friction = circleCollider2DComponent["Friction"].as<float>();
-					cc2d.Restitution = circleCollider2DComponent["Restitution"].as<float>();
-					cc2d.RestitutionThreshold = circleCollider2DComponent["RestitutionThreshold"].as<float>();
-				}
-
-				auto meshComponent = entity["MeshComponent"];
-				if (meshComponent)
-				{
-					std::string str = meshComponent["Path"].as<std::string>();
-					auto& mc = deserializedEntity.AddComponent<MeshComponent>(str);
-
-					// Material
-					mc.mMesh->mMaterial[0]->bUseAlbedoMap = meshComponent["bUseAlbedoMap"].as<bool>();
-					mc.mMesh->mMaterial[0]->col = meshComponent["col"].as<glm::vec4>();
-					mc.mMesh->mMaterial[0]->bUseNormalMap = meshComponent["bUseNormalMap"].as<bool>();
-					mc.mMesh->mMaterial[0]->bUseMetallicMap = meshComponent["bUseMetallicMap"].as<bool>();
-					mc.mMesh->mMaterial[0]->metallic = meshComponent["metallic"].as<float>();
-					mc.mMesh->mMaterial[0]->bUseRoughnessMap = meshComponent["bUseRoughnessMap"].as<bool>();
-					mc.mMesh->mMaterial[0]->roughness = meshComponent["roughness"].as<float>();
-					mc.mMesh->mMaterial[0]->bUseAoMap = meshComponent["bUseAoMap"].as<bool>();
-					// End Material
-				}
-
-				auto rigidbody3DComponent = entity["Rigidbody3DComponent"];
-				if (rigidbody3DComponent)
-				{
-					auto& rb3d = deserializedEntity.AddComponent<Rigidbody3DComponent>();
-					rb3d.mass = rigidbody3DComponent["mass"].as<float>();
-					rb3d.Type = (Rigidbody3DComponent::Body3DType)rigidbody3DComponent["type"].as<uint32_t>();
-					rb3d.Shape = (CollisionShape)rigidbody3DComponent["shape"].as<uint32_t>();
-					rb3d.linearDamping = rigidbody3DComponent["linearDamping"].as<float>();
-					rb3d.angularDamping = rigidbody3DComponent["angularDamping"].as<float>();
-					rb3d.restitution = rigidbody3DComponent["restitution"].as<float>();
-					rb3d.friction = rigidbody3DComponent["friction"].as<float>();
-				}
-
-				auto pointLightComponent = entity["PointLightComponent"];
-				if (pointLightComponent)
-				{
-					float intensity = pointLightComponent["pointIntensity"].as<float>();
-					glm::vec3 color = pointLightComponent["Color"].as<glm::vec3>();
-					auto& src = deserializedEntity.AddComponent<PointLightComponent>(intensity, color);
-				}
-
-				auto directionalLightComponent = entity["DirectionalLightComponent"];
-				if (directionalLightComponent)
-				{
-					float intensity = directionalLightComponent["dirIntensity"].as<float>();
-					auto& src = deserializedEntity.AddComponent<DirectionalLightComponent>(intensity);
-				}
+				mImpl->Progress.State = SceneMaterializationState::Materializing;
+			}
+			catch (...)
+			{
+				mImpl->StoreCurrentFailure("Failed while waiting for staged scene resources.");
+				return mImpl->Progress;
 			}
 		}
 
+		if (mImpl->Progress.State != SceneMaterializationState::Materializing ||
+			budget.MaxEntities == 0)
+		{
+			mImpl->RefreshRatio();
+			return mImpl->Progress;
+		}
+
+		const auto startTime = std::chrono::steady_clock::now();
+		const bool bUnlimitedTime = budget.TimeBudget <= std::chrono::nanoseconds::zero();
+		size_t materializedThisPump = 0;
+		while (mImpl->Progress.MaterializedEntities < mImpl->Progress.TotalEntities &&
+			materializedThisPump < budget.MaxEntities)
+		{
+			if (materializedThisPump != 0 && !bUnlimitedTime &&
+				std::chrono::steady_clock::now() - startTime >= budget.TimeBudget)
+			{
+				break;
+			}
+
+			const SceneDocumentEntity& documentEntity =
+				mImpl->Document->GetEntities()[mImpl->Progress.MaterializedEntities];
+			try
+			{
+#if !WITH_EDITOR
+				if (documentEntity.Value.contains("SceneFolderComponent"))
+				{
+					++mImpl->Progress.MaterializedEntities;
+					++materializedThisPump;
+					continue;
+				}
+#endif
+				Entity entity = mImpl->StagingLevel->CreateEntityWithoutTrans(
+					documentEntity.Uuid,
+					documentEntity.Tag);
+				DeserializeStagedEntity(
+					ComponentsDeserialized{},
+					documentEntity.Value,
+					entity,
+					mImpl->StagingLevel->mRegistry);
+			}
+			catch (...)
+			{
+				mImpl->StoreCurrentFailure(
+					"Failed to materialize scene entity '" + documentEntity.Uuid + "'.");
+				return mImpl->Progress;
+			}
+
+			++mImpl->Progress.MaterializedEntities;
+			++materializedThisPump;
+		}
+
+		if (mImpl->Progress.MaterializedEntities == mImpl->Progress.TotalEntities)
+		{
+			mImpl->CompletedLevel = std::move(mImpl->StagingLevel);
+			mImpl->Document.reset();
+			mImpl->MeshKeys.clear();
+			mImpl->Registry = nullptr;
+			mImpl->Progress.State = SceneMaterializationState::Ready;
+		}
+
+		mImpl->RefreshRatio();
+		return mImpl->Progress;
+	}
+
+	SceneMaterializationProgress IncrementalSceneMaterializer::GetProgress() const noexcept
+	{
+		return mImpl->Progress;
+	}
+
+	void IncrementalSceneMaterializer::RequestCancel()
+	{
+		if (mImpl->Progress.State != SceneMaterializationState::WaitingForResources &&
+			mImpl->Progress.State != SceneMaterializationState::Materializing)
+		{
+			return;
+		}
+
+		mImpl->Failure = std::make_exception_ptr(std::runtime_error(
+			"Incremental scene materialization was cancelled after " +
+			std::to_string(mImpl->Progress.MaterializedEntities) + " of " +
+			std::to_string(mImpl->Progress.TotalEntities) + " entities."));
+		mImpl->Progress.State = SceneMaterializationState::Cancelled;
+		mImpl->ResetOwnedState();
+		mImpl->RefreshRatio();
+	}
+
+	void IncrementalSceneMaterializer::RethrowFailure() const
+	{
+		if (mImpl->Failure)
+			std::rethrow_exception(mImpl->Failure);
+	}
+
+	Ref<Level> IncrementalSceneMaterializer::TakeCompletedLevel()
+	{
+		if (mImpl->Progress.State != SceneMaterializationState::Ready)
+			return nullptr;
+		return std::exchange(mImpl->CompletedLevel, nullptr);
+	}
+
+	bool SceneSerializer::DeserializeFromJson(const Json& json)
+	{
+		for (auto& [keyEntity, valueEntity] : json.items())
+		{
+			if (!valueEntity.contains("TagComponent") || !valueEntity["TagComponent"].contains("Tag"))
+				continue;
+#if !WITH_EDITOR
+			if (valueEntity.contains("SceneFolderComponent"))
+				continue;
+#endif
+
+			Entity deserializedEntity = mLevel->CreateEntityWithoutTrans(keyEntity, valueEntity["TagComponent"]["Tag"].get<std::string>());
+			DeserializeEntity(valueEntity, deserializedEntity);
+		}
+
 		return true;
+	}
+
+	bool SceneSerializer::Deserialize(const std::string& filepath)
+	{
+		HE_PROFILE_SECTION("SceneSerializer::Deserialize");
+		return DeserializeFromJson(Utils::LoadJsonFile(filepath));
 	}
 
 	bool SceneSerializer::DeserializeRuntime(const std::string& filepath)

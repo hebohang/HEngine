@@ -5,11 +5,15 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/quaternion.hpp>
 
+#include <string>
+
 namespace HEngine
 {
-	class TransformComponent : public ComponentBase
+    REFLECTION_TYPE(TransformComponent)
+    CLASS(TransformComponent : public ComponentBase, Fields)
 	{
-	public:
+        REFLECTION_COMPONENT_BODY(TransformComponent);
+    public:
         TransformComponent() = default;
         TransformComponent(const TransformComponent&) = default;
         TransformComponent(const glm::vec3 & translation)
@@ -27,12 +31,9 @@ namespace HEngine
             return glm::toMat4(glm::quat(Rotation));
         }
 
-        [[nodiscard]] glm::vec3 GetTranslation() const { return Translation; }
-
-        void SetTranslation(float x, float y, float z) { Translation = {x, y, z}; }
-
         glm::vec3 Translation = { 0.0f, 0.0f, 0.0f };
-        glm::vec3 Rotation = { 0.0f, 0.0f, 0.0f };  // Euler angles
+        glm::vec3 Rotation = { 0.0f, 0.0f, 0.0f };  // Euler angles (radians)
         glm::vec3 Scale = { 1.0f, 1.0f, 1.0f };
+        std::string ParentUuid;
 	};
 }

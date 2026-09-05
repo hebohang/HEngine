@@ -1,0 +1,157 @@
+{
+  "SchemaVersion": 2,
+  "Type": "Custom",
+  "PassName": "FresnelRim",
+  "ShaderPath": "Shaders/Materials/BuiltInShowcase/FresnelRim.hlsl",
+  "VariantKeywords": [],
+  "Domain": "Surface",
+  "ShadingModel": "Lit",
+  "BlendMode": "Opaque",
+  "CullMode": "Back",
+  "DepthWrite": true,
+  "AlphaCutoff": 0.5,
+  "Parameters": {
+    "g_BaseColorFactor": {
+      "StableId": "fresnel.base_color",
+      "Type": "color",
+      "Value": [
+        0.24,
+        0.015,
+        0.2,
+        1
+      ]
+    },
+    "g_MetallicFactor": {
+      "StableId": "fresnel.metallic",
+      "Type": "float",
+      "Value": 0.12
+    },
+    "g_RoughnessFactor": {
+      "StableId": "fresnel.roughness",
+      "Type": "float",
+      "Value": 0.3
+    },
+    "g_RimColor": {
+      "StableId": "fresnel.rim_color",
+      "Type": "color",
+      "Value": [
+        1,
+        0.06,
+        0.7,
+        1
+      ]
+    },
+    "g_RimPower": {
+      "StableId": "fresnel.rim_power",
+      "Type": "float",
+      "Value": 2.4
+    },
+    "g_RimIntensity": {
+      "StableId": "fresnel.rim_intensity",
+      "Type": "float",
+      "Value": 5.2
+    },
+    "g_PulseSpeed": {
+      "StableId": "fresnel.pulse_speed",
+      "Type": "float",
+      "Value": 0.24
+    },
+    "g_PulseAmount": {
+      "StableId": "fresnel.pulse_amount",
+      "Type": "float",
+      "Value": 0.7
+    },
+    "g_ScanSpeed": {
+      "StableId": "fresnel.scan_speed",
+      "Type": "float",
+      "Value": -0.3
+    },
+    "g_ScanScale": {
+      "StableId": "fresnel.scan_scale",
+      "Type": "float",
+      "Value": 22
+    }
+  },
+  "Textures": {},
+  "OrphanedParameters": {},
+  "Properties": {
+    "name": "Fresnel Magenta",
+    "pbrMetallicRoughness": {
+      "baseColorFactor": [
+        0.24,
+        0.015,
+        0.2,
+        1
+      ],
+      "metallicFactor": 0.12,
+      "roughnessFactor": 0.3,
+      "baseColorTexture": {
+        "texCoord": 0,
+        "textureRes": {
+          "textureSourcePath": ""
+        }
+      },
+      "metallicRoughnessTexture": {
+        "texCoord": 0,
+        "textureRes": {
+          "textureSourcePath": ""
+        }
+      }
+    },
+    "normalTexture": {
+      "scale": 1,
+      "texCoord": 0,
+      "textureRes": {
+        "textureSourcePath": ""
+      }
+    },
+    "occlusionTexture": {
+      "strength": 1,
+      "texCoord": 0,
+      "textureRes": {
+        "textureSourcePath": ""
+      }
+    },
+    "emissiveTexture": {
+      "texCoord": 0,
+      "textureRes": {
+        "textureSourcePath": ""
+      }
+    },
+    "emissiveFactor": [
+      0.35,
+      0.020999999999999998,
+      0.24499999999999997
+    ],
+    "alphaMode": "OPAQUE",
+    "alphaCutoff": 0.5,
+    "doubleSided": false,
+    "bUseAlbedoMap": false,
+    "bUseNormalMap": false,
+    "bUseMetallicRoughnessMap": false,
+    "bUseAoMap": false,
+    "bUseEmissiveMap": false,
+    "ExposedProperties": {
+      "g_BaseColorFactor": [
+        0.24,
+        0.015,
+        0.2,
+        1
+      ],
+      "g_MetallicFactor": 0.12,
+      "g_RoughnessFactor": 0.3,
+      "g_RimColor": [
+        1,
+        0.06,
+        0.7,
+        1
+      ],
+      "g_RimPower": 2.4,
+      "g_RimIntensity": 5.2,
+      "g_PulseSpeed": 0.24,
+      "g_PulseAmount": 0.7,
+      "g_ScanSpeed": -0.3,
+      "g_ScanScale": 22
+    }
+  }
+}

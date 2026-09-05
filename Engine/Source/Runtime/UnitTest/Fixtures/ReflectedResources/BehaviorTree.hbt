@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "name": "SchemaFixtureTree",
+  "rootNodeId": 1,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "Selector",
+      "name": "Root",
+      "parentId": -1,
+      "childOrder": 0,
+      "properties": []
+    },
+    {
+      "id": 2,
+      "type": "Sequence",
+      "name": "Sequence",
+      "parentId": 1,
+      "childOrder": 0,
+      "properties": []
+    },
+    {
+      "id": 3,
+      "type": "CheckHealth",
+      "name": "Check Health",
+      "parentId": 2,
+      "childOrder": 0,
+      "properties": [
+        {
+          "key": "threshold",
+          "type": "float",
+          "value": "0"
+        }
+      ]
+    }
+  ],
+  "blackboardKeys": [
+    {
+      "key": "Health",
+      "type": "float",
+      "defaultValue": "100"
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct SPIRV_Cross_Input
+{
+    uint3 _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+};
+
+struct SlotData
+{
+    float3 Position;
+    uint Direction;
+};
+
+struct Data
+{
+    uint _data[1];
+};
+
+static inline __attribute__((always_inline))
+void _main(thread const uint3& dtid, device Data& Data_1)
+{
+    uint index = dtid.x;
+    SlotData data;
+    data.Position = float3((float(index) * 2.0) + 0.25, (float(index) * (-3.0)) + 0.5, (float(index) * 4.0) - 0.75);
+    data.Direction = 305397760u + (index * 31u);
+    int byteAddrTemp = int(((index * 16u) + 0u) >> uint(2));
+    Data_1._data[byteAddrTemp] = as_type<uint3>(data.Position).x;
+    Data_1._data[byteAddrTemp + 1] = as_type<uint3>(data.Position).y;
+    Data_1._data[byteAddrTemp + 2] = as_type<uint3>(data.Position).z;
+    int byteAddrTemp_1 = int(((index * 16u) + 12u) >> uint(2));
+    Data_1._data[byteAddrTemp_1] = data.Direction;
+}
+
+static inline __attribute__((always_inline))
+void comp_main(device Data& Data_1, thread uint3& _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID)
+{
+    uint3 dtid = _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+    uint3 param = dtid;
+    uint3 param_1 = param;
+    _main(param_1, Data_1);
+}
+
+static inline __attribute__((always_inline))
+void _main(thread const SPIRV_Cross_Input& stage_input, device Data& Data_1, thread uint3& _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID)
+{
+    _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID = stage_input._RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+    comp_main(Data_1, _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID);
+}
+
+kernel void main0(device Data& Data_1 [[buffer(11)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    SPIRV_Cross_Input stage_input;
+    stage_input._RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID = gl_GlobalInvocationID;
+    SPIRV_Cross_Input param = stage_input;
+    uint3 _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+    _main(param, Data_1, _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID);
+}
+

@@ -1,7 +1,9 @@
 #pragma once 
 
-#include "Runtime/Core/Base/PublicSingleton.h"
+#include "Runtime/Core/Templates/PublicSingleton.h"
 
+#include <cstddef>
+#include <string>
 #include <unordered_map>
 
 namespace HEngine
@@ -22,8 +24,25 @@ namespace HEngine
         }
         [[nodiscard]] Ref<LibType> Get(const std::string& name)
         {
-            HE_CORE_ASSERT(mLibrary.find(name) != mLibrary.end() && "Can't find this member in Library!");
-            return mLibrary[name];
+            const auto it = mLibrary.find(name);
+            HE_CORE_ASSERT(it != mLibrary.end() && "Can't find this member in Library!");
+            return it != mLibrary.end() ? it->second : nullptr;
+        }
+        [[nodiscard]] bool Contains(const std::string& name) const
+        {
+            return mLibrary.contains(name);
+        }
+        bool Remove(const std::string& name)
+        {
+            return mLibrary.erase(name) != 0;
+        }
+        void Clear()
+        {
+            mLibrary.clear();
+        }
+        [[nodiscard]] std::size_t Size() const
+        {
+            return mLibrary.size();
         }
 
     protected:

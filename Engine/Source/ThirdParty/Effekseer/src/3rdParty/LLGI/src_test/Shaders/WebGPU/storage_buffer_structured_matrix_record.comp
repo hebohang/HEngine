@@ -1,0 +1,85 @@
+diagnostic(off, derivative_uniformity);
+
+struct StructuredMatrixRecord_2_1 {
+  Flags : u32,
+  Age : f32,
+  Packed : vec2<u32>,
+  Transform : mat3x4<f32>,
+  Direction : vec3<f32>,
+  Color : u32,
+}
+
+struct Records_1_1 {
+  m : array<StructuredMatrixRecord_2_1>,
+}
+
+@group(2) @binding(1) var<storage, read> Records_2 : Records_1_1;
+
+struct StructuredMatrixOutput {
+  Translation : vec3<f32>,
+  Flags : u32,
+  Direction : vec3<f32>,
+  Color : u32,
+  Axis0 : vec3<f32>,
+  Checksum : u32,
+}
+
+struct Output {
+  m_1 : array<StructuredMatrixOutput>,
+}
+
+@group(2) @binding(0) var<storage, read_write> Output_1 : Output;
+
+@compute @workgroup_size(1u, 1u, 1u)
+fn main(@builtin(global_invocation_id) dtid : vec3<u32>) {
+  var dtid_1 : vec3<u32>;
+  var param : vec3<u32>;
+  dtid_1 = dtid;
+  param = dtid_1;
+  v(&(param));
+}
+
+struct StructuredMatrixRecord_1 {
+  Flags : u32,
+  Age : f32,
+  Packed : vec2<u32>,
+  Transform : mat4x3<f32>,
+  Direction : vec3<f32>,
+  Color : u32,
+}
+
+struct StructuredMatrixOutput_1 {
+  Translation : vec3<f32>,
+  Flags : u32,
+  Direction : vec3<f32>,
+  Color : u32,
+  Axis0 : vec3<f32>,
+  Checksum : u32,
+}
+
+fn v(dtid : ptr<function, vec3<u32>>) {
+  var record : StructuredMatrixRecord_1;
+  var output : StructuredMatrixOutput_1;
+  let v_1 = Records_2.m[(*(dtid)).x];
+  record.Flags = v_1.Flags;
+  record.Age = v_1.Age;
+  record.Packed = v_1.Packed;
+  record.Transform = transpose(v_1.Transform);
+  record.Direction = v_1.Direction;
+  record.Color = v_1.Color;
+  output.Translation = record.Transform[3i];
+  output.Flags = (record.Flags ^ bitcast<u32>(record.Age));
+  output.Direction = (record.Direction + (record.Transform[2i] * 0.25f));
+  output.Color = record.Color;
+  output.Axis0 = ((record.Transform[0i] * record.Age) + record.Direction);
+  output.Checksum = (((record.Flags ^ record.Packed.x) ^ record.Packed.y) ^ record.Color);
+  let v_2 = (*(dtid)).x;
+  let v_3 = output;
+  let v_4 = &(Output_1.m_1[v_2]);
+  (*(v_4)).Translation = v_3.Translation;
+  (*(v_4)).Flags = v_3.Flags;
+  (*(v_4)).Direction = v_3.Direction;
+  (*(v_4)).Color = v_3.Color;
+  (*(v_4)).Axis0 = v_3.Axis0;
+  (*(v_4)).Checksum = v_3.Checksum;
+}

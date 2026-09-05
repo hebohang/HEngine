@@ -1,0 +1,39 @@
+diagnostic(off, derivative_uniformity);
+
+struct SlotData {
+  Position : vec3<f32>,
+  Direction : u32,
+}
+
+struct Data {
+  m : array<SlotData>,
+}
+
+@group(2) @binding(1) var<storage, read_write> Data_1 : Data;
+
+@compute @workgroup_size(1u, 1u, 1u)
+fn main(@builtin(global_invocation_id) dtid : vec3<u32>) {
+  var dtid_1 : vec3<u32>;
+  var param : vec3<u32>;
+  dtid_1 = dtid;
+  param = dtid_1;
+  v(&(param));
+}
+
+struct SlotData_1 {
+  Position : vec3<f32>,
+  Direction : u32,
+}
+
+fn v(dtid : ptr<function, vec3<u32>>) {
+  var index : u32;
+  var data : SlotData_1;
+  index = (*(dtid)).x;
+  data.Position = vec3<f32>(((f32(index) * 2.0f) + 0.25f), ((f32(index) * -3.0f) + 0.5f), ((f32(index) * 4.0f) - 0.75f));
+  data.Direction = (305397760u + (index * 31u));
+  let v_1 = index;
+  let v_2 = data;
+  let v_3 = &(Data_1.m[v_1]);
+  (*(v_3)).Position = v_2.Position;
+  (*(v_3)).Direction = v_2.Direction;
+}

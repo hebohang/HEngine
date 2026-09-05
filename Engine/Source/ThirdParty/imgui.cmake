@@ -18,20 +18,11 @@ set(ImGuiSrc
 set(ImGuiImpl  
 "${ImguiSourceDir}/backends/imgui_impl_glfw.cpp" 
 "${ImguiSourceDir}/backends/imgui_impl_glfw.h"
-"${ImguiSourceDir}/backends/imgui_impl_opengl3.cpp" 
-"${ImguiSourceDir}/backends/imgui_impl_opengl3.h"
-"${ImguiSourceDir}/backends/imgui_impl_vulkan.cpp" 
-"${ImguiSourceDir}/backends/imgui_impl_vulkan.h"
-"${ImguiSourceDir}/backends/imgui_impl_win32.cpp"
-"${ImguiSourceDir}/backends/imgui_impl_win32.h"
-"${ImguiSourceDir}/backends/imgui_impl_dx11.cpp"
-"${ImguiSourceDir}/backends/imgui_impl_dx11.h"
 )
 
 add_library(imgui STATIC ${ImGuiSrc} ${ImGuiImpl})
 target_include_directories(imgui 
     PUBLIC "${ThirdPartyDir}"
     PUBLIC "${ImguiSourceDir}"
-    PUBLIC "${vulkan_include}"
 )
-target_link_libraries(imgui PUBLIC glfw Glad ${OPENGL_LIBRARIES})
+target_link_libraries(imgui PUBLIC glfw)

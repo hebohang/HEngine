@@ -1,0 +1,173 @@
+/*
+* Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
+*
+* Permission is hereby granted, free of charge, to any person obtaining a
+* copy of this software and associated documentation files (the "Software"),
+* to deal in the Software without restriction, including without limitation
+* the rights to use, copy, modify, merge, publish, distribute, sublicense,
+* and/or sell copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in
+* all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+* DEALINGS IN THE SOFTWARE.
+*/
+
+#ifndef NVRHI_HLSL_H
+#define NVRHI_HLSL_H
+
+// Cross-language static-assert. C++ uses standard `static_assert`. HLSL
+// support varies across DXC frontends: DXIL-DXC accepts `_Static_assert`,
+// but the SPIRV-DXC codegen path returns "decl type StaticAssert
+// unimplemented". Until both paths agree, gate the HLSL branch to a no-op
+// — C++ asserts are load-bearing (on-wire layout follows the C++ struct).
+#ifdef __cplusplus
+#define NVRHI_STATIC_ASSERT(cond, msg) static_assert(cond, msg)
+#else
+#define NVRHI_STATIC_ASSERT(cond, msg)
+#endif
+
+// bit field defines
+#if defined(__cplusplus) || __HLSL_VERSION >= 2021 || __SLANG__
+namespace nvrhi
+{
+    typedef uint64_t GpuVirtualAddress;
+    struct GpuVirtualAddressAndStride
+    {
+        GpuVirtualAddress startAddress;
+        uint64_t strideInBytes;
+    };
+
+    namespace rt
+    {
+        //////////////////////////////////////////////////////////////////////////
+        // Indirect Arg Structs that are shader friendly
+        //////////////////////////////////////////////////////////////////////////
+        
+        // Shader friendly equivalent of nvrhi::rt::InstanceDesc
+        struct IndirectInstanceDesc
+        {
+#ifdef __cplusplus
+            float transform[12];
+#else
+            float4 transform[3];
+#endif
+            uint32_t instanceID : 24;
+            uint32_t instanceMask : 8;
+            uint32_t instanceContributionToHitGroupIndex : 24;
+            uint32_t flags : 8;
+            GpuVirtualAddress blasDeviceAddress;
+        };
+
+        namespace cluster
+        {
+            static const uint32_t kClasByteAlignment = 128;
+            static const uint32_t kClasMaxTriangles = 256; // Defined by spec
+            static const uint32_t kClasMaxVertices = 256; // Defined by spec
+            static const uint32_t kMaxGeometryIndex = 16777215; // Defined by spec
+
+            // Per-CLAS geometry flag bits.  Mirrors:
+            //   - VK_CLUSTER_ACCELERATION_STRUCTURE_GEOMETRY_*_BIT_NV
+            //   - NVAPI_D3D12_RAYTRACING_MULTI_INDIRECT_CLUSTER_OPERATION_GEOMETRY_FLAG_*
+            // Both APIs encode the flag bits at uint32 bit positions 29-31; the
+            // values below are the 3-bit-field encoding (i.e. shifted into the
+            // low 3 bits) so they can be assigned to the GeometryFlags packed
+            // sub-field of GeometryIndexAndFlags directly.
+            enum class ClusterGeometryFlags : uint32_t
+            {
+                None                        = 0,
+                CullDisable                 = 1,  // disables triangle culling — see D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_CULL_DISABLE
+                NoDuplicateAnyHitInvocation = 2,  // matches D3D12_RAYTRACING_GEOMETRY_FLAG_NO_DUPLICATE_ANYHIT_INVOCATION
+                Opaque                      = 4   // matches D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE — skips any-hit
+            };
+
+            // Clone of VkClusterAccelerationStructureGeometryIndexAndGeometryFlagsNV.
+            // NVAPI's equivalent is the raw packed uint32 with the flags at bits
+            // 29-31; we name the struct after the Vulkan spelling but the bit
+            // layout is identical across both APIs and the static_assert below
+            // pins the packing.
+            struct GeometryIndexAndFlags
+            {
+                uint32_t geometryIndex : 24;
+                uint32_t reserved      : 5;
+                uint32_t geometryFlags : 3;  // ClusterGeometryFlags
+            };
+            NVRHI_STATIC_ASSERT(sizeof(GeometryIndexAndFlags) == sizeof(uint32_t),
+                                "GeometryIndexAndFlags must pack into a single uint32 — "
+                                "the on-wire layout for NVAPI/Vulkan cluster builders, and "
+                                "for shader-side per-triangle arrays, depends on it.");
+
+            // Clone of NVAPI_D3D12_RAYTRACING_ACCELERATION_STRUCTURE_MULTI_INDIRECT_TRIANGLE_CLUSTER_ARGS
+            struct IndirectTriangleClasArgs
+            {
+                uint32_t          clusterId;                         // The user specified cluster Id to encode in the CLAS
+                uint32_t          clusterFlags;                      // Values of NVAPI_D3D12_RAYTRACING_MULTI_INDIRECT_CLUSTER_OPERATION_CLUSTER_FLAGS to use as Cluster Flags
+                uint32_t          triangleCount : 9;                 // The number of triangles used by the CLAS (max 256)
+                uint32_t          vertexCount : 9;                   // The number of vertices used by the CLAS (max 256)
+                uint32_t          positionTruncateBitCount : 6;      // The number of bits to truncate from the position values
+                uint32_t          indexFormat : 4;                   // The index format to use for the indexBuffer, see NVAPI_3D12_RAYTRACING_MULTI_INDIRECT_CLUSTER_OPERATION_INDEX_FORMAT for possible values
+                uint32_t          opacityMicromapIndexFormat : 4;    // The index format to use for the opacityMicromapIndexBuffer, see NVAPI_3D12_RAYTRACING_MULTI_INDIRECT_CLUSTER_OPERATION_INDEX_FORMAT for possible values
+                GeometryIndexAndFlags baseGeometryIndexAndFlags;     // base geometry index (low 24 bits) + base geometry flags (bits 29-31, see ClusterGeometryFlags) — see geometryIndexAndFlagsBuffer
+                uint16_t          indexBufferStride;                 // The stride of the elements of indexBuffer, in bytes
+                uint16_t          vertexBufferStride;                // The stride of the elements of vertexBuffer, in bytes
+                uint16_t          geometryIndexAndFlagsBufferStride; // The stride of the elements of geometryIndexBuffer, in bytes
+                uint16_t          opacityMicromapIndexBufferStride;  // The stride of the elements of opacityMicromapIndexBuffer, in bytes
+                GpuVirtualAddress indexBuffer;                       // The index buffer to construct the CLAS
+                GpuVirtualAddress vertexBuffer;                      // The vertex buffer to construct the CLAS
+                GpuVirtualAddress geometryIndexAndFlagsBuffer;       // (optional) Address of an array of GeometryIndexAndFlags (one 32-bit struct per triangle), size equal to the triangle count. Each element supplies the per-triangle geometry index (low 24 bits) and ClusterGeometryFlags (bits 29-31); the resulting CLAS triangle's geometry index is the element's geometryIndex + baseGeometryIndexAndFlags.geometryIndex, and its flags are the bitwise OR of the two flag fields.
+                GpuVirtualAddress opacityMicromapArray;              // (optional) Address of a valid OMM array, if used NVAPI_D3D12_RAYTRACING_MULTI_INDIRECT_CLUSTER_OPERATION_FLAG_ALLOW_OMM must be set on this and all other cluster operation calls interacting with the object(s) constructed
+                GpuVirtualAddress opacityMicromapIndexBuffer;        // (optional) Address of an array of indices into the OMM array
+            };
+
+            // Clone of NVAPI_D3D12_RAYTRACING_ACCELERATION_STRUCTURE_MULTI_INDIRECT_TRIANGLE_TEMPLATE_ARGS
+            struct IndirectTriangleTemplateArgs
+            {
+                uint32_t          clusterId;                         // The user specified cluster Id to encode in the cluster template
+                uint32_t          clusterFlags;                      // Values of NVAPI_D3D12_RAYTRACING_MULTI_INDIRECT_CLUSTER_OPERATION_CLUSTER_FLAGS to use as Cluster Flags
+                uint32_t          triangleCount : 9;                 // The number of triangles used by the cluster template (max 256)
+                uint32_t          vertexCount : 9;                   // The number of vertices used by the cluster template (max 256)
+                uint32_t          positionTruncateBitCount : 6;      // The number of bits to truncate from the position values
+                uint32_t          indexFormat : 4;                   // The index format to use for the indexBuffer, must be one of nvrhi::rt::ClusteOperationIndexFormat
+                uint32_t          opacityMicromapIndexFormat : 4;    // The index format to use for the opacityMicromapIndexBuffer, see nvrhi::rt::ClusteOperationIndexFormat for possible values
+                GeometryIndexAndFlags baseGeometryIndexAndFlags;     // base geometry index (low 24 bits) + base geometry flags (bits 29-31, see ClusterGeometryFlags) — see geometryIndexAndFlagsBuffer
+                uint16_t          indexBufferStride;                 // The stride of the elements of indexBuffer, in bytes
+                uint16_t          vertexBufferStride;                // The stride of the elements of vertexBuffer, in bytes
+                uint16_t          geometryIndexAndFlagsBufferStride; // The stride of the elements of geometryIndexBuffer, in bytes
+                uint16_t          opacityMicromapIndexBufferStride;  // The stride of the elements of opacityMicromapIndexBuffer, in bytes
+                GpuVirtualAddress indexBuffer;                       // The index buffer to construct the cluster template
+                GpuVirtualAddress vertexBuffer;                      // (optional) The vertex buffer to optimize the cluster template, the vertices will not be stored in the cluster template
+                GpuVirtualAddress geometryIndexAndFlagsBuffer;       // (optional) Address of an array of GeometryIndexAndFlags (one 32-bit struct per triangle), size equal to the triangle count. Each element supplies the per-triangle geometry index (low 24 bits) and ClusterGeometryFlags (bits 29-31). If non-zero, the resulting CLAS triangle's geometry index is the element's geometryIndex + baseGeometryIndexAndFlags.geometryIndex, and its flags are the bitwise OR of the two flag fields; otherwise all triangles use baseGeometryIndexAndFlags directly.
+                GpuVirtualAddress opacityMicromapArray;              // (optional) Address of a valid OMM array, if used NVAPI_D3D12_RAYTRACING_MULTI_INDIRECT_CLUSTER_OPERATION_FLAG_ALLOW_OMM must be set on this and all other cluster operation calls interacting with the object(s) constructed
+                GpuVirtualAddress opacityMicromapIndexBuffer;        // (optional) Address of an array of indices into the OMM array
+                GpuVirtualAddress instantiationBoundingBoxLimit;     // (optional) Pointer to 6 floats with alignment NVAPI_D3D12_RAYTRACING_CLUSTER_TEMPLATE_BOUNDS_BYTE_ALIGNMENT representing the limits of the positions of any vertices the template will ever be instantiated with
+            };
+
+            // Clone of NVAPI_D3D12_RAYTRACING_ACCELERATION_STRUCTURE_MULTI_INDIRECT_INSTANTIATE_TEMPLATE_ARGS
+            struct IndirectInstantiateTemplateArgs
+            {
+                uint32_t                   clusterIdOffset;      // The offset added to the clusterId stored in the Cluster template to calculate the final clusterId that will be written to the instantiated CLAS
+                uint32_t                   geometryIndexOffset;  // The offset added to the geometry index stored for each triangle in the Cluster template to calculate the final geometry index that will be written to the triangles of the instantiated CLAS, the resulting value may not exceed maxGeometryIndexValue both of this call, and the call used to construct the original cluster template referenced
+                GpuVirtualAddress          clusterTemplate;      // Address of a previously built cluster template to be instantiated
+                GpuVirtualAddressAndStride vertexBuffer;         // Vertex buffer with stride to use to fetch the vertex positions used for instantiation
+            };
+
+            // Clone of NVAPI_D3D12_RAYTRACING_ACCELERATION_STRUCTURE_MULTI_INDIRECT_CLUSTER_ARGS
+            struct IndirectArgs
+            {
+                uint32_t                  clusterCount;     // The size of the array referenced by clusterVAs
+                uint32_t                  reserved;         // Reserved, must be 0
+                GpuVirtualAddress         clusterAddresses; // Address of an array of D3D12_GPU_VIRTUAL_ADDRESS holding valid addresses of CLAS previously constructed
+            };
+        } // namespace cluster
+    } // namespace rt
+} // namespace nvrhi
+
+#endif // __HLSL_VERSION 2021
+#endif

@@ -1,0 +1,17 @@
+<rml>
+  <head>
+    <title>ExampleHUD</title>
+    <link type="text/rcss" href="ExampleHUD.rcss" />
+  </head>
+  <body id="canvas">
+    <div id="canvas_root" class="hui-canvas" data-he-widget="Canvas" data-he-anchor-min="0,0" data-he-anchor-max="1,1" data-he-pivot="0.5,0.5" data-he-offset-min="0,0" data-he-offset-max="0,0" style="left:0dp; top:0dp; width:100%; height:100%;">
+      <div id="hud_root" class="hud-root" data-he-widget="Panel" data-he-anchor-min="0,0" data-he-anchor-max="1,1" data-he-pivot="0.5,0.5" data-he-offset-min="0,0" data-he-offset-max="0,0" style="left:0dp; top:0dp; width:1280dp; height:720dp;">
+        <p id="score_label" class="score-label" data-he-widget="Text" data-he-anchor-min="0,0" data-he-anchor-max="1,1" data-he-pivot="0.5,0.5" data-he-offset-min="0,-0.672976" data-he-offset-max="0,-0.672974" style="left:0dp; top:-1dp; width:1280dp; height:720dp;">Score: 1234</p>
+        <p id="hp_label" class="bar-label" data-he-widget="Text" data-he-anchor-min="0,0" data-he-anchor-max="0,0" data-he-pivot="0,0" data-he-offset-min="0,32" data-he-offset-max="115,21" style="left:0dp; top:32dp; width:115dp; height:21dp;">HP</p>
+        <div id="hp_fill" class="hp-fill" data-he-widget="Panel" data-he-anchor-min="0,0" data-he-anchor-max="0,0" data-he-pivot="0,0" data-he-offset-min="0,66" data-he-offset-max="126,16" style="left:0dp; top:66dp; width:126dp; height:16dp;" />
+        <p id="shield_label" class="bar-label" data-he-widget="Text" data-he-anchor-min="0,0" data-he-anchor-max="0,0" data-he-pivot="0,0" data-he-offset-min="0,92" data-he-offset-max="115,22" style="left:0dp; top:92dp; width:115dp; height:22dp;">SH</p>
+        <div id="shield_fill" class="shield-fill" data-he-widget="Panel" data-he-anchor-min="0,0" data-he-anchor-max="0,0" data-he-pivot="0,0" data-he-offset-min="0,122" data-he-offset-max="115,16" style="left:0dp; top:122dp; width:115dp; height:16dp;" />
+      </div>
+    </div>
+  </body>
+</rml>

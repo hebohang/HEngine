@@ -1,0 +1,81 @@
+{
+  "allowedRevealedSurfaceNames": [
+    "floor",
+    "back_wall",
+    "tall_block"
+  ],
+  "coordinateConvention": "top-left origin; x right; y down; pixel bounds are [x0,y0,x1,y1] inclusive/exclusive",
+  "edgeExclusion": {
+    "absoluteDepthThresholdM": 0.002,
+    "radiusPixels": 2,
+    "relativeDepthThreshold": 0.005,
+    "rule": "Exclude the union of the before-move and after-move dilated edge masks."
+  },
+  "generatorVersion": "1.2.0",
+  "greenWallClearanceM": 0.032,
+  "height": 512,
+  "manifestVersion": 1,
+  "mask": "CornellBox.disocclusion-short-block-negx50mm.pgm",
+  "movedBoundsM": {
+    "max": [
+      0.24,
+      0.165,
+      0.272
+    ],
+    "min": [
+      0.032,
+      0.0,
+      0.065
+    ]
+  },
+  "movingSurfaceName": "short_block",
+  "pixelBoundsTopLeftInclusiveExclusive": [
+    250,
+    331,
+    296,
+    470
+  ],
+  "pixelCount": 3492,
+  "rawPixelBoundsTopLeftInclusiveExclusive": [
+    247,
+    328,
+    380,
+    482
+  ],
+  "rawPixelCount": 5899,
+  "recoveryContract": {
+    "consecutiveFrames": 3,
+    "maxRecoveryFrames": 8,
+    "postMoveCaptureFrames": 16,
+    "referenceMaxBounces": 8,
+    "referenceSamples": 512,
+    "relativeL1Threshold": 0.05
+  },
+  "revealedSurfacePixelCounts": {
+    "back_wall": 900,
+    "floor": 1536,
+    "tall_block": 1056
+  },
+  "scenario": "short_block_negx50mm",
+  "schema": "https://henginedev.local/schemas/cornell-disocclusion-roi/v1",
+  "selectionRule": "Before first-hit surface is short_block; after first-hit surface is an allowed static revealed surface; both before and after edge masks are zero.",
+  "sourceBoundsM": {
+    "max": [
+      0.29,
+      0.165,
+      0.272
+    ],
+    "min": [
+      0.082,
+      0.0,
+      0.065
+    ]
+  },
+  "tallBlockSeparationM": 0.025000000000000022,
+  "translationM": [
+    -0.05,
+    0.0,
+    0.0
+  ],
+  "width": 512
+}

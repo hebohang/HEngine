@@ -1,0 +1,64 @@
+#version 430
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+struct StructuredMatrixRecord
+{
+    uint Flags;
+    float Age;
+    uvec2 Packed;
+    mat4x3 Transform;
+    vec3 Direction;
+    uint Color;
+};
+
+struct StructuredMatrixOutput
+{
+    vec3 Translation;
+    uint Flags;
+    vec3 Direction;
+    uint Color;
+    vec3 Axis0;
+    uint Checksum;
+};
+
+layout(set = 2, binding = 1, std430) readonly buffer Records
+{
+    layout(row_major) StructuredMatrixRecord _data[];
+} Records_1;
+
+layout(set = 2, binding = 0, std430) buffer Output
+{
+    StructuredMatrixOutput _data[];
+} Output_1;
+
+void _main(uvec3 dtid)
+{
+    StructuredMatrixRecord record;
+    record.Flags = Records_1._data[dtid.x].Flags;
+    record.Age = Records_1._data[dtid.x].Age;
+    record.Packed = Records_1._data[dtid.x].Packed;
+    record.Transform = Records_1._data[dtid.x].Transform;
+    record.Direction = Records_1._data[dtid.x].Direction;
+    record.Color = Records_1._data[dtid.x].Color;
+    StructuredMatrixOutput _output;
+    _output.Translation = record.Transform[3];
+    _output.Flags = record.Flags ^ floatBitsToUint(record.Age);
+    _output.Direction = record.Direction + (record.Transform[2] * 0.25);
+    _output.Color = record.Color;
+    _output.Axis0 = (record.Transform[0] * record.Age) + record.Direction;
+    _output.Checksum = ((record.Flags ^ record.Packed.x) ^ record.Packed.y) ^ record.Color;
+    Output_1._data[dtid.x].Translation = _output.Translation;
+    Output_1._data[dtid.x].Flags = _output.Flags;
+    Output_1._data[dtid.x].Direction = _output.Direction;
+    Output_1._data[dtid.x].Color = _output.Color;
+    Output_1._data[dtid.x].Axis0 = _output.Axis0;
+    Output_1._data[dtid.x].Checksum = _output.Checksum;
+}
+
+void main()
+{
+    uvec3 dtid = gl_GlobalInvocationID;
+    uvec3 param = dtid;
+    _main(param);
+}
+

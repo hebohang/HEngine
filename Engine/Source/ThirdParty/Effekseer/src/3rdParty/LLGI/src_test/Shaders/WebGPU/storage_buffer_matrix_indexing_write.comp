@@ -1,0 +1,239 @@
+diagnostic(off, derivative_uniformity);
+
+struct MatrixIndexingRecord_2_1 {
+  Clip : mat4x4<f32>,
+  Transform : mat3x4<f32>,
+  Local : vec4<f32>,
+  Row : u32,
+  Flags : u32,
+  Padding : vec2<u32>,
+}
+
+struct Records_1_1 {
+  m : array<MatrixIndexingRecord_2_1>,
+}
+
+@group(2) @binding(1) var<storage, read_write> Records_2 : Records_1_1;
+
+@compute @workgroup_size(1u, 1u, 1u)
+fn main(@builtin(global_invocation_id) dtid : vec3<u32>) {
+  var dtid_1 : vec3<u32>;
+  var param : vec3<u32>;
+  dtid_1 = dtid;
+  param = dtid_1;
+  v(&(param));
+}
+
+fn v_1(index : ptr<function, u32>, row : ptr<function, u32>, column : ptr<function, u32>) -> f32 {
+  var diagonal : f32;
+  diagonal = select(0.0f, 1.0f, (*(row) == *(column)));
+  return (diagonal + (f32((((bitcast<i32>(*(index)) + 1i) * (bitcast<i32>(*(row)) + 1i)) - bitcast<i32>(*(column)))) * 0.03125f));
+}
+
+fn v_2(index : ptr<function, u32>, row : ptr<function, u32>, column : ptr<function, u32>) -> f32 {
+  return ((f32(((*(row) + 1u) * (*(column) + 2u))) * 0.125f) + (f32(*(index)) * 0.0078125f));
+}
+
+struct MatrixIndexingRecord_1 {
+  Clip : mat4x4<f32>,
+  Transform : mat4x3<f32>,
+  Local : vec4<f32>,
+  Row : u32,
+  Flags : u32,
+  Padding : vec2<u32>,
+}
+
+fn v(dtid : ptr<function, vec3<u32>>) {
+  var index : u32;
+  var record : MatrixIndexingRecord_1;
+  var param : u32;
+  var param_1 : u32;
+  var param_2 : u32;
+  var param_3 : u32;
+  var param_4 : u32;
+  var param_5 : u32;
+  var param_6 : u32;
+  var param_7 : u32;
+  var param_8 : u32;
+  var param_9 : u32;
+  var param_10 : u32;
+  var param_11 : u32;
+  var param_12 : u32;
+  var param_13 : u32;
+  var param_14 : u32;
+  var param_15 : u32;
+  var param_16 : u32;
+  var param_17 : u32;
+  var param_18 : u32;
+  var param_19 : u32;
+  var param_20 : u32;
+  var param_21 : u32;
+  var param_22 : u32;
+  var param_23 : u32;
+  var param_24 : u32;
+  var param_25 : u32;
+  var param_26 : u32;
+  var param_27 : u32;
+  var param_28 : u32;
+  var param_29 : u32;
+  var param_30 : u32;
+  var param_31 : u32;
+  var param_32 : u32;
+  var param_33 : u32;
+  var param_34 : u32;
+  var param_35 : u32;
+  var param_36 : u32;
+  var param_37 : u32;
+  var param_38 : u32;
+  var param_39 : u32;
+  var param_40 : u32;
+  var param_41 : u32;
+  var param_42 : u32;
+  var param_43 : u32;
+  var param_44 : u32;
+  var param_45 : u32;
+  var param_46 : u32;
+  var param_47 : u32;
+  var param_48 : u32;
+  var param_49 : u32;
+  var param_50 : u32;
+  var param_51 : u32;
+  var param_52 : u32;
+  var param_53 : u32;
+  var param_54 : u32;
+  var param_55 : u32;
+  var param_56 : u32;
+  var param_57 : u32;
+  var param_58 : u32;
+  var param_59 : u32;
+  var param_60 : u32;
+  var param_61 : u32;
+  var param_62 : u32;
+  var param_63 : u32;
+  var param_64 : u32;
+  var param_65 : u32;
+  var param_66 : u32;
+  var param_67 : u32;
+  var param_68 : u32;
+  var param_69 : u32;
+  var param_70 : u32;
+  var param_71 : u32;
+  var param_72 : u32;
+  var param_73 : u32;
+  var param_74 : u32;
+  index = (*(dtid)).x;
+  param = index;
+  param_1 = 0u;
+  param_2 = 0u;
+  let v_3 = v_1(&(param), &(param_1), &(param_2));
+  param_3 = index;
+  param_4 = 0u;
+  param_5 = 1u;
+  let v_4 = v_1(&(param_3), &(param_4), &(param_5));
+  param_6 = index;
+  param_7 = 0u;
+  param_8 = 2u;
+  let v_5 = v_1(&(param_6), &(param_7), &(param_8));
+  param_9 = index;
+  param_10 = 0u;
+  param_11 = 3u;
+  record.Clip[0i] = vec4<f32>(v_3, v_4, v_5, v_1(&(param_9), &(param_10), &(param_11)));
+  param_12 = index;
+  param_13 = 1u;
+  param_14 = 0u;
+  let v_6 = v_1(&(param_12), &(param_13), &(param_14));
+  param_15 = index;
+  param_16 = 1u;
+  param_17 = 1u;
+  let v_7 = v_1(&(param_15), &(param_16), &(param_17));
+  param_18 = index;
+  param_19 = 1u;
+  param_20 = 2u;
+  let v_8 = v_1(&(param_18), &(param_19), &(param_20));
+  param_21 = index;
+  param_22 = 1u;
+  param_23 = 3u;
+  record.Clip[1i] = vec4<f32>(v_6, v_7, v_8, v_1(&(param_21), &(param_22), &(param_23)));
+  param_24 = index;
+  param_25 = 2u;
+  param_26 = 0u;
+  let v_9 = v_1(&(param_24), &(param_25), &(param_26));
+  param_27 = index;
+  param_28 = 2u;
+  param_29 = 1u;
+  let v_10 = v_1(&(param_27), &(param_28), &(param_29));
+  param_30 = index;
+  param_31 = 2u;
+  param_32 = 2u;
+  let v_11 = v_1(&(param_30), &(param_31), &(param_32));
+  param_33 = index;
+  param_34 = 2u;
+  param_35 = 3u;
+  record.Clip[2i] = vec4<f32>(v_9, v_10, v_11, v_1(&(param_33), &(param_34), &(param_35)));
+  param_36 = index;
+  param_37 = 3u;
+  param_38 = 0u;
+  let v_12 = v_1(&(param_36), &(param_37), &(param_38));
+  param_39 = index;
+  param_40 = 3u;
+  param_41 = 1u;
+  let v_13 = v_1(&(param_39), &(param_40), &(param_41));
+  param_42 = index;
+  param_43 = 3u;
+  param_44 = 2u;
+  let v_14 = v_1(&(param_42), &(param_43), &(param_44));
+  param_45 = index;
+  param_46 = 3u;
+  param_47 = 3u;
+  record.Clip[3i] = vec4<f32>(v_12, v_13, v_14, v_1(&(param_45), &(param_46), &(param_47)));
+  param_48 = index;
+  param_49 = 0u;
+  param_50 = 0u;
+  let v_15 = v_2(&(param_48), &(param_49), &(param_50));
+  param_51 = index;
+  param_52 = 0u;
+  param_53 = 1u;
+  let v_16 = v_2(&(param_51), &(param_52), &(param_53));
+  param_54 = index;
+  param_55 = 0u;
+  param_56 = 2u;
+  record.Transform[0i] = vec3<f32>(v_15, v_16, v_2(&(param_54), &(param_55), &(param_56)));
+  param_57 = index;
+  param_58 = 1u;
+  param_59 = 0u;
+  let v_17 = v_2(&(param_57), &(param_58), &(param_59));
+  param_60 = index;
+  param_61 = 1u;
+  param_62 = 1u;
+  let v_18 = v_2(&(param_60), &(param_61), &(param_62));
+  param_63 = index;
+  param_64 = 1u;
+  param_65 = 2u;
+  record.Transform[1i] = vec3<f32>(v_17, v_18, v_2(&(param_63), &(param_64), &(param_65)));
+  param_66 = index;
+  param_67 = 2u;
+  param_68 = 0u;
+  let v_19 = v_2(&(param_66), &(param_67), &(param_68));
+  param_69 = index;
+  param_70 = 2u;
+  param_71 = 1u;
+  let v_20 = v_2(&(param_69), &(param_70), &(param_71));
+  param_72 = index;
+  param_73 = 2u;
+  param_74 = 2u;
+  record.Transform[2i] = vec3<f32>(v_19, v_20, v_2(&(param_72), &(param_73), &(param_74)));
+  record.Transform[3i] = vec3<f32>((-0.5f + (f32(index) * 0.046875f)), (0.375f - (f32(index) * 0.0234375f)), (0.25f + (f32(index) * 0.015625f)));
+  record.Local = vec4<f32>((0.25f + (f32(index) * 0.015625f)), (-0.5f + (f32(index) * 0.0078125f)), (0.75f - (f32(index) * 0.00390625f)), 1.0f);
+  record.Row = (index & 3u);
+  record.Flags = (1157627904u + (index * 31u));
+  record.Padding = vec2<u32>();
+  let v_21 = index;
+  let v_22 = record;
+  let v_23 = &(Records_2.m[v_21]);
+  (*(v_23)).Clip = transpose(v_22.Clip);
+  (*(v_23)).Transform = transpose(v_22.Transform);
+  (*(v_23)).Local = v_22.Local;
+  (*(v_23)).Row = v_22.Row;
+  (*(v_23)).Flags = v_22.Flags;
+  (*(v_23)).Padding = v_22.Padding;
+}

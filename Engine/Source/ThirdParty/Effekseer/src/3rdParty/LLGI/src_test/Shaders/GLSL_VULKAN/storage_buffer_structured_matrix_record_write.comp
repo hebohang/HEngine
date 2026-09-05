@@ -1,0 +1,78 @@
+#version 430
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+struct StructuredMatrixRecord
+{
+    uint Flags;
+    float Age;
+    uvec2 Packed;
+    mat4x3 Transform;
+    vec3 Direction;
+    uint Color;
+};
+
+layout(set = 2, binding = 1, std430) buffer Records
+{
+    layout(row_major) StructuredMatrixRecord _data[];
+} Records_1;
+
+float TransformValue(uint index, uint row, uint column)
+{
+    return float(((index + 1u) * (row + 2u)) + column) * 0.125;
+}
+
+void _main(uvec3 dtid)
+{
+    uint index = dtid.x;
+    StructuredMatrixRecord record;
+    record.Flags = 301989888u + (index * 17u);
+    record.Age = 0.5 + (float(index) * 0.125);
+    record.Packed = uvec2(1048576u + (index * 19u), 131072u + (index * 23u));
+    uint param = index;
+    uint param_1 = 0u;
+    uint param_2 = 0u;
+    uint param_3 = index;
+    uint param_4 = 0u;
+    uint param_5 = 1u;
+    uint param_6 = index;
+    uint param_7 = 0u;
+    uint param_8 = 2u;
+    record.Transform[0] = vec3(TransformValue(param, param_1, param_2), TransformValue(param_3, param_4, param_5), TransformValue(param_6, param_7, param_8));
+    uint param_9 = index;
+    uint param_10 = 1u;
+    uint param_11 = 0u;
+    uint param_12 = index;
+    uint param_13 = 1u;
+    uint param_14 = 1u;
+    uint param_15 = index;
+    uint param_16 = 1u;
+    uint param_17 = 2u;
+    record.Transform[1] = vec3(TransformValue(param_9, param_10, param_11), TransformValue(param_12, param_13, param_14), TransformValue(param_15, param_16, param_17));
+    uint param_18 = index;
+    uint param_19 = 2u;
+    uint param_20 = 0u;
+    uint param_21 = index;
+    uint param_22 = 2u;
+    uint param_23 = 1u;
+    uint param_24 = index;
+    uint param_25 = 2u;
+    uint param_26 = 2u;
+    record.Transform[2] = vec3(TransformValue(param_18, param_19, param_20), TransformValue(param_21, param_22, param_23), TransformValue(param_24, param_25, param_26));
+    record.Transform[3] = vec3((-0.75) + (float(index) * 0.03125), 0.25 - (float(index) * 0.015625), 1.5 + (float(index) * 0.0625));
+    record.Direction = vec3(0.25 + (float(index) * 0.015625), (-0.5) + (float(index) * 0.03125), 0.75 - (float(index) * 0.0078125));
+    record.Color = 2151686160u + (index * 29u);
+    Records_1._data[index].Flags = record.Flags;
+    Records_1._data[index].Age = record.Age;
+    Records_1._data[index].Packed = record.Packed;
+    Records_1._data[index].Transform = record.Transform;
+    Records_1._data[index].Direction = record.Direction;
+    Records_1._data[index].Color = record.Color;
+}
+
+void main()
+{
+    uvec3 dtid = gl_GlobalInvocationID;
+    uvec3 param = dtid;
+    _main(param);
+}
+

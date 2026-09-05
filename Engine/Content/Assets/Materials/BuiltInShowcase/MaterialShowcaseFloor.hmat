@@ -1,0 +1,145 @@
+{
+  "SchemaVersion": 2,
+  "Type": "Custom",
+  "PassName": "ShowcaseFloor",
+  "ShaderPath": "Shaders/Materials/BuiltInShowcase/ShowcaseFloor.hlsl",
+  "VariantKeywords": [],
+  "Domain": "Surface",
+  "ShadingModel": "Lit",
+  "BlendMode": "Opaque",
+  "CullMode": "Back",
+  "DepthWrite": true,
+  "AlphaCutoff": 0.5,
+  "Parameters": {
+    "g_BaseColorFactor": {
+      "StableId": "floor.base_color",
+      "Type": "color",
+      "Value": [
+        0.11,
+        0.115,
+        0.12,
+        1
+      ]
+    },
+    "g_GridColor": {
+      "StableId": "floor.grid_color",
+      "Type": "color",
+      "Value": [
+        0.28,
+        0.29,
+        0.3,
+        1
+      ]
+    },
+    "g_MetallicFactor": {
+      "StableId": "floor.metallic",
+      "Type": "float",
+      "Value": 0.03
+    },
+    "g_RoughnessFactor": {
+      "StableId": "floor.roughness",
+      "Type": "float",
+      "Value": 0.72
+    },
+    "g_MajorSpacing": {
+      "StableId": "floor.grid_spacing",
+      "Type": "float",
+      "Value": 3.5
+    },
+    "g_MinorDivisions": {
+      "StableId": "floor.minor_divisions",
+      "Type": "float",
+      "Value": 5
+    },
+    "g_FadeStart": {
+      "StableId": "floor.fade_start",
+      "Type": "float",
+      "Value": 32
+    },
+    "g_FadeEnd": {
+      "StableId": "floor.fade_end",
+      "Type": "float",
+      "Value": 58
+    }
+  },
+  "Textures": {},
+  "OrphanedParameters": {},
+  "Properties": {
+    "name": "Material Showcase Floor",
+    "pbrMetallicRoughness": {
+      "baseColorFactor": [
+        0.11,
+        0.115,
+        0.12,
+        1
+      ],
+      "metallicFactor": 0.03,
+      "roughnessFactor": 0.72,
+      "baseColorTexture": {
+        "texCoord": 0,
+        "textureRes": {
+          "textureSourcePath": ""
+        }
+      },
+      "metallicRoughnessTexture": {
+        "texCoord": 0,
+        "textureRes": {
+          "textureSourcePath": ""
+        }
+      }
+    },
+    "normalTexture": {
+      "scale": 1,
+      "texCoord": 0,
+      "textureRes": {
+        "textureSourcePath": ""
+      }
+    },
+    "occlusionTexture": {
+      "strength": 1,
+      "texCoord": 0,
+      "textureRes": {
+        "textureSourcePath": ""
+      }
+    },
+    "emissiveTexture": {
+      "texCoord": 0,
+      "textureRes": {
+        "textureSourcePath": ""
+      }
+    },
+    "emissiveFactor": [
+      0,
+      0,
+      0
+    ],
+    "alphaMode": "OPAQUE",
+    "alphaCutoff": 0.5,
+    "doubleSided": false,
+    "bUseAlbedoMap": false,
+    "bUseNormalMap": false,
+    "bUseMetallicRoughnessMap": false,
+    "bUseAoMap": false,
+    "bUseEmissiveMap": false,
+    "ExposedProperties": {
+      "g_BaseColorFactor": [
+        0.11,
+        0.115,
+        0.12,
+        1
+      ],
+      "g_GridColor": [
+        0.28,
+        0.29,
+        0.3,
+        1
+      ],
+      "g_MetallicFactor": 0.03,
+      "g_RoughnessFactor": 0.72,
+      "g_MajorSpacing": 3.5,
+      "g_MinorDivisions": 5,
+      "g_FadeStart": 32,
+      "g_FadeEnd": 58
+    }
+  }
+}

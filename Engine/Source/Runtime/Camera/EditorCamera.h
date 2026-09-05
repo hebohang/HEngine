@@ -31,19 +31,23 @@ namespace HEngine
 		[[nodiscard]] glm::vec3 GetForwardDirection() const;
 		[[nodiscard]] const glm::vec3& GetPosition() const { return mPosition; }
 		[[nodiscard]] glm::quat GetOrientation() const;
+		void SetOrientation(const glm::quat& orientation);
 					  
 		[[nodiscard]] float GetPitch() const { return mPitch; }
 		[[nodiscard]] float GetYaw() const { return mYaw; }
 
 		[[nodiscard]] float GetNearPlane() const { return mNearClip; }
+		void SetNearPlane(float nearClip) { mNearClip = nearClip; }
 		[[nodiscard]] float GetFarPlane() const { return mFarClip; }
+		void SetFarPlane(float farClip) { mFarClip = farClip; }
 
 		[[nodiscard]] float GetFOV() const { return mFOV; }
 		[[nodiscard]] float GetAspect() const { return mAspectRatio; }
 
 		void SetCenter(const glm::vec3& center);
-	private:
+	public:
 		void UpdateProjection();
+	private:
 		void UpdateView();
 
 		bool OnMouseScroll(MouseScrolledEvent& e);
@@ -59,9 +63,8 @@ namespace HEngine
 		float ZoomSpeed() const;
 	public:
 		float mCameraSpeed = 1.0f;
+		float mFOV = 45.0f, mAspectRatio = 1.778f, mNearClip = 0.1f, mFarClip = 10000.0f;
 	private:
-		float mFOV = 45.0f, mAspectRatio = 1.778f, mNearClip = 0.1f, mFarClip = 1000.0f;
-
 		glm::mat4 mViewMatrix;
 		glm::vec3 mPosition = { 0.0f, 0.0f, 0.0f };
 		glm::vec3 mFocalPoint = { 0.0f, 0.0f, 0.0f };

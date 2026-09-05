@@ -1,0 +1,18 @@
+{
+  "version": "0.2.1",
+  "defaults": {},
+  "configurations": [
+    {
+      "type": "default",
+      "project": "out\\agent\\editor-debug\\bin\\HEngineEditor.exe",
+      "projectTarget": "",
+      "name": "HEngineEditor Direct Launch"
+    },
+    {
+      "type": "default",
+      "project": "out\\agent\\game-debug\\bin\\HEngineDemo.exe",
+      "projectTarget": "",
+      "name": "HGame Dev Direct Launch"
+    }
+  ]
+}

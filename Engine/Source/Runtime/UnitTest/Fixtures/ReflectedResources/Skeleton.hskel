@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "name": "SchemaFixtureSkeleton",
+  "bones": [
+    {
+      "index": 0,
+      "name": "Root",
+      "parentIndex": -1,
+      "localBindT": [0.0, 0.0, 0.0],
+      "localBindR": [1.0, 0.0, 0.0, 0.0],
+      "localBindS": [1.0, 1.0, 1.0]
+    },
+    {
+      "index": 1,
+      "name": "Child",
+      "parentIndex": 0,
+      "localBindT": [0.0, 1.0, 0.0],
+      "localBindR": [1.0, 0.0, 0.0, 0.0],
+      "localBindS": [1.0, 1.0, 1.0]
+    }
+  ],
+  "inverseBindMatrices": [
+    [
+      1.0, 0.0, 0.0, 0.0,
+      0.0, 1.0, 0.0, 0.0,
+      0.0, 0.0, 1.0, 0.0,
+      0.0, 0.0, 0.0, 1.0
+    ],
+    [
+      1.0, 0.0, 0.0, 0.0,
+      0.0, 1.0, 0.0, 0.0,
+      0.0, 0.0, 1.0, 0.0,
+      0.0, -1.0, 0.0, 1.0
+    ]
+  ]
+}

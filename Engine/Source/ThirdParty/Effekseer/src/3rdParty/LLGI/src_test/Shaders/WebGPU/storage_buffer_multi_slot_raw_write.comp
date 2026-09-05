@@ -1,0 +1,184 @@
+diagnostic(off, derivative_uniformity);
+
+struct TransformData {
+  m : array<u32>,
+}
+
+@group(2) @binding(0) var<storage, read_write> TransformData_1 : TransformData;
+
+@group(2) @binding(1) var<storage, read_write> AttributeData : TransformData;
+
+var<private> gl_GlobalInvocationID : vec3<u32>;
+
+struct SPIRV_Cross_Input {
+  gl_GlobalInvocationID : vec3<u32>,
+}
+
+@compute @workgroup_size(1u, 1u, 1u)
+fn main(@builtin(global_invocation_id) v : vec3<u32>) {
+  var stage_input : SPIRV_Cross_Input;
+  var param : SPIRV_Cross_Input;
+  stage_input.gl_GlobalInvocationID = v;
+  param = stage_input;
+  v_1(&(param));
+}
+
+fn v_2(index : ptr<function, u32>, translation : ptr<function, vec3<f32>>) {
+  var base : u32;
+  var byteAddrTemp : i32;
+  var byteAddrTemp_1 : i32;
+  var byteAddrTemp_2 : i32;
+  var byteAddrTemp_3 : i32;
+  var byteAddrTemp_4 : i32;
+  var byteAddrTemp_5 : i32;
+  var byteAddrTemp_6 : i32;
+  var byteAddrTemp_7 : i32;
+  var byteAddrTemp_8 : i32;
+  var byteAddrTemp_9 : i32;
+  var byteAddrTemp_10 : i32;
+  var byteAddrTemp_11 : i32;
+  var byteAddrTemp_12 : i32;
+  var byteAddrTemp_13 : i32;
+  var byteAddrTemp_14 : i32;
+  var byteAddrTemp_15 : i32;
+  var byteAddrTemp_16 : i32;
+  var byteAddrTemp_17 : i32;
+  var byteAddrTemp_18 : i32;
+  base = (*(index) * 80u);
+  byteAddrTemp = bitcast<i32>(((base + 0u) >> bitcast<u32>(2i)));
+  TransformData_1.m[byteAddrTemp] = 1u;
+  byteAddrTemp_1 = bitcast<i32>(((base + 4u) >> bitcast<u32>(2i)));
+  let v_3 = byteAddrTemp_1;
+  TransformData_1.m[v_3] = *(index);
+  byteAddrTemp_2 = bitcast<i32>(((base + 8u) >> bitcast<u32>(2i)));
+  let v_4 = byteAddrTemp_2;
+  TransformData_1.m[v_4] = bitcast<u32>(0.0f);
+  byteAddrTemp_3 = bitcast<i32>(((base + 12u) >> bitcast<u32>(2i)));
+  TransformData_1.m[byteAddrTemp_3] = 0u;
+  byteAddrTemp_4 = bitcast<i32>(((base + 16u) >> bitcast<u32>(2i)));
+  TransformData_1.m[byteAddrTemp_4] = 0u;
+  byteAddrTemp_5 = bitcast<i32>(((base + 20u) >> bitcast<u32>(2i)));
+  TransformData_1.m[byteAddrTemp_5] = 0u;
+  byteAddrTemp_6 = bitcast<i32>(((base + 24u) >> bitcast<u32>(2i)));
+  TransformData_1.m[byteAddrTemp_6] = vec2<u32>().x;
+  TransformData_1.m[(byteAddrTemp_6 + 1i)] = vec2<u32>().y;
+  byteAddrTemp_7 = bitcast<i32>(((base + 32u) >> bitcast<u32>(2i)));
+  let v_5 = byteAddrTemp_7;
+  TransformData_1.m[v_5] = bitcast<u32>(1.0f);
+  byteAddrTemp_8 = bitcast<i32>(((base + 36u) >> bitcast<u32>(2i)));
+  let v_6 = byteAddrTemp_8;
+  TransformData_1.m[v_6] = bitcast<u32>(0.0f);
+  byteAddrTemp_9 = bitcast<i32>(((base + 40u) >> bitcast<u32>(2i)));
+  let v_7 = byteAddrTemp_9;
+  TransformData_1.m[v_7] = bitcast<u32>(0.0f);
+  byteAddrTemp_10 = bitcast<i32>(((base + 44u) >> bitcast<u32>(2i)));
+  let v_8 = byteAddrTemp_10;
+  TransformData_1.m[v_8] = bitcast<u32>((*(translation)).x);
+  byteAddrTemp_11 = bitcast<i32>(((base + 48u) >> bitcast<u32>(2i)));
+  let v_9 = byteAddrTemp_11;
+  TransformData_1.m[v_9] = bitcast<u32>(0.0f);
+  byteAddrTemp_12 = bitcast<i32>(((base + 52u) >> bitcast<u32>(2i)));
+  let v_10 = byteAddrTemp_12;
+  TransformData_1.m[v_10] = bitcast<u32>(1.0f);
+  byteAddrTemp_13 = bitcast<i32>(((base + 56u) >> bitcast<u32>(2i)));
+  let v_11 = byteAddrTemp_13;
+  TransformData_1.m[v_11] = bitcast<u32>(0.0f);
+  byteAddrTemp_14 = bitcast<i32>(((base + 60u) >> bitcast<u32>(2i)));
+  let v_12 = byteAddrTemp_14;
+  TransformData_1.m[v_12] = bitcast<u32>((*(translation)).y);
+  byteAddrTemp_15 = bitcast<i32>(((base + 64u) >> bitcast<u32>(2i)));
+  let v_13 = byteAddrTemp_15;
+  TransformData_1.m[v_13] = bitcast<u32>(0.0f);
+  byteAddrTemp_16 = bitcast<i32>(((base + 68u) >> bitcast<u32>(2i)));
+  let v_14 = byteAddrTemp_16;
+  TransformData_1.m[v_14] = bitcast<u32>(0.0f);
+  byteAddrTemp_17 = bitcast<i32>(((base + 72u) >> bitcast<u32>(2i)));
+  let v_15 = byteAddrTemp_17;
+  TransformData_1.m[v_15] = bitcast<u32>(1.0f);
+  byteAddrTemp_18 = bitcast<i32>(((base + 76u) >> bitcast<u32>(2i)));
+  let v_16 = byteAddrTemp_18;
+  TransformData_1.m[v_16] = bitcast<u32>((*(translation)).z);
+}
+
+fn v_17(index : ptr<function, u32>, offset : ptr<function, vec2<f32>>, scale : ptr<function, f32>, colorTag : ptr<function, u32>) {
+  var base : u32;
+  var byteAddrTemp : i32;
+  var byteAddrTemp_19 : i32;
+  var byteAddrTemp_20 : i32;
+  base = (*(index) * 16u);
+  byteAddrTemp = bitcast<i32>(((base + 0u) >> bitcast<u32>(2i)));
+  let v_18 = byteAddrTemp;
+  AttributeData.m[v_18] = bitcast<vec2<u32>>(*(offset)).x;
+  let v_19 = (byteAddrTemp + 1i);
+  AttributeData.m[v_19] = bitcast<vec2<u32>>(*(offset)).y;
+  byteAddrTemp_19 = bitcast<i32>(((base + 8u) >> bitcast<u32>(2i)));
+  let v_20 = byteAddrTemp_19;
+  AttributeData.m[v_20] = bitcast<u32>(*(scale));
+  byteAddrTemp_20 = bitcast<i32>(((base + 12u) >> bitcast<u32>(2i)));
+  let v_21 = byteAddrTemp_20;
+  AttributeData.m[v_21] = *(colorTag);
+}
+
+fn v_22(dtid : ptr<function, vec3<u32>>) {
+  var index : u32;
+  var param : u32;
+  var param_1 : vec3<f32>;
+  var param_2 : u32;
+  var param_3 : vec2<f32>;
+  var param_4 : f32;
+  var param_5 : u32;
+  var param_6 : u32;
+  var param_7 : vec3<f32>;
+  var param_8 : u32;
+  var param_9 : vec2<f32>;
+  var param_10 : f32;
+  var param_11 : u32;
+  var param_12 : u32;
+  var param_13 : vec3<f32>;
+  var param_14 : u32;
+  var param_15 : vec2<f32>;
+  var param_16 : f32;
+  var param_17 : u32;
+  index = (*(dtid)).x;
+  if ((index == 0u)) {
+    param = index;
+    param_1 = vec3<f32>(-0.55000001192092895508f, -0.11999999731779098511f, 0.0f);
+    v_2(&(param), &(param_1));
+    param_2 = index;
+    param_3 = vec2<f32>(0.05000000074505805969f);
+    param_4 = 0.85000002384185791016f;
+    param_5 = 0u;
+    v_17(&(param_2), &(param_3), &(param_4), &(param_5));
+  } else if ((index == 1u)) {
+    param_6 = index;
+    param_7 = vec3<f32>();
+    v_2(&(param_6), &(param_7));
+    param_8 = index;
+    param_9 = vec2<f32>();
+    param_10 = 0.64999997615814208984f;
+    param_11 = 1u;
+    v_17(&(param_8), &(param_9), &(param_10), &(param_11));
+  } else if ((index == 2u)) {
+    param_12 = index;
+    param_13 = vec3<f32>(0.55000001192092895508f, 0.11999999731779098511f, 0.0f);
+    v_2(&(param_12), &(param_13));
+    param_14 = index;
+    param_15 = vec2<f32>(-0.05000000074505805969f);
+    param_16 = 0.44999998807907104492f;
+    param_17 = 2u;
+    v_17(&(param_14), &(param_15), &(param_16), &(param_17));
+  }
+}
+
+fn v_23() {
+  var dtid : vec3<u32>;
+  var param : vec3<u32>;
+  dtid = gl_GlobalInvocationID;
+  param = dtid;
+  v_22(&(param));
+}
+
+fn v_1(stage_input : ptr<function, SPIRV_Cross_Input>) {
+  gl_GlobalInvocationID = (*(stage_input)).gl_GlobalInvocationID;
+  v_23();
+}

@@ -33,7 +33,7 @@
 
 # increase to 3.1 once all major distributions
 # include a version of CMake >= 3.1
-cmake_minimum_required(VERSION 2.8.12)
+cmake_minimum_required(VERSION 3.20)
 if (POLICY CMP0048)
   cmake_policy(SET CMP0048 NEW)
 endif()
@@ -308,7 +308,7 @@ else()
 endif()
 
 if(BUILD_EXTERNAL AND IS_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/External)
-    find_host_package(PythonInterp 3 REQUIRED)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
     # We depend on these for later projects, so they should come first.
     add_subdirectory(External)

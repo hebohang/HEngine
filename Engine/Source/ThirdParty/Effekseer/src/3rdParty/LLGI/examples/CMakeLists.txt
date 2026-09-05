@@ -1,0 +1,11 @@
+if(UNIX AND NOT APPLE)
+  set(GLFW_BUILD_WAYLAND OFF CACHE BOOL "Build support for Wayland" FORCE)
+  set(GLFW_BUILD_X11 ON CACHE BOOL "Build support for X11" FORCE)
+endif()
+
+add_subdirectory("thirdparty/glfw/")
+add_subdirectory("thirdparty/imgui/")
+add_subdirectory("ImGuiPlatform")
+add_subdirectory("glfw")
+add_subdirectory("imgui")
+add_subdirectory("GPUParticle")

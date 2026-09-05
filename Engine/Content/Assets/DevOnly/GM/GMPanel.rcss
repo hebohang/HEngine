@@ -1,0 +1,314 @@
+body {
+  margin: 0px;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: 'Open Sans';
+  font-size: 12dp;
+  color: #e8edf7;
+}
+
+#gm_canvas {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  pointer-events: auto;
+}
+
+#gm_backdrop {
+  position: absolute;
+  left: 0px;
+  top: 0px;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(3, 6, 12, 190);
+  z-index: 10000;
+}
+
+#gm_panel {
+  position: absolute;
+  left: 6%;
+  top: 5%;
+  width: 88%;
+  height: 90%;
+  background-color: #111827fa;
+  border: 1dp #3b4b65;
+  border-radius: 10dp;
+  overflow: hidden;
+}
+
+#gm_header {
+  height: 76dp;
+  padding: 14dp 18dp;
+  background-color: #172033;
+  border-bottom: 1dp #334155;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+#gm_header h1 {
+  display: block;
+  margin: 0px;
+  color: #7dd3fc;
+  font-size: 25dp;
+}
+
+#gm_header p {
+  display: block;
+  margin: 3dp 0px 0px 0px;
+  color: #93a4bd;
+  font-size: 13dp;
+}
+
+#gm_header_actions {
+  display: flex;
+  align-items: center;
+  gap: 8dp;
+}
+
+#gm_taint_state {
+  padding: 5dp 10dp;
+  border-radius: 9dp;
+  background-color: #243148;
+  color: #9ee6b5;
+  font-size: 12dp;
+}
+
+#gm_body {
+  display: flex;
+  height: 100%;
+}
+
+#gm_sidebar {
+  width: 34%;
+  height: 100%;
+  overflow-y: auto;
+  padding: 12dp;
+  border-right: 1dp #334155;
+  background-color: #0d1422;
+}
+
+#gm_content {
+  display: block;
+  width: 66%;
+  height: 100%;
+  overflow-y: auto;
+  padding: 18dp 22dp 120dp 22dp;
+}
+
+#gm_command_form,
+#gm_status,
+#gm_history_title,
+#gm_history,
+#gm_title {
+  display: block;
+}
+
+#gm_command_form,
+#gm_history {
+  width: 100%;
+}
+
+.gm-category {
+  margin: 10dp 4dp 5dp 4dp;
+  color: #7dd3fc;
+  font-size: 12dp;
+  font-weight: bold;
+  text-transform: uppercase;
+}
+
+.gm-command {
+  display: block;
+  width: 100%;
+  margin: 4dp 0px;
+  padding: 9dp 10dp;
+  background-color: #172033;
+  border: 1dp #2b3a54;
+  border-radius: 6dp;
+  color: #e8edf7;
+  text-align: left;
+}
+
+.gm-command:hover {
+  background-color: #22304a;
+  border-color: #5ba8d1;
+}
+
+.gm-command-title,
+.gm-command-name {
+  display: block;
+}
+
+.gm-command-title {
+  font-size: 14dp;
+  font-weight: bold;
+}
+
+.gm-command-name {
+  margin-top: 2dp;
+  color: #8fa1bb;
+  font-size: 11dp;
+}
+
+.gm-command.risk-dangerous {
+  border-left: 3dp #ef6b73;
+}
+
+.gm-command.risk-confirm {
+  border-left: 3dp #e8b45d;
+}
+
+.gm-command.unavailable {
+  opacity: 0.45;
+}
+
+.gm-form-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.gm-form-header h2 {
+  margin: 0px;
+  color: #f3f7ff;
+  font-size: 23dp;
+}
+
+.gm-risk {
+  padding: 4dp 9dp;
+  border-radius: 8dp;
+  background-color: #243148;
+  color: #a8d7f2;
+  font-size: 11dp;
+}
+
+.gm-risk.risk-confirm {
+  color: #ffd38a;
+}
+
+.gm-risk.risk-dangerous {
+  color: #ff9ca3;
+}
+
+.gm-summary {
+  display: block;
+  margin: 8dp 0px;
+  color: #c3cede;
+  font-size: 14dp;
+}
+
+.gm-scope {
+  display: block;
+  margin: 0px 0px 16dp 0px;
+  color: #8292aa;
+  font-size: 11dp;
+}
+
+.gm-field {
+  display: block;
+  margin: 10dp 0px;
+}
+
+.gm-field label {
+  display: block;
+  margin-bottom: 4dp;
+  color: #dce7f7;
+  font-size: 13dp;
+  font-weight: bold;
+}
+
+.gm-field input,
+.gm-field select {
+  width: 100%;
+  height: 31dp;
+  padding: 5dp 8dp;
+  background-color: #0b1220;
+  border: 1dp #40506a;
+  border-radius: 5dp;
+  color: #f3f7ff;
+}
+
+.gm-field-help {
+  display: block;
+  margin: 3dp 0px 0px 0px;
+  color: #7f91aa;
+  font-size: 11dp;
+}
+
+button {
+  padding: 6dp 11dp;
+  background-color: #263650;
+  border: 1dp #49617f;
+  border-radius: 5dp;
+  color: #e8edf7;
+}
+
+button:hover {
+  background-color: #344968;
+}
+
+.gm-actions {
+  display: flex;
+  gap: 8dp;
+  margin-top: 15dp;
+}
+
+.gm-primary {
+  background-color: #176b91;
+  border-color: #42a7d5;
+}
+
+.gm-danger {
+  background-color: #8b2832;
+  border-color: #e76772;
+}
+
+.hidden {
+  display: none;
+}
+
+#gm_status {
+  margin: 14dp 0px;
+  padding: 9dp 11dp;
+  min-height: 18dp;
+  background-color: #0c1524;
+  border-left: 3dp #4aa5cf;
+  color: #cbd8e8;
+  font-size: 12dp;
+}
+
+#gm_history_title {
+  margin: 16dp 0px 7dp 0px;
+  color: #9fb1c9;
+  font-size: 13dp;
+}
+
+.gm-history-entry {
+  display: flex;
+  gap: 8dp;
+  padding: 6dp 8dp;
+  margin: 3dp 0px;
+  background-color: #121c2d;
+  border-left: 2dp #4aab76;
+  font-size: 11dp;
+}
+
+.gm-history-entry.failure {
+  border-left-color: #df6470;
+}
+
+.gm-receipt {
+  width: 48dp;
+  color: #7dd3fc;
+}
+
+.gm-history-command {
+  width: 62%;
+  color: #d6e0ed;
+}
+
+.gm-history-code,
+.gm-empty {
+  color: #8292aa;
+}

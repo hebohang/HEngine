@@ -1,0 +1,37 @@
+struct MatrixIndexingRecord
+{
+    float4x4 Clip;
+    float4x3 Transform;
+    float4 Local;
+    uint Row;
+    uint Flags;
+    uint2 Padding;
+};
+
+struct MatrixIndexingOutput
+{
+    float4 Clip;
+    float3 Indexed;
+    uint Checksum;
+};
+
+StructuredBuffer<MatrixIndexingRecord> Records : register(t1);
+RWStructuredBuffer<MatrixIndexingOutput> Output : register(u0);
+
+[numthreads(1, 1, 1)]
+void main(uint3 dtid : SV_DispatchThreadID)
+{
+    MatrixIndexingRecord record = Records[dtid.x];
+
+    float3 world = mul(record.Local, record.Transform);
+    float4 clip = mul(record.Clip, float4(world, 1.0f));
+    uint row = record.Row & 3u;
+    uint nextRow = (row + 1u) & 3u;
+
+    MatrixIndexingOutput output;
+    output.Clip = clip;
+    output.Indexed = record.Transform[row] + record.Transform[nextRow] * 0.25f;
+    output.Checksum = record.Flags ^ record.Row ^ asuint(record.Local.w);
+
+    Output[dtid.x] = output;
+}

@@ -1,0 +1,135 @@
+{
+  "SchemaVersion": 2,
+  "Type": "Custom",
+  "PassName": "HologramGlass",
+  "ShaderPath": "Shaders/Materials/BuiltInShowcase/HologramGlass.hlsl",
+  "VariantKeywords": [],
+  "Domain": "Surface",
+  "ShadingModel": "Lit",
+  "BlendMode": "Transparent",
+  "CullMode": "Back",
+  "DepthWrite": false,
+  "AlphaCutoff": 0.5,
+  "Parameters": {
+    "g_BaseColorFactor": {
+      "StableId": "glass.tint",
+      "Type": "color",
+      "Value": [
+        0.08,
+        0.52,
+        0.72,
+        1
+      ]
+    },
+    "g_MetallicFactor": {
+      "StableId": "glass.metallic",
+      "Type": "float",
+      "Value": 0
+    },
+    "g_RoughnessFactor": {
+      "StableId": "glass.roughness",
+      "Type": "float",
+      "Value": 0.06
+    },
+    "g_Opacity": {
+      "StableId": "glass.opacity",
+      "Type": "float",
+      "Value": 0.22
+    },
+    "g_HologramStrength": {
+      "StableId": "hologram.strength",
+      "Type": "float",
+      "Value": 0.24
+    },
+    "g_ScanScale": {
+      "StableId": "hologram.scan_scale",
+      "Type": "float",
+      "Value": 16
+    },
+    "g_ScanSpeed": {
+      "StableId": "hologram.scan_speed",
+      "Type": "float",
+      "Value": -0.55
+    },
+    "g_RimIntensity": {
+      "StableId": "hologram.rim",
+      "Type": "float",
+      "Value": 2.2
+    }
+  },
+  "Textures": {},
+  "OrphanedParameters": {},
+  "Properties": {
+    "name": "Clear Glass",
+    "pbrMetallicRoughness": {
+      "baseColorFactor": [
+        0.08,
+        0.52,
+        0.72,
+        0.22
+      ],
+      "metallicFactor": 0,
+      "roughnessFactor": 0.06,
+      "baseColorTexture": {
+        "texCoord": 0,
+        "textureRes": {
+          "textureSourcePath": ""
+        }
+      },
+      "metallicRoughnessTexture": {
+        "texCoord": 0,
+        "textureRes": {
+          "textureSourcePath": ""
+        }
+      }
+    },
+    "normalTexture": {
+      "scale": 1,
+      "texCoord": 0,
+      "textureRes": {
+        "textureSourcePath": ""
+      }
+    },
+    "occlusionTexture": {
+      "strength": 1,
+      "texCoord": 0,
+      "textureRes": {
+        "textureSourcePath": ""
+      }
+    },
+    "emissiveTexture": {
+      "texCoord": 0,
+      "textureRes": {
+        "textureSourcePath": ""
+      }
+    },
+    "emissiveFactor": [
+      0,
+      0,
+      0
+    ],
+    "alphaMode": "BLEND",
+    "alphaCutoff": 0.5,
+    "doubleSided": false,
+    "bUseAlbedoMap": false,
+    "bUseNormalMap": false,
+    "bUseMetallicRoughnessMap": false,
+    "bUseAoMap": false,
+    "bUseEmissiveMap": false,
+    "ExposedProperties": {
+      "g_BaseColorFactor": [
+        0.08,
+        0.52,
+        0.72,
+        1
+      ],
+      "g_MetallicFactor": 0,
+      "g_RoughnessFactor": 0.06,
+      "g_Opacity": 0.22,
+      "g_HologramStrength": 0.24,
+      "g_ScanScale": 16,
+      "g_ScanSpeed": -0.55,
+      "g_RimIntensity": 2.2
+    }
+  }
+}

@@ -1,0 +1,62 @@
+struct SlotData
+{
+    float3 Position;
+    uint Direction;
+};
+
+struct OutputData
+{
+    float3 Position;
+    uint Direction;
+    uint Checksum;
+    uint Padding0;
+    uint Padding1;
+    uint Padding2;
+};
+
+ByteAddressBuffer Data : register(t1);
+RWByteAddressBuffer Output : register(u0);
+
+static uint3 gl_GlobalInvocationID;
+struct SPIRV_Cross_Input
+{
+    uint3 gl_GlobalInvocationID : SV_DispatchThreadID;
+};
+
+void _main(uint3 dtid)
+{
+    uint index = dtid.x;
+    SlotData _33;
+    _33.Position = asfloat(Data.Load3(index * 16 + 0));
+    _33.Direction = Data.Load(index * 16 + 12);
+    SlotData data;
+    data.Position = _33.Position;
+    data.Direction = _33.Direction;
+    OutputData _output;
+    _output.Position = data.Position + float3(10.0f, 20.0f, 30.0f);
+    _output.Direction = data.Direction;
+    _output.Checksum = data.Direction ^ (index * 16843009u);
+    _output.Padding0 = 0u;
+    _output.Padding1 = 0u;
+    _output.Padding2 = 0u;
+    Output.Store3(index * 32 + 0, asuint(_output.Position));
+    Output.Store(index * 32 + 12, _output.Direction);
+    Output.Store(index * 32 + 16, _output.Checksum);
+    Output.Store(index * 32 + 20, _output.Padding0);
+    Output.Store(index * 32 + 24, _output.Padding1);
+    Output.Store(index * 32 + 28, _output.Padding2);
+}
+
+void comp_main()
+{
+    uint3 dtid = gl_GlobalInvocationID;
+    uint3 param = dtid;
+    _main(param);
+}
+
+[numthreads(1, 1, 1)]
+void main(SPIRV_Cross_Input stage_input)
+{
+    gl_GlobalInvocationID = stage_input.gl_GlobalInvocationID;
+    comp_main();
+}

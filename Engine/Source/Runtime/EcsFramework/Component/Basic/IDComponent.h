@@ -5,8 +5,10 @@
 
 namespace HEngine
 {
-	class IDComponent : public ComponentBase
+	REFLECTION_TYPE(IDComponent)
+	CLASS(IDComponent : public ComponentBase, Fields)
 	{
+		REFLECTION_COMPONENT_BODY(IDComponent);
 	public:
 		UUID ID;
 

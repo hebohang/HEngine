@@ -1,0 +1,75 @@
+RWByteAddressBuffer TransformData : register(u0);
+RWByteAddressBuffer AttributeData : register(u1);
+
+static uint3 gl_GlobalInvocationID;
+struct SPIRV_Cross_Input
+{
+    uint3 gl_GlobalInvocationID : SV_DispatchThreadID;
+};
+
+void StoreTransform(uint index, float3 translation)
+{
+    const uint base = index * 80;
+
+    TransformData.Store(base + 0, 1u);
+    TransformData.Store(base + 4, index);
+    TransformData.Store(base + 8, asuint(0.0f));
+    TransformData.Store(base + 12, 0u);
+    TransformData.Store(base + 16, 0u);
+    TransformData.Store(base + 20, 0u);
+    TransformData.Store2(base + 24, uint2(0u, 0u));
+
+    TransformData.Store(base + 32, asuint(1.0f));
+    TransformData.Store(base + 36, asuint(0.0f));
+    TransformData.Store(base + 40, asuint(0.0f));
+    TransformData.Store(base + 44, asuint(translation.x));
+    TransformData.Store(base + 48, asuint(0.0f));
+    TransformData.Store(base + 52, asuint(1.0f));
+    TransformData.Store(base + 56, asuint(0.0f));
+    TransformData.Store(base + 60, asuint(translation.y));
+    TransformData.Store(base + 64, asuint(0.0f));
+    TransformData.Store(base + 68, asuint(0.0f));
+    TransformData.Store(base + 72, asuint(1.0f));
+    TransformData.Store(base + 76, asuint(translation.z));
+}
+
+void StoreAttribute(uint index, float2 offset, float scale, uint colorTag)
+{
+    const uint base = index * 16;
+    AttributeData.Store2(base + 0, asuint(offset));
+    AttributeData.Store(base + 8, asuint(scale));
+    AttributeData.Store(base + 12, colorTag);
+}
+
+void _main(uint3 dtid)
+{
+    const uint index = dtid.x;
+    if (index == 0u)
+    {
+        StoreTransform(index, float3(-0.55f, -0.12f, 0.0f));
+        StoreAttribute(index, float2(0.05f, 0.05f), 0.85f, 0u);
+    }
+    else if (index == 1u)
+    {
+        StoreTransform(index, float3(0.0f, 0.0f, 0.0f));
+        StoreAttribute(index, float2(0.0f, 0.0f), 0.65f, 1u);
+    }
+    else if (index == 2u)
+    {
+        StoreTransform(index, float3(0.55f, 0.12f, 0.0f));
+        StoreAttribute(index, float2(-0.05f, -0.05f), 0.45f, 2u);
+    }
+}
+
+void comp_main()
+{
+    uint3 dtid = gl_GlobalInvocationID;
+    _main(dtid);
+}
+
+[numthreads(1, 1, 1)]
+void main(SPIRV_Cross_Input stage_input)
+{
+    gl_GlobalInvocationID = stage_input.gl_GlobalInvocationID;
+    comp_main();
+}

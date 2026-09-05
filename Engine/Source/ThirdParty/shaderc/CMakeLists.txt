@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-cmake_minimum_required(VERSION 2.8.12)
+cmake_minimum_required(VERSION 3.20)
 project(shaderc)
 enable_testing()
 
@@ -90,7 +90,7 @@ if (COMPILER_SUPPORTS_EXTRA_SEMI_WARNING)
     add_compile_options("-Wextra-semi")
 endif()
 
-find_host_package(PythonInterp 3 REQUIRED)
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 if (SHADERC_ENABLE_COPYRIGHT_CHECK)
   add_custom_target(check-copyright ALL

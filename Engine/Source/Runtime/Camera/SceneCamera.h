@@ -1,11 +1,15 @@
 #pragma once
 
 #include "Runtime/Camera/Camera.h"
+#include "Runtime/Core/Meta/Json.h"
+#include "Runtime/Core/Meta/Reflection/Reflection.h"
 
 namespace HEngine
 {
-    class SceneCamera : public Camera
+    REFLECTION_TYPE(SceneCamera)
+    CLASS(SceneCamera : public Camera, Fields)
     {
+        REFLECTION_BODY(SceneCamera);
     public:
         enum class ProjectionType { Perspective = 0, Orthographic = 1 };
     public:
@@ -35,7 +39,7 @@ namespace HEngine
         void SetProjectionType(ProjectionType type) { mProjectionType = type; }
     private:
         void RecalculateProjection();
-    private:
+    public:
         ProjectionType mProjectionType = ProjectionType::Orthographic;
 
         float mPerspectiveFOV = glm::radians(45.0f);

@@ -1,0 +1,56 @@
+#pragma once
+
+#include "Header.h"
+#include "Types.h"
+
+namespace Rml {
+
+class Element;
+class ElementDocument;
+class Context;
+
+/**
+    Generic Interface for plugins to RmlUi.
+ */
+
+class RMLUICORE_API Plugin {
+public:
+	virtual ~Plugin();
+
+	enum EventClasses {
+		EVT_BASIC = (1 << 0),    // Initialise, Shutdown, ContextCreate, ContextDestroy
+		EVT_DOCUMENT = (1 << 1), // DocumentOpen, DocumentLoad, DocumentUnload
+		EVT_ELEMENT = (1 << 2),  // ElementCreate, ElementDestroy
+
+		EVT_ALL = EVT_BASIC | EVT_DOCUMENT | EVT_ELEMENT
+	};
+	/// Called when the plugin is registered to determine which of the above event types the plugin is interested in.
+	virtual int GetEventClasses();
+
+	/// Called when RmlUi is initialised, or immediately when the plugin registers itself if RmlUi has already been
+	/// initialised.
+	virtual void OnInitialise();
+	/// Called when RmlUi shuts down.
+	virtual void OnShutdown();
+
+	/// Called when a new context is created.
+	virtual void OnContextCreate(Context* context);
+	/// Called when a context is destroyed.
+	virtual void OnContextDestroy(Context* context);
+
+	/// Called when a document load request occurs, before the document's file is opened.
+	virtual void OnDocumentOpen(Context* context, const String& document_path);
+	/// Called when a document is successfully loaded from file or instanced, initialised and added
+	/// to its context. This is called before the document's 'load' event.
+	virtual void OnDocumentLoad(ElementDocument* document);
+	/// Called when a document is unloaded from its context. This is called after the document's
+	/// 'unload' event.
+	virtual void OnDocumentUnload(ElementDocument* document);
+
+	/// Called when a new element is created.
+	virtual void OnElementCreate(Element* element);
+	/// Called when an element is destroyed.
+	virtual void OnElementDestroy(Element* element);
+};
+
+} // namespace Rml

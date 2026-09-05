@@ -1,0 +1,33 @@
+{
+  "Game": {
+    "Name": "HEngine Showcase",
+    "DefaultScene": "Assets/Scenes/Physics3DTest.he"
+  },
+  "Cook": {
+    "ContentVersion": "1.0.0",
+    "CompressionLevel": 9,
+    "RootFiles": [
+      "Config/BaseEngine.json",
+      "Assets/Scenes/Physics3DTest.he"
+    ],
+    "IncludeDirectories": [],
+    "CookedJsonExtensions": [
+      ".he",
+      ".hprefab",
+      ".hmat",
+      ".hmesh",
+      ".hskel",
+      ".hanim",
+      ".hanimctrl",
+      ".hui",
+      ".hbt"
+    ],
+    "ExcludeDirectories": [
+      "__pycache__"
+    ],
+    "ExcludeExtensions": [
+      ".pyc"
+    ],
+    "VirtualFiles": []
+  }
+}

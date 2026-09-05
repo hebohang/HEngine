@@ -1,0 +1,18 @@
+* text=auto
+
+*.bat text eol=crlf
+*.c text eol=crlf
+*.cc text eol=crlf
+*.cmake text eol=crlf
+*.cpp text eol=crlf
+*.frag text eol=crlf
+*.glsl text eol=crlf
+*.h text eol=crlf
+*.hlsl text eol=crlf
+*.hpp text eol=crlf
+*.json text eol=crlf
+*.md text eol=crlf
+*.ps1 text eol=crlf
+*.py text eol=crlf
+*.vert text eol=crlf
+CMakeLists.txt text eol=crlf

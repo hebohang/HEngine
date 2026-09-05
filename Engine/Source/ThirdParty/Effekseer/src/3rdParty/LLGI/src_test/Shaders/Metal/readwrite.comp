@@ -1,0 +1,46 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct CS_OUTPUT
+{
+    float value;
+};
+
+struct write
+{
+    CS_OUTPUT _data[1];
+};
+
+struct CS_INPUT
+{
+    float value1;
+    float value2;
+};
+
+struct read
+{
+    CS_INPUT _data[1];
+};
+
+struct CB
+{
+    float offset;
+};
+
+static inline __attribute__((always_inline))
+void _main(thread const uint3& dtid, device write& write_1, const device read& read_1, constant CB& _43)
+{
+    write_1._data[dtid.x].value = (read_1._data[dtid.x].value1 * read_1._data[dtid.x].value2) + _43.offset;
+}
+
+kernel void main0(constant CB& _43 [[buffer(0)]], const device read& read_1 [[buffer(10)]], device write& write_1 [[buffer(11)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    uint3 dtid = gl_GlobalInvocationID;
+    uint3 param = dtid;
+    _main(param, write_1, read_1, _43);
+}
+

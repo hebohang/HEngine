@@ -1,0 +1,4 @@
+interface:
+  display_name: "HEngine Effekseer Asset Intake"
+  short_description: "Audit and safely import Effekseer VFX assets"
+  default_prompt: "Use $he-effekseer-asset-intake to audit, quarantine, and safely import a licensed Effekseer effect."

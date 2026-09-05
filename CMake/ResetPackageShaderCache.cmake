@@ -1,0 +1,68 @@
+foreach(requiredVariable IN ITEMS GENERATED_CONTENT_DIR GENERATED_CONTENT_PARENT)
+    if(NOT DEFINED ${requiredVariable} OR "${${requiredVariable}}" STREQUAL "")
+        message(FATAL_ERROR "${requiredVariable} is required")
+    endif()
+    if(NOT IS_ABSOLUTE "${${requiredVariable}}")
+        message(FATAL_ERROR "${requiredVariable} must be absolute")
+    endif()
+endforeach()
+
+get_filename_component(generatedContentDirectory "${GENERATED_CONTENT_DIR}" ABSOLUTE)
+get_filename_component(generatedContentParent "${GENERATED_CONTENT_PARENT}" ABSOLUTE)
+set(expectedGeneratedDirectory
+    "${generatedContentParent}/GeneratedContent/Engine")
+get_filename_component(expectedGeneratedDirectory "${expectedGeneratedDirectory}" ABSOLUTE)
+if(NOT generatedContentDirectory STREQUAL expectedGeneratedDirectory)
+    message(FATAL_ERROR
+        "Refusing to reset a generated shader cache outside the build boundary")
+endif()
+
+if(EXISTS "${generatedContentDirectory}")
+    if(IS_SYMLINK "${generatedContentDirectory}")
+        message(FATAL_ERROR "Generated content directory must not be a symbolic link")
+    endif()
+    file(REAL_PATH "${generatedContentParent}" realGeneratedContentParent)
+    file(REAL_PATH "${generatedContentDirectory}" realGeneratedContentDirectory)
+    get_filename_component(realGeneratedParent "${realGeneratedContentDirectory}" DIRECTORY)
+    get_filename_component(realGeneratedName "${realGeneratedContentDirectory}" NAME)
+    get_filename_component(realGeneratedGrandparent "${realGeneratedParent}" DIRECTORY)
+    get_filename_component(realGeneratedParentName "${realGeneratedParent}" NAME)
+    string(TOLOWER "${realGeneratedGrandparent}" realGeneratedGrandparentKey)
+    string(TOLOWER "${realGeneratedContentParent}" realGeneratedContentParentKey)
+    string(TOLOWER "${realGeneratedName}" realGeneratedNameKey)
+    string(TOLOWER "${realGeneratedParentName}" realGeneratedParentNameKey)
+    if(NOT realGeneratedGrandparentKey STREQUAL realGeneratedContentParentKey OR
+       NOT realGeneratedParentNameKey STREQUAL "generatedcontent" OR
+       NOT realGeneratedNameKey STREQUAL "engine")
+        message(FATAL_ERROR
+            "Generated content directory is a junction or redirected path")
+    endif()
+endif()
+
+set(shaderCacheDirectory "${generatedContentDirectory}/Shaders/CACHES")
+set(runtimeShaderStamp "${generatedContentDirectory}/.runtime-shaders.stamp")
+if(EXISTS "${runtimeShaderStamp}" OR IS_SYMLINK "${runtimeShaderStamp}")
+    if(IS_SYMLINK "${runtimeShaderStamp}" OR IS_DIRECTORY "${runtimeShaderStamp}")
+        message(FATAL_ERROR "Runtime shader stamp must be a regular file")
+    endif()
+    file(REMOVE "${runtimeShaderStamp}")
+endif()
+if(EXISTS "${shaderCacheDirectory}")
+    if(IS_SYMLINK "${shaderCacheDirectory}")
+        message(FATAL_ERROR "Generated shader cache must not be a symbolic link")
+    endif()
+    file(REAL_PATH "${generatedContentDirectory}" realGeneratedContentDirectory)
+    file(REAL_PATH "${shaderCacheDirectory}" realShaderCacheDirectory)
+    file(RELATIVE_PATH cacheRelativePath
+        "${realGeneratedContentDirectory}" "${realShaderCacheDirectory}")
+    if(IS_ABSOLUTE "${cacheRelativePath}" OR
+       cacheRelativePath MATCHES "(^|/)\\.\\.(/|$)" OR
+       NOT cacheRelativePath STREQUAL "Shaders/CACHES")
+        message(FATAL_ERROR "Generated shader cache resolves outside its build root")
+    endif()
+    file(REMOVE_RECURSE "${shaderCacheDirectory}")
+endif()
+
+file(MAKE_DIRECTORY "${shaderCacheDirectory}/DXIL")
+file(MAKE_DIRECTORY "${shaderCacheDirectory}/SPIRV")
+message(STATUS "Reset deterministic package shader cache: ${shaderCacheDirectory}")

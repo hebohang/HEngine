@@ -3,7 +3,7 @@
 Open Asset Import Library (ASSIMP)
 ---------------------------------------------------------------------------
 
-Copyright (c) 2006-2009, ASSIMP Development Team
+Copyright (c) 2006-2020, ASSIMP Development Team
 
 All rights reserved.
 
@@ -348,7 +348,7 @@ extern ( C ) {
        *   <li>Specify the <code>SortByPType</code> flag. This moves line and
        *      point primitives to separate meshes.</li>
        *   <li>Set the <code>AI_CONFIG_PP_SBP_REMOVE</codet> option to
-       *      <code>aiPrimitiveType_POINTS | aiPrimitiveType_LINES</code>
+       *      <code>aiPrimitiveType_POINT | aiPrimitiveType_LINE</code>
        *      to cause SortByPType to reject point and line meshes from the
        *      scene.</li>
        * </ul>
@@ -470,7 +470,7 @@ extern ( C ) {
        * material settings and bitangents accordingly.
        *
        * Output UV coordinate system:
-       * <pre> 0y|0y ---------- 1x|0y
+       * <pre> 0x|0y ---------- 1x|0y
        * |                 |
        * |                 |
        * |                 |

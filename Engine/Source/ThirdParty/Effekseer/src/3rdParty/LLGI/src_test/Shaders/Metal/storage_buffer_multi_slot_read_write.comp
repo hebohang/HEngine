@@ -1,0 +1,121 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct SPIRV_Cross_Input
+{
+    uint3 _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+};
+
+struct InputA
+{
+    float3 Values;
+    uint Tag;
+};
+
+struct Input1
+{
+    uint _data[1];
+};
+
+struct InputB
+{
+    uint X;
+    uint Y;
+    uint Z;
+    uint W;
+};
+
+struct OutputA
+{
+    float Value;
+    uint Tag;
+    uint Mix;
+    uint Padding;
+};
+
+struct Output0
+{
+    uint _data[1];
+};
+
+struct OutputB
+{
+    float3 Values;
+    uint Checksum;
+};
+
+static inline __attribute__((always_inline))
+void _main(thread const uint3& dtid, const device Input1& Input1_1, const device Input1& Input2, device Output0& Output0_1, device Output0& Output3)
+{
+    uint index = dtid.x;
+    int byteAddrTemp = int(((index * 16u) + 0u) >> uint(2));
+    InputA _RESERVED_IDENTIFIER_FIXUP_33;
+    _RESERVED_IDENTIFIER_FIXUP_33.Values = as_type<float3>(uint3(Input1_1._data[byteAddrTemp], Input1_1._data[byteAddrTemp + 1], Input1_1._data[byteAddrTemp + 2]));
+    _RESERVED_IDENTIFIER_FIXUP_33.Tag = Input1_1._data[int(((index * 16u) + 12u) >> uint(2))];
+    InputA a;
+    a.Values = _RESERVED_IDENTIFIER_FIXUP_33.Values;
+    a.Tag = _RESERVED_IDENTIFIER_FIXUP_33.Tag;
+    InputB _RESERVED_IDENTIFIER_FIXUP_51;
+    _RESERVED_IDENTIFIER_FIXUP_51.X = Input2._data[int(((index * 16u) + 0u) >> uint(2))];
+    _RESERVED_IDENTIFIER_FIXUP_51.Y = Input2._data[int(((index * 16u) + 4u) >> uint(2))];
+    _RESERVED_IDENTIFIER_FIXUP_51.Z = Input2._data[int(((index * 16u) + 8u) >> uint(2))];
+    _RESERVED_IDENTIFIER_FIXUP_51.W = Input2._data[int(((index * 16u) + 12u) >> uint(2))];
+    InputB b;
+    b.X = _RESERVED_IDENTIFIER_FIXUP_51.X;
+    b.Y = _RESERVED_IDENTIFIER_FIXUP_51.Y;
+    b.Z = _RESERVED_IDENTIFIER_FIXUP_51.Z;
+    b.W = _RESERVED_IDENTIFIER_FIXUP_51.W;
+    uint _mix = (((a.Tag ^ b.X) ^ b.Y) ^ b.Z) ^ b.W;
+    OutputA outA;
+    outA.Value = ((a.Values.x + a.Values.y) + a.Values.z) + float(b.X & 255u);
+    outA.Tag = a.Tag;
+    outA.Mix = _mix;
+    outA.Padding = 0u;
+    int byteAddrTemp_1 = int(((index * 16u) + 0u) >> uint(2));
+    Output0_1._data[byteAddrTemp_1] = as_type<uint>(outA.Value);
+    int byteAddrTemp_2 = int(((index * 16u) + 4u) >> uint(2));
+    Output0_1._data[byteAddrTemp_2] = outA.Tag;
+    int byteAddrTemp_3 = int(((index * 16u) + 8u) >> uint(2));
+    Output0_1._data[byteAddrTemp_3] = outA.Mix;
+    int byteAddrTemp_4 = int(((index * 16u) + 12u) >> uint(2));
+    Output0_1._data[byteAddrTemp_4] = outA.Padding;
+    OutputB outB;
+    outB.Values = a.Values * float3(2.0, 3.0, 4.0);
+    outB.Checksum = _mix + index;
+    int byteAddrTemp_5 = int(((index * 16u) + 0u) >> uint(2));
+    Output3._data[byteAddrTemp_5] = as_type<uint3>(outB.Values).x;
+    Output3._data[byteAddrTemp_5 + 1] = as_type<uint3>(outB.Values).y;
+    Output3._data[byteAddrTemp_5 + 2] = as_type<uint3>(outB.Values).z;
+    int byteAddrTemp_6 = int(((index * 16u) + 12u) >> uint(2));
+    Output3._data[byteAddrTemp_6] = outB.Checksum;
+}
+
+static inline __attribute__((always_inline))
+void comp_main(const device Input1& Input1_1, const device Input1& Input2, device Output0& Output0_1, device Output0& Output3, thread uint3& _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID)
+{
+    uint3 dtid = _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+    uint3 param = dtid;
+    uint3 param_1 = param;
+    _main(param_1, Input1_1, Input2, Output0_1, Output3);
+}
+
+static inline __attribute__((always_inline))
+void _main(thread const SPIRV_Cross_Input& stage_input, const device Input1& Input1_1, const device Input1& Input2, device Output0& Output0_1, device Output0& Output3, thread uint3& _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID)
+{
+    _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID = stage_input._RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+    comp_main(Input1_1, Input2, Output0_1, Output3, _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID);
+}
+
+kernel void main0(device Output0& Output0_1 [[buffer(10)]], const device Input1& Input1_1 [[buffer(11)]], const device Input1& Input2 [[buffer(12)]], device Output0& Output3 [[buffer(13)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    SPIRV_Cross_Input stage_input;
+    stage_input._RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID = gl_GlobalInvocationID;
+    SPIRV_Cross_Input param = stage_input;
+    uint3 _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+    _main(param, Input1_1, Input2, Output0_1, Output3, _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID);
+}
+

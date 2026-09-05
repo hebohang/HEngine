@@ -1,0 +1,15 @@
+#pragma once
+
+#include <cstdint>
+#include <string_view>
+
+namespace HEngine
+{
+    struct EngineVersion final
+    {
+        static constexpr std::uint32_t Major = @PROJECT_VERSION_MAJOR@;
+        static constexpr std::uint32_t Minor = @PROJECT_VERSION_MINOR@;
+        static constexpr std::uint32_t Patch = @PROJECT_VERSION_PATCH@;
+        static constexpr std::string_view String = "@PROJECT_VERSION@";
+    };
+}

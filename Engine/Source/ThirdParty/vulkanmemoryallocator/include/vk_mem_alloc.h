@@ -25,7 +25,7 @@
 
 /** \mainpage Vulkan Memory Allocator
 
-<b>Version 3.0.0-development</b>
+<b>Version 3.0.1 (2022-05-26)</b>
 
 Copyright (c) 2017-2022 Advanced Micro Devices, Inc. All rights reserved. \n
 License: MIT
@@ -976,7 +976,7 @@ typedef struct VmaVulkanFunctions
 #if VMA_DEDICATED_ALLOCATION || VMA_VULKAN_VERSION >= 1001000
     /// Fetch "vkGetBufferMemoryRequirements2" on Vulkan >= 1.1, fetch "vkGetBufferMemoryRequirements2KHR" when using VK_KHR_dedicated_allocation extension.
     PFN_vkGetBufferMemoryRequirements2KHR VMA_NULLABLE vkGetBufferMemoryRequirements2KHR;
-    /// Fetch "vkGetImageMemoryRequirements 2" on Vulkan >= 1.1, fetch "vkGetImageMemoryRequirements2KHR" when using VK_KHR_dedicated_allocation extension.
+    /// Fetch "vkGetImageMemoryRequirements2" on Vulkan >= 1.1, fetch "vkGetImageMemoryRequirements2KHR" when using VK_KHR_dedicated_allocation extension.
     PFN_vkGetImageMemoryRequirements2KHR VMA_NULLABLE vkGetImageMemoryRequirements2KHR;
 #endif
 #if VMA_BIND_MEMORY2 || VMA_VULKAN_VERSION >= 1001000
@@ -2569,9 +2569,13 @@ VMA_CALL_PRE void VMA_CALL_POST vmaFreeStatsString(
 #include <cstdlib>
 #include <cstring>
 #include <utility>
+#include <type_traits>
 
 #ifdef _MSC_VER
     #include <intrin.h> // For functions like __popcnt, _BitScanForward etc.
+#endif
+#if __cplusplus >= 202002L || _MSVC_LANG >= 202002L // C++20
+    #include <bit> // For std::popcount
 #endif
 
 /*******************************************************************************
@@ -3175,12 +3179,16 @@ But you need to check in runtime whether user's CPU supports these, as some old 
 */
 static inline uint32_t VmaCountBitsSet(uint32_t v)
 {
+#if __cplusplus >= 202002L || _MSVC_LANG >= 202002L // C++20
+    return std::popcount(v);
+#else
     uint32_t c = v - ((v >> 1) & 0x55555555);
     c = ((c >> 2) & 0x33333333) + (c & 0x33333333);
     c = ((c >> 4) + c) & 0x0F0F0F0F;
     c = ((c >> 8) + c) & 0x00FF00FF;
     c = ((c >> 16) + c) & 0x0000FFFF;
     return c;
+#endif
 }
 
 static inline uint8_t VmaBitScanLSB(uint64_t mask)
@@ -3368,60 +3376,6 @@ static inline bool VmaStrIsEmpty(const char* pStr)
 {
     return pStr == VMA_NULL || *pStr == '\0';
 }
-
-#if VMA_STATS_STRING_ENABLED
-static const char* VmaAlgorithmToStr(uint32_t algorithm)
-{
-    switch (algorithm)
-    {
-    case VMA_POOL_CREATE_LINEAR_ALGORITHM_BIT:
-        return "Linear";
-    case 0:
-        return "TLSF";
-    default:
-        VMA_ASSERT(0);
-        return "";
-    }
-}
-#endif // VMA_STATS_STRING_ENABLED
-
-#ifndef VMA_SORT
-template<typename Iterator, typename Compare>
-Iterator VmaQuickSortPartition(Iterator beg, Iterator end, Compare cmp)
-{
-    Iterator centerValue = end; --centerValue;
-    Iterator insertIndex = beg;
-    for (Iterator memTypeIndex = beg; memTypeIndex < centerValue; ++memTypeIndex)
-    {
-        if (cmp(*memTypeIndex, *centerValue))
-        {
-            if (insertIndex != memTypeIndex)
-            {
-                VMA_SWAP(*memTypeIndex, *insertIndex);
-            }
-            ++insertIndex;
-        }
-    }
-    if (insertIndex != centerValue)
-    {
-        VMA_SWAP(*insertIndex, *centerValue);
-    }
-    return insertIndex;
-}
-
-template<typename Iterator, typename Compare>
-void VmaQuickSort(Iterator beg, Iterator end, Compare cmp)
-{
-    if (beg < end)
-    {
-        Iterator it = VmaQuickSortPartition<Iterator, Compare>(beg, end, cmp);
-        VmaQuickSort<Iterator, Compare>(beg, it, cmp);
-        VmaQuickSort<Iterator, Compare>(it + 1, end, cmp);
-    }
-}
-
-#define VMA_SORT(beg, end, cmp) VmaQuickSort(beg, end, cmp)
-#endif // VMA_SORT
 
 /*
 Returns true if two memory blocks occupy overlapping pages.
@@ -5491,6 +5445,7 @@ public:
     // Posts next part of an open string. The number is converted to decimal characters.
     void ContinueString(uint32_t n);
     void ContinueString(uint64_t n);
+    void ContinueString_Size(size_t n);
     // Posts next part of an open string. Pointer value is converted to characters
     // using "%p" formatting - shown as hexadecimal number, e.g.: 000000081276Ad00
     void ContinueString_Pointer(const void* ptr);
@@ -5500,6 +5455,7 @@ public:
     // Writes a number value.
     void WriteNumber(uint32_t n);
     void WriteNumber(uint64_t n);
+    void WriteSize(size_t n);
     // Writes a boolean value - false or true.
     void WriteBool(bool b);
     // Writes a null value.
@@ -5523,6 +5479,11 @@ private:
     VmaStringBuilder& m_SB;
     VmaVector< StackItem, VmaStlAllocator<StackItem> > m_Stack;
     bool m_InsideString;
+
+    // Write size_t for less than 64bits
+    void WriteSize(size_t n, std::integral_constant<bool, false>) { m_SB.AddNumber(static_cast<uint32_t>(n)); }
+    // Write size_t for 64bits
+    void WriteSize(size_t n, std::integral_constant<bool, true>) { m_SB.AddNumber(static_cast<uint64_t>(n)); }
 
     void BeginValue(bool isString);
     void WriteIndent(bool oneLess = false);
@@ -5666,6 +5627,14 @@ void VmaJsonWriter::ContinueString(uint64_t n)
     m_SB.AddNumber(n);
 }
 
+void VmaJsonWriter::ContinueString_Size(size_t n)
+{
+    VMA_ASSERT(m_InsideString);
+    // Fix for AppleClang incorrect type casting
+    // TODO: Change to if constexpr when C++17 used as minimal standard
+    WriteSize(n, std::is_same<size_t, uint64_t>{});
+}
+
 void VmaJsonWriter::ContinueString_Pointer(const void* ptr)
 {
     VMA_ASSERT(m_InsideString);
@@ -5695,6 +5664,15 @@ void VmaJsonWriter::WriteNumber(uint64_t n)
     VMA_ASSERT(!m_InsideString);
     BeginValue(false);
     m_SB.AddNumber(n);
+}
+
+void VmaJsonWriter::WriteSize(size_t n)
+{
+    VMA_ASSERT(!m_InsideString);
+    BeginValue(false);
+    // Fix for AppleClang incorrect type casting
+    // TODO: Change to if constexpr when C++17 used as minimal standard
+    WriteSize(n, std::is_same<size_t, uint64_t>{});
 }
 
 void VmaJsonWriter::WriteBool(bool b)
@@ -5765,41 +5743,29 @@ static void VmaPrintDetailedStatistics(VmaJsonWriter& json, const VmaDetailedSta
 
     json.WriteString("BlockCount");
     json.WriteNumber(stat.statistics.blockCount);
-
+    json.WriteString("BlockBytes");
+    json.WriteNumber(stat.statistics.blockBytes);
     json.WriteString("AllocationCount");
     json.WriteNumber(stat.statistics.allocationCount);
-
+    json.WriteString("AllocationBytes");
+    json.WriteNumber(stat.statistics.allocationBytes);
     json.WriteString("UnusedRangeCount");
     json.WriteNumber(stat.unusedRangeCount);
 
-    json.WriteString("BlockBytes");
-    json.WriteNumber(stat.statistics.blockBytes);
-
-    json.WriteString("AllocationBytes");
-    json.WriteNumber(stat.statistics.allocationBytes);
-
     if (stat.statistics.allocationCount > 1)
     {
-        json.WriteString("AllocationSize");
-        json.BeginObject(true);
-        json.WriteString("Min");
+        json.WriteString("AllocationSizeMin");
         json.WriteNumber(stat.allocationSizeMin);
-        json.WriteString("Max");
+        json.WriteString("AllocationSizeMax");
         json.WriteNumber(stat.allocationSizeMax);
-        json.EndObject();
     }
-
     if (stat.unusedRangeCount > 1)
     {
-        json.WriteString("UnusedRangeSize");
-        json.BeginObject(true);
-        json.WriteString("Min");
+        json.WriteString("UnusedRangeSizeMin");
         json.WriteNumber(stat.unusedRangeSizeMin);
-        json.WriteString("Max");
+        json.WriteString("UnusedRangeSizeMax");
         json.WriteNumber(stat.unusedRangeSizeMax);
-        json.EndObject();
     }
-
     json.EndObject();
 }
 #endif // _VMA_JSON_WRITER
@@ -5891,9 +5857,14 @@ private:
     void PostMinorCounter()
     {
         if(m_MinorCounter < m_MajorCounter)
+        {
             ++m_MinorCounter;
+        }
         else if(m_MajorCounter > 0)
-            --m_MajorCounter, --m_MinorCounter;
+        {
+            --m_MajorCounter;
+            --m_MinorCounter;
+        }
     }
 };
 
@@ -6348,8 +6319,7 @@ public:
     virtual void AddStatistics(VmaStatistics& inoutStats) const = 0;
 
 #if VMA_STATS_STRING_ENABLED
-    // mapRefCount == UINT32_MAX means unspecified.
-    virtual void PrintDetailedMap(class VmaJsonWriter& json, uint32_t mapRefCount) const = 0;
+    virtual void PrintDetailedMap(class VmaJsonWriter& json) const = 0;
 #endif
 
     // Tries to find a place for suballocation with given parameters inside this block.
@@ -6393,8 +6363,7 @@ protected:
     void PrintDetailedMap_Begin(class VmaJsonWriter& json,
         VkDeviceSize unusedBytes,
         size_t allocationCount,
-        size_t unusedRangeCount,
-        uint32_t mapRefCount) const;
+        size_t unusedRangeCount) const;
     void PrintDetailedMap_Allocation(class VmaJsonWriter& json,
         VkDeviceSize offset, VkDeviceSize size, void* userData) const;
     void PrintDetailedMap_UnusedRange(class VmaJsonWriter& json,
@@ -6448,27 +6417,19 @@ void VmaBlockMetadata::DebugLogAllocation(VkDeviceSize offset, VkDeviceSize size
 
 #if VMA_STATS_STRING_ENABLED
 void VmaBlockMetadata::PrintDetailedMap_Begin(class VmaJsonWriter& json,
-    VkDeviceSize unusedBytes, size_t allocationCount, size_t unusedRangeCount, uint32_t mapRefCount) const
+    VkDeviceSize unusedBytes, size_t allocationCount, size_t unusedRangeCount) const
 {
-    json.BeginObject();
-
     json.WriteString("TotalBytes");
     json.WriteNumber(GetSize());
 
     json.WriteString("UnusedBytes");
-    json.WriteNumber(unusedBytes);
+    json.WriteSize(unusedBytes);
 
     json.WriteString("Allocations");
-    json.WriteNumber((uint64_t)allocationCount);
+    json.WriteSize(allocationCount);
 
     json.WriteString("UnusedRanges");
-    json.WriteNumber((uint64_t)unusedRangeCount);
-
-    if(mapRefCount != UINT32_MAX)
-    {
-        json.WriteString("MapRefCount");
-        json.WriteNumber(mapRefCount);
-    }
+    json.WriteSize(unusedRangeCount);
 
     json.WriteString("Suballocations");
     json.BeginArray();
@@ -6484,15 +6445,11 @@ void VmaBlockMetadata::PrintDetailedMap_Allocation(class VmaJsonWriter& json,
 
     if (IsVirtual())
     {
-        json.WriteString("Type");
-        json.WriteString("VirtualAllocation");
-
         json.WriteString("Size");
         json.WriteNumber(size);
-
-        if (userData != VMA_NULL)
+        if (userData)
         {
-            json.WriteString("UserData");
+            json.WriteString("CustomData");
             json.BeginString();
             json.ContinueString_Pointer(userData);
             json.EndString();
@@ -6526,7 +6483,6 @@ void VmaBlockMetadata::PrintDetailedMap_UnusedRange(class VmaJsonWriter& json,
 void VmaBlockMetadata::PrintDetailedMap_End(class VmaJsonWriter& json) const
 {
     json.EndArray();
-    json.EndObject();
 }
 #endif // VMA_STATS_STRING_ENABLED
 #endif // _VMA_BLOCK_METADATA_FUNCTIONS
@@ -7631,7 +7587,7 @@ public:
     void AddStatistics(VmaStatistics& inoutStats) const override;
 
 #if VMA_STATS_STRING_ENABLED
-    void PrintDetailedMap(class VmaJsonWriter& json, uint32_t mapRefCount) const override;
+    void PrintDetailedMap(class VmaJsonWriter& json) const override;
 #endif
 
     bool CreateAllocationRequest(
@@ -8218,7 +8174,7 @@ void VmaBlockMetadata_Linear::AddStatistics(VmaStatistics& inoutStats) const
 }
 
 #if VMA_STATS_STRING_ENABLED
-void VmaBlockMetadata_Linear::PrintDetailedMap(class VmaJsonWriter& json, uint32_t mapRefCount) const
+void VmaBlockMetadata_Linear::PrintDetailedMap(class VmaJsonWriter& json) const
 {
     const VkDeviceSize size = GetSize();
     const SuballocationVectorType& suballocations1st = AccessSuballocations1st();
@@ -8380,7 +8336,7 @@ void VmaBlockMetadata_Linear::PrintDetailedMap(class VmaJsonWriter& json, uint32
     }
 
     const VkDeviceSize unusedBytes = size - usedBytes;
-    PrintDetailedMap_Begin(json, unusedBytes, alloc1stCount + alloc2ndCount, unusedRangeCount, mapRefCount);
+    PrintDetailedMap_Begin(json, unusedBytes, alloc1stCount + alloc2ndCount, unusedRangeCount);
 
     // SECOND PASS
     lastOffset = 0;
@@ -9988,7 +9944,7 @@ public:
     void AddStatistics(VmaStatistics& inoutStats) const override;
 
 #if VMA_STATS_STRING_ENABLED
-    void PrintDetailedMap(class VmaJsonWriter& json, uint32_t mapRefCount) const override;
+    void PrintDetailedMap(class VmaJsonWriter& json) const override;
 #endif
 
     bool CreateAllocationRequest(
@@ -10261,7 +10217,7 @@ void VmaBlockMetadata_TLSF::AddStatistics(VmaStatistics& inoutStats) const
 }
 
 #if VMA_STATS_STRING_ENABLED
-void VmaBlockMetadata_TLSF::PrintDetailedMap(class VmaJsonWriter& json, uint32_t mapRefCount) const
+void VmaBlockMetadata_TLSF::PrintDetailedMap(class VmaJsonWriter& json) const
 {
     size_t blockCount = m_AllocCount + m_BlocksFreeCount;
     VmaStlAllocator<Block*> allocator(GetAllocationCallbacks());
@@ -10278,12 +10234,10 @@ void VmaBlockMetadata_TLSF::PrintDetailedMap(class VmaJsonWriter& json, uint32_t
     VmaClearDetailedStatistics(stats);
     AddDetailedStatistics(stats);
 
-    PrintDetailedMap_Begin(
-        json,
+    PrintDetailedMap_Begin(json,
         stats.statistics.blockBytes - stats.statistics.allocationBytes,
         stats.statistics.allocationCount,
-        stats.unusedRangeCount,
-        mapRefCount);
+        stats.unusedRangeCount);
 
     for (; i < blockCount; ++i)
     {
@@ -10936,7 +10890,7 @@ public:
     uint32_t GetAlgorithm() const { return m_Algorithm; }
     bool HasExplicitBlockSize() const { return m_ExplicitBlockSize; }
     float GetPriority() const { return m_Priority; }
-    void* const GetAllocationNextPtr() const { return m_pMemoryAllocateNext; }
+    const void* GetAllocationNextPtr() const { return m_pMemoryAllocateNext; }
     // To be used only while the m_Mutex is locked. Used during defragmentation.
     size_t GetBlockCount() const { return m_Blocks.size(); }
     // To be used only while the m_Mutex is locked. Used during defragmentation.
@@ -11380,8 +11334,9 @@ void VmaVirtualBlock_T::BuildStatsString(bool detailedMap, VmaStringBuilder& sb)
     if (detailedMap)
     {
         json.WriteString("Details");
-        m_Metadata->PrintDetailedMap(json,
-            UINT32_MAX); // mapRefCount
+        json.BeginObject();
+        m_Metadata->PrintDetailedMap(json);
+        json.EndObject();
     }
 
     json.EndObject();
@@ -12280,10 +12235,12 @@ void VmaAllocation_T::PrintParameters(class VmaJsonWriter& json) const
 
     json.WriteString("Size");
     json.WriteNumber(m_Size);
+    json.WriteString("Usage");
+    json.WriteNumber(m_BufferImageUsage);
 
     if (m_pUserData != VMA_NULL)
     {
-        json.WriteString("UserData");
+        json.WriteString("CustomData");
         json.BeginString();
         json.ContinueString_Pointer(m_pUserData);
         json.EndString();
@@ -12292,12 +12249,6 @@ void VmaAllocation_T::PrintParameters(class VmaJsonWriter& json) const
     {
         json.WriteString("Name");
         json.WriteString(m_pName);
-    }
-
-    if (m_BufferImageUsage != 0)
-    {
-        json.WriteString("Usage");
-        json.WriteNumber(m_BufferImageUsage);
     }
 }
 #endif // VMA_STATS_STRING_ENABLED
@@ -12781,7 +12732,7 @@ void VmaBlockVector::IncrementallySortBlocks()
 void VmaBlockVector::SortByFreeSize()
 {
     VMA_SORT(m_Blocks.begin(), m_Blocks.end(),
-        [](auto* b1, auto* b2)
+        [](VmaDeviceMemoryBlock* b1, VmaDeviceMemoryBlock* b2) -> bool
         {
             return b1->m_pMetadata->GetSumFreeSize() < b2->m_pMetadata->GetSumFreeSize();
         });
@@ -12951,50 +12902,7 @@ void VmaBlockVector::PrintDetailedMap(class VmaJsonWriter& json)
 {
     VmaMutexLockRead lock(m_Mutex, m_hAllocator->m_UseMutex);
 
-    if (IsCustomPool())
-    {
-        const char* poolName = m_hParentPool->GetName();
-        if (poolName != VMA_NULL && poolName[0] != '\0')
-        {
-            json.WriteString("Name");
-            json.WriteString(poolName);
-        }
 
-        json.WriteString("MemoryTypeIndex");
-        json.WriteNumber(m_MemoryTypeIndex);
-
-        json.WriteString("BlockSize");
-        json.WriteNumber(m_PreferredBlockSize);
-
-        json.WriteString("BlockCount");
-        json.BeginObject(true);
-        if (m_MinBlockCount > 0)
-        {
-            json.WriteString("Min");
-            json.WriteNumber((uint64_t)m_MinBlockCount);
-        }
-        if (m_MaxBlockCount < SIZE_MAX)
-        {
-            json.WriteString("Max");
-            json.WriteNumber((uint64_t)m_MaxBlockCount);
-        }
-        json.WriteString("Cur");
-        json.WriteNumber((uint64_t)m_Blocks.size());
-        json.EndObject();
-
-        if (m_Algorithm != 0)
-        {
-            json.WriteString("Algorithm");
-            json.WriteString(VmaAlgorithmToStr(m_Algorithm));
-        }
-    }
-    else
-    {
-        json.WriteString("PreferredBlockSize");
-        json.WriteNumber(m_PreferredBlockSize);
-    }
-
-    json.WriteString("Blocks");
     json.BeginObject();
     for (size_t i = 0; i < m_Blocks.size(); ++i)
     {
@@ -13002,7 +12910,12 @@ void VmaBlockVector::PrintDetailedMap(class VmaJsonWriter& json)
         json.ContinueString(m_Blocks[i]->GetId());
         json.EndString();
 
-        m_Blocks[i]->m_pMetadata->PrintDetailedMap(json, m_Blocks[i]->GetMapRefCount());
+        json.BeginObject();
+        json.WriteString("MapRefCount");
+        json.WriteNumber(m_Blocks[i]->GetMapRefCount());
+
+        m_Blocks[i]->m_pMetadata->PrintDetailedMap(json);
+        json.EndObject();
     }
     json.EndObject();
 }
@@ -13303,9 +13216,15 @@ VkResult VmaDefragmentationContext_T::DefragmentPassEnd(VmaDefragmentationPassMo
                 StateExtensive& state = reinterpret_cast<StateExtensive*>(m_AlgorithmState)[vectorIndex];
                 if (state.firstFreeBlock != SIZE_MAX)
                 {
-                    state.firstFreeBlock -= prevCount - currentCount;
-                    if (state.firstFreeBlock != 0)
-                        state.firstFreeBlock -= vector->GetBlock(state.firstFreeBlock - 1)->m_pMetadata->IsEmpty();
+                    const size_t diff = prevCount - currentCount;
+                    if (state.firstFreeBlock >= diff)
+                    {
+                        state.firstFreeBlock -= diff;
+                        if (state.firstFreeBlock != 0)
+                            state.firstFreeBlock -= vector->GetBlock(state.firstFreeBlock - 1)->m_pMetadata->IsEmpty();
+                    }
+                    else
+                        state.firstFreeBlock = 0;
                 }
             }
         }
@@ -13348,9 +13267,12 @@ VkResult VmaDefragmentationContext_T::DefragmentPassEnd(VmaDefragmentationPassMo
                                 VMA_SWAP(vector->m_Blocks[i], vector->m_Blocks[vector->GetBlockCount() - ++m_ImmovableBlockCount]);
                                 if (state.firstFreeBlock != SIZE_MAX)
                                 {
-                                    if (i < state.firstFreeBlock - 1)
+                                    if (i + 1 < state.firstFreeBlock)
                                     {
-                                        VMA_SWAP(vector->m_Blocks[i], vector->m_Blocks[--state.firstFreeBlock]);
+                                        if (state.firstFreeBlock > 1)
+                                            VMA_SWAP(vector->m_Blocks[i], vector->m_Blocks[--state.firstFreeBlock]);
+                                        else
+                                            --state.firstFreeBlock;
                                     }
                                 }
                                 swapped = true;
@@ -13765,6 +13687,13 @@ bool VmaDefragmentationContext_T::ComputeDefragmentation_Extensive(VmaBlockVecto
     case StateExtensive::Operation::FindFreeBlockTexture:
     case StateExtensive::Operation::FindFreeBlockAll:
     {
+        // No more blocks to free, just perform fast realloc and move to cleanup
+        if (vectorState.firstFreeBlock == 0)
+        {
+            vectorState.operation = StateExtensive::Operation::Cleanup;
+            return ComputeDefragmentation_Fast(vector);
+        }
+
         // No free blocks, have to clear last one
         size_t last = (vectorState.firstFreeBlock == SIZE_MAX ? vector.GetBlockCount() : vectorState.firstFreeBlock) - 1;
         VmaBlockMetadata* freeMetadata = vector.GetBlock(last)->m_pMetadata;
@@ -13833,8 +13762,7 @@ bool VmaDefragmentationContext_T::ComputeDefragmentation_Extensive(VmaBlockVecto
             }
             vectorState.firstFreeBlock = last;
             // Nothing done, block found without reallocations, can perform another reallocs in same pass
-            if (prevMoveCount == m_Moves.size())
-                return ComputeDefragmentation_Extensive(vector, index);
+            return ComputeDefragmentation_Extensive(vector, index);
         }
         break;
     }
@@ -13902,6 +13830,9 @@ bool VmaDefragmentationContext_T::ComputeDefragmentation_Extensive(VmaBlockVecto
         }
         break;
     }
+    case StateExtensive::Operation::Cleanup:
+        // Cleanup is handled below so that other operations may reuse the cleanup code. This case is here to prevent the unhandled enum value warning (C4062).
+        break;
     }
 
     if (vectorState.operation == StateExtensive::Operation::Cleanup)
@@ -15937,6 +15868,7 @@ void VmaAllocator_T::UpdateVulkanBudget()
 void VmaAllocator_T::FillAllocation(const VmaAllocation hAllocation, uint8_t pattern)
 {
     if(VMA_DEBUG_INITIALIZE_ALLOCATIONS &&
+        hAllocation->IsMappingAllowed() &&
         (m_MemProps.memoryTypes[hAllocation->GetMemoryTypeIndex()].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) != 0)
     {
         void* pData = VMA_NULL;
@@ -15968,89 +15900,90 @@ uint32_t VmaAllocator_T::GetGpuDefragmentationMemoryTypeBits()
 #if VMA_STATS_STRING_ENABLED
 void VmaAllocator_T::PrintDetailedMap(VmaJsonWriter& json)
 {
-    bool dedicatedAllocationsStarted = false;
-    for(uint32_t memTypeIndex = 0; memTypeIndex < GetMemoryTypeCount(); ++memTypeIndex)
+    json.WriteString("DefaultPools");
+    json.BeginObject();
     {
-        VmaDedicatedAllocationList& dedicatedAllocList = m_DedicatedAllocations[memTypeIndex];
-        if(!dedicatedAllocList.IsEmpty())
-        {
-            if(dedicatedAllocationsStarted == false)
-            {
-                dedicatedAllocationsStarted = true;
-                json.WriteString("DedicatedAllocations");
-                json.BeginObject();
-            }
-
-            json.BeginString("Type ");
-            json.ContinueString(memTypeIndex);
-            json.EndString();
-
-            dedicatedAllocList.BuildStatsString(json);
-        }
-    }
-    if(dedicatedAllocationsStarted)
-    {
-        json.EndObject();
-    }
-
-    {
-        bool allocationsStarted = false;
-        for(uint32_t memTypeIndex = 0; memTypeIndex < GetMemoryTypeCount(); ++memTypeIndex)
+        for (uint32_t memTypeIndex = 0; memTypeIndex < GetMemoryTypeCount(); ++memTypeIndex)
         {
             VmaBlockVector* pBlockVector = m_pBlockVectors[memTypeIndex];
-            if(pBlockVector != VMA_NULL)
+            VmaDedicatedAllocationList& dedicatedAllocList = m_DedicatedAllocations[memTypeIndex];
+            if (pBlockVector != VMA_NULL)
             {
-                if (pBlockVector->IsEmpty() == false)
-                {
-                    if (allocationsStarted == false)
-                    {
-                        allocationsStarted = true;
-                        json.WriteString("DefaultPools");
-                        json.BeginObject();
-                    }
-
-                    json.BeginString("Type ");
-                    json.ContinueString(memTypeIndex);
-                    json.EndString();
-
-                    json.BeginObject();
-                    pBlockVector->PrintDetailedMap(json);
-                    json.EndObject();
-                }
-            }
-        }
-        if(allocationsStarted)
-        {
-            json.EndObject();
-        }
-    }
-
-    // Custom pools
-    {
-        VmaMutexLockRead lock(m_PoolsMutex, m_UseMutex);
-        if(!m_Pools.IsEmpty())
-        {
-            json.WriteString("Pools");
-            json.BeginObject();
-            for(VmaPool pool = m_Pools.Front(); pool != VMA_NULL; pool = m_Pools.GetNext(pool))
-            {
-                json.BeginString();
-                json.ContinueString(pool->GetId());
+                json.BeginString("Type ");
+                json.ContinueString(memTypeIndex);
                 json.EndString();
-
                 json.BeginObject();
-                pool->m_BlockVector.PrintDetailedMap(json);
-
-                if (!pool->m_DedicatedAllocations.IsEmpty())
                 {
+                    json.WriteString("PreferredBlockSize");
+                    json.WriteNumber(pBlockVector->GetPreferredBlockSize());
+
+                    json.WriteString("Blocks");
+                    pBlockVector->PrintDetailedMap(json);
+
                     json.WriteString("DedicatedAllocations");
-                    pool->m_DedicatedAllocations.BuildStatsString(json);
+                    dedicatedAllocList.BuildStatsString(json);
                 }
                 json.EndObject();
             }
-            json.EndObject();
         }
     }
+    json.EndObject();
+
+    json.WriteString("CustomPools");
+    json.BeginObject();
+    {
+        VmaMutexLockRead lock(m_PoolsMutex, m_UseMutex);
+        if (!m_Pools.IsEmpty())
+        {
+            for (uint32_t memTypeIndex = 0; memTypeIndex < GetMemoryTypeCount(); ++memTypeIndex)
+            {
+                bool displayType = true;
+                size_t index = 0;
+                for (VmaPool pool = m_Pools.Front(); pool != VMA_NULL; pool = m_Pools.GetNext(pool))
+                {
+                    VmaBlockVector& blockVector = pool->m_BlockVector;
+                    if (blockVector.GetMemoryTypeIndex() == memTypeIndex)
+                    {
+                        if (displayType)
+                        {
+                            json.BeginString("Type ");
+                            json.ContinueString(memTypeIndex);
+                            json.EndString();
+                            json.BeginArray();
+                            displayType = false;
+                        }
+
+                        json.BeginObject();
+                        {
+                            json.WriteString("Name");
+                            json.BeginString();
+                            json.ContinueString_Size(index++);
+                            if (pool->GetName())
+                            {
+                                json.ContinueString(" - ");
+                                json.ContinueString(pool->GetName());
+                            }
+                            json.EndString();
+
+                            json.WriteString("PreferredBlockSize");
+                            json.WriteNumber(blockVector.GetPreferredBlockSize());
+
+                            json.WriteString("Blocks");
+                            blockVector.PrintDetailedMap(json);
+
+                            json.WriteString("DedicatedAllocations");
+                            pool->m_DedicatedAllocations.BuildStatsString(json);
+                        }
+                        json.EndObject();
+                    }
+                }
+
+                if (!displayType)
+                    json.EndArray();
+            }
+        }
+    }
+    json.EndObject();
 }
 #endif // VMA_STATS_STRING_ENABLED
 #endif // _VMA_ALLOCATOR_T_FUNCTIONS
@@ -16161,127 +16094,176 @@ VMA_CALL_PRE void VMA_CALL_POST vmaBuildStatsString(
 
     VmaStringBuilder sb(allocator->GetAllocationCallbacks());
     {
-        VmaJsonWriter json(allocator->GetAllocationCallbacks(), sb);
-        json.BeginObject();
-
         VmaBudget budgets[VK_MAX_MEMORY_HEAPS];
         allocator->GetHeapBudgets(budgets, 0, allocator->GetMemoryHeapCount());
 
         VmaTotalStatistics stats;
         allocator->CalculateStatistics(&stats);
 
-        json.WriteString("Total");
-        VmaPrintDetailedStatistics(json, stats.total);
-
-        for(uint32_t heapIndex = 0; heapIndex < allocator->GetMemoryHeapCount(); ++heapIndex)
+        VmaJsonWriter json(allocator->GetAllocationCallbacks(), sb);
+        json.BeginObject();
         {
-            json.BeginString("Heap ");
-            json.ContinueString(heapIndex);
-            json.EndString();
-            json.BeginObject();
-
-            json.WriteString("Size");
-            json.WriteNumber(allocator->m_MemProps.memoryHeaps[heapIndex].size);
-
-            json.WriteString("Flags");
-            json.BeginArray(true);
-            if((allocator->m_MemProps.memoryHeaps[heapIndex].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) != 0)
-            {
-                json.WriteString("DEVICE_LOCAL");
-            }
-            json.EndArray();
-
-            json.WriteString("Budget");
+            json.WriteString("General");
             json.BeginObject();
             {
-                json.WriteString("BlockBytes");
-                json.WriteNumber(budgets[heapIndex].statistics.blockBytes);
-                json.WriteString("AllocationBytes");
-                json.WriteNumber(budgets[heapIndex].statistics.allocationBytes);
-                json.WriteString("BlockCount");
-                json.WriteNumber(budgets[heapIndex].statistics.blockCount);
-                json.WriteString("AllocationCount");
-                json.WriteNumber(budgets[heapIndex].statistics.allocationCount);
-                json.WriteString("Usage");
-                json.WriteNumber(budgets[heapIndex].usage);
-                json.WriteString("Budget");
-                json.WriteNumber(budgets[heapIndex].budget);
+                const VkPhysicalDeviceProperties& deviceProperties = allocator->m_PhysicalDeviceProperties;
+                const VkPhysicalDeviceMemoryProperties& memoryProperties = allocator->m_MemProps;
+
+                json.WriteString("API");
+                json.WriteString("Vulkan");
+
+                json.WriteString("apiVersion");
+                json.BeginString();
+                json.ContinueString(VK_API_VERSION_MAJOR(deviceProperties.apiVersion));
+                json.ContinueString(".");
+                json.ContinueString(VK_API_VERSION_MINOR(deviceProperties.apiVersion));
+                json.ContinueString(".");
+                json.ContinueString(VK_API_VERSION_PATCH(deviceProperties.apiVersion));
+                json.EndString();
+
+                json.WriteString("GPU");
+                json.WriteString(deviceProperties.deviceName);
+                json.WriteString("deviceType");
+                json.WriteNumber(static_cast<uint32_t>(deviceProperties.deviceType));
+
+                json.WriteString("maxMemoryAllocationCount");
+                json.WriteNumber(deviceProperties.limits.maxMemoryAllocationCount);
+                json.WriteString("bufferImageGranularity");
+                json.WriteNumber(deviceProperties.limits.bufferImageGranularity);
+                json.WriteString("nonCoherentAtomSize");
+                json.WriteNumber(deviceProperties.limits.nonCoherentAtomSize);
+
+                json.WriteString("memoryHeapCount");
+                json.WriteNumber(memoryProperties.memoryHeapCount);
+                json.WriteString("memoryTypeCount");
+                json.WriteNumber(memoryProperties.memoryTypeCount);
             }
             json.EndObject();
-
-            if(stats.memoryHeap[heapIndex].statistics.blockCount > 0)
+        }
+        {
+            json.WriteString("Total");
+            VmaPrintDetailedStatistics(json, stats.total);
+        }
+        {
+            json.WriteString("MemoryInfo");
+            json.BeginObject();
             {
-                json.WriteString("Stats");
-                VmaPrintDetailedStatistics(json, stats.memoryHeap[heapIndex]);
-            }
-
-            for(uint32_t typeIndex = 0; typeIndex < allocator->GetMemoryTypeCount(); ++typeIndex)
-            {
-                if(allocator->MemoryTypeIndexToHeapIndex(typeIndex) == heapIndex)
+                for (uint32_t heapIndex = 0; heapIndex < allocator->GetMemoryHeapCount(); ++heapIndex)
                 {
-                    json.BeginString("Type ");
-                    json.ContinueString(typeIndex);
+                    json.BeginString("Heap ");
+                    json.ContinueString(heapIndex);
                     json.EndString();
-
                     json.BeginObject();
+                    {
+                        const VkMemoryHeap& heapInfo = allocator->m_MemProps.memoryHeaps[heapIndex];
+                        json.WriteString("Flags");
+                        json.BeginArray(true);
+                        {
+                            if (heapInfo.flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
+                                json.WriteString("DEVICE_LOCAL");
+                        #if VMA_VULKAN_VERSION >= 1001000
+                            if (heapInfo.flags & VK_MEMORY_HEAP_MULTI_INSTANCE_BIT)
+                                json.WriteString("MULTI_INSTANCE");
+                        #endif
 
-                    json.WriteString("Flags");
-                    json.BeginArray(true);
-                    VkMemoryPropertyFlags flags = allocator->m_MemProps.memoryTypes[typeIndex].propertyFlags;
-                    if((flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0)
-                    {
-                        json.WriteString("DEVICE_LOCAL");
-                    }
-                    if((flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) != 0)
-                    {
-                        json.WriteString("HOST_VISIBLE");
-                    }
-                    if((flags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != 0)
-                    {
-                        json.WriteString("HOST_COHERENT");
-                    }
-                    if((flags & VK_MEMORY_PROPERTY_HOST_CACHED_BIT) != 0)
-                    {
-                        json.WriteString("HOST_CACHED");
-                    }
-                    if((flags & VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT) != 0)
-                    {
-                        json.WriteString("LAZILY_ALLOCATED");
-                    }
-#if VMA_VULKAN_VERSION >= 1001000
-                    if((flags & VK_MEMORY_PROPERTY_PROTECTED_BIT) != 0)
-                    {
-                        json.WriteString("PROTECTED");
-                    }
-#endif // #if VMA_VULKAN_VERSION >= 1001000
-#if VK_AMD_device_coherent_memory
-                    if((flags & VK_MEMORY_PROPERTY_DEVICE_COHERENT_BIT_AMD_COPY) != 0)
-                    {
-                        json.WriteString("DEVICE_COHERENT");
-                    }
-                    if((flags & VK_MEMORY_PROPERTY_DEVICE_UNCACHED_BIT_AMD_COPY) != 0)
-                    {
-                        json.WriteString("DEVICE_UNCACHED");
-                    }
-#endif // #if VK_AMD_device_coherent_memory
-                    json.EndArray();
+                            VkMemoryHeapFlags flags = heapInfo.flags &
+                                ~(VK_MEMORY_HEAP_DEVICE_LOCAL_BIT
+                        #if VMA_VULKAN_VERSION >= 1001000
+                                    | VK_MEMORY_HEAP_MULTI_INSTANCE_BIT
+                        #endif
+                                    );
+                            if (flags != 0)
+                                json.WriteNumber(flags);
+                        }
+                        json.EndArray();
 
-                    if(stats.memoryType[typeIndex].statistics.blockCount > 0)
-                    {
+                        json.WriteString("Size");
+                        json.WriteNumber(heapInfo.size);
+
+                        json.WriteString("Budget");
+                        json.BeginObject();
+                        {
+                            json.WriteString("BudgetBytes");
+                            json.WriteNumber(budgets[heapIndex].budget);
+                            json.WriteString("UsageBytes");
+                            json.WriteNumber(budgets[heapIndex].usage);
+                        }
+                        json.EndObject();
+
                         json.WriteString("Stats");
-                        VmaPrintDetailedStatistics(json, stats.memoryType[typeIndex]);
-                    }
+                        VmaPrintDetailedStatistics(json, stats.memoryHeap[heapIndex]);
 
+                        json.WriteString("MemoryPools");
+                        json.BeginObject();
+                        {
+                            for (uint32_t typeIndex = 0; typeIndex < allocator->GetMemoryTypeCount(); ++typeIndex)
+                            {
+                                if (allocator->MemoryTypeIndexToHeapIndex(typeIndex) == heapIndex)
+                                {
+                                    json.BeginString("Type ");
+                                    json.ContinueString(typeIndex);
+                                    json.EndString();
+                                    json.BeginObject();
+                                    {
+                                        json.WriteString("Flags");
+                                        json.BeginArray(true);
+                                        {
+                                            VkMemoryPropertyFlags flags = allocator->m_MemProps.memoryTypes[typeIndex].propertyFlags;
+                                            if (flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+                                                json.WriteString("DEVICE_LOCAL");
+                                            if (flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+                                                json.WriteString("HOST_VISIBLE");
+                                            if (flags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+                                                json.WriteString("HOST_COHERENT");
+                                            if (flags & VK_MEMORY_PROPERTY_HOST_CACHED_BIT)
+                                                json.WriteString("HOST_CACHED");
+                                            if (flags & VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT)
+                                                json.WriteString("LAZILY_ALLOCATED");
+                                        #if VMA_VULKAN_VERSION >= 1001000
+                                            if (flags & VK_MEMORY_PROPERTY_PROTECTED_BIT)
+                                                json.WriteString("PROTECTED");
+                                        #endif
+                                        #if VK_AMD_device_coherent_memory
+                                            if (flags & VK_MEMORY_PROPERTY_DEVICE_COHERENT_BIT_AMD_COPY)
+                                                json.WriteString("DEVICE_COHERENT_AMD");
+                                            if (flags & VK_MEMORY_PROPERTY_DEVICE_UNCACHED_BIT_AMD_COPY)
+                                                json.WriteString("DEVICE_UNCACHED_AMD");
+                                        #endif
+
+                                            flags &= ~(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+                                        #if VMA_VULKAN_VERSION >= 1001000
+                                                | VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT
+                                        #endif
+                                        #if VK_AMD_device_coherent_memory
+                                                | VK_MEMORY_PROPERTY_DEVICE_COHERENT_BIT_AMD_COPY
+                                                | VK_MEMORY_PROPERTY_DEVICE_UNCACHED_BIT_AMD_COPY
+                                        #endif
+                                                | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+                                                | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+                                                | VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
+                                            if (flags != 0)
+                                                json.WriteNumber(flags);
+                                        }
+                                        json.EndArray();
+
+                                        json.WriteString("Stats");
+                                        VmaPrintDetailedStatistics(json, stats.memoryType[typeIndex]);
+                                    }
+                                    json.EndObject();
+                                }
+                            }
+
+                        }
+                        json.EndObject();
+                    }
                     json.EndObject();
                 }
             }
-
             json.EndObject();
         }
-        if(detailedMap == VK_TRUE)
-        {
+
+        if (detailedMap == VK_TRUE)
             allocator->PrintDetailedMap(json);
-        }
 
         json.EndObject();
     }
@@ -17580,9 +17562,10 @@ before including these headers (like `WIN32_LEAN_AND_MEAN` or
 `WINVER` for Windows, `VK_USE_PLATFORM_WIN32_KHR` for Vulkan), you must define
 them before every `#include` of this library.
 
-\note This library is written in C++, but has C-compatible interface.
+This library is written in C++, but has C-compatible interface.
 Thus you can include and use vk_mem_alloc.h in C or C++ code, but full
 implementation with `VMA_IMPLEMENTATION` macro must be compiled as C++, NOT as C.
+Some features of C++14 used. STL containers, RTTI, or C++ exceptions are not used.
 
 
 \section quick_start_initialization Initialization
@@ -18803,14 +18786,14 @@ To do it, define macro `VMA_DEBUG_INITIALIZE_ALLOCATIONS` to 1.
 #include "vk_mem_alloc.h"
 \endcode
 
-It makes memory of all new allocations initialized to bit pattern `0xDCDCDCDC`.
+It makes memory of new allocations initialized to bit pattern `0xDCDCDCDC`.
 Before an allocation is destroyed, its memory is filled with bit pattern `0xEFEFEFEF`.
 Memory is automatically mapped and unmapped if necessary.
 
 If you find these values while debugging your program, good chances are that you incorrectly
 read Vulkan memory that is allocated but not initialized, or already freed, respectively.
 
-Memory initialization works only with memory types that are `HOST_VISIBLE`.
+Memory initialization works only with memory types that are `HOST_VISIBLE` and with allocations that can be mapped.
 It works also with dedicated allocations.
 
 \section debugging_memory_usage_margins Margins

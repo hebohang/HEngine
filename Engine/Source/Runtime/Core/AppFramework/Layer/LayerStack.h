@@ -15,9 +15,10 @@ namespace HEngine
 		~LayerStack();
 
 		void PushLayer(Layer* layer);
-		void PushOverlay(Layer* overlay);
-		void PopLayer(Layer* layer);
-		void PopOverlay(Layer* overlay);
+			void PushOverlay(Layer* overlay);
+			void PopLayer(Layer* layer);
+			void PopOverlay(Layer* overlay);
+			void Shutdown() noexcept;
 
 		std::vector<Layer*>::iterator begin() { return mLayers.begin(); }
 		std::vector<Layer*>::iterator end() { return mLayers.end(); }

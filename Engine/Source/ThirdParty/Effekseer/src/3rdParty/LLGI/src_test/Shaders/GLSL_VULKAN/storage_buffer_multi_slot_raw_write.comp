@@ -1,0 +1,141 @@
+#version 430
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+struct SPIRV_Cross_Input
+{
+    uvec3 _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+};
+
+layout(set = 2, binding = 0, std430) buffer TransformData
+{
+    uint _data[];
+} TransformData_1;
+
+layout(set = 2, binding = 1, std430) buffer AttributeData
+{
+    uint _data[];
+} AttributeData_1;
+
+uvec3 _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+
+void StoreTransform(uint index, vec3 translation)
+{
+    uint base = index * 80u;
+    int byteAddrTemp = int((base + 0u) >> uint(2));
+    TransformData_1._data[byteAddrTemp] = 1u;
+    int byteAddrTemp_1 = int((base + 4u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_1] = index;
+    int byteAddrTemp_2 = int((base + 8u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_2] = floatBitsToUint(0.0);
+    int byteAddrTemp_3 = int((base + 12u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_3] = 0u;
+    int byteAddrTemp_4 = int((base + 16u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_4] = 0u;
+    int byteAddrTemp_5 = int((base + 20u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_5] = 0u;
+    int byteAddrTemp_6 = int((base + 24u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_6] = 0u;
+    TransformData_1._data[byteAddrTemp_6 + 1] = 0u;
+    int byteAddrTemp_7 = int((base + 32u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_7] = floatBitsToUint(1.0);
+    int byteAddrTemp_8 = int((base + 36u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_8] = floatBitsToUint(0.0);
+    int byteAddrTemp_9 = int((base + 40u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_9] = floatBitsToUint(0.0);
+    int byteAddrTemp_10 = int((base + 44u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_10] = floatBitsToUint(translation.x);
+    int byteAddrTemp_11 = int((base + 48u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_11] = floatBitsToUint(0.0);
+    int byteAddrTemp_12 = int((base + 52u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_12] = floatBitsToUint(1.0);
+    int byteAddrTemp_13 = int((base + 56u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_13] = floatBitsToUint(0.0);
+    int byteAddrTemp_14 = int((base + 60u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_14] = floatBitsToUint(translation.y);
+    int byteAddrTemp_15 = int((base + 64u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_15] = floatBitsToUint(0.0);
+    int byteAddrTemp_16 = int((base + 68u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_16] = floatBitsToUint(0.0);
+    int byteAddrTemp_17 = int((base + 72u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_17] = floatBitsToUint(1.0);
+    int byteAddrTemp_18 = int((base + 76u) >> uint(2));
+    TransformData_1._data[byteAddrTemp_18] = floatBitsToUint(translation.z);
+}
+
+void StoreAttribute(uint index, vec2 offset, float scale, uint colorTag)
+{
+    uint base = index * 16u;
+    int byteAddrTemp = int((base + 0u) >> uint(2));
+    AttributeData_1._data[byteAddrTemp] = floatBitsToUint(offset).x;
+    AttributeData_1._data[byteAddrTemp + 1] = floatBitsToUint(offset).y;
+    int byteAddrTemp_1 = int((base + 8u) >> uint(2));
+    AttributeData_1._data[byteAddrTemp_1] = floatBitsToUint(scale);
+    int byteAddrTemp_2 = int((base + 12u) >> uint(2));
+    AttributeData_1._data[byteAddrTemp_2] = colorTag;
+}
+
+void _main(uvec3 dtid)
+{
+    uint index = dtid.x;
+    if (index == 0u)
+    {
+        uint param = index;
+        vec3 param_1 = vec3(-0.550000011920928955078125, -0.119999997317790985107421875, 0.0);
+        StoreTransform(param, param_1);
+        uint param_2 = index;
+        vec2 param_3 = vec2(0.0500000007450580596923828125);
+        float param_4 = 0.85000002384185791015625;
+        uint param_5 = 0u;
+        StoreAttribute(param_2, param_3, param_4, param_5);
+    }
+    else
+    {
+        if (index == 1u)
+        {
+            uint param_6 = index;
+            vec3 param_7 = vec3(0.0);
+            StoreTransform(param_6, param_7);
+            uint param_8 = index;
+            vec2 param_9 = vec2(0.0);
+            float param_10 = 0.64999997615814208984375;
+            uint param_11 = 1u;
+            StoreAttribute(param_8, param_9, param_10, param_11);
+        }
+        else
+        {
+            if (index == 2u)
+            {
+                uint param_12 = index;
+                vec3 param_13 = vec3(0.550000011920928955078125, 0.119999997317790985107421875, 0.0);
+                StoreTransform(param_12, param_13);
+                uint param_14 = index;
+                vec2 param_15 = vec2(-0.0500000007450580596923828125);
+                float param_16 = 0.449999988079071044921875;
+                uint param_17 = 2u;
+                StoreAttribute(param_14, param_15, param_16, param_17);
+            }
+        }
+    }
+}
+
+void comp_main()
+{
+    uvec3 dtid = _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+    uvec3 param = dtid;
+    _main(param);
+}
+
+void _main(SPIRV_Cross_Input stage_input)
+{
+    _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID = stage_input._RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+    comp_main();
+}
+
+void main()
+{
+    SPIRV_Cross_Input stage_input;
+    stage_input._RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID = gl_GlobalInvocationID;
+    SPIRV_Cross_Input param = stage_input;
+    _main(param);
+}
+

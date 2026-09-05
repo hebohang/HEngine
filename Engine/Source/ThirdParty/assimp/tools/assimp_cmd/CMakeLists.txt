@@ -1,9 +1,7 @@
 # Open Asset Import Library (assimp)
 # ----------------------------------------------------------------------
-# 
-# Copyright (c) 2006-2019, assimp team
-
-
+#
+# Copyright (c) 2006-2026, assimp team
 # All rights reserved.
 #
 # Redistribution and use of this software in source and binary forms,
@@ -37,7 +35,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 #----------------------------------------------------------------------
-cmake_minimum_required( VERSION 2.6 )
+cmake_minimum_required( VERSION 3.10 )
 
 INCLUDE_DIRECTORIES(
   ${Assimp_SOURCE_DIR}/include
@@ -47,26 +45,32 @@ INCLUDE_DIRECTORIES(
 
 LINK_DIRECTORIES( ${Assimp_BINARY_DIR} ${Assimp_BINARY_DIR}/lib )
 
+if(WIN32)
+  set ( ASSIMP_CMD_RC assimp_cmd.rc)
+endif()
+
 ADD_EXECUTABLE( assimp_cmd
-  assimp_cmd.rc
   CompareDump.cpp
   ImageExtractor.cpp
   Main.cpp
   Main.h
-  resource.h
-  WriteDumb.cpp
+  WriteDump.cpp
   Info.cpp
   Export.cpp
+  ${ASSIMP_CMD_RC}
 )
 
-SET_PROPERTY(TARGET assimp_cmd PROPERTY DEBUG_POSTFIX ${CMAKE_DEBUG_POSTFIX})
+IF (ASSIMP_WARNINGS_AS_ERRORS)
+  IF (MSVC)
+    TARGET_COMPILE_OPTIONS(assimp_cmd PRIVATE /W4 /WX)
+  ELSE()
+    TARGET_COMPILE_OPTIONS(assimp_cmd PRIVATE -Wall -Werror)
+  ENDIF()
+ENDIF()
 
-IF( WIN32 )
-  ADD_CUSTOM_COMMAND(TARGET assimp_cmd
-    PRE_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:assimp> $<TARGET_FILE_DIR:assimp_cmd>
-    MAIN_DEPENDENCY assimp)
-ENDIF( WIN32 )
+TARGET_USE_COMMON_OUTPUT_DIRECTORY(assimp_cmd)
+
+SET_PROPERTY(TARGET assimp_cmd PROPERTY DEBUG_POSTFIX ${CMAKE_DEBUG_POSTFIX})
 
 TARGET_LINK_LIBRARIES( assimp_cmd assimp ${ZLIB_LIBRARIES} )
 SET_TARGET_PROPERTIES( assimp_cmd PROPERTIES

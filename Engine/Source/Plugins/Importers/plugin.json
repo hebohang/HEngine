@@ -1,0 +1,30 @@
+{
+    "SchemaVersion": 1,
+    "Id": "he.importers",
+    "DisplayName": "Asset Importers",
+    "Version": "1.0.0",
+    "ApiVersion": 1,
+    "RequiredHostApiVersion": 1,
+    "ModuleName": "Importers",
+    "EntrySymbol": "HEngineCreateImportersPluginModule",
+    "Dependencies": [],
+    "OptionalDependencies": [],
+    "LoadPhase": "PostEngine",
+    "SupportedHosts": [
+        "Editor",
+        "Tools"
+    ],
+    "Distribution": "DeveloperOnly",
+    "PackagePolicy": "Never",
+    "ShaderRoots": [],
+    "ContentRoots": [],
+    "Platforms": [
+        "Windows"
+    ],
+    "Configurations": [
+        "Debug",
+        "Release",
+        "RelWithDebInfo",
+        "MinSizeRel"
+    ]
+}

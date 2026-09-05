@@ -6,8 +6,10 @@
 
 namespace HEngine
 {
-	class CircleRendererComponent : public ComponentBase
+	REFLECTION_TYPE(CircleRendererComponent)
+	CLASS(CircleRendererComponent : public ComponentBase, Fields)
 	{
+		REFLECTION_COMPONENT_BODY(CircleRendererComponent);
 	public:
 		glm::vec4 Color{ 1.0f, 1.0f, 1.0f, 1.0f };
 		float Radius = 0.5f;
@@ -17,4 +19,5 @@ namespace HEngine
 		CircleRendererComponent() = default;
 		CircleRendererComponent(const CircleRendererComponent&) = default;
 	};
+	REGISTER_COMPONENT_TYPE(CircleRendererComponent)
 }

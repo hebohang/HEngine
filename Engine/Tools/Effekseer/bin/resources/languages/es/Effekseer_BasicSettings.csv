@@ -1,0 +1,65 @@
+Node_IsRendered_Name,Visible
+Node_IsRendered_Desc,"From here, you can set some global parameters for the particle node, such as its name, 
+the number of particles to be generated, and other particle settings."
+,
+Node_Name_Name,Nombre
+Node_Name_Desc,El nombre del Nodo
+BasicSettings_MaxGeneration_Name,Partículas
+BasicSettings_MaxGeneration_Desc,Cantidad de partículas que se generarán para este Nodo
+BasicSettings_LocationEffectType_Name,Heredar posición
+BasicSettings_LocationEffectType_Desc,Configura como heredará la posición del nodo -padre-
+BasicSettings_RotationEffectType_Name,Heredar Rotación
+BasicSettings_RotationEffectType_Desc,Configura como heredará la rotación del nodo -padre-
+BasicSettings_ScaleEffectType_Name,Heredar tamaño
+BasicSettings_ScaleEffectType_Desc,Configura como heredará el tamaño del nodo -padre-
+BasicSettings_Removal_WhenLifeIsExtinct_Name,Destruir Nodo
+BasicSettings_Removal_WhenLifeIsExtinct_Desc,"-Activado- Destruye el nodo al llegar a su final de -Vida nodo-
+-Desactivado- El nodo seguirá hasta el fin de la animación"
+BasicSettings_Removal_WhenParentIsRemoved_Name,"Destruir con
+la herencia"
+BasicSettings_Removal_WhenParentIsRemoved_Desc,Se destruye el nodo cuando lo indique el nodo -padre-
+BasicSettings_Removal_WhenAllChildrenAreRemoved_Name,"Destruir con
+los heredados"
+BasicSettings_Removal_WhenAllChildrenAreRemoved_Desc,"Se destruye el nodo junto con los nodos -hijos-
+que estén heredando de este mismo."
+BasicSettings_Life_Name,Vida nodo
+BasicSettings_Life_Desc,Vida del nodo en frames.
+BasicSettings_GenerationTime_Name,Tasa aparición
+BasicSettings_GenerationTime_Desc,Cantidad de frames que deberán pasar hasta que aparezca la siguiente partícula para este Nodo
+BasicSettings_GenerationTimeOffset_Name,Frame inicial
+BasicSettings_GenerationTimeOffset_Desc,Es el frame inicial donde aparecerá este Nodo por primera vez
+,
+BasicSettings_ParentEffectType_NotBind_Name,Nunca
+BasicSettings_ParentEffectType_NotBind_Root_Name,Dependiendo de raiz (Obsoleto)
+BasicSettings_ParentEffectType_WhenCreating_Name,Solo al crear
+BasicSettings_ParentEffectType_Already_Name,Siempre
+,
+BasicSettings_TranslationParentEffectType_NotBind_FollowParent_Name,Nunca - Seguir herencia
+BasicSettings_TranslationParentEffectType_WhenCreating_FollowParent_Name,Solo al crear - Seguir herencia
+,
+BasicSettings_SteeringBehaviorParemeter_MaxFollowSpeed_Name,Seguir máxima velocidad
+BasicSettings_SteeringBehaviorParameter_SteeringSpeed_Name,Velocidad de dirección(%)
+BasicSettings_Generation_Enabled_Name,Generación habilitada
+BasicSettings_Generation_Enabled_Desc,Indica si la generación está habilitada al inicio de la reproducción.
+BasicSettings_Generation_StartTrigger_Name,Disparador de inicio de generación
+BasicSettings_Generation_StartTrigger_Desc,Disparador para iniciar la generación de instancias.
+BasicSettings_Generation_StopTrigger_Name,Disparador de detención de generación
+BasicSettings_Generation_StopTrigger_Desc,Disparador para detener la generación de instancias.
+BasicSettings_Removal_TriggerToRemove_Name,Destruir al activarse el disparador
+BasicSettings_Removal_TriggerToRemove_Desc,Se destruye el nodo cuando se activa el disparador.
+BasicSettings_GenerationTiming_Name,Modo de generación
+BasicSettings_GenerationTiming_Desc,Cambia entre generación continua o basada en disparadores.
+BasicSettings_GenerationTiming_Continuous_Name,Continuo
+BasicSettings_GenerationTiming_Trigger_Name,Disparador
+BasicSettings_Generation_SpawnTrigger_Name,Disparador de generación
+BasicSettings_Generation_SpawnTrigger_Desc,Disparador que genera partículas cuando el modo es Disparador.
+BasicSettings_Generation_SpawnCount_Name,Partículas por disparo
+BasicSettings_Generation_SpawnCount_Desc,Cantidad de partículas generadas cada vez que se activa el disparador.
+,
+TriggerType_None_Name,Ninguno
+TriggerType_Trigger0_Name,Disparador0
+TriggerType_Trigger1_Name,Disparador1
+TriggerType_Trigger2_Name,Disparador2
+TriggerType_Trigger3_Name,Disparador3
+TriggerType_ParentRemoved_Name,Al eliminar padre
+TriggerType_ParentCollided_Name,Al colisionar padre

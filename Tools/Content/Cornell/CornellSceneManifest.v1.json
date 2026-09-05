@@ -1,0 +1,389 @@
+{
+  "schema": "https://henginedev.local/schemas/cornell-scene-manifest/v1",
+  "manifestVersion": 1,
+  "generatorVersion": "1.2.0",
+  "sceneId": "cornell-box-diffuse-1997",
+  "title": "Cornell Box diffuse benchmark from Cornell measured data",
+  "provenance": {
+    "retrievedUtcDate": "2026-08-30",
+    "sources": [
+      {
+        "role": "authoritative-scene-data",
+        "url": "https://bowers.cornell.edu/computer-graphics/data",
+        "retrievedByteLength": 100556,
+        "retrievedSha256": "ae54250e6b01efd9174ea4ec7724245f73a4aafacc28f037a929e2365c4b7a94",
+        "hashScope": "HTTP response body observed on retrieval date; informational, not a permanent upstream identifier"
+      },
+      {
+        "role": "authoritative-benchmark-description",
+        "url": "https://bowers.cornell.edu/cornell-box",
+        "retrievedByteLength": 46016,
+        "retrievedSha256": "2b51d151b93c95a227a4a1cf1dd889e73c379e73ecad7693cde1a83b24083b2f",
+        "hashScope": "HTTP response body observed on retrieval date; informational, not a permanent upstream identifier"
+      },
+      {
+        "role": "cie-1931-analytic-fit",
+        "url": "https://jcgt.org/published/0002/02/01/",
+        "citation": "Wyman, Sloan, Shirley, Simple Analytic Approximations to the CIE XYZ Color Matching Functions, JCGT 2(2), 2013"
+      },
+      {
+        "role": "pbrt-v4-file-format",
+        "url": "https://www.pbrt.org/fileformat-v4"
+      }
+    ],
+    "license": {
+      "upstreamStatement": "Cornell labels the page as computer graphics specifications and resources for public use.",
+      "status": "public-use-stated-no-explicit-license-terms",
+      "spdxIdentifier": null,
+      "redistributionDecision": "Only attributed numeric scene data and generated derivatives are included. Official photographs, EXR/TIFF archives, and archived downloads are not redistributed. Obtain project/legal approval before redistributing upstream media.",
+      "reviewedBy": "engineering-provenance-review-only"
+    }
+  },
+  "coordinateSystem": {
+    "handedness": "right-handed",
+    "axes": {
+      "x": "Cornell source x axis: x=0 at the green wall and x approximately 556 mm at the red wall",
+      "y": "up",
+      "z": "camera-forward/depth"
+    },
+    "sourceUnit": "millimeter",
+    "metersPerSourceUnit": 0.001,
+    "generatedUnit": "meter",
+    "winding": "counter-clockwise when viewed from the declared front normal"
+  },
+  "camera": {
+    "model": "pinhole-perspective",
+    "positionMm": [278.0, 273.0, -800.0],
+    "direction": [0.0, 0.0, 1.0],
+    "up": [0.0, 1.0, 0.0],
+    "focalLengthM": 0.035,
+    "filmWidthM": 0.025,
+    "filmHeightM": 0.025,
+    "expectedVerticalFovDegrees": 39.30764811610661,
+    "pbrtScreenWindow": [1.0, -1.0, -1.0, 1.0],
+    "sourceInterpretation": "Position follows the measured-geometry millimeter coordinate system; focal length and film dimensions are stated in meters by Cornell."
+  },
+  "materials": [
+    {
+      "id": 1,
+      "name": "white",
+      "bsdf": "lambertian",
+      "metallic": 0.0,
+      "roughness": 1.0
+    },
+    {
+      "id": 2,
+      "name": "green",
+      "bsdf": "lambertian",
+      "metallic": 0.0,
+      "roughness": 1.0
+    },
+    {
+      "id": 3,
+      "name": "red",
+      "bsdf": "lambertian",
+      "metallic": 0.0,
+      "roughness": 1.0
+    },
+    {
+      "id": 4,
+      "name": "light",
+      "bsdf": "lambertian-emitter",
+      "reflectance": 0.78,
+      "metallic": 0.0,
+      "roughness": 1.0
+    }
+  ],
+  "spectra": {
+    "surfaceReflectance": {
+      "wavelengthUnit": "nanometer",
+      "interpolation": "piecewise-linear",
+      "wavelengths": [
+        400, 404, 408, 412, 416, 420, 424, 428, 432, 436, 440, 444, 448,
+        452, 456, 460, 464, 468, 472, 476, 480, 484, 488, 492, 496, 500,
+        504, 508, 512, 516, 520, 524, 528, 532, 536, 540, 544, 548, 552,
+        556, 560, 564, 568, 572, 576, 580, 584, 588, 592, 596, 600, 604,
+        608, 612, 616, 620, 624, 628, 632, 636, 640, 644, 648, 652, 656,
+        660, 664, 668, 672, 676, 680, 684, 688, 692, 696, 700
+      ],
+      "white": [
+        0.343, 0.445, 0.551, 0.624, 0.665, 0.687, 0.708, 0.723, 0.715,
+        0.710, 0.745, 0.758, 0.739, 0.767, 0.777, 0.765, 0.751, 0.745,
+        0.748, 0.729, 0.745, 0.757, 0.753, 0.750, 0.746, 0.747, 0.735,
+        0.732, 0.739, 0.734, 0.725, 0.721, 0.733, 0.725, 0.732, 0.743,
+        0.744, 0.748, 0.728, 0.716, 0.733, 0.726, 0.713, 0.740, 0.754,
+        0.764, 0.752, 0.736, 0.734, 0.741, 0.740, 0.732, 0.745, 0.755,
+        0.751, 0.744, 0.731, 0.733, 0.744, 0.731, 0.712, 0.708, 0.729,
+        0.730, 0.727, 0.707, 0.703, 0.729, 0.750, 0.760, 0.751, 0.739,
+        0.724, 0.730, 0.740, 0.737
+      ],
+      "green": [
+        0.092, 0.096, 0.098, 0.097, 0.098, 0.095, 0.095, 0.097, 0.095,
+        0.094, 0.097, 0.098, 0.096, 0.101, 0.103, 0.104, 0.107, 0.109,
+        0.112, 0.115, 0.125, 0.140, 0.160, 0.187, 0.229, 0.285, 0.343,
+        0.390, 0.435, 0.464, 0.472, 0.476, 0.481, 0.462, 0.447, 0.441,
+        0.426, 0.406, 0.373, 0.347, 0.337, 0.314, 0.285, 0.277, 0.266,
+        0.250, 0.230, 0.207, 0.186, 0.171, 0.160, 0.148, 0.141, 0.136,
+        0.130, 0.126, 0.123, 0.121, 0.122, 0.119, 0.114, 0.115, 0.117,
+        0.117, 0.118, 0.120, 0.122, 0.128, 0.132, 0.139, 0.144, 0.146,
+        0.150, 0.152, 0.157, 0.159
+      ],
+      "red": [
+        0.040, 0.046, 0.048, 0.053, 0.049, 0.050, 0.053, 0.055, 0.057,
+        0.056, 0.059, 0.057, 0.061, 0.061, 0.060, 0.062, 0.062, 0.062,
+        0.061, 0.062, 0.060, 0.059, 0.057, 0.058, 0.058, 0.058, 0.056,
+        0.055, 0.056, 0.059, 0.057, 0.055, 0.059, 0.059, 0.058, 0.059,
+        0.061, 0.061, 0.063, 0.063, 0.067, 0.068, 0.072, 0.080, 0.090,
+        0.099, 0.124, 0.154, 0.192, 0.255, 0.287, 0.349, 0.402, 0.443,
+        0.487, 0.513, 0.558, 0.584, 0.620, 0.606, 0.609, 0.651, 0.612,
+        0.610, 0.650, 0.638, 0.627, 0.620, 0.630, 0.628, 0.642, 0.639,
+        0.657, 0.639, 0.635, 0.642
+      ],
+      "sourceStatement": "Cornell states that these are measured discrete reflectances and that the surfaces are Lambertian."
+    },
+    "lightEmission": {
+      "wavelengthUnit": "nanometer",
+      "valueUnit": "unspecified-by-upstream-source",
+      "wavelengths": [400.0, 500.0, 600.0, 700.0],
+      "values": [0.0, 8.0, 15.6, 18.4],
+      "interpolation": "piecewise-linear",
+      "sourceStatement": "Cornell supplies these four emission samples but does not state an SI radiometric unit on the data page; MeasuredSpectral preserves the numbers without inventing one."
+    }
+  },
+  "geometry": {
+    "surfaceGenerationPolicy": {
+      "floor": "Use the measured floor quad. The two published discontinuity-mesh hole loops are retained as provenance but are not physical apertures and are fully occluded by the blocks.",
+      "ceiling": "Split the measured ceiling quad into four planar quads around the published light hole so the coplanar emitting quad never overlaps the white ceiling.",
+      "blocks": "Use the measured top and four side quads. There are no hidden bottom faces.",
+      "triangulation": "Each generated quad uses local indices [0,1,2,0,2,3]. Every triangle owns three vertices so its explicit shading normal is exactly its geometric normal, including the measured non-planar left wall."
+    },
+    "surfaces": [
+      {
+        "name": "floor",
+        "material": "white",
+        "normalPolicy": "toward-room-interior",
+        "quadsMm": [
+          [[552.8, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 559.2], [549.6, 0.0, 559.2]]
+        ],
+        "discontinuityMeshHolesMm": [
+          [[130.0, 0.0, 65.0], [82.0, 0.0, 225.0], [240.0, 0.0, 272.0], [290.0, 0.0, 114.0]],
+          [[423.0, 0.0, 247.0], [265.0, 0.0, 296.0], [314.0, 0.0, 456.0], [472.0, 0.0, 406.0]]
+        ]
+      },
+      {
+        "name": "light",
+        "material": "light",
+        "normalPolicy": "down",
+        "quadsMm": [
+          [[343.0, 548.8, 227.0], [343.0, 548.8, 332.0], [213.0, 548.8, 332.0], [213.0, 548.8, 227.0]]
+        ]
+      },
+      {
+        "name": "ceiling",
+        "material": "white",
+        "normalPolicy": "toward-room-interior",
+        "quadsMm": [
+          [[556.0, 548.8, 0.0], [556.0, 548.8, 559.2], [0.0, 548.8, 559.2], [0.0, 548.8, 0.0]]
+        ],
+        "discontinuityMeshHolesMm": [
+          [[343.0, 548.8, 227.0], [343.0, 548.8, 332.0], [213.0, 548.8, 332.0], [213.0, 548.8, 227.0]]
+        ]
+      },
+      {
+        "name": "back_wall",
+        "material": "white",
+        "normalPolicy": "toward-room-interior",
+        "quadsMm": [
+          [[549.6, 0.0, 559.2], [0.0, 0.0, 559.2], [0.0, 548.8, 559.2], [556.0, 548.8, 559.2]]
+        ]
+      },
+      {
+        "name": "right_wall",
+        "material": "green",
+        "normalPolicy": "toward-room-interior",
+        "quadsMm": [
+          [[0.0, 0.0, 559.2], [0.0, 0.0, 0.0], [0.0, 548.8, 0.0], [0.0, 548.8, 559.2]]
+        ]
+      },
+      {
+        "name": "left_wall",
+        "material": "red",
+        "normalPolicy": "toward-room-interior",
+        "quadsMm": [
+          [[552.8, 0.0, 0.0], [549.6, 0.0, 559.2], [556.0, 548.8, 559.2], [556.0, 548.8, 0.0]]
+        ]
+      },
+      {
+        "name": "short_block",
+        "material": "white",
+        "normalPolicy": "away-from-block-centroid",
+        "quadsMm": [
+          [[130.0, 165.0, 65.0], [82.0, 165.0, 225.0], [240.0, 165.0, 272.0], [290.0, 165.0, 114.0]],
+          [[290.0, 0.0, 114.0], [290.0, 165.0, 114.0], [240.0, 165.0, 272.0], [240.0, 0.0, 272.0]],
+          [[130.0, 0.0, 65.0], [130.0, 165.0, 65.0], [290.0, 165.0, 114.0], [290.0, 0.0, 114.0]],
+          [[82.0, 0.0, 225.0], [82.0, 165.0, 225.0], [130.0, 165.0, 65.0], [130.0, 0.0, 65.0]],
+          [[240.0, 0.0, 272.0], [240.0, 165.0, 272.0], [82.0, 165.0, 225.0], [82.0, 0.0, 225.0]]
+        ]
+      },
+      {
+        "name": "tall_block",
+        "material": "white",
+        "normalPolicy": "away-from-block-centroid",
+        "quadsMm": [
+          [[423.0, 330.0, 247.0], [265.0, 330.0, 296.0], [314.0, 330.0, 456.0], [472.0, 330.0, 406.0]],
+          [[423.0, 0.0, 247.0], [423.0, 330.0, 247.0], [472.0, 330.0, 406.0], [472.0, 0.0, 406.0]],
+          [[472.0, 0.0, 406.0], [472.0, 330.0, 406.0], [314.0, 330.0, 456.0], [314.0, 0.0, 456.0]],
+          [[314.0, 0.0, 456.0], [314.0, 330.0, 456.0], [265.0, 330.0, 296.0], [265.0, 0.0, 296.0]],
+          [[265.0, 0.0, 296.0], [265.0, 330.0, 296.0], [423.0, 330.0, 247.0], [423.0, 0.0, 247.0]]
+        ]
+      }
+    ]
+  },
+  "engineParity": {
+    "rgbColorSpace": "linear-sRGB-D65",
+    "surfaceSpectrumToRgb": {
+      "observer": "CIE-1931-2-degree",
+      "observerApproximation": "Wyman-Sloan-Shirley 2013 piecewise Gaussian fit",
+      "integration": "1 nm trapezoidal integration over 400-700 nm after piecewise-linear spectrum interpolation",
+      "illuminant": "equal-energy",
+      "chromaticAdaptation": "Bradford from integrated equal-energy white to D65 XYZ [0.95047,1,1.08883]",
+      "gamutPolicy": "component clamp to [0,1]; no per-channel artistic adjustment"
+    },
+    "lightSpectrumToRgb": {
+      "observer": "same CIE approximation and integration",
+      "chromaticAdaptation": "none, preserving source chromaticity",
+      "normalization": "replace negative linear-sRGB components with zero, then divide by the maximum component before applying emissiveStrength"
+    },
+    "emissiveStrength": 18.4,
+    "emissiveStrengthPolicy": "Use the maximum of Cornell's four published emission samples as one global scene-linear scale. This is not a photo fit, per-channel adjustment, exposure compensation, or claim of SI calibration.",
+    "radianceUnit": "HEngine scene-linear radiance unit. The channel-separated PBRT parity scenes use the identical numeric channel radiance as achromatic rgb L. The RGB-authored PBRT scene is only a spectral proxy because PBRT v4 converts RGB inputs to spectra. No value is claimed to be W sr^-1 m^-2 because Cornell does not state an SI unit for the four source samples.",
+    "offlineRgbTruth": {
+      "transport": "three independent achromatic PBRT v4 renders, one for each linear-sRGB channel",
+      "spectralProxy": {
+        "sceneFile": "CornellBox_EngineParityRGB_SpectralProxy.pbrt",
+        "outputFile": "CornellBox_EngineParityRGB_SpectralProxy.exr",
+        "status": "RGB-authored spectral proxy only; PBRT v4 upsamples RGB inputs to spectra, so this is not strict channel-wise HEngine truth"
+      },
+      "channelScenes": {
+        "R": {
+          "sceneFile": "CornellBox_EngineParityRGB_R.pbrt",
+          "outputFile": "CornellBox_EngineParityRGB_R.exr",
+          "sourceChannelIndex": 0
+        },
+        "G": {
+          "sceneFile": "CornellBox_EngineParityRGB_G.pbrt",
+          "outputFile": "CornellBox_EngineParityRGB_G.exr",
+          "sourceChannelIndex": 1
+        },
+        "B": {
+          "sceneFile": "CornellBox_EngineParityRGB_B.pbrt",
+          "outputFile": "CornellBox_EngineParityRGB_B.exr",
+          "sourceChannelIndex": 2
+        }
+      },
+      "combineRule": "take R from the R achromatic render, G from the G achromatic render, and B from the B achromatic render after decoding each PFM to top-left row order",
+      "combinedPfm": "CornellBox_EngineParityRGB_Strict.pfm",
+      "orientationValidation": {
+        "redRenderRedWallToGreenWallMinimum": 1.5,
+        "greenRenderGreenWallToRedWallMinimum": 1.5,
+        "lightToNonEmissiveMinimum": 4.0
+      }
+    },
+    "emissiveTriangleSampling": {
+      "distributionWeight": "triangleAreaM2 * luminance(sceneLinearRadiance)",
+      "luminanceCoefficients": [0.2126, 0.7152, 0.0722],
+      "selectionPdf": "triangleWeight / sum(allEmissiveTriangleWeights)",
+      "surfacePdf": "selectionPdf / triangleAreaM2",
+      "twoSided": false
+    },
+    "exposure": {
+      "preTonemapScale": 1.0,
+      "evCompensation": 0.0,
+      "automaticExposure": false,
+      "toneMappingInReference": false
+    },
+    "bsdf": "ideal Lambertian diffuse",
+    "perChannelTuningAllowed": false
+  },
+  "generatedOutputs": {
+    "relativeDirectory": "Project/SourceAssets/CornellBox/Generated",
+    "imageWidth": 512,
+    "imageHeight": 512,
+    "expectedTriangleCount": 38,
+    "expectedVertexCount": 114,
+    "expectedBoundsM": {
+      "min": [0.0, 0.0, 0.0],
+      "max": [0.556, 0.5488, 0.5592]
+    },
+    "expectedLightAreaM2": 0.01365,
+    "pbrtReferenceSettings": {
+      "seed": 1,
+      "pixelSamples": 4096,
+      "engineMaxDiffuseBounces": 8,
+      "maxDepth": 9,
+      "lightSampler": "power",
+      "filter": "box",
+      "saveFp16": false,
+      "filmIso": 100.0,
+      "whiteBalanceKelvin": 0.0,
+      "spectrumEndpointPolicy": "hold the nearest official 400/700 nm sample through PBRT's 360-830 nm visible range; generated PBRT writes the 360 and 830 nm endpoints explicitly"
+    },
+    "maskEdgeRadiusPixels": 1,
+    "maskDepthEdgeAbsoluteM": 0.002,
+    "maskDepthEdgeRelative": 0.005,
+    "lightOcclusionOriginOffsetM": 0.00001,
+    "disocclusionValidation": {
+      "name": "short_block_negx50mm",
+      "movingSurfaceName": "short_block",
+      "translationM": [-0.05, 0.0, 0.0],
+      "allowedRevealedSurfaceNames": ["floor", "back_wall", "tall_block"],
+      "edgeExclusionRadiusPixels": 2,
+      "expectedRawPixelCount": 5899,
+      "expectedRawPixelBoundsTopLeftInclusiveExclusive": [247, 328, 380, 482],
+      "expectedPixelCount": 3492,
+      "expectedPixelBoundsTopLeftInclusiveExclusive": [250, 331, 296, 470],
+      "expectedRevealedSurfacePixelCounts": {
+        "floor": 1536,
+        "back_wall": 900,
+        "tall_block": 1056
+      },
+      "referenceSamples": 512,
+      "referenceMaxBounces": 8,
+      "postMoveCaptureFrames": 16,
+      "recoveryThreshold": 0.05,
+      "recoveryConsecutiveFrames": 3,
+      "maxRecoveryFrames": 8
+    },
+    "rois": [
+      {
+        "id": 1,
+        "name": "red_bleed_floor",
+        "normalizedRectTopLeft": [0.08, 0.70, 0.29, 0.91],
+        "allowedMaterialIds": [1],
+        "allowedSurfaceNames": ["floor"]
+      },
+      {
+        "id": 2,
+        "name": "green_bleed_floor",
+        "normalizedRectTopLeft": [0.71, 0.70, 0.92, 0.91],
+        "allowedMaterialIds": [1],
+        "allowedSurfaceNames": ["floor"]
+      },
+      {
+        "id": 3,
+        "name": "fully_occluded_floor_from_area_light",
+        "normalizedRectTopLeft": [0.30, 0.72, 0.70, 0.98],
+        "allowedMaterialIds": [1],
+        "allowedSurfaceNames": ["floor"],
+        "lightAreaVisibility": "fullyOccluded"
+      },
+      {
+        "id": 4,
+        "name": "stable_back_wall",
+        "normalizedRectTopLeft": [0.35, 0.18, 0.65, 0.34],
+        "allowedMaterialIds": [1],
+        "allowedSurfaceNames": ["back_wall"]
+      }
+    ]
+  }
+}

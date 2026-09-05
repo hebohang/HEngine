@@ -73,10 +73,19 @@
 	#define HE_DEBUGBREAK()
 #endif
 
+#ifndef WITH_EDITOR
+	#define HE_FINAL 1
+#else
+	#define HE_FINAL 0
+#endif
+
 #define HE_EXPAND_MACRO(x) x
 // https://gcc.gnu.org/onlinedocs/cpp/Stringizing.html
 #define HE_XSTRINGIFY_MACRO(x) HE_STRINGIFY_MACRO(x)
 #define HE_STRINGIFY_MACRO(x) #x
+
+#define HE_CONC(A, B) HE_CONC_(A, B)
+#define HE_CONC_(A, B) A##B
 
 #define BIT(x) (1 << x)
 
@@ -98,6 +107,19 @@ namespace HEngine
 	constexpr Ref<T> CreateRef(Args&& ... args)
 	{
 		return std::make_shared<T>(std::forward<Args>(args)...);
+	}
+	template<typename ToType, typename InType>
+	Ref<ToType> RefCast(Ref<InType> arg)
+	{
+		auto p = std::dynamic_pointer_cast<ToType>(arg);
+		if (p)
+		{
+			return p;
+		}
+		else
+		{
+			return nullptr;
+		}
 	}
 }
 

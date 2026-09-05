@@ -1,0 +1,39 @@
+struct StructuredMatrixRecord
+{
+    uint Flags;
+    float Age;
+    uint2 Packed;
+    float4x3 Transform;
+    float3 Direction;
+    uint Color;
+};
+
+RWStructuredBuffer<StructuredMatrixRecord> Records : register(u1);
+
+float TransformValue(uint index, uint row, uint column)
+{
+    return float((index + 1u) * (row + 2u) + column) * 0.125f;
+}
+
+[numthreads(1, 1, 1)]
+void main(uint3 dtid : SV_DispatchThreadID)
+{
+    uint index = dtid.x;
+
+    StructuredMatrixRecord record;
+    record.Flags = 0x12000000u + index * 17u;
+    record.Age = 0.5f + float(index) * 0.125f;
+    record.Packed = uint2(0x00100000u + index * 19u, 0x00020000u + index * 23u);
+    record.Transform[0] = float3(TransformValue(index, 0u, 0u), TransformValue(index, 0u, 1u), TransformValue(index, 0u, 2u));
+    record.Transform[1] = float3(TransformValue(index, 1u, 0u), TransformValue(index, 1u, 1u), TransformValue(index, 1u, 2u));
+    record.Transform[2] = float3(TransformValue(index, 2u, 0u), TransformValue(index, 2u, 1u), TransformValue(index, 2u, 2u));
+    record.Transform[3] = float3(-0.75f + float(index) * 0.03125f,
+                                 0.25f - float(index) * 0.015625f,
+                                 1.5f + float(index) * 0.0625f);
+    record.Direction = float3(0.25f + float(index) * 0.015625f,
+                              -0.5f + float(index) * 0.03125f,
+                              0.75f - float(index) * 0.0078125f);
+    record.Color = 0x80402010u + index * 29u;
+
+    Records[index] = record;
+}

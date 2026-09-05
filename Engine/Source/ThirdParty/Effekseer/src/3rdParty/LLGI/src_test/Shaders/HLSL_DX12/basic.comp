@@ -1,0 +1,22 @@
+struct CS_INPUT{
+    float value1;
+    float value2;
+};
+
+struct CS_OUTPUT{
+    float value;
+};
+
+cbuffer CB : register(b0)
+{
+  float offset;
+};
+
+RWStructuredBuffer<CS_INPUT> read : register(u0);
+RWStructuredBuffer<CS_OUTPUT> write : register(u1);
+
+[numthreads(1, 1, 1)]
+void main(uint3 dtid : SV_DispatchThreadID)
+{
+   write[dtid.x].value = read[dtid.x].value1 * read[dtid.x].value2 + offset;
+}

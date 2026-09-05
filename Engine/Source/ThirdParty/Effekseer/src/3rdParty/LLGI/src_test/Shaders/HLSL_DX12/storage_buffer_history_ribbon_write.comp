@@ -1,0 +1,71 @@
+struct HistoryRecord
+{
+    float3 Position;
+    uint ColorTag;
+    float3 Tangent;
+    uint Sequence;
+};
+
+struct RibbonRecord
+{
+    uint BaseIndex;
+    uint Count;
+    uint Head;
+    float Width;
+    uint ColorTag;
+    uint Reserved0;
+    uint Reserved1;
+    uint Reserved2;
+};
+
+RWStructuredBuffer<HistoryRecord> HistoryData : register(u0);
+RWStructuredBuffer<RibbonRecord> RibbonData : register(u1);
+
+[numthreads(1, 1, 1)]
+void main(uint3 dtid : SV_DispatchThreadID)
+{
+    uint id = dtid.x;
+
+    if (id < 8u)
+    {
+        uint local = id & 3u;
+        uint instance = id >> 2u;
+        HistoryRecord record;
+        record.Tangent = float3(0.0f, 1.0f, 0.0f);
+        record.ColorTag = instance;
+        record.Sequence = local;
+
+        if (instance == 0u)
+        {
+            float x = -0.15f;
+            if (local == 1u) { x = -0.75f; }
+            else if (local == 2u) { x = -0.55f; }
+            else if (local == 3u) { x = -0.35f; }
+            record.Position = float3(x, -0.28f, 0.0f);
+        }
+        else
+        {
+            float x = 0.55f;
+            if (local == 1u) { x = 0.75f; }
+            else if (local == 2u) { x = 0.15f; }
+            else if (local == 3u) { x = 0.35f; }
+            record.Position = float3(x, 0.26f, 0.0f);
+        }
+
+        HistoryData[id] = record;
+    }
+
+    if (id < 2u)
+    {
+        RibbonRecord record;
+        record.BaseIndex = id * 4u;
+        record.Count = 4u;
+        record.Head = id == 0u ? 1u : 2u;
+        record.Width = 0.055f;
+        record.ColorTag = id;
+        record.Reserved0 = 0u;
+        record.Reserved1 = 0u;
+        record.Reserved2 = 0u;
+        RibbonData[id] = record;
+    }
+}

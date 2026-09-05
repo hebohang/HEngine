@@ -1,8 +1,21 @@
 # Binaries
 **/bin/
+!Engine/Tools/Effekseer/bin/
+!Engine/Tools/Effekseer/bin/**
+Engine/Tools/Effekseer/bin/Effekseer.config.Dock.xml
+Engine/Tools/Effekseer/bin/Effekseer.imgui.ini
 bin-int/
 out/
 build/
+*.pdb
+*.ilk
+!Engine/Tools/Effekseer/bin/Effekseer.pdb
+!Engine/Tools/Effekseer/bin/EffekseerCore.pdb
+!Engine/Tools/Effekseer/bin/EffekseerCoreGUI.pdb
+
+# Imediate CMake files
+CMakeFiles/
+tmp/
 
 # HEngine files
 *.log
@@ -16,3 +29,36 @@ build/
 
 Engine/Source/Editor/*.dll
 Engine/Source/Editor/*.ini
+
+Engine/Config/EditorLayout.ini
+
+# Effekseer editor local state
+Engine/Tools/Effekseer/config.EffekseerMaterial.json
+Engine/Tools/Effekseer/config.network.xml
+Engine/Tools/Effekseer/config.option.xml
+Engine/Tools/Effekseer/config.recent.xml
+Engine/Tools/Effekseer/Effekseer.config.Dock.xml
+Engine/Tools/Effekseer/*.imgui.ini
+
+# Reflection generated
+ clangLog.txt
+Engine/Source/_generated/
+
+# Cache
+Engine/Shaders/Caches
+
+# Game
+/Game
+build_game
+/dist
+
+# Project
+Project/Config/EditorLayout.ini
+Project/Shaders/CACHES
+Project/Scripts/HEngine
+Project/Dist/
+Project/Saved/
+
+# Python
+*.pyc
+__pycache__

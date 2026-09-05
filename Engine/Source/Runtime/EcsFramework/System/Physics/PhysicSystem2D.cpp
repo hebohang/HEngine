@@ -1,14 +1,14 @@
-#include "hepch.h"
+#include "Hepch.h"
 
 #include "Runtime/EcsFramework/System/Physics/PhysicSystem2D.h"
 #include "Runtime/EcsFramework/Component/Transform/TransformComponent.h"
 #include "Runtime/EcsFramework/Component/Camera/CameraComponent.h"
-#include "Runtime/EcsFramework/Component/Physics/2D/BoxCollider2DComponent.h"
-#include "Runtime/EcsFramework/Component/Physics/2D/CircleCollider2DComponent.h"
-#include "Runtime/EcsFramework/Component/Physics/2D/Rigidbody2DComponent.h"
+#include "Runtime/EcsFramework/Component/Physics/TwoD/BoxCollider2DComponent.h"
+#include "Runtime/EcsFramework/Component/Physics/TwoD/CircleCollider2DComponent.h"
+#include "Runtime/EcsFramework/Component/Physics/TwoD/Rigidbody2DComponent.h"
 #include "Runtime/EcsFramework/Entity/Entity.h"
 #include "Runtime/Resource/ModeManager/ModeManager.h"
-#include "Runtime/Renderer/Renderer2D.h"
+#include "Runtime/Graphics/Renderer2D.h"
 
 #include <box2d/b2_world.h>
 #include <box2d/b2_body.h>
@@ -34,19 +34,23 @@ namespace HEngine
 
 	void PhysicSystem2D::OnRuntiemStart()
 	{
+		HE_PROFILE;
+
 		mPhysicsWorld = new b2World({ 0.0f, -9.8f });
 
 		auto view = mLevel->mRegistry.view<Rigidbody2DComponent>();
 		for (auto e : view)
 		{
 			Entity entity = { e, mLevel };
-			auto& transform = entity.GetComponent<TransformComponent>();
 			auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
+			const glm::vec3 worldTranslation = mLevel->GetWorldTranslation(entity);
+			const glm::vec3 worldRotation = mLevel->GetWorldRotation(entity);
+			const glm::vec3 worldScale = mLevel->GetWorldScale(entity);
 
 			b2BodyDef bodyDef;
 			bodyDef.type = Rigidbody2DTypeToBox2DBody(rb2d.Type);
-			bodyDef.position.Set(transform.Translation.x, transform.Translation.y);
-			bodyDef.angle = transform.Rotation.z;
+			bodyDef.position.Set(worldTranslation.x, worldTranslation.y);
+			bodyDef.angle = worldRotation.z;
 
 			b2Body* body = mPhysicsWorld->CreateBody(&bodyDef);
 			body->SetFixedRotation(rb2d.FixedRotation);
@@ -57,7 +61,7 @@ namespace HEngine
 				auto& bc2d = entity.GetComponent<BoxCollider2DComponent>();
 
 				b2PolygonShape boxShape;
-				boxShape.SetAsBox(bc2d.Size.x * transform.Scale.x, bc2d.Size.y * transform.Scale.y);
+				boxShape.SetAsBox(bc2d.Size.x * worldScale.x, bc2d.Size.y * worldScale.y);
 
 				b2FixtureDef fixtureDef;
 				fixtureDef.shape = &boxShape;
@@ -76,7 +80,7 @@ namespace HEngine
 				b2CircleShape circleShape;
 				circleShape.m_p.Set(cc2d.Offset.x, cc2d.Offset.y);
 				// default CircleCollider2DComponent.Radius == default CircleRendererComponent.Radius
-				circleShape.m_radius = cc2d.Radius * transform.Scale.x;
+				circleShape.m_radius = cc2d.Radius * worldScale.x;
 
 				b2FixtureDef fixtureDef;
 				fixtureDef.shape = &circleShape;
@@ -91,6 +95,8 @@ namespace HEngine
 
 	void PhysicSystem2D::OnUpdateRuntime(Timestep ts)
 	{
+		HE_PROFILE;
+
 		const int32_t velocityIterations = 6;
 		const int32_t positionIterations = 2;
 		mPhysicsWorld->Step(ts, velocityIterations, positionIterations);
@@ -100,32 +106,43 @@ namespace HEngine
 		for (auto e : view)
 		{
 			Entity entity = { e, mLevel };
-			auto componentsTuple = entity.GetComponents<TransformComponent, Rigidbody2DComponent>();
-			auto [transform, rb2d] = componentsTuple;
+			auto& rb2d = entity.GetComponent<Rigidbody2DComponent>();
 
-			b2Body* body = (b2Body*)(*rb2d).RuntimeBody;
+			b2Body* body = (b2Body*)rb2d.RuntimeBody;
 			const auto& position = body->GetPosition();
-			(*transform).Translation.x = position.x;
-			(*transform).Translation.y = position.y;
-			(*transform).Rotation.z = body->GetAngle();
+
+			glm::vec3 worldTranslation(0.0f);
+			glm::vec3 worldRotation(0.0f);
+			glm::vec3 worldScale(1.0f);
+			mLevel->GetWorldTransformComponents(entity, worldTranslation, worldRotation, worldScale);
+			worldTranslation.x = position.x;
+			worldTranslation.y = position.y;
+			worldRotation.z = body->GetAngle();
+			mLevel->SetWorldTransformComponents(entity, worldTranslation, worldRotation, worldScale);
 		}
 
 		if (ModeManager::bShowPhysicsColliders)
 		{
 			Entity camera = mLevel->GetPrimaryCameraEntity();
-			Renderer2D::BeginScene(camera.GetComponent<CameraComponent>().Camera, camera.GetComponent<TransformComponent>().GetTransform());
+			if (!camera)
+				return;
+			Renderer2D::BeginScene(camera.GetComponent<CameraComponent>().Camera, mLevel->GetWorldTransform(camera));
 
 			{
 				auto view = mLevel->GetAllEntitiesWith<TransformComponent, BoxCollider2DComponent>();
 				for (auto entity : view)
 				{
 					auto [tc, bc2d] = view.get<TransformComponent, BoxCollider2DComponent>(entity);
+					Entity boxEntity = { entity, mLevel };
+					const glm::vec3 worldTranslation = mLevel->GetWorldTranslation(boxEntity);
+					const glm::vec3 worldRotation = mLevel->GetWorldRotation(boxEntity);
+					const glm::vec3 worldScale = mLevel->GetWorldScale(boxEntity);
 
-					glm::vec3 translation = tc.Translation + glm::vec3(bc2d.Offset, 0.001f);
-					glm::vec3 scale = tc.Scale * glm::vec3(bc2d.Size * 2.0f, 1.0f);
+					glm::vec3 translation = worldTranslation + glm::vec3(bc2d.Offset, 0.001f);
+					glm::vec3 scale = worldScale * glm::vec3(bc2d.Size * 2.0f, 1.0f);
 
 					glm::mat4 transform = glm::translate(glm::mat4(1.0f), translation)
-						* glm::rotate(glm::mat4(1.0f), tc.Rotation.z, glm::vec3(0.0f, 0.0f, 1.0f))
+						* glm::rotate(glm::mat4(1.0f), worldRotation.z, glm::vec3(0.0f, 0.0f, 1.0f))
 						* glm::scale(glm::mat4(1.0f), scale);
 
 					//glm::mat4 transform = glm::translate(tc.GetTransform(), glm::vec3(0, 0, 0.01f));
@@ -139,9 +156,12 @@ namespace HEngine
 				for (auto entity : view)
 				{
 					auto [tc, cc2d] = view.get<TransformComponent, CircleCollider2DComponent>(entity);
+					Entity circleEntity = { entity, mLevel };
+					const glm::vec3 worldTranslation = mLevel->GetWorldTranslation(circleEntity);
+					const glm::vec3 worldScale = mLevel->GetWorldScale(circleEntity);
 
-					glm::vec3 translation = tc.Translation + glm::vec3(cc2d.Offset, 0.001f);
-					glm::vec3 scale = tc.Scale * glm::vec3(cc2d.Radius * 2.0f);
+					glm::vec3 translation = worldTranslation + glm::vec3(cc2d.Offset, 0.001f);
+					glm::vec3 scale = worldScale * glm::vec3(cc2d.Radius * 2.0f);
 
 					glm::mat4 transform = glm::translate(glm::mat4(1.0f), translation)
 						* glm::scale(glm::mat4(1.0f), scale);
@@ -158,10 +178,13 @@ namespace HEngine
 
 	void PhysicSystem2D::OnRuntimeStop()
 	{
+		HE_PROFILE;
+
 		delete mPhysicsWorld;
 		mPhysicsWorld = nullptr;
 	}
 
+#if WITH_EDITOR
 	void PhysicSystem2D::OnUpdateEditor(Timestep ts, EditorCamera& camera)
 	{
 		if (ModeManager::bShowPhysicsColliders)
@@ -173,12 +196,16 @@ namespace HEngine
 				for (auto entity : view)
 				{
 					auto [tc, bc2d] = view.get<TransformComponent, BoxCollider2DComponent>(entity);
+					Entity boxEntity = { entity, mLevel };
+					const glm::vec3 worldTranslation = mLevel->GetWorldTranslation(boxEntity);
+					const glm::vec3 worldRotation = mLevel->GetWorldRotation(boxEntity);
+					const glm::vec3 worldScale = mLevel->GetWorldScale(boxEntity);
 
-					glm::vec3 translation = tc.Translation + glm::vec3(bc2d.Offset, 0.001f);
-					glm::vec3 scale = tc.Scale * glm::vec3(bc2d.Size * 2.0f, 1.0f);
+					glm::vec3 translation = worldTranslation + glm::vec3(bc2d.Offset, 0.001f);
+					glm::vec3 scale = worldScale * glm::vec3(bc2d.Size * 2.0f, 1.0f);
 
 					glm::mat4 transform = glm::translate(glm::mat4(1.0f), translation)
-						* glm::rotate(glm::mat4(1.0f), tc.Rotation.z, glm::vec3(0.0f, 0.0f, 1.0f))
+						* glm::rotate(glm::mat4(1.0f), worldRotation.z, glm::vec3(0.0f, 0.0f, 1.0f))
 						* glm::scale(glm::mat4(1.0f), scale);
 
 					//glm::mat4 transform = glm::translate(tc.GetTransform(), glm::vec3(0, 0, 0.01f));
@@ -192,20 +219,24 @@ namespace HEngine
 				for (auto entity : view)
 				{
 					auto [tc, cc2d] = view.get<TransformComponent, CircleCollider2DComponent>(entity);
+					Entity circleEntity = { entity, mLevel };
+					const glm::vec3 worldTranslation = mLevel->GetWorldTranslation(circleEntity);
+					const glm::vec3 worldScale = mLevel->GetWorldScale(circleEntity);
 
-					glm::vec3 translation = tc.Translation + glm::vec3(cc2d.Offset, 0.001f);
-					glm::vec3 scale = tc.Scale * glm::vec3(cc2d.Radius * 2.0f);
+					glm::vec3 translation = worldTranslation + glm::vec3(cc2d.Offset, 0.001f);
+					glm::vec3 scale = worldScale * glm::vec3(cc2d.Radius * 2.0f);
 
 					glm::mat4 transform = glm::translate(glm::mat4(1.0f), translation)
 						* glm::scale(glm::mat4(1.0f), scale);
 
 					//glm::mat4 transform = glm::translate(tc.GetTransform(), glm::vec3(0, 0, 0.01f));
 
-					Renderer2D::DrawCircle(transform, glm::vec4(0, 1, 0, 1), 0.05f);
-				}
-			}
+									Renderer2D::DrawCircle(transform, glm::vec4(0, 1, 0, 1), 0.05f);
+								}
+							}
 
-			Renderer2D::EndScene();
-		}
-	}
-}
+								Renderer2D::EndScene();
+							}
+						}
+					#endif
+					}

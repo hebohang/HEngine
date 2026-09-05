@@ -1,0 +1,141 @@
+{
+  "SchemaVersion": 2,
+  "Type": "Custom",
+  "PassName": "IridescentLaser",
+  "ShaderPath": "Shaders/Materials/BuiltInShowcase/IridescentLaser.hlsl",
+  "VariantKeywords": [],
+  "Domain": "Surface",
+  "ShadingModel": "Lit",
+  "BlendMode": "Opaque",
+  "CullMode": "Back",
+  "DepthWrite": true,
+  "AlphaCutoff": 0.5,
+  "Parameters": {
+    "g_BaseColorFactor": {
+      "StableId": "iridescent.base_color",
+      "Type": "color",
+      "Value": [
+        0.75,
+        0.68,
+        0.72,
+        1
+      ]
+    },
+    "g_MetallicFactor": {
+      "StableId": "iridescent.metallic",
+      "Type": "float",
+      "Value": 0.25
+    },
+    "g_RoughnessFactor": {
+      "StableId": "iridescent.roughness",
+      "Type": "float",
+      "Value": 0.18
+    },
+    "g_IridescenceStrength": {
+      "StableId": "iridescent.strength",
+      "Type": "float",
+      "Value": 0.9
+    },
+    "g_IridescenceScale": {
+      "StableId": "iridescent.scale",
+      "Type": "float",
+      "Value": 2.2
+    },
+    "g_HueSpeed": {
+      "StableId": "iridescent.hue_speed",
+      "Type": "float",
+      "Value": 0.055
+    },
+    "g_LaserIntensity": {
+      "StableId": "laser.intensity",
+      "Type": "float",
+      "Value": 1.1
+    },
+    "g_LaserWidth": {
+      "StableId": "laser.width",
+      "Type": "float",
+      "Value": 0.12
+    },
+    "g_LaserSpeed": {
+      "StableId": "laser.speed",
+      "Type": "float",
+      "Value": -0.1
+    }
+  },
+  "Textures": {},
+  "OrphanedParameters": {},
+  "Properties": {
+    "name": "Iridescent Pearl",
+    "pbrMetallicRoughness": {
+      "baseColorFactor": [
+        0.75,
+        0.68,
+        0.72,
+        1
+      ],
+      "metallicFactor": 0.25,
+      "roughnessFactor": 0.18,
+      "baseColorTexture": {
+        "texCoord": 0,
+        "textureRes": {
+          "textureSourcePath": ""
+        }
+      },
+      "metallicRoughnessTexture": {
+        "texCoord": 0,
+        "textureRes": {
+          "textureSourcePath": ""
+        }
+      }
+    },
+    "normalTexture": {
+      "scale": 1,
+      "texCoord": 0,
+      "textureRes": {
+        "textureSourcePath": ""
+      }
+    },
+    "occlusionTexture": {
+      "strength": 1,
+      "texCoord": 0,
+      "textureRes": {
+        "textureSourcePath": ""
+      }
+    },
+    "emissiveTexture": {
+      "texCoord": 0,
+      "textureRes": {
+        "textureSourcePath": ""
+      }
+    },
+    "emissiveFactor": [
+      0.02,
+      0.02,
+      0.02
+    ],
+    "alphaMode": "OPAQUE",
+    "alphaCutoff": 0.5,
+    "doubleSided": false,
+    "bUseAlbedoMap": false,
+    "bUseNormalMap": false,
+    "bUseMetallicRoughnessMap": false,
+    "bUseAoMap": false,
+    "bUseEmissiveMap": false,
+    "ExposedProperties": {
+      "g_BaseColorFactor": [
+        0.75,
+        0.68,
+        0.72,
+        1
+      ],
+      "g_MetallicFactor": 0.25,
+      "g_RoughnessFactor": 0.18,
+      "g_IridescenceStrength": 0.9,
+      "g_IridescenceScale": 2.2,
+      "g_HueSpeed": 0.055,
+      "g_LaserIntensity": 1.1,
+      "g_LaserWidth": 0.12,
+      "g_LaserSpeed": -0.1
+    }
+  }
+}

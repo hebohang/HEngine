@@ -1,0 +1,27 @@
+{
+    "fea9d104-a65f-47b1-a21c-c730f111114a": {
+        "PythonScriptComponent": {
+            "Path": "Scripts.StubGen.Src.GenerateStubs.py"
+        },
+        "TagComponent": {
+            "Tag": "StubGenerator"
+        },
+        "TransformComponent": {
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Translation": [
+                0.0,
+                0.0,
+                0.0
+            ]
+        }
+    }
+}

@@ -1,0 +1,101 @@
+#version 430
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+struct SPIRV_Cross_Input
+{
+    uvec3 _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+};
+
+struct StructuredInput
+{
+    vec3 Position;
+    uint Reserved;
+    uint Normal;
+    uint Tangent;
+    uint UV;
+    uint Color;
+};
+
+struct OutputData
+{
+    vec3 Position;
+    uint Normal;
+    uint Tangent;
+    uint Color;
+    uint Padding0;
+    uint Padding1;
+};
+
+layout(binding = 1, std430) readonly buffer Input
+{
+    uint _data[];
+} Input_1;
+
+layout(binding = 0, std430) buffer Output
+{
+    uint _data[];
+} Output_1;
+
+uvec3 _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+
+void _main(uvec3 dtid)
+{
+    int byteAddrTemp = int(((dtid.x * 32u) + 0u) >> uint(2));
+    StructuredInput _RESERVED_IDENTIFIER_FIXUP_31;
+    _RESERVED_IDENTIFIER_FIXUP_31.Position = uintBitsToFloat(uvec3(Input_1._data[byteAddrTemp], Input_1._data[byteAddrTemp + 1], Input_1._data[byteAddrTemp + 2]));
+    _RESERVED_IDENTIFIER_FIXUP_31.Reserved = Input_1._data[int(((dtid.x * 32u) + 12u) >> uint(2))];
+    _RESERVED_IDENTIFIER_FIXUP_31.Normal = Input_1._data[int(((dtid.x * 32u) + 16u) >> uint(2))];
+    _RESERVED_IDENTIFIER_FIXUP_31.Tangent = Input_1._data[int(((dtid.x * 32u) + 20u) >> uint(2))];
+    _RESERVED_IDENTIFIER_FIXUP_31.UV = Input_1._data[int(((dtid.x * 32u) + 24u) >> uint(2))];
+    _RESERVED_IDENTIFIER_FIXUP_31.Color = Input_1._data[int(((dtid.x * 32u) + 28u) >> uint(2))];
+    StructuredInput _input;
+    _input.Position = _RESERVED_IDENTIFIER_FIXUP_31.Position;
+    _input.Reserved = _RESERVED_IDENTIFIER_FIXUP_31.Reserved;
+    _input.Normal = _RESERVED_IDENTIFIER_FIXUP_31.Normal;
+    _input.Tangent = _RESERVED_IDENTIFIER_FIXUP_31.Tangent;
+    _input.UV = _RESERVED_IDENTIFIER_FIXUP_31.UV;
+    _input.Color = _RESERVED_IDENTIFIER_FIXUP_31.Color;
+    OutputData _output;
+    _output.Position = _input.Position + vec3(1.0, 2.0, 3.0);
+    _output.Normal = _input.Normal;
+    _output.Tangent = _input.Tangent;
+    _output.Color = (_input.Color ^ _input.UV) ^ _input.Reserved;
+    _output.Padding0 = 0u;
+    _output.Padding1 = 0u;
+    int byteAddrTemp_1 = int(((dtid.x * 32u) + 0u) >> uint(2));
+    Output_1._data[byteAddrTemp_1] = floatBitsToUint(_output.Position).x;
+    Output_1._data[byteAddrTemp_1 + 1] = floatBitsToUint(_output.Position).y;
+    Output_1._data[byteAddrTemp_1 + 2] = floatBitsToUint(_output.Position).z;
+    int byteAddrTemp_2 = int(((dtid.x * 32u) + 12u) >> uint(2));
+    Output_1._data[byteAddrTemp_2] = _output.Normal;
+    int byteAddrTemp_3 = int(((dtid.x * 32u) + 16u) >> uint(2));
+    Output_1._data[byteAddrTemp_3] = _output.Tangent;
+    int byteAddrTemp_4 = int(((dtid.x * 32u) + 20u) >> uint(2));
+    Output_1._data[byteAddrTemp_4] = _output.Color;
+    int byteAddrTemp_5 = int(((dtid.x * 32u) + 24u) >> uint(2));
+    Output_1._data[byteAddrTemp_5] = _output.Padding0;
+    int byteAddrTemp_6 = int(((dtid.x * 32u) + 28u) >> uint(2));
+    Output_1._data[byteAddrTemp_6] = _output.Padding1;
+}
+
+void comp_main()
+{
+    uvec3 dtid = _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+    uvec3 param = dtid;
+    uvec3 param_1 = param;
+    _main(param_1);
+}
+
+void _main(SPIRV_Cross_Input stage_input)
+{
+    _RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID = stage_input._RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID;
+    comp_main();
+}
+
+void main()
+{
+    SPIRV_Cross_Input stage_input;
+    stage_input._RESERVED_IDENTIFIER_FIXUP_gl_GlobalInvocationID = gl_GlobalInvocationID;
+    SPIRV_Cross_Input param = stage_input;
+    _main(param);
+}

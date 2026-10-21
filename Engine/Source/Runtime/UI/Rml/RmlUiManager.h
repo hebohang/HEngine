@@ -5,6 +5,7 @@
 #include "Runtime/Graphics/Renderer/RuntimeUiRenderGraphPass.h"
 #include "Runtime/UI/Rml/RmlRenderBackend.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -61,6 +62,10 @@ namespace HEngine
             uint64_t completedSubmission,
             nvrhi::ITexture* backdropTexture = nullptr);
         void Render();
+        // Disposable authoring previews can omit gameplay UI for one frame.
+        // BeginFrame resets this flag; document ownership/visibility is untouched.
+        void SuppressRenderingForCurrentFrame() { mFrameRenderingSuppressed = true; }
+        [[nodiscard]] bool IsFrameRenderingSuppressed() const { return mFrameRenderingSuppressed; }
         void EndGpuFrame();
         void NotifyGpuFrameSubmitted(uint32_t frameSlot, uint64_t submission);
         void AbortGpuFrame(uint32_t frameSlot) noexcept;
@@ -68,7 +73,10 @@ namespace HEngine
         void SetViewportRect(float x, float y, float w, float h, float uiScale);
 
         bool LoadDocument(const std::string& uiAssetPath, const UUID& ownerScript, std::string* outDocumentId = nullptr);
-        bool ShowDocument(const std::string& documentId);
+        bool ShowDocument(const std::string& documentId, bool bFocus = true);
+        // Independent foreground UI survives active gameplay-document changes.
+        // HideDocument/UnloadDocument ends the overlay without hiding gameplay UI.
+        bool ShowOverlayDocument(const std::string& documentId);
         bool HideDocument(const std::string& documentId);
         bool ReloadDocument(const std::string& documentId);
         bool UnloadDocument(const std::string& documentId);
@@ -84,13 +92,17 @@ namespace HEngine
             std::function<void(const RmlUiNativeEvent&)> handler);
         bool SetElementClass(const std::string& documentId, const std::string& elementId, const std::string& className, bool bEnabled);
         bool FocusElement(const std::string& documentId, const std::string& elementId);
+        bool ScrollElementIntoView(const std::string& documentId, const std::string& elementId);
         bool ClickElement(const std::string& documentId, const std::string& elementId);
         bool GetElementClass(const std::string& documentId, const std::string& elementId, const std::string& className, bool& outEnabled) const;
         bool SetElementStyle(const std::string& documentId, const std::string& elementId, const std::string& name, const std::string& value);
+        [[nodiscard]] bool GetActiveElementRect(const std::string& elementId, std::array<float, 4>& rect) const;
         bool GetElementStyle(const std::string& documentId, const std::string& elementId, const std::string& name, std::string& outValue) const;
         bool SetCustomMouseCursor(const std::string& documentId, const std::string& assetPath, uint32_t hotspotX, uint32_t hotspotY);
         bool SetMouseCursorVisible(const std::string& documentId, bool bVisible);
         void SetUserScale(float scale);
+        // Embedded hosts grant native cursor ownership only while their viewport has input.
+        void SetMouseCursorEnabled(bool bEnabled);
 
         [[nodiscard]] bool IsInitialized() const { return mInitialized; }
         [[nodiscard]] bool IsGpuFrameActive() const { return mGpuFrameActive; }
@@ -99,7 +111,7 @@ namespace HEngine
         void SetRuntimeUiTransition(RuntimeUiTransitionParameters transition) noexcept;
         void ClearRuntimeUiTransition() noexcept;
         [[nodiscard]] RuntimeUiTransitionParameters GetRuntimeUiTransition() const noexcept;
-        [[nodiscard]] bool HasActiveDocument() const { return !mActiveDocumentId.empty(); }
+        [[nodiscard]] bool HasActiveDocument() const { return !mActiveDocumentId.empty() || !mOverlayDocumentId.empty(); }
         [[nodiscard]] bool IsMouseCursorVisibleRequested() const;
         [[nodiscard]] float GetUserScale() const { return mUserScale; }
 
@@ -150,7 +162,9 @@ namespace HEngine
         bool mInitialized = false;
         bool mRmlInitialized = false;
         bool mGpuFrameActive = false;
+        bool mFrameRenderingSuppressed = false;
         bool mCustomCursorApplied = false;
+        bool mMouseCursorEnabled = true;
         Window* mCursorWindow = nullptr;
         float mViewportX = 0.0f;
         float mViewportY = 0.0f;
@@ -163,6 +177,7 @@ namespace HEngine
         std::unordered_map<UUID, std::vector<std::string>> mOwnerToDocuments;
         std::unordered_set<std::string> mLoadedFontPaths;
         std::string mActiveDocumentId;
+        std::string mOverlayDocumentId;
 		RuntimeUiTransitionParameters mRuntimeUiTransition;
 		std::deque<DeferredMutation> mDeferredMutations;
 		std::size_t mDispatchDepth = 0;

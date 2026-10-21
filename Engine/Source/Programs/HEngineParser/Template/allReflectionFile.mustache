@@ -6,6 +6,7 @@
 #include "{{headfile_name}}"
 {{/include_headfiles}}
 
+#if !defined(HE_PYTHON_BINDINGS_ONLY)
 namespace HEngine::Reflection
 {
     void TypeMetaRegister::metaRegister()
@@ -15,3 +16,5 @@ namespace HEngine::Reflection
 {{/source_symbols}}
     }
 } // namespace HEngine::Reflection
+
+#endif

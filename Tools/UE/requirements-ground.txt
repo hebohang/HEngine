@@ -1,0 +1,2 @@
+# Offline static glTF receiver sampling only; not an HEngine runtime dependency.
+numpy>=1.24,<3

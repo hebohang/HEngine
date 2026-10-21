@@ -1,4 +1,5 @@
-RUNTIME_ADD_SOURCE(
-    Profile.h
-    JoltTracy.cpp
-)
+set(profileSources Profile.h)
+if(HE_ENABLE_PHYSICS_3D)
+    list(APPEND profileSources JoltTracy.cpp)
+endif()
+RUNTIME_ADD_SOURCE(${profileSources})

@@ -152,7 +152,7 @@ Effekseer::Backend::TextureRef CreateTexture(::Effekseer::Backend::GraphicsDevic
 	return g->CreateTexture((uint64_t)(&llgiinfo), [] {});
 }
 
-void BeginCommandList(Effekseer::RefPtr<EffekseerRenderer::CommandList> commandList, VkCommandBuffer nativeCommandList)
+void BeginCommandList(Effekseer::RefPtr<EffekseerRenderer::CommandList> commandList, VkCommandBuffer nativeCommandList, bool insideRenderPass)
 {
 	assert(commandList != nullptr);
 
@@ -162,14 +162,28 @@ void BeginCommandList(Effekseer::RefPtr<EffekseerRenderer::CommandList> commandL
 	context.commandBuffer = nativeCommandList;
 
 	static_cast<LLGI::CommandListVulkan*>(c->GetInternal())->BeginWithPlatform(&context);
+	if (insideRenderPass)
+		c->GetInternal()->BeginRenderPassWithPlatformPtr(nullptr);
+}
+
+void BeginExternalRenderPass(Effekseer::RefPtr<EffekseerRenderer::CommandList> commandList)
+{
+	auto c = static_cast<EffekseerRendererLLGI::CommandList*>(commandList.Get());
 	c->GetInternal()->BeginRenderPassWithPlatformPtr(nullptr);
+}
+
+void EndExternalRenderPass(Effekseer::RefPtr<EffekseerRenderer::CommandList> commandList)
+{
+	auto c = static_cast<EffekseerRendererLLGI::CommandList*>(commandList.Get());
+	if (c->GetInternal()->GetIsInRenderPass())
+		c->GetInternal()->EndRenderPassWithPlatformPtr();
 }
 
 void EndCommandList(Effekseer::RefPtr<EffekseerRenderer::CommandList> commandList)
 {
 	assert(commandList != nullptr);
 	auto c = static_cast<EffekseerRendererLLGI::CommandList*>(commandList.Get());
-	c->GetInternal()->EndRenderPassWithPlatformPtr();
+	EndExternalRenderPass(commandList);
 	c->GetInternal()->EndWithPlatform();
 }
 

@@ -319,7 +319,7 @@ namespace HEngine::Tests
                     !manager.Unregister("alpha") &&
                     manager.Size() == 1 &&
                     manager.EnumerateDescriptors()[0].Id == "beta",
-                "Plugin unregister was incomplete or reordered remaining plugins");
+                "Plugin unregister was incomplete or reordered survivors");
         }
 
         void TestMissingDependencyAndCycle()

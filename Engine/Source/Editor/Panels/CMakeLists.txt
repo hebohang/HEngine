@@ -1,4 +1,7 @@
 EDITOR_ADD_SOURCE(
+    PluginPanel.h PluginPanel.cpp
+    ScriptInspector.h ScriptInspector.cpp
+    SequenceInspector.h SequenceInspector.cpp
     BasePanel.h BasePanel.cpp
     SceneHierarchyPanel.h SceneHierarchyPanel.cpp
     ContentBrowserPanel.h ContentBrowserPanel.cpp

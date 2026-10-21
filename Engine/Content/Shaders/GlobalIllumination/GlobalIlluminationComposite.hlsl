@@ -51,7 +51,9 @@ float3 LoadCompositeColor(FullscreenVaryings input)
         sourceDimensions - 1u);
     const float4 sampleValue = g_GlobalIllumination.Load(
         int3(sourcePixel, 0));
-    const float3 color = g_CompositeConstants.ScalarInput != 0u
+    const float3 color = g_CompositeConstants.ScalarInput == 2u
+        ? sampleValue.aaa
+        : g_CompositeConstants.ScalarInput == 1u
         ? sampleValue.xxx
         : sampleValue.rgb;
     return color;

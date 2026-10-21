@@ -1,27 +1,49 @@
 #include "Hepch.h"
+#include "Runtime/Core/Plugins/PluginManager.h"
+
+namespace HEngine { void RegisterStaticPluginsForTests(PluginManager&); }
 
 #include "Runtime/Core/Log/Log.h"
+#include "Runtime/Core/Log/LogSession.h"
 #include "Runtime/Core/AppFramework/Application.h"
 #include "Runtime/Core/Meta/Reflection/ReflectionRegister.h"
 #include "Runtime/Core/Meta/Serializer/Serializer.h"
 #include "Runtime/Core/SimulationClock.h"
 #include "Runtime/Core/PresentationClock.h"
+#include "Runtime/AI/BehaviorTree/BTNode.h"
+#include "Runtime/AI/Nodes/BTMoveDirectlyToTarget.h"
+#include "Runtime/EcsFramework/Component/AI/BehaviorTreeComponent.h"
 #include "Runtime/EcsFramework/Component/Light/EnvironmentLightComponent.h"
+#include "Runtime/Graphics/Lighting/PhotometricUnits.h"
 #include "Runtime/EcsFramework/Component/Light/PointLightComponent.h"
+#include "Runtime/EcsFramework/System/AI/BehaviorTreeSystem.h"
+#include "Runtime/EcsFramework/Level/Level.h"
+#include "Runtime/EcsFramework/System/Movement/CharacterMovementSystem.h"
 #include "Runtime/Graphics/Mesh/MeshHitRange.h"
 #include "Runtime/Graphics/Mesh/MeshResourceValidator.h"
 #include "Runtime/Platform/PlatformProcess.h"
 #include "Runtime/Resource/AssetManager/AssetManager.h"
 #include "Runtime/UnitTest/AntiAliasingTests.h"
 #include "Runtime/UnitTest/AudioLifecycleTests.h"
+#include "Runtime/UnitTest/AsyncLoggingTests.h"
+#include "Runtime/UnitTest/StatisticsBufferTests.h"
+#include "Runtime/UnitTest/DelegateBufferTests.h"
+#include "Runtime/UnitTest/TaskSchedulerTests.h"
+#include "Runtime/UnitTest/TextureUploadStateTests.h"
 #include "Runtime/UnitTest/BindlessDescriptorManagerTests.h"
 #include "Runtime/UnitTest/ConfigManagerTests.h"
 #include "Runtime/UnitTest/CornellSceneSerializationTests.h"
 #include "Runtime/UnitTest/DevelopmentLaunchPathsTests.h"
+#include "Runtime/UnitTest/ProjectIdentityTests.h"
+#include "Runtime/UnitTest/GameDisplaySettingsTests.h"
 #include "Runtime/UnitTest/DevCommandTests.h"
 #include "Runtime/UnitTest/EffectTransformBatchTests.h"
 #include "Runtime/UnitTest/EffekseerRegressionManifestTests.h"
 #include "Runtime/UnitTest/EffekseerRuntimeLifecycleTests.h"
+#include "Runtime/UnitTest/AnimationPoseTests.h"
+#include "Runtime/UnitTest/SequenceTests.h"
+#include "Runtime/UnitTest/PrefabSubtreeTests.h"
+#include "Runtime/UnitTest/MaterialSamplingTests.h"
 #include "Runtime/UnitTest/GamepadInputTests.h"
 #include "Runtime/UnitTest/HardwareRayTracingTests.h"
 #if HE_WITH_OFFLINE_REFERENCE_RENDERER_TESTS
@@ -40,6 +62,7 @@
 #include "Runtime/UnitTest/RenderGraphResourcePoolTests.h"
 #include "Runtime/UnitTest/RenderGraphTests.h"
 #include "Runtime/UnitTest/RenderSettingsTests.h"
+#include "Runtime/UnitTest/DirectionalShadowTests.h"
 #include "Runtime/UnitTest/RenderRhiContractTests.h"
 #include "Runtime/UnitTest/RenderWorldSubmissionTests.h"
 #include "Runtime/UnitTest/ViewportRendererExtensionTests.h"
@@ -51,7 +74,23 @@
 #include "Runtime/UnitTest/RuntimeUiResourceTests.h"
 #include "Runtime/UnitTest/RmlUiPointerPayloadTests.h"
 #include "Runtime/UnitTest/SceneDocumentTests.h"
+#include "Runtime/UnitTest/SceneEditingTests.h"
+#include "Runtime/UnitTest/AgentEventLogTests.h"
+#include "Runtime/UnitTest/FileMailboxAgentTransportTests.h"
 #include "Runtime/UnitTest/SystemLifecycleTests.h"
+#include "Runtime/UnitTest/ScriptCoreTests.h"
+#include "Runtime/UnitTest/ScriptEcsTests.h"
+#if HE_WITH_PYTHON_TESTS
+#include "Plugins/PythonScript/Tests/PythonRuntimeTests.h"
+#endif
+#if HE_WITH_CSHARP_TESTS
+#include "Plugins/CSharpScript/Tests/CSharpRuntimeTests.h"
+#endif
+#include "Runtime/UnitTest/SurvivorEnemyBehaviorTests.h"
+#include "Runtime/UnitTest/SurvivorPickupBatchTests.h"
+#include "Runtime/UnitTest/SurvivorProjectContractTests.h"
+#include "Runtime/UnitTest/SurvivorSpatialIndexTests.h"
+#include "Runtime/UnitTest/SurvivorTargetingBatchTests.h"
 #include "Runtime/Utils/FileUtils/AtomicFile.h"
 #include "Runtime/Utils/JsonUtils/JsonUtils.h"
 #include "Runtime/Utils/PathUtils/PathUtils.h"
@@ -77,7 +116,13 @@
 
 namespace HEngine::Tests
 {
+    void InputActionsContract();
+    void NavigationGeometryContract();
+    void PhysicsScriptContactContract();
+    void PhysicsRayQueryContract();
+    void PhysicsScriptContact2DContract();
 	void ReflectedResourceSchemaCompatibilityContract();
+    void BuildFeatureContract();
 }
 
 namespace
@@ -130,7 +175,7 @@ namespace
 		{
 			static std::atomic_uint64_t sCounter = 0;
 			const auto timestamp = std::chrono::steady_clock::now().time_since_epoch().count();
-			mPath = std::filesystem::temp_directory_path() /
+			mPath = std::filesystem::canonical(std::filesystem::temp_directory_path()) /
 				("HEngineTests-" + std::to_string(timestamp) + "-" +
 				std::to_string(sCounter.fetch_add(1, std::memory_order_relaxed)));
 			std::filesystem::create_directories(mPath);
@@ -437,6 +482,46 @@ namespace
 		Require(!MeshResourceValidator::ValidateSchema(validResource),
 			"Serialized runtime mesh buffer data was accepted as schema input.");
 
+        // An authored LOD must survive generated serialization and retain its
+        // checked index accessor. Malformed extra streams must fail before
+        // MeshLoader or the GPU consumes them.
+        MeshRes lodResource = validResource;
+        const std::array<uint16_t, 6> additionalIndices{ 0, 1, 2, 0, 1, 2 };
+        auto& lodBuffer = lodResource.bufferVec[0];
+        const size_t lodOffset = lodBuffer.data.size() + 3 * sizeof(uint16_t);
+        const size_t oldSize = lodBuffer.data.size();
+        lodBuffer.data.resize(oldSize + sizeof(additionalIndices));
+        std::memcpy(lodBuffer.data.data() + oldSize, additionalIndices.data(), sizeof(additionalIndices));
+        lodBuffer.byteLength = static_cast<int>(lodBuffer.data.size());
+        lodResource.bufferViewVec[2].byteLength = 6 * sizeof(uint16_t);
+        lodResource.accessorVec[2].count = 6;
+        lodResource.bufferViewVec.push_back({ .name = "LOD1", .bufferIndex = 0,
+            .byteOffset = lodOffset, .byteLength = 3 * sizeof(uint16_t) });
+        lodResource.accessorVec.push_back({ .bufferViewIndex = 3, .name = "LOD1",
+            .componentType = HENGINE_COMPONENT_TYPE_UNSIGNED_SHORT, .count = 3, .type = "SCALAR" });
+        lodResource.primitives[0].lods.push_back(MeshLod{ .indices = 3, .objectSpaceError = 0.01f });
+        Require(static_cast<bool>(MeshResourceValidator::ValidateLoaded(lodResource)),
+            "A bounded authored LOD stream was rejected.");
+        MeshRes lodSchema = lodResource;
+        lodSchema.bufferVec[0].data.clear();
+        Json lodJson;
+        Serializer::Serialize(lodJson, lodSchema);
+        MeshRes lodRoundTrip;
+        Serializer::Deserialize(lodJson, lodRoundTrip);
+        Require(lodRoundTrip.primitives[0].lods.size() == 1 &&
+            lodRoundTrip.primitives[0].lods[0].indices == 3 &&
+            lodRoundTrip.primitives[0].lods[0].objectSpaceError == 0.01f &&
+            static_cast<bool>(MeshResourceValidator::ValidateSchema(lodRoundTrip)),
+            "Generated mesh serialization lost its authored LOD or error bound.");
+        lodSchema.primitives[0].lods[0].objectSpaceError = -1.0f;
+        Require(!MeshResourceValidator::ValidateSchema(lodSchema), "Negative LOD error was accepted.");
+        lodSchema = lodRoundTrip;
+        lodSchema.primitives[0].lods[0].indices = 2;
+        Require(!MeshResourceValidator::ValidateSchema(lodSchema), "Non-reducing LOD was accepted.");
+        const uint16_t invalidLodIndex = 3;
+        std::memcpy(lodResource.bufferVec[0].data.data() + lodOffset, &invalidLodIndex, sizeof(invalidLodIndex));
+        Require(!MeshResourceValidator::ValidateLoaded(lodResource), "Out-of-range LOD vertex was accepted.");
+
 		MeshRes invalidResource = schemaResource;
 		invalidResource.bufferVec[0].byteLength = -1;
 		Require(!MeshResourceValidator::ValidateSchema(invalidResource),
@@ -522,24 +607,46 @@ namespace
 	void PbrLightingReflection()
 	{
 		HEngine::PointLightComponent defaultPointLight;
-		Require(defaultPointLight.FalloffExponent == 2.0f,
-			"Point light must default to inverse-square attenuation.");
+		Require(defaultPointLight.IntensityUnits == 1,
+			"Point light must default to candela.");
 
 		HEngine::PointLightComponent sourcePointLight(
-			640.0f, glm::vec3(0.8f, 0.6f, 0.4f), 12.0f, 3.5f);
+			640.0f, glm::vec3(0.8f, 0.6f, 0.4f), 12.0f);
+		sourcePointLight.IntensityUnits = 2;
 		HEngine::Json pointLightJson;
 		HEngine::Serializer::Serialize(pointLightJson, sourcePointLight);
-		Require(pointLightJson.contains("FalloffExponent"),
-			"Point light attenuation exponent was not serialized.");
+		Require(pointLightJson.at("IntensityUnits") == 2 && !pointLightJson.contains("FalloffExponent"),
+			"Point light must serialize units without an attenuation exponent.");
 
 		HEngine::PointLightComponent roundTrippedPointLight;
 		HEngine::Serializer::Deserialize(pointLightJson, roundTrippedPointLight);
-		Require(roundTrippedPointLight.FalloffExponent == sourcePointLight.FalloffExponent,
-			"Point light attenuation exponent did not round-trip.");
+		Require(roundTrippedPointLight.IntensityUnits == sourcePointLight.IntensityUnits && roundTrippedPointLight.Intensity == 640.0f,
+			"Point light units and intensity did not round-trip.");
+		using namespace HEngine::Photometry;
+		Require(std::abs(ToCandela(4.0f * 3.141592653589793f, 2) - 1.0f) < 1e-5f,
+			"Isotropic lumen conversion must integrate over 4*pi steradians.");
+		Require(std::abs(ToCandela(625.0f, 0) - 1.0f) < 1e-6f,
+			"Dimensionless light scale must resolve to candela.");
+		Require(std::abs(ToCandela(3.141592653589793f, 2, 60.0f) - 1.0f) < 1e-5f,
+			"Spot lumen conversion must use the outer half-angle solid angle.");
+		Require(ToCandela(-1.0f, 1) == 0.0f && ToCandela(INFINITY, 1) == 0.0f && ToCandela(10.0f, 99) == 0.0f,
+			"Invalid intensity and units must not reach the renderer.");
+		Require(std::abs(ExposureMultiplier(14.0f) - 1.0f / 16384.0f) < 1e-9f &&
+			ExposureMultiplier(14.0f, 1.0f) == 2.0f * ExposureMultiplier(14.0f),
+			"EV100 and compensation must use reciprocal powers of two.");
 
 		HEngine::EnvironmentLightComponent environmentLight;
 		HEngine::Json environmentJson;
 		HEngine::Serializer::Serialize(environmentJson, environmentLight);
+		Require(environmentJson.at("ExposureEV100") == 14.0f && !environmentJson.contains("Exposure"),
+			"Environment must persist EV100 without a second exposure representation.");
+		environmentLight.ExposureEV100 = -2.0f;
+		environmentLight.ExposureCompensation = 1.5f;
+		HEngine::Serializer::Serialize(environmentJson, environmentLight);
+		HEngine::EnvironmentLightComponent restoredEnvironment;
+		HEngine::Serializer::Deserialize(environmentJson, restoredEnvironment);
+		Require(restoredEnvironment.ExposureEV100 == -2.0f && restoredEnvironment.ExposureCompensation == 1.5f,
+			"Signed physical exposure must survive serialization.");
 		Require(!environmentJson.contains("SkyBoxLod"),
 			"Environment serialization still exposes SkyBoxLod.");
 		Require(!environmentJson.contains("MaxReflectionLod"),
@@ -581,8 +688,115 @@ namespace
 
 	void FixedSimulationClock()
 	{
+        struct ProbeNode final : HEngine::BTNode
+        {
+            ProbeNode(int& count, double& elapsed) : mCount(count), mElapsed(elapsed) {}
+            HEngine::BTNodeStatus Tick(float dt, HEngine::Blackboard&, HEngine::Entity) override
+            {
+                ++mCount;
+                mElapsed += dt;
+                return HEngine::BTNodeStatus::Success;
+            }
+            int& mCount;
+            double& mElapsed;
+        };
+
+        for (const int presentationHz : {30, 60, 120})
+        {
+            HEngine::Level level;
+            auto entity = level.CreateEntity("BehaviorTreeFixedTickProbe");
+            auto& component = entity.AddComponent<HEngine::BehaviorTreeComponent>();
+            int ticks = 0;
+            double elapsed = 0.0;
+            component.tickInterval = 0.1f;
+            component.mRootNode = HEngine::CreateScope<ProbeNode>(ticks, elapsed);
+            auto mover = level.CreateEntity("BehaviorTreeFixedMover");
+            auto& moverTree = mover.AddComponent<HEngine::BehaviorTreeComponent>();
+            moverTree.mBlackboard.SetVec3("TargetPosition", glm::vec3(100.0f, 0.0f, 0.0f));
+            moverTree.mRootNode = HEngine::CreateScope<HEngine::BTMoveDirectlyToTarget>(0.1f);
+            HEngine::BehaviorTreeSystem system(&level);
+            HEngine::FixedSimulationStepper simulation;
+            for (int frame = 0; frame < presentationHz; ++frame)
+                for (uint32_t tick = simulation.Advance(1.0 / presentationHz);
+                    tick > 0; --tick)
+                    system.OnUpdateRuntime(HEngine::Timestep(
+                        simulation.GetTickSeconds()));
+            Require(ticks == 10 && std::abs(elapsed - 1.0) < 1e-5,
+                "Behavior-tree system did not deliver the fixed simulation cadence.");
+            Require(std::abs(level.GetWorldTranslation(mover).x - 3.0f) < 1e-4f,
+                "Behavior-tree movement changed with presentation rate.");
+        }
+
+        for (const int presentationHz : {30, 60, 120})
+        {
+            HEngine::FixedSimulationStepper simulation;
+            float behaviorRemainder = 0.0f;
+            int behaviorTicks = 0;
+            double behaviorTime = 0.0;
+            for (int frame = 0; frame < presentationHz; ++frame)
+                for (uint32_t tick = simulation.Advance(1.0 / presentationHz);
+                    tick > 0; --tick)
+                {
+                    const float delivered = HEngine::AdvanceBehaviorTreeTickCadence(
+                        behaviorRemainder, static_cast<float>(simulation.GetTickSeconds()), 0.1f);
+                    if (delivered > 0.0f)
+                    {
+                        ++behaviorTicks;
+                        behaviorTime += delivered;
+                    }
+                }
+            Require(behaviorTicks == 10 && std::abs(behaviorTime - 1.0) < 1e-5,
+                "Behavior-tree fixed cadence changed with presentation rate.");
+        }
+        float behaviorRemainder = 0.0f;
+        Require(HEngine::AdvanceBehaviorTreeTickCadence(
+            behaviorRemainder, 1.0f / 60.0f, 0.0f) > 0.0f,
+            "Per-tick behavior tree skipped a fixed simulation tick.");
+        Require(HEngine::AdvanceBehaviorTreeTickCadence(
+            behaviorRemainder, 0.0f, 0.1f) == 0.0f,
+            "Zero simulation time ticked behavior tree.");
+
+        HEngine::FixedActionLatch jump;
+        jump.Capture(false, true, false);
+        jump.Capture(false, false, false); // A 120 Hz display frame had no 60 Hz tick.
+        Require(jump.ConsumeTick() && !jump.ConsumeTick(),
+            "A short jump press was lost or repeated across fixed ticks.");
+        jump.Capture(true, true, false);
+        Require(jump.ConsumeTick() && jump.ConsumeTick(),
+            "A held jump did not span multiple fixed ticks.");
+        jump.Capture(false, false, true);
+        Require(!jump.ConsumeTick(), "Pause retained a pending jump press.");
+
+        for (const int presentationHz : {30, 60, 120})
+        {
+            HEngine::FixedSimulationStepper stepper;
+            uint32_t totalTicks = 0;
+            for (int frame = 0; frame < presentationHz; ++frame)
+                totalTicks += stepper.Advance(1.0 / presentationHz);
+            Require(totalTicks == 60, "Fixed tick count changed with presentation rate.");
+            Require(stepper.GetDroppedSeconds() == 0.0,
+                "Normal presentation cadence discarded simulation time.");
+        }
+        HEngine::FixedSimulationStepper stepper;
+        Require(stepper.Advance(0.2) == 4 && stepper.GetDroppedSeconds() > 0.13,
+            "Long frame failed to bound simulation catch-up.");
+        const auto ticksBeforePause = stepper.GetTickCount();
+        Require(stepper.Advance(1.0, true) == 0 &&
+            stepper.GetTickCount() == ticksBeforePause &&
+            stepper.GetInterpolationAlpha() == 0.0,
+            "Pause retained stale simulation debt.");
+        stepper.Reset();
+        Require(stepper.GetTickCount() == 0 && stepper.GetDroppedSeconds() == 0.0,
+            "Scene reset retained fixed-step history.");
+
 		auto& clock = HEngine::SimulationClock::GetInstance();
 		clock.Reset();
+        clock.RecordFixedTicks(2, 1.0 / 60.0, 0.01);
+        Require(clock.GetFixedTickCount() == 2 &&
+            std::abs(clock.GetFixedElapsedSeconds() - 1.0 / 30.0) < 0.000001 &&
+            std::abs(clock.GetDroppedSimulationSeconds() - 0.01) < 0.000001,
+            "Fixed simulation accounting disagrees with executed ticks.");
+        clock.Reset();
 		Require(clock.GetFrameNumber() == 0 && clock.GetCompletedFrameCount() == 0,
 			"A reset simulation clock must not expose a frame.");
 
@@ -898,12 +1112,23 @@ namespace
 		{ "DescriptorIndexAllocator", &HEngine::Tests::DescriptorIndexAllocatorContract },
 		{ "ConfigManagerDualRoot", &HEngine::Tests::ConfigManagerDualRootContract },
 		{ "DevelopmentLaunchPaths", &HEngine::Tests::DevelopmentLaunchPathsContract },
+		{ "ProjectIdentity", &HEngine::Tests::ProjectIdentityContract },
+        { "GameDisplaySettings", &HEngine::Tests::GameDisplaySettingsContract },
 		{ "CornellSceneSerialization", &HEngine::Tests::CornellSceneSerializationContract, true },
 		{ "DevCommandPlatform", &HEngine::Tests::DevCommandPlatformContract },
 		{ "EffectTransformBatch", &HEngine::Tests::EffectTransformBatchContract },
 		{ "EffekseerRegressionManifest", &HEngine::Tests::EffekseerRegressionManifestContract },
 		{ "EffekseerRuntimeLifecycle", &HEngine::Tests::EffekseerRuntimeLifecycleContract },
+        { "AnimationPoseContract", &HEngine::Tests::AnimationPoseContract },
+        { "SequencePlayback", &HEngine::Tests::SequencePlaybackContract },
+        { "PrefabSubtree", &HEngine::Tests::PrefabSubtreeContract },
+        { "MaterialSampling", &HEngine::Tests::MaterialSamplingContract },
 		{ "GamepadInputState", &HEngine::Tests::GamepadInputStateContract },
+        { "InputActions", &HEngine::Tests::InputActionsContract },
+        { "NavigationGeometry", &HEngine::Tests::NavigationGeometryContract },
+        { "PhysicsScriptContact", &HEngine::Tests::PhysicsScriptContactContract },
+        { "PhysicsRayQuery", &HEngine::Tests::PhysicsRayQueryContract },
+        { "PhysicsScriptContact2D", &HEngine::Tests::PhysicsScriptContact2DContract },
 		{ "HardwareRayTracing", &HEngine::Tests::HardwareRayTracingContract },
 #if HE_WITH_OFFLINE_REFERENCE_RENDERER_TESTS
 		{ "OfflineReferenceRendererSession", &HEngine::Tests::OfflineReferenceRendererSessionContract },
@@ -926,12 +1151,22 @@ namespace
 		{ "RenderGraph", &HEngine::Tests::RenderGraphContract },
 		{ "RenderGraphResourcePool", &HEngine::Tests::RenderGraphResourcePoolPureContract },
 		{ "RenderSettings", &HEngine::Tests::RenderSettingsContract },
+		{ "DirectionalShadowMath", &HEngine::Tests::DirectionalShadowMathContract },
 		{ "MaterialDescriptorPaging", &HEngine::Tests::MaterialDescriptorPagingContract },
 		{ "TextureAlphaDilation", &HEngine::Tests::TextureAlphaDilationContract },
+        { "EnvironmentSamplingProposal", &HEngine::Tests::EnvironmentSamplingProposalContract },
+        { "RenderingShaderMath", &HEngine::Tests::RenderingShaderMathContract },
+        { "DdsTextureData", &HEngine::Tests::DdsTextureDataContract },
+        { "TextureStreaming", &HEngine::Tests::TextureStreamingContract },
 		{ "PipelineCacheKeys", &HEngine::Tests::PipelineCacheKeyContract },
 		{ "ShaderCacheKey", &HEngine::Tests::ShaderCacheKeyContract },
 		{ "TextureReadbackPng", &HEngine::Tests::TextureReadbackPngContract },
+		{ "MainViewAabb", &HEngine::Tests::MainViewAabbContract },
+        { "SsgiReactiveBudget", &HEngine::Tests::SsgiReactiveBudgetContract },
 		{ "RenderWorldExtractorMeshPath", &HEngine::Tests::RenderWorldExtractorMeshPathContract },
+		{ "EditorCameraImportedOrientation", &HEngine::Tests::EditorCameraImportedOrientationContract },
+		{ "SceneCameraOrthographicDepth", &HEngine::Tests::SceneCameraOrthographicDepthContract },
+		{ "ImportedQuarterTurnTransform", &HEngine::Tests::ImportedQuarterTurnTransformContract },
 		{ "RenderWorldSubmission", &HEngine::Tests::RenderWorldSubmissionContract },
 		{ "ViewportRendererExtension", &HEngine::Tests::ViewportRendererExtensionContract },
 		{ "RuntimePrefabResource", &HEngine::Tests::RuntimePrefabResourceContract },
@@ -942,7 +1177,53 @@ namespace
 		{ "RuntimeUiResource", &HEngine::Tests::RuntimeUiResourceContract },
 		{ "RmlUiPointerPayload", &HEngine::Tests::RmlUiPointerPayloadContract },
 		{ "SceneDocumentIncremental", &HEngine::Tests::SceneDocumentContract, true },
+		{ "SceneEditing", &HEngine::Tests::SceneEditingContract, true },
+		{ "SceneEditingContainers", &HEngine::Tests::SceneEditingContainers, true },
+		{ "AsyncLogging", &HEngine::Tests::AsyncLogging, true },
+		{ "StatisticsBuffer", &HEngine::Tests::StatisticsBuffer, true },
+		{ "DelegateBuffer", &HEngine::Tests::DelegateBufferContract, true },
+        { "TaskScheduler", &HEngine::Tests::TaskSchedulerContract, true },
+        { "TextureUploadState", &HEngine::Tests::TextureUploadStateContract, true },
+		{ "AgentEventLogRing", &HEngine::Tests::AgentEventLogRingContract },
+		{ "FileMailboxAgentTransport", &HEngine::Tests::FileMailboxAgentTransportContract },
+		{ "BuildFeatures", &HEngine::Tests::BuildFeatureContract, true },
 		{ "SystemLifecycle", &HEngine::Tests::SystemLifecycleContract },
+		{ "ScriptCore", &HEngine::Tests::ScriptCoreContract },
+		{ "ScriptEcs", &HEngine::Tests::ScriptEcsContract, true },
+#if HE_WITH_PYTHON_TESTS
+		{ "PythonRuntime", &HEngine::Tests::PythonRuntimeContract },
+#endif
+#if HE_WITH_CSHARP_TESTS
+		{ "CSharpRuntime", &HEngine::Tests::CSharpRuntimeContract },
+#endif
+		{ "SurvivorCharacterStartState", &HEngine::Tests::SurvivorCharacterStartStateContract },
+		{ "SurvivorBalanceHarness", &HEngine::Tests::SurvivorBalanceHarnessContract },
+		{ "SurvivorChallengeComposition", &HEngine::Tests::SurvivorChallengeCompositionContract },
+		{ "SurvivorContentCatalog", &HEngine::Tests::SurvivorContentCatalogContract },
+		{ "SurvivorDomainPowers", &HEngine::Tests::SurvivorDomainPowersContract },
+		{ "SurvivorRuntimeAssetAuthority", &HEngine::Tests::SurvivorRuntimeAssetAuthorityContract },
+		{ "SurvivorEconomy", &HEngine::Tests::SurvivorEconomyContract },
+		{ "SurvivorEnemyBehaviors", &HEngine::Tests::SurvivorEnemyBehaviorsContract },
+		{ "SurvivorEvolutionResolver", &HEngine::Tests::SurvivorEvolutionResolverContract },
+		{ "SurvivorHubGamepadNavigation", &HEngine::Tests::SurvivorHubGamepadNavigationContract },
+		{ "SurvivorPickupBatch", &HEngine::Tests::SurvivorPickupBatchContract },
+		{ "SurvivorProgressionMigration", &HEngine::Tests::SurvivorProgressionMigrationContract },
+		{ "SurvivorProjectileBudget", &HEngine::Tests::SurvivorProjectileBudgetContract },
+		{ "SurvivorQuests", &HEngine::Tests::SurvivorQuestsContract },
+		{ "SurvivorRegionObjectives", &HEngine::Tests::SurvivorRegionObjectivesContract },
+		{ "SurvivorRegionSceneResources", &HEngine::Tests::SurvivorRegionSceneResourcesContract },
+		{ "SurvivorFixedUpdate", &HEngine::Tests::SurvivorFixedUpdateContract },
+		{ "SurvivorProjectileVisualWarmup", &HEngine::Tests::SurvivorProjectileVisualWarmupContract },
+		{ "SurvivorRunEndTransaction", &HEngine::Tests::SurvivorRunEndTransactionContract },
+		{ "SurvivorSpatialIndex", &HEngine::Tests::SurvivorSpatialIndexContract },
+		{ "SurvivorTargetingBatch", &HEngine::Tests::SurvivorTargetingBatchContract },
+        { "SurvivorTargetingBatchBenchmark", &HEngine::Tests::SurvivorTargetingBatchBenchmark },
+		{ "SurvivorObjectiveBoss", &HEngine::Tests::SurvivorObjectiveBossContract },
+		{ "SurvivorUnlocksAndPurchases", &HEngine::Tests::SurvivorUnlocksAndPurchasesContract },
+		{ "SurvivorUpgradePoolControl", &HEngine::Tests::SurvivorUpgradePoolControlContract },
+		{ "SurvivorWaveTimeline", &HEngine::Tests::SurvivorWaveTimelineContract },
+		{ "SurvivorWeaponLevelZero", &HEngine::Tests::SurvivorWeaponLevelZeroContract },
+		{ "SurvivorWeaponSlots", &HEngine::Tests::SurvivorWeaponSlotsContract },
 		{ "PbrLightingReflection", &PbrLightingReflection, true },
 		{ "EmbreeSubMeshPickResolve", &EmbreeSubMeshPickResolve },
 		{ "FixedSimulationClock", &FixedSimulationClock },
@@ -953,6 +1234,7 @@ namespace
 
 int main(int argc, char** argv)
 {
+	HEngine::LogSession logSession;
 	std::string_view activeTestName = "<startup>";
 	try
 	{
@@ -992,7 +1274,11 @@ int main(int argc, char** argv)
 		}
 
 		activeTestName = test->Name;
+		HEngine::PluginManager plugins({});
+		HEngine::RegisterStaticPluginsForTests(plugins);
+		plugins.StartThroughPhase(HEngine::PluginLoadPhase::PreDevice);
 		RunTest(*test);
+		plugins.StopAll();
 		HE_CORE_INFO("[Test] PASS name={0}", test->Name);
 		return EXIT_SUCCESS;
 	}

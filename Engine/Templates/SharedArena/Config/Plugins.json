@@ -1,0 +1,12 @@
+{
+  "he.script.csharp": {
+    "Editor": true,
+    "DevGame": true,
+    "Game": true,
+    "Tests": true
+  },
+  "he.importers": {
+    "Editor": true,
+    "Tools": true
+  }
+}

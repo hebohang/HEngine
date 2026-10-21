@@ -2,6 +2,7 @@
 #define HENGINE_PBR_BRDF_HLSLI
 
 #include "Include/Common.hlsli"
+#include "Shared/SurfaceLightingMath.hlsli"
 
 struct PbrSurfaceData
 {
@@ -34,11 +35,7 @@ float DistributionGGX(float NoH, float roughness)
 
 float VisibilitySmithGGXCorrelated(float NoV, float NoL, float roughness)
 {
-    const float alpha = max(roughness * roughness, 0.0016f);
-    const float alpha2 = alpha * alpha;
-    const float lambdaV = NoL * sqrt(max(NoV * NoV * (1.0f - alpha2) + alpha2, 1e-6f));
-    const float lambdaL = NoV * sqrt(max(NoL * NoL * (1.0f - alpha2) + alpha2, 1e-6f));
-    return 0.5f / max(lambdaV + lambdaL, 1e-6f);
+    return HE_VisibilitySmithGGXCorrelated(NoV, NoL, roughness);
 }
 
 float ComputeSpecularOcclusion(float NoV, float ao, float roughness)

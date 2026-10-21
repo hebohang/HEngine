@@ -2,6 +2,9 @@
 #include "Editor/EditorLayer.h"
 #include "Editor/Manager/IconManager.h"
 #include "Editor/ImGuiWrapper/ImGuiWrapper.h"
+#include "AssetToolsBuildConfig.h"
+#include "Runtime/Platform/PlatformPaths.h"
+#include "Runtime/Platform/PlatformProcess.h"
 #include "Runtime/Events/Event.h"
 #include "Runtime/Events/KeyEvent.h"
 #include "Runtime/Core/AppFramework/Application.h"
@@ -26,13 +29,16 @@
 #include <imgui-notify-v2/imgui_notify.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <array>
 #include <cctype>
 #include <cmath>
 #include <cstring>
+#include <cstdlib>
 #include <cwchar>
 #include <exception>
 #include <fstream>
+#include <future>
 #include <stdexcept>
 #include <string_view>
 #include <unordered_map>
@@ -191,6 +197,31 @@ namespace HEngine
 		mCurrentDirectory(ConfigManager::GetInstance().GetAssetsFolder()),
 		mSelectedDirectory(mCurrentDirectory)
 	{
+		// Allow bounded editor checks to exercise directory browsing and its
+		// asynchronous thumbnail jobs without synthetic desktop mouse input.
+		if (const char* directory = std::getenv("HE_EDITOR_CONTENT_DIRECTORY");
+			directory && Application::GetInstance().GetRunOptions().ExitAfterFrames > 0)
+		{
+			const auto candidate = ConfigManager::GetFullPath(directory);
+			std::error_code error;
+			if (std::filesystem::is_directory(candidate, error) && !error)
+			{
+				mCurrentDirectory = candidate;
+				mSelectedDirectory = candidate;
+				bFocusForDirectoryCheck = true;
+				Open();
+				HE_CORE_INFO("Editor content browser initial directory: {}", candidate.string());
+			}
+			else
+				throw std::runtime_error("Editor content browser directory does not exist: " + candidate.string());
+		}
+	}
+
+	void ContentBrowserPanel::OnImGuiRender()
+	{
+		if (bFocusForDirectoryCheck)
+			ImGui::SetNextWindowFocus();
+		BasePanel::OnImGuiRender();
 	}
 
 	void ContentBrowserPanel::OnEvent(Event& e)
@@ -208,6 +239,8 @@ namespace HEngine
 
 	void ContentBrowserPanel::OnImGuiRenderImpl()
 	{
+		if (Application::GetInstance().GetFrameNumber() > 30)
+			bFocusForDirectoryCheck = false;
 		HE_PROFILE;
 
 		ImGui::Columns(2);
@@ -999,9 +1032,8 @@ namespace HEngine
 
 				if (ImGui::BeginDragDropSource())
 				{
-					std::filesystem::path relativePathFs(relativePath);
-					const wchar_t* itemPath = relativePathFs.c_str();
-					ImGui::SetDragDropPayload("CONTENT_BROWSER_ITEM", itemPath, (wcslen(itemPath) + 1) * sizeof(wchar_t), ImGuiCond_Once);
+					const std::wstring itemPath = std::filesystem::path(relativePath).wstring();
+					ImGui::SetDragDropPayload("CONTENT_BROWSER_ITEM", itemPath.c_str(), (itemPath.size() + 1) * sizeof(wchar_t), ImGuiCond_Once);
 					ImGui::EndDragDropSource();
 				}
 
@@ -1011,6 +1043,10 @@ namespace HEngine
 					{
 						mCurrentDirectory = path;
 						mSelectedDirectory = mCurrentDirectory;
+					}
+					else if (extension == "he")
+					{
+						mParent->RequestOpenScene(path);
 					}
 					else if (extension == "hmat")
 					{
@@ -1050,8 +1086,12 @@ namespace HEngine
 							ConfigManager::GetEngineFullPath("Tools/Effekseer");
 						// The upstream launcher establishes the Tool working directory and waits
 						// for the concrete bin process, so layout-state persistence remains valid.
+#if defined(__APPLE__)
+                        const std::filesystem::path effekseerPath = effekseerToolRoot / "Effekseer.app";
+#else
 						const std::filesystem::path effekseerPath =
 							effekseerToolRoot / "Effekseer.exe";
+#endif
 						if (!std::filesystem::exists(effekseerPath))
 						{
 							HE_CORE_ERROR("[Effekseer] Editor tool not found: {0}", effekseerPath.string());
@@ -1084,6 +1124,7 @@ namespace HEngine
 								}
 								else
 								{
+#if !defined(__APPLE__)
 									const std::filesystem::path defaultLayoutDirectory =
 										effekseerToolRoot / "DefaultLayout";
 									// The launcher sets its own directory as the child process working directory.
@@ -1103,10 +1144,16 @@ namespace HEngine
 											cacheLayoutDirectory / "Effekseer.imgui.ini"
 										}
 									}};
+#endif
+#if defined(__APPLE__)
+                                    // The native application manages its own preferences.
+                                    if (!FileDialogs::OpenFileWithApplication(effekseerPath, previewEffectPath))
+#else
 									if (!FileDialogs::OpenFileWithApplicationAndStateCache(
 											effekseerPath,
 											previewEffectPath,
 											layoutFiles))
+#endif
 									{
 										HE_CORE_ERROR("[Effekseer] Failed to launch editor: {0}", effekseerPath.string());
 										ImGui::InsertNotification({ ImGuiToastType_Error, 6000,
@@ -1144,7 +1191,7 @@ namespace HEngine
 		mRenamePath = entry.path;
 		mRenameError.clear();
 		std::memset(renameBuffer, 0, sizeof(renameBuffer));
-		strcpy_s(renameBuffer, sizeof(renameBuffer), entry.filenameString.c_str());
+		std::snprintf(renameBuffer, sizeof(renameBuffer), "%s", entry.filenameString.c_str());
 		bRenamePopupRequested = true;
 		bRenameFocusRequested = true;
 	}
@@ -1208,6 +1255,8 @@ namespace HEngine
 
 	bool ContentBrowserPanel::CommitRename()
 	{
+        mRenameError = mParent->ValidateAssetMove();
+        if (!mRenameError.empty()) return false;
 		if (Utils::IsReadOnlyContentPath(mRenamePath))
 		{
 			mRenameError = EditorLayer::GetText("Engine content is read-only.");
@@ -1253,13 +1302,27 @@ namespace HEngine
 			return false;
 		}
 
-		std::filesystem::rename(mRenamePath, newPath, ec);
-		if (ec)
-		{
-			mRenameError = ec.message();
-			HE_CORE_ERROR("Failed to rename {} to {}: {}", mRenamePath.string(), newPath.string(), ec.message());
-			return false;
-		}
+        try
+        {
+            const auto root = ConfigManager::GetInstance().GetRootFolder();
+            const auto engine = ConfigManager::GetEngineFolder().parent_path();
+            const auto script = engine / "Tools/Content/RunAssetTool.ps1";
+            if (!std::filesystem::is_regular_file(script))
+                throw std::runtime_error("The engine installation is missing its asset tools.");
+            const auto utf8 = [](const std::filesystem::path& path) { const auto text = path.generic_u8string(); return std::string(text.begin(), text.end()); };
+            const std::vector<std::string> arguments = {"-NoProfile", "-ExecutionPolicy", "Bypass", "-File", utf8(script), "-Engine", utf8(engine),
+                "-Project", utf8(root), "-Source", utf8(mRenamePath.lexically_relative(root)), "-Target", utf8(newPath.lexically_relative(root))};
+            // Keep this authoring boundary synchronous. Panels cannot create
+            // unsaved edits while a separate worker updates on-disk references.
+            const auto result = std::async(std::launch::async, [arguments] {
+                return PlatformProcess::RunCaptured(PlatformPaths::GetPowerShellExecutable(), arguments, {}, 60);
+            }).get();
+            const auto response = Json::parse(result.Output, nullptr, false);
+            if (result.ExitCode != 0 || !response.is_object() || !response.value("ok", false))
+                throw std::runtime_error(response.is_object() ? response.value("error", Json(result.Output)).dump() : result.Output);
+            mParent->RefreshAfterAssetMove(mRenamePath, newPath);
+        }
+        catch (const std::exception& error) { mRenameError = error.what(); return false; }
 
 		InvalidateDirectoryCache();
 		CancelRename();

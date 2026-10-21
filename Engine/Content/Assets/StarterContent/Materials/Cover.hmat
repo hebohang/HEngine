@@ -1,0 +1,98 @@
+{
+  "Properties": {
+    "ExposedProperties": {
+      "g_AlbedoMap": "Assets/Textures/white.png",
+      "g_AoMap": "Assets/Textures/white.png",
+      "g_MetallicRoughnessMap": "Assets/Textures/white.png",
+      "g_NormalMap": "Assets/Textures/DefaultNormal.png"
+    },
+    "alphaCutoff": 0.5,
+    "alphaMode": "OPAQUE",
+    "bUseAlbedoMap": false,
+    "bUseAoMap": false,
+    "bUseEmissiveMap": false,
+    "bUseMetallicRoughnessMap": false,
+    "bUseNormalMap": false,
+    "doubleSided": false,
+    "emissiveFactor": [
+      0,
+      0,
+      0
+    ],
+    "emissiveTexture": {
+      "texCoord": 0,
+      "textureRes": {
+        "sampler": {
+          "magFilter": 9729,
+          "minFilter": 9729,
+          "wrapS": 33071,
+          "wrapT": 33071
+        },
+        "textureSourcePath": ""
+      }
+    },
+    "name": "Starter Cover",
+    "normalTexture": {
+      "scale": 1,
+      "texCoord": 0,
+      "textureRes": {
+        "sampler": {
+          "magFilter": 9729,
+          "minFilter": 9729,
+          "wrapS": 33071,
+          "wrapT": 33071
+        },
+        "textureSourcePath": ""
+      }
+    },
+    "occlusionTexture": {
+      "strength": 1,
+      "texCoord": 0,
+      "textureRes": {
+        "sampler": {
+          "magFilter": 9729,
+          "minFilter": 9729,
+          "wrapS": 33071,
+          "wrapT": 33071
+        },
+        "textureSourcePath": ""
+      }
+    },
+    "pbrMetallicRoughness": {
+      "baseColorFactor": [
+        0.85,
+        0.65,
+        0.25,
+        1
+      ],
+      "baseColorTexture": {
+        "texCoord": 0,
+        "textureRes": {
+          "sampler": {
+            "magFilter": 9729,
+            "minFilter": 9729,
+            "wrapS": 33071,
+            "wrapT": 33071
+          },
+          "textureSourcePath": ""
+        }
+      },
+      "metallicFactor": 0,
+      "metallicRoughnessTexture": {
+        "texCoord": 0,
+        "textureRes": {
+          "sampler": {
+            "magFilter": 9729,
+            "minFilter": 9729,
+            "wrapS": 33071,
+            "wrapT": 33071
+          },
+          "textureSourcePath": ""
+        }
+      },
+      "roughnessFactor": 0.8
+    }
+  },
+  "ShaderPath": "Shaders/BasePBR.hlsl",
+  "Type": "Default"
+}

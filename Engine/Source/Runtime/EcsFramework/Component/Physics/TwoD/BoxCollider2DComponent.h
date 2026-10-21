@@ -10,6 +10,8 @@ namespace HEngine
 	CLASS(BoxCollider2DComponent : public ComponentBase, Fields)
 	{
 		REFLECTION_COMPONENT_BODY(BoxCollider2DComponent);
+    public:
+        static constexpr BuildFeature RequiredBuildFeature = BuildFeature::Physics2D;
 	public:
 		glm::vec2 Offset = { 0.0f, 0.0f };
 		glm::vec2 Size = { 0.5f, 0.5f };
@@ -19,6 +21,7 @@ namespace HEngine
 		float Friction = 0.5f;
 		float Restitution = 0.0f;
 		float RestitutionThreshold = 0.5f;
+		bool IsTrigger = false;
 
 		// Storage for runtime
 		PROPERTY(Disable)

@@ -4,7 +4,11 @@
 
 #include <Effekseer.h>
 #include <algorithm>
+#include <atomic>
+#include <cstdio>
+#include <cstdlib>
 #include <functional>
+#include <stdexcept>
 #include <vector>
 
 #include "EffekseerRenderer.CommonUtils.h"
@@ -17,6 +21,23 @@
 //-----------------------------------------------------------------------------------
 namespace EffekseerRenderer
 {
+// Explicit early-smoke fault injection only. A shared inline-function static
+// keeps this one-shot across renderer template instantiations and reinitialization.
+#if defined(HE_EFFEKSEER_DEV_TEST_HOOKS) && HE_EFFEKSEER_DEV_TEST_HOOKS
+inline void EarlySmokeInjectUploadFailure()
+{
+	const auto enabled = [](const char* name) {
+		const char* value = std::getenv(name);
+		return value && value[0] == '1' && value[1] == '\0';
+	};
+	if (!enabled("HE_VFX_EARLY_SMOKE") || !enabled("HE_VFX_EARLY_SMOKE_INJECT_UPLOAD_FAILURE")) return;
+	static std::atomic<bool> consumed{false};
+	if (consumed.exchange(true)) return;
+	std::fprintf(stderr, "EARLY_VFX_UPLOAD_FAILURE_INJECTED: nonempty CPU batch uploaded; before draw\n");
+	std::fflush(stderr);
+	throw std::runtime_error("HE_VFX_EARLY_UPLOAD_FAILURE");
+}
+#endif
 //----------------------------------------------------------------------------------
 //
 //----------------------------------------------------------------------------------
@@ -418,9 +439,19 @@ public:
 		{
 			return;
 		}
+		// A failed renderer call must not replay a partly recorded batch when
+		// EndRendering is invoked again by the host's exception cleanup.
+		struct PendingBatchScope
+		{
+			decltype(renderInfos_)& Infos;
+			~PendingBatchScope() { Infos.clear(); }
+		} pendingBatch{renderInfos_};
 
 		std::shared_ptr<EffekseerRenderer::VertexBuffer>& internal_vertex_buffer = renderer_->GetImpl()->InternalVertexBuffer;
 		auto vertex_buffer = internal_vertex_buffer->Upload();
+#if defined(HE_EFFEKSEER_DEV_TEST_HOOKS) && HE_EFFEKSEER_DEV_TEST_HOOKS
+		EarlySmokeInjectUploadFailure();
+#endif
 
 		for (auto& info : renderInfos_)
 		{
@@ -464,7 +495,6 @@ public:
 			}
 		}
 
-		renderInfos_.clear();
 	}
 
 	void RenderingInternal(const Effekseer::SIMD::Mat44f& mCamera,

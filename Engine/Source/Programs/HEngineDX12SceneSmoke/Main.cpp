@@ -1,5 +1,12 @@
 #include "Runtime/Core/Log/Log.h"
 #include "Runtime/Core/Modules/ModuleManager.h"
+#include "Runtime/EcsFramework/Serializer/SceneSerializer.h"
+#include "Runtime/EcsFramework/Entity/Entity.h"
+#include "Runtime/EcsFramework/Level/Level.h"
+#include "Runtime/EcsFramework/System/Render/RenderSystem3D.h"
+#include "Runtime/EcsFramework/Component/Camera/CameraComponent.h"
+#include "Runtime/EcsFramework/Component/Transform/TransformComponent.h"
+#include "Runtime/EcsFramework/System/Render/RenderWorldExtractor.h"
 #include "Runtime/Core/Window/Window.h"
 #include "Runtime/Graphics/Material/Material.h"
 #include "Runtime/Graphics/Material/MaterialShaderManifest.h"
@@ -18,7 +25,9 @@
 #include "Runtime/Graphics/RenderGraph/RenderGraph.h"
 #include "Runtime/Graphics/RenderGraph/RenderGraphResourcePool.h"
 #include "Runtime/Graphics/Renderer/SceneRenderer.h"
+#include "Runtime/Graphics/Renderer2D.h"
 #include "Runtime/Graphics/VFX/EffekseerRuntime.h"
+#include "Runtime/Graphics/VFX/EffekseerRenderGraphPass.h"
 #include "Runtime/Resource/ConfigManager/ConfigManager.h"
 
 #include <HEngine/ProjectBuildConfig.h>
@@ -35,6 +44,7 @@
 #include <exception>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -58,6 +68,186 @@ namespace
     constexpr uint32_t c_ResizedWidth = 800;
     constexpr uint32_t c_ResizedHeight = 450;
     constexpr uint32_t c_FramesPerSize = 6;
+
+    // Independent raster fixture: no user scene or offline renderer dependency.
+    void RunMaterialDepthShadowSmoke(HEngine::RenderDevice& device)
+    {
+        constexpr uint32_t size = 256;
+        const std::string runName = std::string(HEngine::ToString(device.GetBackend())) + "-" +
+            std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+        const auto directory = std::filesystem::path(HE_DEFAULT_PROJECT_DIR).parent_path() /
+            "out/agent/captures/material-depth-shadow" / runName;
+        std::filesystem::create_directories(directory);
+        const std::string texturePath = "Saved/RenderingTests/MaterialDepthShadow/" + runName + "/alpha.tga";
+        const auto textureFullPath = HEngine::ConfigManager::GetProjectFullPath(texturePath);
+        std::filesystem::create_directories(std::filesystem::path(textureFullPath).parent_path());
+        {
+            std::ofstream stream(textureFullPath, std::ios::binary);
+            std::array<uint8_t, 18> header{};
+            header[2] = 2; header[12] = 2; header[14] = 2; header[16] = 32; header[17] = 0x28;
+            stream.write(reinterpret_cast<const char*>(header.data()), header.size());
+            // Both rows identical: left opaque, right transparent; no origin ambiguity.
+            for (uint8_t alpha : {uint8_t(255), uint8_t(0), uint8_t(255), uint8_t(0)})
+            {
+                const std::array<uint8_t, 4> pixel{255,255,255,alpha};
+                stream.write(reinterpret_cast<const char*>(pixel.data()), pixel.size());
+            }
+            if (!stream) throw std::runtime_error("Depth/shadow alpha texture write failed");
+        }
+        HEngine::RenderWorld world;
+        world.Camera.Position = {0,0,3};
+        world.Camera.NearPlane = .1f; world.Camera.FarPlane = 6.f;
+        world.Camera.View = glm::lookAt(world.Camera.Position, glm::vec3(0), glm::vec3(0,1,0));
+        world.Camera.Projection = glm::perspective(glm::radians(45.f), 1.f, .1f, 6.f);
+        world.Camera.ViewProjection = world.Camera.Projection * world.Camera.View;
+        world.Camera.NonJitteredViewProjection = world.Camera.PreviousViewProjection =
+            world.Camera.PreviousNonJitteredViewProjection = world.Camera.ViewProjection;
+        world.DirectionalLights.push_back({.Direction = {0,0,-1}, .Intensity = 1,
+            .Color = {1,1,1}, .bCastShadows = true, .CascadeCount = 1,
+            .ShadowMapSize = size, .ShadowDistance = 6});
+        HEngine::RenderObject object;
+        object.EntityId = 1; object.MeshAssetPath = "EngineOwnedMaterialDepthShadowQuad";
+        auto materialResource = HEngine::CreateRef<HEngine::Material>();
+        object.Sections.push_back({.MaterialResource = materialResource,
+            .MaterialInstance = materialResource->BuildRenderSnapshot(),
+            .Path = HEngine::RenderPath::CpuOpaque,
+            .AlphaMode = HEngine::RenderMaterialAlphaMode::Mask, .AlphaCutoff = .5f, .bDoubleSided = true});
+        world.Objects.push_back(std::move(object));
+        auto& section = world.Objects[0].Sections[0];
+        auto& material = section.MaterialInstance;
+        material.AlphaMode = HEngine::RenderMaterialAlphaMode::Mask;
+        material.AlphaCutoff = .5f; material.bDoubleSided = true; material.BaseColor = glm::vec4(1);
+        material.LegacyTextures[0] = {.AssetPath = texturePath, .bEnabled = true};
+        auto& sampling = material.LegacyTextures[0].Sampling;
+        sampling.magFilter = sampling.minFilter = 9728;
+        sampling.wrapS = sampling.wrapT = 33071;
+        const char* shaderFormat = device.GetBackend() == HEngine::RenderBackend::Vulkan ? "SPIRV" : "DXIL";
+        HEngine::SceneRenderer renderer({.Device = device.GetDevice(), .FramesInFlight = device.GetCapabilities().FramesInFlight,
+            .ShaderCacheDirectory = HEngine::ConfigManager::GetEngineGeneratedContentFullPath(std::string("Shaders/CACHES/") + shaderFormat),
+            .AssetRootDirectory = HEngine::ConfigManager::GetInstance().GetRootFolder(),
+            .EngineAssetRootDirectory = HEngine::ConfigManager::GetInstance().GetEngineContentFolder(),
+            .Backend = device.GetBackend(), .Capabilities = device.GetCapabilities(), .bShadowsEnabled = true});
+        renderer.ConfigureOffscreenOutput(size, size, "Engine material depth/shadow fixture");
+        HEngine::TextureReadbackQueue readback(device.GetDevice());
+        std::cout << "MATERIAL_DEPTH_SHADOW_OUTPUT: " << directory.string() << std::endl;
+        const auto capture = [&](HEngine::FrameCaptureSource source, const char* name, float vertexAlpha)
+        {
+            std::vector<HEngine::StaticVertex> vertices;
+            for (glm::vec3 position : {glm::vec3(-.9f,-.9f,0), glm::vec3(.9f,-.9f,0),
+                                      glm::vec3(.9f,.9f,0), glm::vec3(-.9f,.9f,0)})
+            {
+                HEngine::StaticVertex vertex(position, {0,0,1}, {.25f,.25f}, {1,0,0}, {0,1,0});
+                vertex.TexCoord1 = {.75f,.25f}; vertex.Color = {1,1,1,vertexAlpha};
+                vertices.push_back(vertex);
+            }
+            section.SubMeshResource = HEngine::CreateRef<HEngine::SubMesh>(vertices, std::vector<uint32_t>{0,1,2,0,2,3});
+            ++world.SceneGeneration; ++world.FrameNumber; ++material.Revision;
+            const auto path = directory / (std::string(HEngine::FrameCaptureSourceName(source)) + "-" + name + ".raw");
+            HEngine::TextureReadbackHandle handle;
+            auto& frame = device.BeginFrame();
+            try
+            {
+                HEngine::EffekseerRuntime::BeginHostFrame(frame.FrameIndex, frame.CompletedSubmissionInstance, frame.GraphicsCommandList);
+                renderer.RecordFrame(world, {.CommandList = frame.GraphicsCommandList, .Width = size, .Height = size,
+                    .FrameSlot = frame.FrameIndex, .CompletedSubmission = frame.CompletedSubmissionInstance,
+                    .OutputMode = HEngine::SceneRendererOutputMode::OffscreenOnly,
+                    .LinearHdrCaptureRecorder = [&](const HEngine::SceneRendererLinearHdrCaptureContext& context)
+                    {
+                        if (!context.SelectedNativeInput) throw HEngine::CaptureSourceUnavailable(source);
+                        const auto& desc = context.SelectedNativeInput->getDesc();
+                        if (desc.format != nvrhi::Format::D32 || desc.width != size || desc.height != size || desc.arraySize != 1)
+                            throw std::runtime_error("Depth/shadow fixture requires a real 256x256 single-slice D32 attachment");
+                        handle = readback.Record(context.CommandList, context.SelectedNativeInput,
+                            {.OutputPath = path, .SourceSlice = nvrhi::TextureSlice().setArraySlice(0),
+                             .OutputFormat = HEngine::TextureReadbackOutputFormat::Raw});
+                    }, .CaptureSource = source});
+                if (world.Objects[0].bVisible)
+                {
+                    const auto& stats = renderer.GetStats();
+                    if (stats.DepthPrepassAlphaMaskDrawCount != 1 || stats.DirectionalShadowDrawCount != 1 ||
+                        stats.DirectionalShadowCascadeCount != 1)
+                        throw std::runtime_error("Depth/shadow fixture did not execute exactly one masked prepass and one shadow caster");
+                }
+                device.SubmitAndPresent(frame, false);
+                HEngine::EffekseerRuntime::NotifyHostFrameSubmitted(frame.FrameIndex, frame.SubmissionInstance);
+                renderer.NotifyFrameSubmitted(frame.FrameIndex, frame.SubmissionInstance);
+                if (!handle) throw std::runtime_error("Depth/shadow capture callback did not record readback");
+                readback.NotifySubmitted(handle, frame.SubmissionInstance);
+            }
+            catch (...)
+            {
+                if (frame.bSubmissionIssued)
+                {
+                    HEngine::EffekseerRuntime::NotifyHostFrameSubmitted(frame.FrameIndex, frame.SubmissionInstance);
+                    renderer.NotifyFrameSubmitted(frame.FrameIndex, frame.SubmissionInstance);
+                    if (handle && readback.GetResult(handle).Status == HEngine::TextureReadbackStatus::PendingSubmission)
+                        readback.NotifySubmitted(handle, frame.SubmissionInstance);
+                    device.WaitForIdle();
+                }
+                else
+                {
+                    device.AbortFrame(frame); HEngine::EffekseerRuntime::AbortHostFrame(frame.FrameIndex);
+                    renderer.AbortFrame(frame.FrameIndex);
+                    if (handle) readback.CancelPending(handle);
+                }
+                throw;
+            }
+            device.WaitForIdle();
+            const auto started = std::chrono::steady_clock::now();
+            while (true)
+            {
+                // WaitForIdle proves this actual submitted frame completed.
+                readback.Collect(frame.SubmissionInstance);
+                const auto result = readback.GetResult(handle);
+                if (result.Status == HEngine::TextureReadbackStatus::Failed) throw std::runtime_error(result.Error);
+                if (result.Status == HEngine::TextureReadbackStatus::Complete) break;
+                if (std::chrono::steady_clock::now() - started > std::chrono::seconds(10))
+                    throw std::runtime_error("Depth/shadow readback writer timeout");
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            readback.Release(handle);
+            if (std::filesystem::file_size(path) != size * size * sizeof(float))
+                throw std::runtime_error("Depth/shadow raw readback byte count mismatch");
+            std::vector<float> pixels(size * size);
+            std::ifstream stream(path, std::ios::binary);
+            stream.read(reinterpret_cast<char*>(pixels.data()), pixels.size() * sizeof(float));
+            if (!stream || !std::all_of(pixels.begin(), pixels.end(), [](float v){return std::isfinite(v) && v >= 0 && v <= 1;}))
+                throw std::runtime_error("Depth/shadow raw readback contains invalid depth");
+            return pixels;
+        };
+        for (auto source : {HEngine::FrameCaptureSource::Depth, HEngine::FrameCaptureSource::DirectionalShadow})
+        {
+            sampling.texCoord = 0; sampling.scale = {1,1}; sampling.rotation = 0; sampling.offset = {0,0};
+            world.Objects[0].bVisible = false;
+            const auto empty = capture(source, "empty", 1);
+            world.Objects[0].bVisible = true;
+            const auto hit = capture(source, "uv0-hit", 1);
+            size_t covered = 0;
+            for (size_t i = 0; i < hit.size(); ++i) if (std::abs(hit[i] - empty[i]) > 1e-5f) ++covered;
+            if (covered < 128) throw std::runtime_error("Depth/shadow opaque control has insufficient actual caster coverage");
+            const auto compare = [&](const std::vector<float>& pixels, const std::vector<float>& expected, const char* name)
+            {
+                float error = 0;
+                for (size_t i = 0; i < pixels.size(); ++i) error = std::max(error, std::abs(pixels[i] - expected[i]));
+                if (error > 1e-6f) throw std::runtime_error(std::string("Depth/shadow sampling mismatch: ") + name + " error=" + std::to_string(error));
+                std::cout << "MATERIAL_DEPTH_SHADOW_CHECK_PASS: source=" << HEngine::FrameCaptureSourceName(source)
+                    << " case=" << name << " slice=0 covered=" << covered << " maxError=" << error << " tolerance=1e-6\n";
+            };
+            sampling.texCoord = 1;
+            compare(capture(source, "uv1-hole", 1), empty, "uv1-hole");
+            // (0.75,0.25) -> scale(2,1) -> rotate(pi/2) -> offset(0.5,-1.25) -> (0.25,0.25).
+            sampling.scale = {2,1}; sampling.rotation = glm::radians(90.f); sampling.offset = {.5f,-1.25f};
+            compare(capture(source, "uv1-transform-hit", 1), hit, "uv1-transform-hit");
+            compare(capture(source, "vertex-alpha-hole", .25f), empty, "vertex-alpha-hole");
+            compare(capture(source, "vertex-alpha-hit", .75f), hit, "vertex-alpha-hit");
+            material.BaseColor.a = .25f;
+            compare(capture(source, "factor-alpha-hole", 1), empty, "factor-alpha-hole");
+            material.BaseColor.a = 1;
+        }
+        std::cout << "MATERIAL_DEPTH_SHADOW_SMOKE_PASS: actual D32 main-depth and directional-shadow slice0; "
+                     "UV1/scale/rotation/offset/texture-alpha/vertex-alpha/factor-alpha; "
+                     "NOT_VERIFIED=skinning,gpu-driven,multiple-cascades,RT\n";
+    }
 
     [[nodiscard]] HEngine::RenderWorld BuildSyntheticWorld()
     {
@@ -428,6 +618,7 @@ namespace
             HEngine::SwapChain& swapChain = renderDevice.GetSwapChain();
             try
             {
+                HEngine::EffekseerRuntime::BeginHostFrame(frame.FrameIndex, frame.CompletedSubmissionInstance, frame.GraphicsCommandList);
                 bool bSceneOverlayRecorded = false;
                 bool bWindowOverlayRecorded = false;
                 bool bCaptureRecorded = false;
@@ -513,6 +704,7 @@ namespace
                         "Scene graph did not execute scene UI, window UI, and capture callbacks");
                 }
                 renderDevice.SubmitAndPresent(frame, false);
+                HEngine::EffekseerRuntime::NotifyHostFrameSubmitted(frame.FrameIndex, frame.SubmissionInstance);
                 if (readbackQueue && captureHandle && *captureHandle &&
                     readbackQueue->GetResult(*captureHandle).Status ==
                         HEngine::TextureReadbackStatus::PendingSubmission)
@@ -527,6 +719,7 @@ namespace
             {
                 if (frame.bSubmissionIssued)
                 {
+                    HEngine::EffekseerRuntime::NotifyHostFrameSubmitted(frame.FrameIndex, frame.SubmissionInstance);
                     sceneRenderer.NotifyFrameSubmitted(
                         frame.FrameIndex,
                         frame.SubmissionInstance);
@@ -534,6 +727,7 @@ namespace
                 else
                 {
                     renderDevice.AbortFrame(frame);
+                    HEngine::EffekseerRuntime::AbortHostFrame(frame.FrameIndex);
                     sceneRenderer.AbortFrame(frame.FrameIndex);
                 }
                 throw;
@@ -565,6 +759,7 @@ namespace
                 frameIndex + 1u == frameCount;
             try
             {
+                HEngine::EffekseerRuntime::BeginHostFrame(frame.FrameIndex, frame.CompletedSubmissionInstance, frame.GraphicsCommandList);
                 sceneRenderer.RecordFrame(
                     world,
                     HEngine::SceneRendererFrameDesc{
@@ -614,6 +809,7 @@ namespace
                             : HEngine::SceneRendererLinearHdrCaptureRecorder{},
                     });
                 renderDevice.SubmitAndPresent(frame, false);
+                HEngine::EffekseerRuntime::NotifyHostFrameSubmitted(frame.FrameIndex, frame.SubmissionInstance);
                 sceneRenderer.NotifyFrameSubmitted(
                     frame.FrameIndex,
                     frame.SubmissionInstance);
@@ -634,6 +830,7 @@ namespace
             {
                 if (frame.bSubmissionIssued)
                 {
+                    HEngine::EffekseerRuntime::NotifyHostFrameSubmitted(frame.FrameIndex, frame.SubmissionInstance);
                     sceneRenderer.NotifyFrameSubmitted(
                         frame.FrameIndex,
                         frame.SubmissionInstance);
@@ -659,6 +856,7 @@ namespace
                 else
                 {
                     renderDevice.AbortFrame(frame);
+                    HEngine::EffekseerRuntime::AbortHostFrame(frame.FrameIndex);
                     sceneRenderer.AbortFrame(frame.FrameIndex);
                     if (bCaptureThisFrame && *linearCapture &&
                         linearReadback->IsValid(*linearCapture))
@@ -1815,24 +2013,810 @@ namespace
         HEngine::RenderWorld& world,
         uint32_t width,
         uint32_t height,
-        const std::filesystem::path& outputPath)
+        const std::filesystem::path& outputPath,
+        HEngine::OfflineViewportAov aov = HEngine::OfflineViewportAov::Beauty,
+        HEngine::OfflineViewportOutputFormat format = HEngine::OfflineViewportOutputFormat::Pfm)
     {
         const HEngine::TextureReadbackHandle exportHandle = session.RequestExport(
-            HEngine::OfflineViewportAov::Beauty,
+            aov,
             outputPath,
-            HEngine::OfflineViewportOutputFormat::Pfm);
-        RenderOffscreenFrames(
-            renderDevice,
-            renderer,
-            world,
-            width,
-            height,
-            1);
-        renderDevice.WaitForIdle();
-        const HEngine::TextureReadbackResult result =
-            WaitForOfflineExport(session, exportHandle);
-        session.ReleaseExport(exportHandle);
-        return result;
+            format);
+        const auto started = std::chrono::steady_clock::now();
+        while (true)
+        {
+            // Frame-slot completion drives readback collection. Do not replace
+            // a real completion value with max() or idle the device for export.
+            RenderOffscreenFrames(renderDevice, renderer, world, width, height, 1);
+            const auto result = session.GetExportResult(exportHandle);
+            if (result.Status == HEngine::TextureReadbackStatus::Complete || result.Status == HEngine::TextureReadbackStatus::Failed)
+            {
+                session.ReleaseExport(exportHandle);
+                return result;
+            }
+            if (std::chrono::steady_clock::now() - started > std::chrono::seconds(5))
+                throw std::runtime_error("Asynchronous offline export timed out");
+        }
+    }
+
+    void RunMaterialSamplingSmoke(HEngine::RenderDevice& device)
+    {
+        const auto support = HEngine::QueryHardwareRayTracingSupport(device.GetCapabilities());
+        if (!support.bAccelerationStructures || !support.bPipelines)
+            throw std::runtime_error("Material sampling smoke requires actual hardware RT pipelines: " + support.Reason);
+        constexpr uint32_t width = 64, height = 64;
+        const std::string runName = std::string(HEngine::ToString(device.GetBackend())) + "-" +
+            std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+        const auto directory = std::filesystem::path(HE_DEFAULT_PROJECT_DIR).parent_path() /
+            "out/agent/captures/material-sampling" / runName;
+        std::filesystem::create_directories(directory);
+        std::cout << "MATERIAL_SAMPLING_OUTPUT: " << directory.string() << std::endl;
+        auto world = BuildHardwareRtSmokeWorld();
+        world.Objects.resize(1);
+        uint32_t sectionCount = 1;
+        const char* shaderFormat = device.GetBackend() == HEngine::RenderBackend::Vulkan ? "SPIRV" : "DXIL";
+        HEngine::SceneRenderer renderer({.Device = device.GetDevice(), .FramesInFlight = device.GetCapabilities().FramesInFlight,
+            .ShaderCacheDirectory = HEngine::ConfigManager::GetEngineGeneratedContentFullPath(std::string("Shaders/CACHES/") + shaderFormat),
+            .AssetRootDirectory = HEngine::ConfigManager::GetInstance().GetRootFolder(),
+            .EngineAssetRootDirectory = HEngine::ConfigManager::GetInstance().GetEngineContentFolder(),
+            .Backend = device.GetBackend(), .Capabilities = device.GetCapabilities(), .bEnableGpuTiming = true});
+        renderer.ConfigureOffscreenOutput(width, height, "Engine material sampling reference fixture");
+        renderer.ActivateOfflineViewportRenderer("he.viewport.path-tracing");
+        auto* sessionPointer = renderer.GetOfflineViewportRendererSession();
+        if (!sessionPointer || renderer.GetActiveOfflineViewportRendererId() != "he.viewport.path-tracing")
+            throw std::runtime_error("Material sampling smoke did not activate the linked reference provider");
+        auto& session = *sessionPointer;
+        auto settings = session.GetOfflineSettings();
+        settings.bInteractive = false;
+        settings.FixedWidth = width; settings.FixedHeight = height;
+        settings.MaxBounces = 1; settings.bDenoise = false;
+        const auto converge = [&](uint32_t target)
+        {
+            settings.TargetSamples = target; session.ApplyOfflineSettings(settings);
+            const auto started = std::chrono::steady_clock::now();
+            while (true)
+            {
+                const auto snapshotFrame = world.FrameNumber;
+                RenderOffscreenFrames(device, renderer, world, width, height, 1);
+                world.FrameNumber = snapshotFrame;
+                const auto progress = session.GetOfflineProgress();
+                if (progress.State == HEngine::OfflineViewportSessionState::Failed)
+                    throw std::runtime_error(progress.Error);
+                if (progress.IncludedInstances != sectionCount || progress.ExcludedInstances != 0 || progress.InFlight > 1)
+                    throw std::runtime_error("Material sampling fixture lost geometry or exceeded its flight bound");
+                if (progress.AccumulatedSamples == target) break;
+                if (std::chrono::steady_clock::now() - started > std::chrono::seconds(60))
+                    throw std::runtime_error("Material sampling reference convergence timed out");
+            }
+        };
+        const auto capture = [&](const std::string& name, HEngine::OfflineViewportAov aov)
+        {
+            const auto result = ExportOfflineReferencePfm(device, renderer, session, world, width, height,
+                directory / (name + ".pfm"), aov);
+            if (result.Status != HEngine::TextureReadbackStatus::Complete) throw std::runtime_error(result.Error);
+            return ReadLinearPfm(directory / (name + ".pfm"));
+        };
+        // Analytic image checks isolate texture colour space, UV interpolation,
+        // tangent-space normals and alpha-hit rejection from convergence noise.
+        const std::string textureRoot = "Saved/RenderingTests/MaterialSampling/" + runName + "/";
+        std::filesystem::create_directories(HEngine::ConfigManager::GetProjectFullPath(textureRoot));
+        const auto writeTexture = [&](const std::string& name, std::array<uint8_t, 4> first)
+        {
+            const std::string path = textureRoot + name + ".tga";
+            std::ofstream stream(HEngine::ConfigManager::GetProjectFullPath(path), std::ios::binary);
+            std::array<uint8_t, 18> header{};
+            header[2] = 2; header[12] = 2; header[14] = 2; header[16] = 32; header[17] = 0x28;
+            stream.write(reinterpret_cast<const char*>(header.data()), header.size());
+            for (const auto rgba : {first, std::array<uint8_t, 4>{0,255,0,255}, std::array<uint8_t, 4>{255,0,0,255}, std::array<uint8_t, 4>{0,0,255,255}})
+            {
+                const std::array<uint8_t, 4> bgra = {rgba[2], rgba[1], rgba[0], rgba[3]};
+                stream.write(reinterpret_cast<const char*>(bgra.data()), bgra.size());
+            }
+            return path;
+        };
+        const auto colorTexture = writeTexture("color-alpha", {128,64,32,0});
+        const auto normalTexture = writeTexture("normal", {191,128,238,255});
+        world = BuildHardwareRtSmokeWorld();
+        world.Objects.resize(1); sectionCount = 1;
+        world.SceneGeneration = 0x505242544558ull;
+        world.Camera.Position = {0.f, 2.f, 0.f};
+        world.Camera.View = glm::lookAt(world.Camera.Position, glm::vec3(0), glm::vec3(0,0,-1));
+        world.Camera.ViewProjection = world.Camera.Projection * world.Camera.View;
+        world.Camera.NonJitteredViewProjection = world.Camera.PreviousViewProjection =
+            world.Camera.PreviousNonJitteredViewProjection = world.Camera.ViewProjection;
+        auto& section = world.Objects[0].Sections[0];
+        for (auto& vertex : section.SubMeshResource->mStaticVertices) vertex.TexCoord = {.25f,.25f};
+        auto& material = section.MaterialInstance;
+        material.ParameterValues.clear(); material.LegacyTextures = {};
+        material.BaseColor = glm::vec4(1); material.Emissive = glm::vec3(1); material.Metallic = 0;
+        material.LegacyTextures[0] = {.AssetPath = colorTexture, .bEnabled = true};
+        material.LegacyTextures[4] = {.AssetPath = colorTexture, .bEnabled = true};
+        settings.FixedWidth = settings.FixedHeight = 64;
+        settings.bDirectOnly = true; settings.bUseSceneEnvironment = false; settings.EnvironmentRadiance = glm::vec3(0);
+        converge(4);
+        const auto srgb = [](float value) { value /= 255.f; return value <= .04045f ? value / 12.92f : std::pow((value + .055f) / 1.055f, 2.4f); };
+        const auto checkConstant = [&](const LinearRgbImage& image, glm::vec3 expected, float tolerance, const char* label)
+        {
+            float maximumError = 0;
+            if (image.Pixels.empty()) throw std::runtime_error(std::string(label) + " empty readback");
+            for (size_t i = 0; i < image.Pixels.size(); ++i)
+            {
+                if (!std::isfinite(image.Pixels[i])) throw std::runtime_error(std::string(label) + " non-finite readback");
+                maximumError = std::max(maximumError, std::abs(image.Pixels[i] - expected[static_cast<int>(i % 3)]));
+            }
+            if (maximumError > tolerance) throw std::runtime_error(std::string(label) + " error=" + std::to_string(maximumError));
+        };
+        const glm::vec3 expectedColor(srgb(128), srgb(64), srgb(32));
+        checkConstant(capture("texture-emission", HEngine::OfflineViewportAov::Beauty), expectedColor, .002f, "sRGB emission/UV");
+        checkConstant(capture("texture-albedo", HEngine::OfflineViewportAov::Albedo), expectedColor, .002f, "sRGB albedo/UV");
+        material.LegacyTextures[1] = {.AssetPath = normalTexture, .bEnabled = true};
+        ++material.Revision; ++world.FrameNumber;
+        converge(4);
+        const glm::vec3 expectedNormal = glm::normalize(glm::vec3(191.f/255.f*2.f-1.f, 238.f/255.f*2.f-1.f, 128.f/255.f*2.f-1.f));
+        checkConstant(capture("texture-normal", HEngine::OfflineViewportAov::WorldNormal), expectedNormal, .003f, "Tangent-space normal");
+        section.AlphaMode = material.AlphaMode = HEngine::RenderMaterialAlphaMode::Mask;
+        settings.EnvironmentRadiance = glm::vec3(.2f,.3f,.4f);
+        ++material.Revision; ++world.FrameNumber;
+        converge(4);
+        checkConstant(capture("texture-alpha-hole", HEngine::OfflineViewportAov::Beauty), settings.EnvironmentRadiance, .0001f, "Alpha any-hit hole");
+        std::cout << "MATERIAL_SAMPLING_BASE_TEXTURE_NORMAL_ALPHA_PASS\n";
+        // These are actual reference-ray AOV readbacks. Realtime RTGI still
+        // uses its documented constant-material approximation; raster output
+        // and the shared record ABI are not evidence of realtime RT sampling.
+        const auto samplingTexture = writeTexture("sampling-rgba", {128,64,32,255});
+        const auto setUvsAndColor = [&](glm::vec2 uv0, glm::vec2 uv1, glm::vec4 color)
+        {
+            for (auto& vertex : section.SubMeshResource->mStaticVertices)
+            {
+                vertex.TexCoord = uv0;
+                vertex.TexCoord1 = uv1;
+                vertex.Color = color;
+            }
+        };
+        const auto checkSampling = [&](const std::string& name, glm::vec3 expected,
+                                       HEngine::OfflineViewportAov aov = HEngine::OfflineViewportAov::Albedo,
+                                       float tolerance = .002f)
+        {
+            // In-memory vertex edits must invalidate the BLAS/vertex snapshot,
+            // not just the material table. The user's scene file is untouched.
+            ++world.SceneGeneration; ++material.Revision; ++world.FrameNumber;
+            converge(4);
+            checkConstant(capture(name, aov), expected, tolerance, name.c_str());
+            std::cout << "MATERIAL_SAMPLING_CHECK_PASS: " << name
+                << " tolerance=" << tolerance << " lod=0\n";
+        };
+        section.AlphaMode = material.AlphaMode = HEngine::RenderMaterialAlphaMode::Opaque;
+        material.LegacyTextures = {};
+        material.BaseColor = glm::vec4(1); material.Emissive = glm::vec3(0);
+        material.LegacyTextures[0] = {.AssetPath = samplingTexture, .bEnabled = true};
+        auto& sampling = material.LegacyTextures[0].Sampling;
+        sampling.magFilter = 9728;
+        setUvsAndColor({.25f,.25f}, {.75f,.25f}, glm::vec4(1));
+        checkSampling("sampling-uv0", expectedColor);
+        sampling.texCoord = 1;
+        checkSampling("sampling-uv1", {0,1,0});
+        setUvsAndColor({.75f,.25f}, {.25f,.25f}, glm::vec4(1));
+        sampling.scale = {2,1}; sampling.rotation = 1.5707963267948966f;
+        sampling.offset = {1,-.25f};
+        checkSampling("sampling-uv1-rotate-scale-offset", {0,1,0});
+        sampling = {}; sampling.texCoord = 1; sampling.magFilter = 9728;
+        sampling.offset = {1,0};
+        checkSampling("sampling-wrap-repeat", expectedColor);
+        sampling.wrapS = 33071;
+        checkSampling("sampling-wrap-clamp", {0,1,0});
+        sampling.wrapS = 33648;
+        checkSampling("sampling-wrap-mirror", {0,1,0});
+        sampling.offset = {-.5f,0};
+        checkSampling("sampling-wrap-negative-mirror", expectedColor);
+        sampling.wrapS = 10497;
+        checkSampling("sampling-wrap-negative-repeat", {0,1,0});
+        sampling = {}; sampling.texCoord = 1; sampling.magFilter = 9728;
+        // Keep nearest away from the texel boundary: barycentric roundoff at
+        // exactly 0.5 can legitimately select either texel before spp averaging.
+        setUvsAndColor({.25f,.25f}, {.625f,.25f}, glm::vec4(1));
+        checkSampling("sampling-lod0-nearest", {0,1,0});
+        sampling.magFilter = 9729;
+        setUvsAndColor({.25f,.25f}, {.5f,.25f}, glm::vec4(1));
+        const glm::vec3 linearAverage = (expectedColor + glm::vec3(0,1,0)) * .5f;
+        checkSampling("sampling-lod0-linear-srgb-before-filter", linearAverage);
+        // LOD is deliberately fixed to zero in reference rays. All six valid
+        // minification modes must leave this magnification result unchanged;
+        // this is not a mip-selection/minification quality test.
+        for (const int minFilter : {9728,9729,9984,9985,9986,9987})
+        {
+            sampling.minFilter = minFilter;
+            checkSampling("sampling-lod0-min-mode-" + std::to_string(minFilter), linearAverage);
+        }
+        sampling.magFilter = 9728;
+        setUvsAndColor({.75f,.25f}, {.25f,.25f}, {.5f,.25f,.75f,1});
+        material.BaseColor = {.8f,.6f,.4f,1};
+        checkSampling("sampling-vertex-rgb", expectedColor * glm::vec3(.5f,.25f,.75f) * glm::vec3(.8f,.6f,.4f));
+        material.BaseColor = glm::vec4(1);
+        material.Emissive = glm::vec3(1);
+        material.LegacyTextures[4] = material.LegacyTextures[0];
+        settings.EnvironmentRadiance = glm::vec3(0);
+        checkSampling("sampling-emission-independent-of-vertex-rgb", expectedColor,
+            HEngine::OfflineViewportAov::Beauty);
+        section.AlphaMode = material.AlphaMode = HEngine::RenderMaterialAlphaMode::Mask;
+        material.AlphaCutoff = .5f; material.BaseColor.a = .8f;
+        settings.EnvironmentRadiance = {.2f,.3f,.4f};
+        setUvsAndColor({.75f,.25f}, {.25f,.25f}, {1,1,1,.4f});
+        checkSampling("sampling-vertex-alpha-hole", settings.EnvironmentRadiance,
+            HEngine::OfflineViewportAov::Beauty, .0001f);
+        setUvsAndColor({.75f,.25f}, {.25f,.25f}, glm::vec4(1));
+        checkSampling("sampling-vertex-alpha-hit", expectedColor);
+        material.LegacyTextures[0].AssetPath = colorTexture;
+        checkSampling("sampling-uv1-texture-alpha-hole", settings.EnvironmentRadiance,
+            HEngine::OfflineViewportAov::Beauty, .0001f);
+        sampling.offset = {.5f,0};
+        checkSampling("sampling-uv1-transformed-alpha-hit", {0,1,0});
+        std::cout << "MATERIAL_SAMPLING_SMOKE_PASS: actual-reference-ray-AOVs,UV1,transform,vertex-color,alpha,wrap,LOD0-filter,sRGB-before-filter"
+            << " NOT_VERIFIED=RT-minification-mips,realtime-RT-textures,depth-shadow-sampling\n";
+        setUvsAndColor({.25f,.25f}, {.25f,.25f}, glm::vec4(1));
+        ++world.SceneGeneration;
+        device.WaitForIdle();
+    }
+
+    void RunPbrTestPathTracingSmoke(HEngine::RenderDevice& device)
+    {
+        constexpr uint32_t width = 640, height = 360;
+        const auto scenePath = HEngine::ConfigManager::GetProjectFullPath("Assets/Scenes/PBRTest.he");
+        const auto readScene = [&]() { std::ifstream stream(scenePath, std::ios::binary); return std::string(std::istreambuf_iterator<char>(stream), {}); };
+        const auto originalScene = readScene();
+        auto level = HEngine::CreateRef<HEngine::Level>();
+        // This non-Editor host omits Editor-only components during deserialization.
+        // Apply this fixture's authored visibility to an in-memory document first.
+        auto document = HEngine::Json::parse(originalScene);
+        for (auto it = document.begin(); it != document.end();)
+            if (it.value().contains("EditorEntityStateComponent") &&
+                !it.value()["EditorEntityStateComponent"].value("bVisible", true)) it = document.erase(it);
+            else ++it;
+        if (!HEngine::SceneSerializer(level).DeserializeFromJson(document)) throw std::runtime_error("PBRTest deserialization failed");
+        auto cameraEntity = level->GetPrimaryCameraEntity();
+        auto& camera = cameraEntity.GetComponent<HEngine::CameraComponent>().Camera;
+        const auto& transform = cameraEntity.GetComponent<HEngine::TransformComponent>();
+        HEngine::RenderWorldExtractor extractor;
+        auto world = extractor.Extract(*level, HEngine::RenderViewDescription{
+            .View = glm::inverse(transform.GetTransform()), .Projection = camera.GetProjection(),
+            .CameraPosition = transform.Translation, .NearPlane = camera.GetPerspectiveNearClip(),
+            .FarPlane = camera.GetPerspectiveFarClip(), .bEditorView = true, .FrameNumber = 1});
+        const auto directory = std::filesystem::path(HE_DEFAULT_PROJECT_DIR).parent_path() / "out/agent/captures/pt-pbrtest";
+        std::filesystem::create_directories(directory);
+        std::ofstream manifest(directory / "materials.txt");
+        uint32_t sectionCount = 0;
+        for (const auto& object : world.Objects)
+            for (const auto& section : object.Sections)
+            {
+                ++sectionCount;
+                const auto& material = section.MaterialInstance;
+                manifest << "section=" << sectionCount << " material=" << material.AssetPath << " alpha=" << int(section.AlphaMode)
+                    << " doubleSided=" << section.bDoubleSided << " metallic=" << material.Metallic << " roughness=" << material.Roughness << '\n';
+                for (const auto& texture : material.LegacyTextures) manifest << "  " << texture.bEnabled << ' ' << texture.AssetPath << '\n';
+            }
+        if (sectionCount != 25 || world.DirectionalLights.size() != 1 || world.Environment.IblIntensity != 0)
+            throw std::runtime_error("PBRTest fixture changed: sections=" + std::to_string(sectionCount) +
+                " directional=" + std::to_string(world.DirectionalLights.size()) + " environment=" + std::to_string(world.Environment.IblIntensity));
+        HEngine::SceneRenderer renderer({.Device = device.GetDevice(), .FramesInFlight = device.GetCapabilities().FramesInFlight,
+            .ShaderCacheDirectory = HEngine::ConfigManager::GetEngineGeneratedContentFullPath("Shaders/CACHES/DXIL"),
+            .AssetRootDirectory = HEngine::ConfigManager::GetInstance().GetRootFolder(),
+            .EngineAssetRootDirectory = HEngine::ConfigManager::GetInstance().GetEngineContentFolder(),
+            .Backend = device.GetBackend(), .Capabilities = device.GetCapabilities(), .bEnableGpuTiming = true});
+        renderer.ConfigureOffscreenOutput(width, height, "PBRTest original scene PT");
+        renderer.ActivateOfflineViewportRenderer("he.viewport.path-tracing");
+        auto& session = *renderer.GetOfflineViewportRendererSession();
+        auto settings = session.GetOfflineSettings();
+        settings.bInteractive = false;
+        settings.FixedWidth = width; settings.FixedHeight = height;
+        settings.MaxBounces = 8; settings.bDenoise = true; settings.DenoiseIntervalMilliseconds = 100;
+        std::ofstream timing(directory / "frames.csv");
+        timing << "stage,frame,cpuMs,gpuMs,traceMs,minSpp,avgSpp,inFlight,denoisedSpp\n";
+        uint32_t frame = 0;
+        const auto converge = [&](uint32_t target)
+        {
+            settings.TargetSamples = target; session.ApplyOfflineSettings(settings);
+            const auto started = std::chrono::steady_clock::now();
+            while (true)
+            {
+                const auto tick = std::chrono::steady_clock::now();
+                const auto snapshotFrame = world.FrameNumber;
+                RenderOffscreenFrames(device, renderer, world, width, height, 1);
+                world.FrameNumber = snapshotFrame;
+                const auto progress = session.GetOfflineProgress();
+                timing << target << ',' << ++frame << ',' << std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - tick).count()
+                    << ',' << renderer.GetStats().GpuFrameSpanMilliseconds << ',' << progress.TracingMilliseconds << ',' << progress.AccumulatedSamples
+                    << ',' << progress.AverageSamples << ',' << progress.InFlight << ',' << progress.DenoisedSamples << '\n';
+                if (progress.State == HEngine::OfflineViewportSessionState::Failed) throw std::runtime_error(progress.Error);
+                if (progress.IncludedInstances != sectionCount || progress.ExcludedInstances != 0 || progress.InFlight > 1)
+                    throw std::runtime_error("PBRTest lost geometry or exceeded its flight bound");
+                if (progress.AccumulatedSamples == target && (!settings.bDenoise || progress.DenoisedSamples == target)) break;
+                if (std::chrono::steady_clock::now() - started > std::chrono::seconds(120)) throw std::runtime_error("PBRTest failed to converge within timeout");
+            }
+        };
+        const auto capture = [&](const std::string& name, HEngine::OfflineViewportAov aov)
+        {
+            const auto path = directory / (name + ".pfm");
+            const auto result = ExportOfflineReferencePfm(device, renderer, session, world, width, height, path, aov);
+            if (result.Status != HEngine::TextureReadbackStatus::Complete) throw std::runtime_error(result.Error);
+            return ReadLinearPfm(path);
+        };
+        for (uint32_t target : {1u, 4u, 16u, 64u, 256u})
+        {
+            converge(target);
+            const auto raw = capture(std::to_string(target) + "-raw", HEngine::OfflineViewportAov::Beauty);
+            (void)capture(std::to_string(target) + "-denoised", HEngine::OfflineViewportAov::DenoisedBeauty);
+            if (target == 1)
+            {
+                (void)capture("initial-albedo-1", HEngine::OfflineViewportAov::Albedo);
+                (void)capture("initial-normal-1", HEngine::OfflineViewportAov::WorldNormal);
+            }
+            if (!std::ranges::any_of(raw.Pixels, [](float value) { return value > 100.f; })) throw std::runtime_error("PBRTest is missing its directional illumination");
+            const auto countsPath = directory / (std::to_string(target) + "-counts.raw");
+            const auto countsResult = ExportOfflineReferencePfm(device, renderer, session, world, width, height,
+                countsPath, HEngine::OfflineViewportAov::SampleCount, HEngine::OfflineViewportOutputFormat::Raw);
+            std::vector<uint32_t> counts(width * height);
+            std::ifstream countStream(countsPath, std::ios::binary);
+            countStream.read(reinterpret_cast<char*>(counts.data()), counts.size() * sizeof(uint32_t));
+            if (countsResult.Status != HEngine::TextureReadbackStatus::Complete || !countStream ||
+                !std::ranges::all_of(counts, [target](uint32_t count) { return count == target; }))
+                throw std::runtime_error("PBRTest completed spp disagrees with GPU pixel counts");
+            std::cout << "PBRTEST_PT_STAGE_PASS spp=" << target << " instances=" << sectionCount << '\n';
+        }
+        (void)capture("albedo", HEngine::OfflineViewportAov::Albedo);
+        (void)capture("normal", HEngine::OfflineViewportAov::WorldNormal);
+        settings.bDenoise = false;
+        world.DirectionalLights[0].Intensity *= 0.5f;
+        ++world.FrameNumber;
+        converge(16);
+        const auto half = capture("half-light-16", HEngine::OfflineViewportAov::Beauty);
+        world.DirectionalLights[0].Intensity *= 2.f;
+        ++world.FrameNumber;
+        converge(16);
+        const auto full = capture("repeat-full-light-16", HEngine::OfflineViewportAov::Beauty);
+        double squaredError = 0, energy = 0;
+        for (size_t i = 0; i < full.Pixels.size(); ++i)
+        {
+            const double expected = full.Pixels[i] * .5;
+            squaredError += std::pow(half.Pixels[i] - expected, 2);
+            energy += expected * expected;
+        }
+        const double relativeError = std::sqrt(squaredError / std::max(energy, 1e-20));
+        if (relativeError > 1e-4) throw std::runtime_error("Directional intensity failed linearity: " + std::to_string(relativeError));
+        std::cout << "PBRTEST_PT_LIGHT_LINEARITY_PASS error=" << relativeError << '\n';
+        settings.bDenoise = true;
+        session.Restart();
+        converge(16);
+        const auto denoiseEnabledRaw = capture("repeat-denoise-raw-16", HEngine::OfflineViewportAov::Beauty);
+        if (denoiseEnabledRaw.Pixels != full.Pixels)
+            throw std::runtime_error("Denoiser scheduling changed the raw reference image");
+        std::cout << "PBRTEST_PT_DENOISE_RAW_ISOLATION_PASS\n";
+        settings.bDenoise = false;
+        session.Restart();
+        for (uint32_t target : {1u,4u,16u})
+        {
+            converge(target);
+            (void)capture("repeat-stage-" + std::to_string(target), HEngine::OfflineViewportAov::Beauty);
+            if (target == 1)
+            {
+                (void)capture("repeat-albedo-1", HEngine::OfflineViewportAov::Albedo);
+                (void)capture("repeat-normal-1", HEngine::OfflineViewportAov::WorldNormal);
+            }
+        }
+        if (ReadLinearPfm(directory / "repeat-stage-16.pfm").Pixels != full.Pixels)
+            throw std::runtime_error("Changing target samples changed the raw reference sequence");
+        std::cout << "PBRTEST_PT_TARGET_SEQUENCE_PASS\n";
+        for (const auto target : {1u, 4u, 16u})
+            if (ReadLinearPfm(directory / (std::to_string(target) + "-raw.pfm")).Pixels !=
+                ReadLinearPfm(directory / ("repeat-stage-" + std::to_string(target) + ".pfm")).Pixels)
+                throw std::runtime_error("Initial and restarted primary-ray sequences differ");
+        for (const auto* guide : {"albedo", "normal"})
+            if (ReadLinearPfm(directory / (std::string("initial-") + guide + "-1.pfm")).Pixels !=
+                ReadLinearPfm(directory / (std::string("repeat-") + guide + "-1.pfm")).Pixels)
+                throw std::runtime_error("Initial and restarted primary guides differ");
+        std::cout << "PBRTEST_PT_INITIAL_SEQUENCE_PASS\n";
+        // Analytic image checks isolate texture colour space, UV interpolation,
+        // tangent-space normals and alpha-hit rejection from convergence noise.
+        const std::string textureRoot = "Saved/RenderingTests/PtPbr/";
+        std::filesystem::create_directories(HEngine::ConfigManager::GetProjectFullPath(textureRoot));
+        const auto writeTexture = [&](const std::string& name, std::array<uint8_t, 4> first)
+        {
+            const std::string path = textureRoot + name + ".tga";
+            std::ofstream stream(HEngine::ConfigManager::GetProjectFullPath(path), std::ios::binary);
+            std::array<uint8_t, 18> header{};
+            header[2] = 2; header[12] = 2; header[14] = 2; header[16] = 32; header[17] = 0x28;
+            stream.write(reinterpret_cast<const char*>(header.data()), header.size());
+            for (const auto rgba : {first, std::array<uint8_t, 4>{0,255,0,255}, std::array<uint8_t, 4>{255,0,0,255}, std::array<uint8_t, 4>{0,0,255,255}})
+            {
+                const std::array<uint8_t, 4> bgra = {rgba[2], rgba[1], rgba[0], rgba[3]};
+                stream.write(reinterpret_cast<const char*>(bgra.data()), bgra.size());
+            }
+            return path;
+        };
+        const auto colorTexture = writeTexture("color-alpha", {128,64,32,0});
+        const auto normalTexture = writeTexture("normal", {191,128,238,255});
+        world = BuildHardwareRtSmokeWorld();
+        world.Objects.resize(1); sectionCount = 1;
+        world.SceneGeneration = 0x505242544558ull;
+        world.Camera.Position = {0.f, 2.f, 0.f};
+        world.Camera.View = glm::lookAt(world.Camera.Position, glm::vec3(0), glm::vec3(0,0,-1));
+        world.Camera.ViewProjection = world.Camera.Projection * world.Camera.View;
+        world.Camera.NonJitteredViewProjection = world.Camera.PreviousViewProjection =
+            world.Camera.PreviousNonJitteredViewProjection = world.Camera.ViewProjection;
+        auto& section = world.Objects[0].Sections[0];
+        for (auto& vertex : section.SubMeshResource->mStaticVertices) vertex.TexCoord = {.25f,.25f};
+        auto& material = section.MaterialInstance;
+        material.ParameterValues.clear(); material.LegacyTextures = {};
+        material.BaseColor = glm::vec4(1); material.Emissive = glm::vec3(1); material.Metallic = 0;
+        material.LegacyTextures[0] = {.AssetPath = colorTexture, .bEnabled = true};
+        material.LegacyTextures[4] = {.AssetPath = colorTexture, .bEnabled = true};
+        settings.FixedWidth = settings.FixedHeight = 64;
+        settings.bDirectOnly = true; settings.bUseSceneEnvironment = false; settings.EnvironmentRadiance = glm::vec3(0);
+        converge(4);
+        const auto srgb = [](float value) { value /= 255.f; return value <= .04045f ? value / 12.92f : std::pow((value + .055f) / 1.055f, 2.4f); };
+        const auto checkConstant = [&](const LinearRgbImage& image, glm::vec3 expected, float tolerance, const char* label)
+        {
+            float maximumError = 0;
+            if (image.Pixels.empty()) throw std::runtime_error(std::string(label) + " empty readback");
+            for (size_t i = 0; i < image.Pixels.size(); ++i)
+            {
+                if (!std::isfinite(image.Pixels[i])) throw std::runtime_error(std::string(label) + " non-finite readback");
+                maximumError = std::max(maximumError, std::abs(image.Pixels[i] - expected[static_cast<int>(i % 3)]));
+            }
+            if (maximumError > tolerance) throw std::runtime_error(std::string(label) + " error=" + std::to_string(maximumError));
+        };
+        const glm::vec3 expectedColor(srgb(128), srgb(64), srgb(32));
+        checkConstant(capture("texture-emission", HEngine::OfflineViewportAov::Beauty), expectedColor, .002f, "sRGB emission/UV");
+        checkConstant(capture("texture-albedo", HEngine::OfflineViewportAov::Albedo), expectedColor, .002f, "sRGB albedo/UV");
+        material.LegacyTextures[1] = {.AssetPath = normalTexture, .bEnabled = true};
+        ++material.Revision; ++world.FrameNumber;
+        converge(4);
+        const glm::vec3 expectedNormal = glm::normalize(glm::vec3(191.f/255.f*2.f-1.f, 238.f/255.f*2.f-1.f, 128.f/255.f*2.f-1.f));
+        checkConstant(capture("texture-normal", HEngine::OfflineViewportAov::WorldNormal), expectedNormal, .003f, "Tangent-space normal");
+        section.AlphaMode = material.AlphaMode = HEngine::RenderMaterialAlphaMode::Mask;
+        settings.EnvironmentRadiance = glm::vec3(.2f,.3f,.4f);
+        ++material.Revision; ++world.FrameNumber;
+        converge(4);
+        checkConstant(capture("texture-alpha-hole", HEngine::OfflineViewportAov::Beauty), settings.EnvironmentRadiance, .0001f, "Alpha any-hit hole");
+        std::cout << "PBRTEST_PT_TEXTURE_NORMAL_ALPHA_PASS\n";
+        // Delta lights have no light-selection noise. Test both positive energy
+        // and updates to the light table without rebuilding geometry.
+        settings.EnvironmentRadiance = glm::vec3(0);
+        section.AlphaMode = material.AlphaMode = HEngine::RenderMaterialAlphaMode::Opaque;
+        material.LegacyTextures = {};
+        material.BaseColor = glm::vec4(.8f, .2f, .05f, 1.f);
+        material.Emissive = glm::vec3(0); material.Metallic = 1.f; material.Roughness = .4f;
+        world.PointLights.clear(); world.SpotLights.clear();
+        world.DirectionalLights = {{.Direction = {0,-1,0}, .Intensity = 1.f}};
+        ++material.Revision; ++world.FrameNumber;
+        converge(4);
+        const auto metal = capture("metal-directional", HEngine::OfflineViewportAov::Beauty);
+        const auto peak = [](const LinearRgbImage& image) { return *std::ranges::max_element(image.Pixels); };
+        if (peak(metal) < .5f) throw std::runtime_error("Metal lost its GGX reflection");
+        const auto blasBuilds = renderer.GetStats().RayTracingBlasBuildCount;
+        material.Roughness = .8f; ++material.Revision; ++world.FrameNumber;
+        converge(4);
+        if (peak(capture("metal-rough", HEngine::OfflineViewportAov::Beauty)) >= peak(metal) * .5f)
+            throw std::runtime_error("GGX roughness did not widen the highlight");
+        world.DirectionalLights.clear();
+        world.PointLights = {{.Position = {0,2,0}, .Intensity = 4.f, .Radius = 100.f}};
+        ++world.FrameNumber; converge(4);
+        const auto point = capture("metal-point", HEngine::OfflineViewportAov::Beauty);
+        if (peak(point) <= .01f) throw std::runtime_error("Point light missing");
+        world.PointLights.clear();
+        world.SpotLights = {{.Position = {0,2,0}, .Intensity = 4.f, .Radius = 100.f,
+            .Direction = {0,-1,0}, .InnerConeCosine = .5f, .OuterConeCosine = .4f}};
+        ++world.FrameNumber; converge(4);
+        const auto spot = capture("metal-spot", HEngine::OfflineViewportAov::Beauty);
+        if (peak(spot) <= .01f) throw std::runtime_error("Spot light missing");
+        world.SpotLights[0].Direction = {0,1,0};
+        ++world.FrameNumber; converge(4);
+        checkConstant(capture("spot-away", HEngine::OfflineViewportAov::Beauty), glm::vec3(0), .0001f, "Spot direction update");
+        if (renderer.GetStats().RayTracingBlasBuildCount != blasBuilds)
+            throw std::runtime_error("Material or light updates rebuilt unchanged BLAS");
+        std::cout << "PBRTEST_PT_METAL_ROUGHNESS_LIGHT_UPDATES_PASS\n";
+
+        renderer.DeactivateOfflineViewportRenderer();
+        RenderOffscreenFrames(device, renderer, world, width, height, 4);
+        device.WaitForIdle(); // Final test teardown only.
+        if (readScene() != originalScene) throw std::runtime_error("PBRTest scene file was modified");
+        std::cout << "PBRTEST_PT_PASS original scene unchanged\n";
+    }
+
+    void RunOfflineProgressiveSmoke(HEngine::RenderDevice& device)
+    {
+        constexpr uint32_t width = 256, height = 256;
+        auto cornell = BuildImportedCornellWorld();
+        HEngine::SceneRenderer renderer(HEngine::SceneRendererDesc{
+            .Device = device.GetDevice(),
+            .FramesInFlight = device.GetCapabilities().FramesInFlight,
+            .ShaderCacheDirectory = HEngine::ConfigManager::GetEngineGeneratedContentFullPath("Shaders/CACHES/DXIL"),
+            .AssetRootDirectory = HEngine::ConfigManager::GetInstance().GetRootFolder(),
+            .EngineAssetRootDirectory = HEngine::ConfigManager::GetInstance().GetEngineContentFolder(),
+            .Backend = device.GetBackend(), .Capabilities = device.GetCapabilities(), .bEnableGpuTiming = true});
+        renderer.ConfigureOffscreenOutput(width, height, "Progressive PT acceptance");
+        renderer.ActivateOfflineViewportRenderer("he.viewport.path-tracing");
+        auto& session = *renderer.GetOfflineViewportRendererSession();
+        auto settings = session.GetOfflineSettings();
+        settings.bInteractive = false;
+        settings.bDenoise = true;
+        settings.FixedWidth = width;
+        settings.FixedHeight = height;
+        settings.MaxBounces = 8;
+        settings.DenoiseIntervalMilliseconds = 100;
+        const auto directory = std::filesystem::path(HE_DEFAULT_PROJECT_DIR).parent_path() / "out/agent/captures/progressive-pt";
+        std::filesystem::create_directories(directory);
+        // No TLAS is a normal outcome for an empty/fully excluded editor world.
+        // Exercise initial activation, loss of geometry, and recovery on the GPU.
+        auto excludedWorld = cornell.World;
+        for (auto& object : excludedWorld.Objects)
+            for (auto& section : object.Sections)
+                section.MaterialInstance.bCustomSurface = true;
+        ++excludedWorld.FrameNumber;
+        ++excludedWorld.SceneGeneration;
+        RenderOffscreenFrames(device, renderer, excludedWorld, width, height, 4);
+        auto unavailable = session.GetOfflineProgress();
+        if (unavailable.State != HEngine::OfflineViewportSessionState::Failed ||
+            unavailable.ExcludedInstances == 0 || unavailable.AccumulatedSamples != 0 ||
+            unavailable.InFlight != 0 || unavailable.Error.find("custom material shader") == std::string::npos)
+            throw std::runtime_error("Fully excluded PT world did not report a safe failure");
+        bool exportRejected = false;
+        try { (void)session.RequestExport(HEngine::OfflineViewportAov::Beauty, directory / "invalid.pfm", HEngine::OfflineViewportOutputFormat::Pfm); }
+        catch (const std::runtime_error&) { exportRejected = true; }
+        if (!exportRejected) throw std::runtime_error("Unavailable PT world allowed invalid export");
+        std::cout << "PROGRESSIVE_PT_EXCLUDED_WORLD_PASS\n";
+        std::ofstream timings(directory / "frames.csv");
+        timings << "stage,frame,cpuWallMs,minSpp,avgSpp,maxSpp,submittedMinSpp,inFlight,generation,denoisedSpp,gpuSample,gpuSpanMs,traceMs,denoiseMs\n";
+        uint32_t frameIndex = 0;
+        for (uint32_t target : {1u, 4u, 16u, 64u, 256u})
+        {
+            settings.TargetSamples = target;
+            session.ApplyOfflineSettings(settings);
+            const auto started = std::chrono::steady_clock::now();
+            while (true)
+            {
+                const auto frameStarted = std::chrono::steady_clock::now();
+                RenderOffscreenFrames(device, renderer, cornell.World, width, height, 1);
+                const auto progress = session.GetOfflineProgress();
+                const double wallMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frameStarted).count();
+                timings << target << ',' << frameIndex++ << ',' << wallMs << ',' << progress.AccumulatedSamples << ','
+                    << progress.AverageSamples << ',' << progress.MaximumSamples << ',' << progress.SubmittedSamples << ','
+                    << progress.InFlight << ',' << progress.Generation << ',' << progress.DenoisedSamples << ','
+                    << renderer.GetStats().GpuRenderGraphSampleCount << ',' << renderer.GetStats().GpuFrameSpanMilliseconds << ','
+                    << renderer.GetStats().GpuGiTraceMilliseconds << ',' << progress.DenoiseMilliseconds << '\n';
+                if (frameIndex == 2)
+                {
+                    std::ofstream passes(directory / "passes.txt");
+                    for (const auto& name : renderer.GetStats().CompiledPasses)
+                    {
+                        passes << name << '\n';
+                        if (name == "SceneLightClustering" || name == "DirectionalShadow" || name == "DeferredLightingHDR" || name == "SSRHalfTrace")
+                            throw std::runtime_error("Offline composition retained an unrelated raster lighting pass");
+                    }
+                }
+                if (progress.InFlight > 1 || progress.AccumulatedSamples > target)
+                    throw std::runtime_error("Progressive PT exceeded flight/sample bounds");
+                if (progress.AccumulatedSamples == target && progress.DenoisedSamples == target) break;
+                if (std::chrono::steady_clock::now() - started > std::chrono::seconds(60))
+                    throw std::runtime_error("Progressive PT or OIDN failed to converge: " + progress.DenoiserStatus);
+            }
+            for (auto aov : {HEngine::OfflineViewportAov::Beauty, HEngine::OfflineViewportAov::DenoisedBeauty})
+            {
+                const auto path = directory / (std::to_string(target) + (aov == HEngine::OfflineViewportAov::Beauty ? "-raw.pfm" : "-denoised.pfm"));
+                const auto result = ExportOfflineReferencePfm(device, renderer, session, cornell.World, width, height, path, aov);
+                if (result.Status != HEngine::TextureReadbackStatus::Complete) throw std::runtime_error(result.Error);
+            }
+            const auto countsPath = directory / (std::to_string(target) + "-counts.raw");
+            const auto countsResult = ExportOfflineReferencePfm(device, renderer, session, cornell.World, width, height,
+                countsPath, HEngine::OfflineViewportAov::SampleCount, HEngine::OfflineViewportOutputFormat::Raw);
+            if (countsResult.Status != HEngine::TextureReadbackStatus::Complete || std::filesystem::file_size(countsPath) != width * height * sizeof(uint32_t))
+                throw std::runtime_error("GPU sample-count export is incomplete");
+            std::vector<uint32_t> counts(width * height);
+            std::ifstream countStream(countsPath, std::ios::binary);
+            countStream.read(reinterpret_cast<char*>(counts.data()), counts.size() * sizeof(uint32_t));
+            if (!countStream || !std::ranges::all_of(counts, [target](uint32_t count) { return count == target; }))
+                throw std::runtime_error("Actual GPU pixel counts disagree with completed spp");
+            std::cout << "PROGRESSIVE_PT_STAGE_PASS: spp=" << target << " frames=" << frameIndex << '\n';
+        }
+        auto emptyWorld = cornell.World;
+        emptyWorld.Objects.clear();
+        emptyWorld.SceneGeneration += 2;
+        emptyWorld.FrameNumber += 2;
+        const auto validGeneration = session.GetOfflineProgress().Generation;
+        RenderOffscreenFrames(device, renderer, emptyWorld, width, height, 4);
+        unavailable = session.GetOfflineProgress();
+        if (unavailable.State != HEngine::OfflineViewportSessionState::Failed ||
+            unavailable.Generation <= validGeneration || unavailable.AccumulatedSamples != 0)
+            throw std::runtime_error("Empty PT world retained a previous valid generation");
+        const auto recoveryStarted = std::chrono::steady_clock::now();
+        do
+        {
+            RenderOffscreenFrames(device, renderer, cornell.World, width, height, 1);
+            if (std::chrono::steady_clock::now() - recoveryStarted > std::chrono::seconds(10))
+                throw std::runtime_error("PT did not recover after supported geometry returned");
+        } while (session.GetOfflineProgress().AccumulatedSamples == 0);
+        if (!session.GetOfflineProgress().Error.empty())
+            throw std::runtime_error("PT retained an obsolete unsupported-scene error");
+        std::cout << "PROGRESSIVE_PT_EMPTY_WORLD_RECOVERY_PASS\n";
+        session.Pause();
+        const auto paused = session.GetOfflineProgress();
+        settings.PreviewAov = HEngine::OfflineViewportAov::Albedo;
+        session.ApplyOfflineSettings(settings);
+        RenderOffscreenFrames(device, renderer, cornell.World, width, height, 3);
+        if (session.GetOfflineProgress().Generation != paused.Generation)
+            throw std::runtime_error("Display-only change reset raw accumulation");
+
+        // Synthetic camera snapshots exercise the actual GPU chain. This is
+        // camera-snapshot-to-completion latency, not OS input or Present latency.
+        settings.bInteractive = true;
+        settings.TargetSamples = 4;
+        settings.PreviewAov = HEngine::OfflineViewportAov::Beauty;
+        session.ApplyOfflineSettings(settings);
+        session.Resume();
+        std::ofstream motion(directory / "motion.csv");
+        motion << "pose,firstCompletedPreviewMs,generation,width,height,minSpp,inFlight,staleResults\n";
+        for (uint32_t pose = 0; pose < 24; ++pose)
+        {
+            auto& camera = cornell.World.Camera;
+            camera.PreviousViewProjection = camera.ViewProjection;
+            camera.PreviousNonJitteredViewProjection = camera.NonJitteredViewProjection;
+            camera.Position.x = 0.278f + 0.08f * std::sin(float(pose + 1) * 0.4f);
+            const glm::vec3 direction(std::sin(float(pose + 1) * 0.12f) * 0.15f, 0.0f, 1.0f);
+            camera.View = glm::lookAt(camera.Position, camera.Position + direction, glm::vec3(0, 1, 0));
+            camera.ViewProjection = camera.Projection * camera.View;
+            camera.NonJitteredViewProjection = camera.ViewProjection;
+            const auto previousGeneration = session.GetOfflineProgress().Generation;
+            const auto obsoleteExport = pose == 0
+                ? session.RequestExport(HEngine::OfflineViewportAov::Beauty, directory / "obsolete-view.pfm", HEngine::OfflineViewportOutputFormat::Pfm)
+                : HEngine::TextureReadbackHandle{};
+            const auto inputTime = std::chrono::steady_clock::now();
+            while (true)
+            {
+                RenderOffscreenFrames(device, renderer, cornell.World, width, height, 1);
+                const auto progress = session.GetOfflineProgress();
+                const double latency = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - inputTime).count();
+                if (progress.InFlight > 1) throw std::runtime_error("Navigation exceeded the in-flight bound");
+                if (progress.Generation > previousGeneration && progress.AccumulatedSamples > 0)
+                {
+                    motion << pose << ',' << latency << ',' << progress.Generation << ',' << progress.Width << ',' << progress.Height
+                        << ',' << progress.AccumulatedSamples << ',' << progress.InFlight << ',' << progress.StaleResults << '\n';
+                    break;
+                }
+                if (latency > 200.0) throw std::runtime_error("Current-camera completed preview exceeded 200 ms design target: " +
+                    progress.Phase + ", generation=" + std::to_string(progress.Generation) +
+                    ", minSpp=" + std::to_string(progress.AccumulatedSamples));
+            }
+            if (obsoleteExport)
+            {
+                // CancelPending releases an unsubmitted readback slot, so an
+                // invalid handle is also the documented cancellation outcome.
+                if (session.IsExportValid(obsoleteExport))
+                {
+                    if (session.GetExportResult(obsoleteExport).Status != HEngine::TextureReadbackStatus::Failed)
+                        throw std::runtime_error("An old-generation export silently captured the new camera");
+                    session.ReleaseExport(obsoleteExport);
+                }
+            }
+        }
+        const auto settleStarted = std::chrono::steady_clock::now();
+        while (true)
+        {
+            RenderOffscreenFrames(device, renderer, cornell.World, width, height, 1);
+            const auto progress = session.GetOfflineProgress();
+            if (progress.Width == width && progress.Height == height && progress.DenoisedSamples == 4) break;
+            if (std::chrono::steady_clock::now() - settleStarted > std::chrono::seconds(5))
+                throw std::runtime_error("Stationary camera failed to restore target resolution and denoise");
+        }
+        // Constant-environment reflection regression. A flat plane covers the
+        // complete camera footprint, so background pixels cannot hide a black
+        // metallic BSDF. Compare direct NEE with combined NEE/BSDF sampling.
+        auto furnace = BuildHardwareRtSmokeWorld();
+        furnace.SceneGeneration = 0x4655524e414345ull;
+        furnace.Objects.resize(1);
+        furnace.Camera.Position = {0.0f, 2.0f, 0.0f};
+        furnace.Camera.View = glm::lookAt(furnace.Camera.Position, glm::vec3(0), glm::vec3(0, 0, -1));
+        furnace.Camera.ViewProjection = furnace.Camera.Projection * furnace.Camera.View;
+        furnace.Camera.NonJitteredViewProjection = furnace.Camera.PreviousViewProjection =
+            furnace.Camera.PreviousNonJitteredViewProjection = furnace.Camera.ViewProjection;
+        auto& metal = furnace.Objects[0].Sections[0].MaterialInstance;
+        metal.BaseColor = {0.75f, 0.5f, 0.25f, 1.0f};
+        metal.Metallic = 1.0f;
+        settings.bInteractive = false;
+        settings.bDenoise = false;
+        settings.bUseSceneEnvironment = false;
+        settings.EnvironmentRadiance = glm::vec3(1.0f);
+        settings.FixedWidth = settings.FixedHeight = 64;
+        settings.TargetSamples = 256;
+        settings.MaxBounces = 1;
+        std::array<glm::dvec3, 3> means{};
+        std::ofstream bsdfReport(directory / "bsdf.csv");
+        bsdfReport << "case,roughness,directOnly,meanR,meanG,meanB\n";
+        for (uint32_t variant = 0; variant < 3; ++variant)
+        {
+            metal.Roughness = variant == 0 ? 0.1f : 0.8f;
+            ++metal.Revision;
+            settings.bDirectOnly = variant == 2;
+            session.ApplyOfflineSettings(settings);
+            session.Restart();
+            const auto started = std::chrono::steady_clock::now();
+            do
+            {
+                RenderOffscreenFrames(device, renderer, furnace, width, height, 1);
+                if (std::chrono::steady_clock::now() - started > std::chrono::seconds(10))
+                    throw std::runtime_error("BSDF regression failed to finish its raw samples");
+            } while (session.GetOfflineProgress().AccumulatedSamples < 256);
+            const auto path = directory / ("metal-" + std::to_string(variant) + ".pfm");
+            if (ExportOfflineReferencePfm(device, renderer, session, furnace, width, height, path).Status != HEngine::TextureReadbackStatus::Complete)
+                throw std::runtime_error("BSDF reference export failed");
+            const auto image = ReadLinearPfm(path);
+            for (size_t pixel = 0; pixel < image.Pixels.size() / 3; ++pixel)
+                for (size_t channel = 0; channel < 3; ++channel)
+                {
+                    const float value = image.Pixels[pixel * 3 + channel];
+                    if (!std::isfinite(value) || value < 0) throw std::runtime_error("BSDF produced invalid radiance");
+                    means[variant][channel] += value / double(image.Width * image.Height);
+                }
+            bsdfReport << variant << ',' << metal.Roughness << ',' << settings.bDirectOnly << ','
+                << means[variant].x << ',' << means[variant].y << ',' << means[variant].z << '\n';
+        }
+        for (uint32_t channel = 0; channel < 3; ++channel)
+        {
+            if (std::abs(means[0][channel] - double(metal.BaseColor[channel])) > 0.04)
+                throw std::runtime_error("Smooth metal reflection lost its Fresnel/base-color energy");
+            if (std::abs(means[1][channel] - means[2][channel]) > 0.025)
+                throw std::runtime_error("Environment NEE and MIS disagree on rough-metal direct illumination");
+        }
+        session.Cancel();
+        renderer.DeactivateOfflineViewportRenderer();
+        // Exercise mode retirement with a CPU filter and an export still owned
+        // by the departing session. No device idle between mode transitions.
+        for (uint32_t cycle = 0; cycle < 3; ++cycle)
+        {
+            renderer.ActivateOfflineViewportRenderer("he.viewport.path-tracing");
+            auto& departing = *renderer.GetOfflineViewportRendererSession();
+            auto lifecycleSettings = departing.GetOfflineSettings();
+            lifecycleSettings.bInteractive = false;
+            lifecycleSettings.FixedWidth = lifecycleSettings.FixedHeight = 64;
+            lifecycleSettings.TargetSamples = 256;
+            lifecycleSettings.bDenoise = true;
+            lifecycleSettings.DenoiseIntervalMilliseconds = 100;
+            departing.ApplyOfflineSettings(lifecycleSettings);
+            const auto lifecycleStart = std::chrono::steady_clock::now();
+            while (departing.GetOfflineProgress().DenoiserStatus != "OIDN CPU working")
+            {
+                RenderOffscreenFrames(device, renderer, cornell.World, width, height, 1);
+                if (std::chrono::steady_clock::now() - lifecycleStart > std::chrono::seconds(5))
+                    throw std::runtime_error("Lifecycle test never observed a running CPU denoiser");
+            }
+            const auto exportPath = directory / ("retire-" + std::to_string(cycle) + ".pfm");
+            (void)departing.RequestExport(HEngine::OfflineViewportAov::Beauty, exportPath, HEngine::OfflineViewportOutputFormat::Pfm);
+            RenderOffscreenFrames(device, renderer, cornell.World, width, height, 1);
+            if (cycle == 2)
+            {
+                HEngine::OfflineViewportRendererProviderRegistry::Get().Unregister("he.viewport.path-tracing");
+                RenderOffscreenFrames(device, renderer, cornell.World, width, height, 1);
+                if (renderer.GetOfflineViewportRendererSession())
+                    throw std::runtime_error("Provider revocation left an active renderer session");
+            }
+            else renderer.DeactivateOfflineViewportRenderer();
+            const auto hasLeases = [cycle]()
+            {
+                try { return HEngine::OfflineViewportRendererProviderRegistry::Get().GetActiveSessionCount("he.viewport.path-tracing") != 0; }
+                catch (const std::out_of_range&)
+                {
+                    if (cycle != 2) throw;
+                    // Draining entries are erased when their final lease dies.
+                    return false;
+                }
+            };
+            while (hasLeases())
+            {
+                RenderOffscreenFrames(device, renderer, cornell.World, width, height, 1);
+                if (std::chrono::steady_clock::now() - lifecycleStart > std::chrono::seconds(5))
+                    throw std::runtime_error("Retired session failed to drain GPU/export/denoise ownership");
+            }
+            if (!std::filesystem::is_regular_file(exportPath) || std::filesystem::file_size(exportPath) == 0)
+                throw std::runtime_error("A submitted export was lost during session retirement");
+        }
+        device.WaitForIdle(); // Final test shutdown only.
+        std::cout << "PROGRESSIVE_PT_SMOKE_PASS: raw/OIDN stages, bounded progress, display reset isolation\n";
     }
 
     void RunCornellAaModeSwitchSmoke(
@@ -2341,7 +3325,8 @@ namespace
         HEngine::Window& window,
         HEngine::RenderDevice& renderDevice,
         HEngine::RayTracingScene& scene,
-        HEngine::RenderWorld& world)
+        HEngine::RenderWorld& world,
+        bool bRunLegacyReferenceContracts = true)
     {
         constexpr uint32_t Width = 64;
         constexpr uint32_t Height = 64;
@@ -2366,6 +3351,7 @@ namespace
             HEngine::FrameContext& frame = renderDevice.BeginFrame();
             try
             {
+                HEngine::EffekseerRuntime::BeginHostFrame(frame.FrameIndex, frame.CompletedSubmissionInstance, frame.GraphicsCommandList);
                 primaryVisibility->RecordFrame(
                     world,
                     HEngine::SceneRendererFrameDesc{
@@ -2377,6 +3363,7 @@ namespace
                         .OutputMode = HEngine::SceneRendererOutputMode::OffscreenOnly,
                     });
                 renderDevice.SubmitAndPresent(frame, false);
+                HEngine::EffekseerRuntime::NotifyHostFrameSubmitted(frame.FrameIndex, frame.SubmissionInstance);
                 primaryVisibility->NotifyFrameSubmitted(
                     frame.FrameIndex,
                     frame.SubmissionInstance);
@@ -2385,6 +3372,7 @@ namespace
             {
                 if (frame.bSubmissionIssued)
                 {
+                    HEngine::EffekseerRuntime::NotifyHostFrameSubmitted(frame.FrameIndex, frame.SubmissionInstance);
                     primaryVisibility->NotifyFrameSubmitted(
                         frame.FrameIndex,
                         frame.SubmissionInstance);
@@ -2392,6 +3380,7 @@ namespace
                 else
                 {
                     renderDevice.AbortFrame(frame);
+                    HEngine::EffekseerRuntime::AbortHostFrame(frame.FrameIndex);
                     primaryVisibility->AbortFrame(frame.FrameIndex);
                 }
                 throw;
@@ -2536,6 +3525,7 @@ namespace
                     .RayTracingVertexBuffer = sceneResources.Vertices,
                     .RayTracingIndexBuffer = sceneResources.Indices,
                     .RayTracingInstanceBuffer = sceneResources.Instances,
+                .AnalyticLightBuffer = sceneResources.AnalyticLights,
                     .CurrentInverseViewProjection = glm::inverse(
                         world.Camera.ViewProjection),
                     .PreviousViewProjection = world.Camera.PreviousViewProjection,
@@ -2799,6 +3789,7 @@ namespace
                 .EngineAssetRootDirectory =
                     HEngine::ConfigManager::GetInstance().GetEngineContentFolder(),
                 .Backend = renderDevice.GetBackend(),
+                .Path = HEngine::RenderingPath::Forward, // This fixture asserts the forward RTGI graph.
                 .Capabilities = renderDevice.GetCapabilities(),
                 .GlobalIllumination = settings,
                 .bEnableGpuTiming = true,
@@ -2835,7 +3826,7 @@ namespace
                     found));
         };
         const size_t depthIndex = passIndex("SceneDepthPrepass");
-        const size_t surfaceIndex = passIndex("SceneSurfaceData");
+        const size_t surfaceIndex = std::min(passIndex("SceneSurfaceData"), passIndex("RasterSurfaceGuides"));
         const size_t opaqueIndex = passIndex("OpaqueForwardHDR");
         const size_t traceIndex = passIndex("RTDirectAndIndirectTrace");
         const size_t temporalIndex = passIndex("TemporalReprojection");
@@ -2861,6 +3852,12 @@ namespace
             integratedStats.GpuGiTraceMilliseconds <= 0.0 ||
             integratedStats.GpuSvgfMilliseconds <= 0.0)
         {
+            std::cerr << "INTEGRATED_RTGI_DIAGNOSTIC instances=" << integratedStats.RayTracingInstanceCount
+                << " tlasBuilds=" << integratedStats.RayTracingTlasBuildCount << " updates=" << integratedStats.RayTracingTlasUpdateCount
+                << " timing=" << integratedStats.bGpuGiTimingValid << " traceMs=" << integratedStats.GpuGiTraceMilliseconds
+                << " svgfMs=" << integratedStats.GpuSvgfMilliseconds << " technique=" << int(integratedStats.GiStats.Technique) << " passes=";
+            for (const auto& name : integratedStats.CompiledPasses) std::cerr << name << ' ';
+            std::cerr << '\n';
             throw std::runtime_error(
                 "Integrated SceneRenderer RTGI graph/stats contract failed");
         }
@@ -3066,6 +4063,7 @@ namespace
                   << integratedRenderer1440->BuildGpuTimingDebugDump()
                   << "\nINTEGRATED_RTGI_1440P_GPU_TIMINGS_END\n";
         integratedRenderer1440.reset();
+        if (!bRunLegacyReferenceContracts) return;
 
         if (!HEngine::OfflineViewportRendererProviderRegistry::Get().Contains(
                 "he.viewport.path-tracing"))
@@ -4746,6 +5744,7 @@ namespace
         HEngine::FrameContext& abortedFrame = renderDevice.BeginFrame();
         try
         {
+            HEngine::EffekseerRuntime::BeginHostFrame(abortedFrame.FrameIndex, abortedFrame.CompletedSubmissionInstance, abortedFrame.GraphicsCommandList);
             reference->RecordFrame(
                 cornell,
                 HEngine::SceneRendererFrameDesc{
@@ -4759,12 +5758,14 @@ namespace
                         HEngine::SceneRendererOutputMode::OffscreenOnly,
                 });
             renderDevice.AbortFrame(abortedFrame);
+            HEngine::EffekseerRuntime::AbortHostFrame(abortedFrame.FrameIndex);
             reference->AbortFrame(abortedFrame.FrameIndex);
         }
         catch (...)
         {
             if (abortedFrame.bSubmissionIssued)
             {
+                HEngine::EffekseerRuntime::NotifyHostFrameSubmitted(abortedFrame.FrameIndex, abortedFrame.SubmissionInstance);
                 reference->NotifyFrameSubmitted(
                     abortedFrame.FrameIndex,
                     abortedFrame.SubmissionInstance);
@@ -4772,6 +5773,7 @@ namespace
             else
             {
                 renderDevice.AbortFrame(abortedFrame);
+                HEngine::EffekseerRuntime::AbortHostFrame(abortedFrame.FrameIndex);
                 reference->AbortFrame(abortedFrame.FrameIndex);
             }
             throw;
@@ -5419,7 +6421,8 @@ namespace
 
     void RunHardwareRayTracingSmoke(
         HEngine::Window& window,
-        HEngine::RenderDevice& renderDevice)
+        HEngine::RenderDevice& renderDevice,
+        bool bRunLegacyReferenceContracts = true)
     {
         const HEngine::HardwareRayTracingSupport support =
             HEngine::QueryHardwareRayTracingSupport(
@@ -5607,6 +6610,7 @@ namespace
                 .RayTracingVertexBuffer = sceneResources.Vertices,
                 .RayTracingIndexBuffer = sceneResources.Indices,
                 .RayTracingInstanceBuffer = sceneResources.Instances,
+                .AnalyticLightBuffer = sceneResources.AnalyticLights,
                 .CurrentInverseViewProjection = glm::inverse(
                     world.Camera.ViewProjection),
                 .PreviousViewProjection = world.Camera.PreviousViewProjection,
@@ -5718,6 +6722,7 @@ namespace
         }
 
         renderDevice.WaitForIdle();
+        pathTracer.Collect(frame.SubmissionInstance); // Submission alone is not completed spp.
         referenceReadback.Drain(std::numeric_limits<uint64_t>::max());
         const HEngine::TextureReadbackResult referenceCaptureResult =
             referenceReadback.GetResult(referenceCapture);
@@ -5804,8 +6809,590 @@ namespace
                   << referencePfmPath.generic_string() << '\n';
         referenceReadback.Release(referenceCapture);
 #endif
-        RunRealtimeRtgiSmoke(window, renderDevice, scene, world);
-        RunImportedCornellSmoke(renderDevice);
+        RunRealtimeRtgiSmoke(window, renderDevice, scene, world, bRunLegacyReferenceContracts);
+        if (bRunLegacyReferenceContracts) RunImportedCornellSmoke(renderDevice);
+    }
+    struct EarlyVfxSetupData
+    {
+        HEngine::TextureHandle SceneColor;
+        HEngine::TextureHandle SceneDepth;
+    };
+
+    struct EarlyVfxConsumeData
+    {
+        HEngine::TextureHandle SceneColor;
+    };
+
+    [[nodiscard]] HEngine::RenderGraphTextureDesc MakeEarlyVfxTextureDesc(
+        const char* debugName,
+        nvrhi::Format format)
+    {
+        HEngine::RenderGraphTextureDesc desc;
+        desc.DebugName = debugName;
+        desc.Width = c_InitialWidth;
+        desc.Height = c_InitialHeight;
+        desc.Format = format;
+        desc.Dimension = nvrhi::TextureDimension::Texture2D;
+        desc.bUseClearValue = true;
+        desc.ClearValue = format == nvrhi::Format::D32
+            ? nvrhi::Color(1.0f, 0.0f, 0.0f, 0.0f)
+            : nvrhi::Color(0.025f, 0.04f, 0.08f, 1.0f);
+        return desc;
+    }
+
+    class EarlyVfxGraph final
+    {
+    public:
+        EarlyVfxGraph(
+            nvrhi::IDevice* device,
+            uint32_t framesInFlight,
+            const std::filesystem::path& shaderCacheDirectory)
+            : mResourcePool(device, framesInFlight)
+            , mVfxPass({
+                .Device = device,
+                .ShaderCacheDirectory = shaderCacheDirectory,
+            })
+        {
+            mGraph.Resize(c_InitialWidth, c_InitialHeight);
+            mGraph.AddPass<EarlyVfxSetupData>(
+                "VFXSmokeSceneSetup",
+                [this](HEngine::RenderGraphBuilder& builder, EarlyVfxSetupData& data)
+                {
+                    data.SceneColor = builder.CreateTexture(MakeEarlyVfxTextureDesc(
+                        "VFX Smoke HDR Scene Color",
+                        nvrhi::Format::RGBA16_FLOAT));
+                    data.SceneDepth = builder.CreateTexture(MakeEarlyVfxTextureDesc(
+                        "VFX Smoke Shader-Readable Depth",
+                        nvrhi::Format::D32));
+                    data.SceneColor = builder.RenderTarget(data.SceneColor);
+                    data.SceneDepth = builder.DepthWrite(data.SceneDepth);
+                    mSceneColor = data.SceneColor;
+                    mSceneDepth = data.SceneDepth;
+                },
+                [](HEngine::RenderGraphContext& context, const EarlyVfxSetupData& data)
+                {
+                    context.GetCommandList()->clearTextureFloat(
+                        context.GetTexture(data.SceneColor, HEngine::RenderGraphAccess::Write),
+                        nvrhi::AllSubresources,
+                        nvrhi::Color(0.025f, 0.04f, 0.08f, 1.f));
+                    context.GetCommandList()->clearDepthStencilTexture(
+                        context.GetTexture(data.SceneDepth, HEngine::RenderGraphAccess::Write),
+                        nvrhi::AllSubresources,
+                        true,
+                        1.0f,
+                        false,
+                        0);
+                });
+
+            // Keep both optional resource paths active while the regression
+            // effect records real CPU-sprite draws through the native bridge.
+            const glm::vec3 cameraPosition(0.0f, 0.0f, 5.0f);
+            const glm::mat4 view = glm::lookAt(
+                cameraPosition,
+                glm::vec3(0.0f),
+                glm::vec3(0.0f, 1.0f, 0.0f));
+            const glm::mat4 projection = glm::perspective(
+                glm::radians(60.0f),
+                static_cast<float>(c_InitialWidth) / static_cast<float>(c_InitialHeight),
+                0.1f,
+                1000.0f);
+            const HEngine::EffekseerRenderGraphPassResult vfxResult = mVfxPass.AddToGraph(
+                mGraph,
+                HEngine::EffekseerRenderGraphInputs{
+                    .SceneColor = mSceneColor,
+                    .SceneDepth = mSceneDepth,
+                    .Width = c_InitialWidth,
+                    .Height = c_InitialHeight,
+                    .View = view,
+                    .Projection = projection,
+                    .CameraPosition = cameraPosition,
+                    .ZNear = 0.1f,
+                    .ZFar = 1000.0f,
+                },
+                HEngine::VFXRenderRequirements{
+                    .bHasActiveEffects = true,
+                    .bRequiresDepthSnapshot = true,
+                    .bRequiresBackgroundSnapshot = true,
+                },
+                true);
+            if (!vfxResult.bAdded || !vfxResult.bDepthSnapshotAdded ||
+                !vfxResult.bBackgroundCopyAdded)
+            {
+                throw std::runtime_error(
+                    "Effekseer graph smoke did not declare every required optional resource path");
+            }
+
+            mGraph.AddPass<EarlyVfxConsumeData>(
+                "VFXSmokeConsume",
+                [this](HEngine::RenderGraphBuilder& builder, EarlyVfxConsumeData& data)
+                {
+                    data.SceneColor = builder.ShaderResource(mSceneColor);
+                    builder.SetSideEffect();
+                },
+                [](HEngine::RenderGraphContext& context, const EarlyVfxConsumeData& data)
+                {
+                    (void)context.GetTexture(data.SceneColor, HEngine::RenderGraphAccess::Read);
+                });
+
+            mGraph.CompileOrThrow();
+            const std::vector<std::string> expectedPasses = {
+                "VFXSmokeSceneSetup",
+                "VFXDepthSnapshot",
+                "VFXBackgroundCopy",
+                "VFXTransparent",
+                "VFXSmokeConsume",
+            };
+            if (mGraph.GetCompiledPassNames() != expectedPasses)
+                throw std::runtime_error("Effekseer graph smoke compiled an unexpected pass order");
+        }
+
+        void RecordFrame(const HEngine::FrameContext& frame)
+        {
+            mResourcePool.Collect(frame.CompletedSubmissionInstance);
+            mResourcePool.BeginFrame(frame.FrameIndex, frame.CompletedSubmissionInstance);
+            try
+            {
+                mGraph.Execute(HEngine::RenderGraphExecutionParams{
+                    .CommandList = frame.GraphicsCommandList,
+                    .ResourcePool = &mResourcePool,
+                    .FrameSlot = frame.FrameIndex,
+                });
+            }
+            catch (...)
+            {
+                mResourcePool.AbortFrame(frame.FrameIndex);
+                throw;
+            }
+        }
+
+        void NotifySubmitted(uint32_t frameSlot, uint64_t submission)
+        {
+            mResourcePool.EndFrame(frameSlot, submission);
+        }
+
+        void AbortFrame(uint32_t frameSlot) noexcept
+        {
+            mResourcePool.AbortFrame(frameSlot);
+        }
+
+    private:
+        HEngine::RenderGraphResourcePool mResourcePool;
+        HEngine::RenderGraph mGraph;
+        HEngine::EffekseerRenderGraphPass mVfxPass;
+        HEngine::TextureHandle mSceneColor;
+        HEngine::TextureHandle mSceneDepth;
+    };
+
+}
+
+namespace
+{
+    void RunEarlyVfxSmoke(HEngine::Window& window, HEngine::RenderDevice& device,
+        const HEngine::EffekseerRuntimeDesc& runtimeDesc)
+    {
+        using Runtime = HEngine::EffekseerRuntime;
+        const auto require = [](bool condition, const char* label) {
+            if (!condition) throw std::runtime_error(std::string("EARLY_VFX_FAIL: ") + label);
+            std::cout << "EARLY_VFX_CHECK_PASS: " << label << '\n';
+        };
+        const auto evidence = [](const char* stage) {
+            const auto s = Runtime::GetStats();
+            std::cout << "EARLY_VFX_STATS: stage=" << stage << " updates=" << s.UpdateSerial
+                << " recordSerial=" << s.RecordingSerial << " dispatch=" << s.TotalRecordedDispatchCount
+                << " draw=" << s.TotalRecordedDrawCount << " simulationMs=" << s.GpuSimulationMs.Current
+                << " simulationSubmission=" << s.LastGpuSimulationSubmission
+                << " renderMs=" << s.GpuRenderMs.Current << " renderSubmission=" << s.LastGpuRenderSubmission
+                << " slotFailures=" << s.GpuEmitterSlotFailures << " particleFailures=" << s.GpuParticleBlockFailures
+                << " trailFailures=" << s.GpuTrailBlockFailures << " emitters=" << s.GpuAllocatedEmitters
+                << " reservedParticles=" << s.GpuReservedParticles << " reservedTrails=" << s.GpuReservedTrails << '\n';
+        };
+        require(Runtime::IsGpuParticlesEnabled(), "GPU explicitly enabled (requires HE_VFX_GPU_PARTICLES=1)");
+        require(Runtime::GetStats().bDetailedStatsEnabled, "GPU timing instrumentation enabled");
+        const char* configuredEffect = std::getenv("HE_VFX_EARLY_SMOKE_EFFECT");
+        const std::string effect = configuredEffect && *configuredEffect ? configuredEffect :
+            "Assets/Effects/Stress/GpuSparks20k.efkpkg";
+        auto firstView = std::make_unique<EarlyVfxGraph>(device.GetDevice(), runtimeDesc.FramesInFlight,
+            HEngine::ConfigManager::GetEngineGeneratedContentFullPath("Shaders/CACHES/DXIL"));
+        auto secondView = std::make_unique<EarlyVfxGraph>(device.GetDevice(), runtimeDesc.FramesInFlight,
+            HEngine::ConfigManager::GetEngineGeneratedContentFullPath("Shaders/CACHES/DXIL"));
+        struct ProbeRetirementScope
+        {
+            HEngine::RenderDevice& Device;
+            ~ProbeRetirementScope() { try { Device.WaitForIdle(); } catch (...) {} }
+        } retirement{device};
+        HEngine::Level noCameraLevel;
+        noCameraLevel.SetRuntimePaused(false);
+        HEngine::RenderSystem3D noCameraRenderer(&noCameraLevel);
+        const auto update = [&] {
+            // Level normally owns this submission scope. Even without a camera,
+            // RenderSystem drains the current primitive snapshot before returning.
+            HEngine::RenderPrimitiveCollector collector;
+            collector.BeginFrame();
+            HEngine::Renderer2D::CollectorScope collectorScope(collector);
+            try
+            {
+                noCameraRenderer.OnUpdateRuntime(HEngine::Timestep(1.0f / 60.0f));
+                collector.EndFrame();
+            }
+            catch (...)
+            {
+                collector.CancelFrame();
+                throw;
+            }
+        };
+        const auto checkAllocations = [&] {
+            const auto s = Runtime::GetStats();
+            require(s.GpuEmitterSlotFailures == 0 && s.GpuParticleBlockFailures == 0 && s.GpuTrailBlockFailures == 0,
+                "no GPU emitter allocation failures");
+        };
+        device.SetSubmissionTimingEnabled(true);
+        nvrhi::BufferHandle abortedVolatileBuffer;
+        if (device.GetBackend() == HEngine::RenderBackend::Vulkan)
+        {
+            nvrhi::BufferDesc desc;
+            desc.byteSize = 16;
+            desc.isConstantBuffer = true;
+            desc.isVolatile = true;
+            desc.maxVersions = 1;
+            desc.debugName = "EarlyVfxAbortSharedVolatile";
+            abortedVolatileBuffer = device.GetDevice()->createBuffer(desc);
+            require(abortedVolatileBuffer != nullptr, "shared one-version Vulkan abort buffer created");
+        }
+        uint64_t probeCpuFrame = 0;
+        std::vector<uint64_t> abortedTimingSamples;
+        uint64_t exceptionTimingSample = 0;
+        bool exceptionHostAborted = false;
+        const auto frame = [&](const std::function<void()>& action, bool views, bool abort) {
+            window.OnUpdate();
+            device.BeginGpuTimingFrame(++probeCpuFrame);
+            struct TimingCancellationScope
+            {
+                HEngine::RenderDevice& Device;
+                ~TimingCancellationScope() { Device.CancelGpuTimingFrame(); }
+            } timingCancellation{device};
+            auto& host = device.BeginFrame();
+            bool firstRecorded = false, secondRecorded = false;
+            bool bHostAborted = false;
+            try
+            {
+                Runtime::BeginHostFrame(host.FrameIndex, host.CompletedSubmissionInstance, host.GraphicsCommandList);
+                auto& swap = device.GetSwapChain();
+                host.GraphicsCommandList->clearTextureFloat(swap.GetCurrentBackBuffer(), nvrhi::AllSubresources,
+                    nvrhi::Color(0.02f, 0.03f, 0.05f, 1.0f));
+                if (abort && abortedVolatileBuffer)
+                {
+                    const std::array<uint32_t, 4> marker{static_cast<uint32_t>(probeCpuFrame), 0, 0, 0};
+                    host.GraphicsCommandList->writeBuffer(abortedVolatileBuffer, marker.data(), sizeof(marker));
+                    // A leaked pending version makes the second write emit an
+                    // NVRHI error. Run validation must remain clean; no old work
+                    // is submitted to free this sole shared version artificially.
+                    std::cout << "EARLY_VFX_ABORT_VOLATILE_WRITE: frame=" << probeCpuFrame
+                        << " maxVersions=1 (requires zero NVRHI validation errors)\n";
+                }
+                action();
+                if (views)
+                {
+                    const auto before = Runtime::GetStats();
+                    firstView->RecordFrame(host); firstRecorded = true;
+                    const auto middle = Runtime::GetStats();
+                    secondView->RecordFrame(host); secondRecorded = true;
+                    const auto after = Runtime::GetStats();
+                    require(middle.TotalRecordedDrawCount > before.TotalRecordedDrawCount &&
+                        after.TotalRecordedDrawCount > middle.TotalRecordedDrawCount, "two independent VFX view graphs record actual draws");
+                    require(after.UpdateSerial == before.UpdateSerial &&
+                        middle.TotalRecordedDispatchCount == before.TotalRecordedDispatchCount &&
+                        after.TotalRecordedDispatchCount == before.TotalRecordedDispatchCount,
+                        "two views do not repeat simulation");
+                }
+                if (abort)
+                {
+                    require(host.TimingSampleId != 0 && host.FullFrameTimer != nullptr,
+                        "aborted frame has a real submitted timing begin marker");
+                    abortedTimingSamples.push_back(host.TimingSampleId);
+                    bHostAborted = true;
+                    Runtime::AbortHostFrame(host.FrameIndex);
+                    if (firstRecorded) firstView->AbortFrame(host.FrameIndex);
+                    if (secondRecorded) secondView->AbortFrame(host.FrameIndex);
+                    device.AbortFrame(host);
+                    // Vulkan may submit an empty acquire-semaphore drain. It
+                    // must never publish the abandoned SDK work as submitted.
+                    require(Runtime::GetRenderBackendStatus() == HEngine::VFXRenderBackendStatus::Unconfigured,
+                        "aborted simulation remains unconfigured after optional synchronization drain");
+                    require(!host.bFullFrameTimerEnded, "aborted frame does not complete its GPU timer");
+                }
+                else
+                {
+                    device.SubmitAndPresent(host, false);
+                    Runtime::NotifyHostFrameSubmitted(host.FrameIndex, host.SubmissionInstance);
+                    if (firstRecorded) firstView->NotifySubmitted(host.FrameIndex, host.SubmissionInstance);
+                    if (secondRecorded) secondView->NotifySubmitted(host.FrameIndex, host.SubmissionInstance);
+                }
+            }
+            catch (...)
+            {
+                if (!bHostAborted && host.bSubmissionIssued)
+                {
+                    Runtime::NotifyHostFrameSubmitted(host.FrameIndex, host.SubmissionInstance);
+                    if (firstRecorded) firstView->NotifySubmitted(host.FrameIndex, host.SubmissionInstance);
+                    if (secondRecorded) secondView->NotifySubmitted(host.FrameIndex, host.SubmissionInstance);
+                }
+                else if (!bHostAborted)
+                {
+                    exceptionTimingSample = host.TimingSampleId;
+                    bHostAborted = true;
+                    Runtime::AbortHostFrame(host.FrameIndex);
+                    if (firstRecorded) firstView->AbortFrame(host.FrameIndex);
+                    if (secondRecorded) secondView->AbortFrame(host.FrameIndex);
+                    device.AbortFrame(host);
+                    exceptionHostAborted = !host.bFullFrameTimerEnded &&
+                        Runtime::GetRenderBackendStatus() == HEngine::VFXRenderBackendStatus::Unconfigured;
+                }
+                throw;
+            }
+        };
+        const auto retire = [&] {
+            for (uint32_t i = 0; i < runtimeDesc.FramesInFlight + 2; ++i) frame([] {}, false, false);
+            device.WaitForIdle();
+        };
+        const char* injectUploadFailure = std::getenv("HE_VFX_EARLY_SMOKE_INJECT_UPLOAD_FAILURE");
+        const bool bInjectUploadFailure = injectUploadFailure && std::string_view(injectUploadFailure) == "1";
+        if (bInjectUploadFailure)
+        {
+            // Do not rely on a GPU owner node also having a CPU renderer. This
+            // fixture guarantees the nonempty StandardRenderer upload path.
+            constexpr const char* cpuEffect = "Assets/Effects/AuthoringPathValidation/CpuSpriteControl.efkpkg";
+            require(Runtime::PlayEffect(effect, glm::vec3(0.0f)) >= 0 &&
+                Runtime::PlayEffect(cpuEffect, glm::vec3(0.0f)) >= 0,
+                "upload failure fixtures load before the injected rendering failure");
+            bool caughtSentinel = false;
+            const auto beforeFault = Runtime::GetStats();
+            try
+            {
+                frame([&] { for (int i = 0; i < 4; ++i) update(); }, true, false);
+            }
+            catch (const std::runtime_error& error)
+            {
+                if (std::string_view(error.what()) != "HE_VFX_EARLY_UPLOAD_FAILURE") throw;
+                caughtSentinel = true;
+            }
+            require(caughtSentinel, "exact one-shot post-upload sentinel observed (not a load rejection)");
+            require(exceptionHostAborted && exceptionTimingSample != 0,
+                "exception abort invalidates SDK/backend recording and leaves full-frame timer incomplete");
+            require(Runtime::GetStats().TotalRecordedDispatchCount > beforeFault.TotalRecordedDispatchCount,
+                "exception abandons a host frame containing actual GPU simulation recordings");
+            const auto faultSerial = Runtime::GetStats().UpdateSerial;
+            bool rejected = false;
+            frame([&] {
+                try { update(); } catch (const std::logic_error&) { rejected = true; }
+            }, false, false);
+            require(rejected && Runtime::GetStats().UpdateSerial == faultSerial,
+                "post-upload-failure update rejects before advancing simulation");
+            device.WaitForIdle();
+            checkAllocations();
+            evidence("upload-failure-retired-before-reinitialize");
+            const auto timings = device.TakeSubmissionTimings();
+            const auto faultTiming = std::find_if(timings.begin(), timings.end(),
+                [&](const auto& value) { return value.SampleId == exceptionTimingSample; });
+            require(faultTiming != timings.end() && faultTiming->Status == HEngine::RenderSubmissionTimingStatus::Aborted &&
+                faultTiming->BeginSubmissionId != 0 && faultTiming->MarkerSubmissionCount == 1,
+                "post-upload-failure real full-frame timing retires as Aborted");
+            std::cout << "EARLY_VFX_UPLOAD_FAILURE_TIMING: sample=" << faultTiming->SampleId
+                << " beginSubmission=" << faultTiming->BeginSubmissionId << " endSubmission=" << faultTiming->EndSubmissionId
+                << " status=Aborted milliseconds=INVALID\n";
+            Runtime::Shutdown();
+            Runtime::Initialize(runtimeDesc);
+            require(Runtime::IsGpuParticlesEnabled(), "post-upload-failure reinitialize restores GPU capability");
+            require(Runtime::PlayEffect(cpuEffect, glm::vec3(0.0f)) >= 0,
+                "post-upload-failure CPU fixture restarts for real upload and draw recovery");
+            const auto cpuRecovery = Runtime::GetStats();
+            frame([&] { for (int i = 0; i < 4; ++i) update(); }, true, false);
+            retire();
+            require(Runtime::GetStats().TotalRecordedDrawCount > cpuRecovery.TotalRecordedDrawCount &&
+                Runtime::GetStats().GpuRenderMs.Current > 0,
+                "CPU-only fixture uploads and actually draws after exception reinitialize");
+            // The original full early sequence below remains unchanged. Its
+            // view draws now also exercise CPU upload after the consumed fault.
+        }
+        auto handle = Runtime::PlayEffect(effect, glm::vec3(0.0f));
+        require(handle >= 0, "GPU effect starts");
+        const auto initial = Runtime::GetStats();
+        frame([&] {
+            update();
+            auto first = Runtime::GetStats();
+            require(first.UpdateSerial == initial.UpdateSerial + 1 && first.TotalRecordedDispatchCount > initial.TotalRecordedDispatchCount,
+                "no-camera update records compute before any view");
+            require(Runtime::SetEffectTransform(handle, {1,0,0}, {0,0,1}), "intermediate transform accepted");
+            update();
+            const auto second = Runtime::GetStats();
+            require(second.TotalRecordedDispatchCount > first.TotalRecordedDispatchCount, "second same-host update records distinct compute");
+            require(Runtime::SetEffectPaused(handle, true), "intermediate pause accepted");
+            update();
+            require(Runtime::GetEffectStatus(handle).at("paused").get<bool>(), "paused state survives update");
+            require(Runtime::SetEffectPaused(handle, false) && Runtime::SetEffectSpeed(handle, 0.5f), "resume and half-speed accepted");
+            update();
+            require(Runtime::SetEffectSpeed(handle, 1.0f), "normal speed restored");
+            const auto end = Runtime::GetStats();
+            require(end.UpdateSerial == initial.UpdateSerial + 4 && end.RecordingSerial == initial.RecordingSerial + 4,
+                "four same-host updates produce four independent compute recordings");
+            require(end.TotalRecordedDrawCount == initial.TotalRecordedDrawCount, "simulation submits without VFX draw");
+            checkAllocations(); evidence("same-host-no-camera");
+        }, false, false);
+        frame(update, true, false);
+        retire();
+        auto timed = Runtime::GetStats();
+        evidence("retired-before-abort");
+        require(timed.GpuSimulationMs.SampleCount > 0 && timed.GpuSimulationMs.Current > 0 && timed.LastGpuSimulationSubmission != 0,
+            "submitted simulation has completed positive GPU timer");
+        require(timed.GpuRenderMs.SampleCount > 0 && timed.GpuRenderMs.Current > 0 && timed.LastGpuRenderSubmission != 0,
+            "submitted views have completed positive GPU timer");
+        frame(update, false, true);
+        require(Runtime::GetRenderBackendStatus() == HEngine::VFXRenderBackendStatus::Unconfigured, "abort invalidates advanced simulation");
+        const auto abortedSerial = Runtime::GetStats().UpdateSerial;
+        frame([&] {
+            bool rejected = false;
+            try { update(); } catch (const std::logic_error&) { rejected = true; }
+            require(rejected && Runtime::GetStats().UpdateSerial == abortedSerial,
+                "post-abort update rejected before CPU simulation advances");
+        }, false, true);
+        device.WaitForIdle();
+        checkAllocations();
+        evidence("aborted-before-reinitialize");
+        const auto submissionTimings = device.TakeSubmissionTimings();
+        for (const auto sampleId : abortedTimingSamples)
+        {
+            const auto sample = std::find_if(submissionTimings.begin(), submissionTimings.end(),
+                [sampleId](const auto& value) { return value.SampleId == sampleId; });
+            require(sample != submissionTimings.end() &&
+                sample->Status == HEngine::RenderSubmissionTimingStatus::Aborted &&
+                sample->BeginSubmissionId != 0 && sample->MarkerSubmissionCount == 1,
+                "actual aborted full-frame timing sample retires without becoming Complete");
+            std::cout << "EARLY_VFX_ABORT_TIMING: sample=" << sample->SampleId
+                << " cpuFrame=" << sample->CpuFrameId << " beginSubmission=" << sample->BeginSubmissionId
+                << " endSubmission=" << sample->EndSubmissionId
+                << " status=Aborted milliseconds=INVALID\n";
+        }
+        require(abortedTimingSamples.size() == 2, "both aborted host frames have retired timing evidence");
+        Runtime::Shutdown();
+        Runtime::Initialize(runtimeDesc);
+        require(Runtime::IsGpuParticlesEnabled(), "same-process reinitialize restores GPU capability");
+        const auto reinitialized = Runtime::GetStats();
+        handle = Runtime::PlayEffect(effect, glm::vec3(0.0f));
+        require(handle >= 0, "reinitialized GPU effect starts");
+        frame(update, true, false);
+        retire();
+        const auto restored = Runtime::GetStats();
+        evidence("reinitialized");
+        require(restored.TotalRecordedDispatchCount > reinitialized.TotalRecordedDispatchCount &&
+            restored.GpuSimulationMs.Current > 0 && restored.LastGpuSimulationSubmission > reinitialized.LastGpuSimulationSubmission,
+            "reinitialized GPU simulation executes and retires");
+        Runtime::StopAllEffects();
+        for (uint32_t i = 0; i < runtimeDesc.FramesInFlight + 2; ++i) frame(update, false, false);
+        retire();
+        checkAllocations();
+        const auto stopped = Runtime::GetStats();
+        evidence("stopped");
+        require(stopped.GpuAllocatedEmitters == 0 && stopped.GpuReservedParticles == 0 && stopped.GpuReservedTrails == 0,
+            "stopped CPU allocator ownership returns to zero");
+        using Quality = HEngine::VFXQualityTier;
+        const auto requirePolicy = [&](Quality quality, bool requested, bool enabled) {
+            const auto gpu = Runtime::Describe().at("gpu");
+            require(Runtime::GetQualityTier() == quality && gpu.at("requested").get<bool>() == requested &&
+                gpu.at("enabled").get<bool>() == enabled && Runtime::IsGpuParticlesEnabled() == enabled,
+                "quality, explicit request and actual GPU policy match");
+        };
+        const auto cleanPolicyEffects = [&] {
+            Runtime::StopAllEffects();
+            for (uint32_t i = 0; i < runtimeDesc.FramesInFlight + 2; ++i) frame(update, false, false);
+            retire();
+            checkAllocations();
+            const auto stats = Runtime::GetStats();
+            require(!Runtime::HasActiveEffects() && stats.ActiveCpuInstances.Current == 0 &&
+                stats.GpuAllocatedEmitters == 0 && stats.GpuReservedParticles == 0 && stats.GpuReservedTrails == 0,
+                "quality probe effects and allocator ownership retire to clean baseline");
+        };
+        const auto provePolicyGpuWork = [&](const char* stage) {
+            require(Runtime::PlayEffect(effect, glm::vec3(0.0f)) >= 0, "quality probe GPU effect starts");
+            const auto before = Runtime::GetStats();
+            frame([&] { for (int i = 0; i < 4; ++i) update(); }, true, false);
+            retire();
+            const auto after = Runtime::GetStats();
+            require(after.TotalRecordedDispatchCount > before.TotalRecordedDispatchCount &&
+                after.TotalRecordedDrawCount > before.TotalRecordedDrawCount &&
+                after.GpuSimulationMs.Current > 0 && after.GpuRenderMs.Current > 0 &&
+                after.LastGpuSimulationSubmission > before.LastGpuSimulationSubmission &&
+                after.LastGpuRenderSubmission > before.LastGpuRenderSubmission,
+                "quality selection produces fresh real dispatch, draws and completed positive GPU timers");
+            evidence(stage);
+            cleanPolicyEffects();
+        };
+        Runtime::SetQualityTier(Quality::High);
+        requirePolicy(Quality::High, true, true);
+        provePolicyGpuWork("policy-initial-high");
+        Runtime::SetQualityTier(Quality::Low);
+        requirePolicy(Quality::Low, true, false);
+        Runtime::SetQualityTier(Quality::Medium);
+        requirePolicy(Quality::Medium, true, true);
+        provePolicyGpuWork("policy-low-to-medium");
+        Runtime::SetQualityTier(Quality::High);
+        requirePolicy(Quality::High, true, true);
+        provePolicyGpuWork("policy-medium-to-high");
+
+        // Capacity changes and disabling a live system must leave all policy
+        // fields untouched, both with live effects and with an open host frame.
+        require(Runtime::PlayEffect(effect, glm::vec3(0.0f)) >= 0, "active policy rejection fixture starts");
+        Runtime::SetQualityTier(Quality::Medium);
+        requirePolicy(Quality::High, true, true);
+        Runtime::SetQualityTier(Quality::Low);
+        requirePolicy(Quality::High, true, true);
+        require(!Runtime::SetGpuParticlesEnabled(false), "active effect rejects explicit GPU disable");
+        requirePolicy(Quality::High, true, true);
+        frame(update, true, false);
+        cleanPolicyEffects();
+        frame([&] {
+            Runtime::SetQualityTier(Quality::Medium);
+            requirePolicy(Quality::High, true, true);
+            Runtime::SetQualityTier(Quality::Low);
+            requirePolicy(Quality::High, true, true);
+            require(!Runtime::SetGpuParticlesEnabled(false), "open host frame rejects explicit GPU disable");
+            requirePolicy(Quality::High, true, true);
+        }, false, false);
+        retire();
+
+        require(Runtime::SetGpuParticlesEnabled(false), "quiescent explicit GPU disable accepted");
+        for (const auto quality : {Quality::Low, Quality::Medium, Quality::High})
+        {
+            Runtime::SetQualityTier(quality);
+            requirePolicy(quality, false, false);
+        }
+        require(Runtime::PlayEffect("Assets/Effects/AuthoringPathValidation/CpuSpriteControl.efkpkg",
+            glm::vec3(0.0f)) >= 0, "disabled policy CPU fixture starts");
+        require(!Runtime::SetGpuParticlesEnabled(true), "active CPU effect rejects GPU enable");
+        requirePolicy(Quality::High, false, false);
+        frame(update, true, false);
+        cleanPolicyEffects();
+        frame([&] {
+            require(!Runtime::SetGpuParticlesEnabled(true), "open host frame rejects GPU enable");
+            requirePolicy(Quality::High, false, false);
+        }, false, false);
+        retire();
+        Runtime::SetQualityTier(Quality::Low);
+        requirePolicy(Quality::Low, false, false);
+        require(Runtime::SetGpuParticlesEnabled(true), "Low accepts explicit GPU enable request");
+        requirePolicy(Quality::Low, true, false);
+        Runtime::SetQualityTier(Quality::Medium);
+        requirePolicy(Quality::Medium, true, true);
+        provePolicyGpuWork("policy-low-request-to-medium");
+        Runtime::SetQualityTier(Quality::High);
+        requirePolicy(Quality::High, true, true);
+        provePolicyGpuWork("policy-restored-high");
+        std::cout << "EARLY_VFX_QUALITY_POLICY_PASS: high-low-medium-high,explicit-disable,low-request,active-and-host-rejection,real-gpu-work,clean-baseline\n";
+        device.SetSubmissionTimingEnabled(false);
+        if (bInjectUploadFailure)
+            std::cout << "EARLY_VFX_UPLOAD_FAILURE_RECOVERY_PASS: exact-sentinel,abort,retired-timing,reinitialize,draw,allocator-retirement"
+                << " REQUIRES_EXTERNAL_CHECK=zero-native-validation-errors\n";
+        std::cout << "EARLY_VFX_SMOKE_PASS: backend=" << HEngine::ToString(device.GetBackend())
+            << " coverage=multi-update,no-camera,no-draw,two-view,abort,reinitialize"
+            << " NOT_VERIFIED=particle-state-readback,visual,resize,scene-switch,device-recreation\n";
     }
 }
 
@@ -5861,26 +7448,129 @@ int main()
         const char* heapDirect = std::getenv("HE_DX12_SCENE_SMOKE_HEAP_DIRECT");
         const bool bHeapDirect = heapDirect != nullptr &&
             std::string_view(heapDirect) == "1";
+        const char* earlyProbe = std::getenv("HE_VFX_EARLY_SMOKE");
+        const bool bEarlyVfxProbe = earlyProbe && std::string_view(earlyProbe) == "1";
+        const char* materialProbe = std::getenv("HE_MATERIAL_SAMPLING_SMOKE");
+        const bool bMaterialSamplingProbe = materialProbe && std::string_view(materialProbe) == "1";
+        const char* depthShadowProbe = std::getenv("HE_MATERIAL_DEPTH_SHADOW_SMOKE");
+        const bool bDepthShadowProbe = depthShadowProbe && std::string_view(depthShadowProbe) == "1";
+        if (int(bMaterialSamplingProbe) + int(bEarlyVfxProbe) + int(bDepthShadowProbe) > 1)
+            throw std::invalid_argument("Material sampling, depth/shadow and early VFX smoke selectors conflict");
+        auto backend = HEngine::RenderBackend::DX12;
+        const auto parseBackend = [](const char* value, const char* name)
+        {
+            if (std::string_view(value) == "DX12") return HEngine::RenderBackend::DX12;
+            if (std::string_view(value) == "Vulkan") return HEngine::RenderBackend::Vulkan;
+            throw std::invalid_argument(std::string(name) + " must be DX12 or Vulkan");
+        };
+        const char* sceneBackend = std::getenv("HE_SCENE_SMOKE_BACKEND");
+        if (sceneBackend) backend = parseBackend(sceneBackend, "HE_SCENE_SMOKE_BACKEND");
+#if !HE_WITH_OFFLINE_REFERENCE_RENDERER_SMOKE
+        if (bMaterialSamplingProbe)
+            throw std::runtime_error("Material sampling smoke requires the linked offline-reference-renderer plugin");
+        if (const char* pbr = std::getenv("HE_PBRTEST_PT_SMOKE"); pbr && std::string_view(pbr) == "1")
+            throw std::runtime_error("PBR reference smoke requires the linked offline-reference-renderer plugin");
+#endif
+        if (bEarlyVfxProbe)
+        {
+            std::cout << std::unitbuf;
+            const char* requestedBackend = std::getenv("HE_VFX_EARLY_SMOKE_BACKEND");
+            if (requestedBackend)
+            {
+                const auto earlyBackend = parseBackend(requestedBackend, "HE_VFX_EARLY_SMOKE_BACKEND");
+                if (sceneBackend && earlyBackend != backend)
+                    throw std::invalid_argument("Scene and early VFX smoke backend selectors conflict");
+                backend = earlyBackend;
+            }
+        }
         if (!bEnableValidation)
         {
             HE_CORE_WARN(
                 "DX12 scene smoke validation layer explicitly disabled; runtime coverage remains active");
         }
         renderDevice.Initialize(
-            HEngine::RenderBackend::DX12,
+            backend,
             *renderSurface,
             bEnableValidation);
+        if (renderDevice.GetBackend() != backend)
+            throw std::runtime_error("Scene smoke backend differs from requested backend");
         moduleManager.StartPluginsThroughPhase(
             HEngine::PluginLoadPhase::PostDevice);
         moduleManager.StartPluginsThroughPhase(
             HEngine::PluginLoadPhase::PostEngine);
-        HEngine::EffekseerRuntime::Initialize({
+        const HEngine::EffekseerRuntimeDesc vfxRuntimeDesc{
             .Device = renderDevice.GetDevice(),
             .ColorFormat = nvrhi::Format::RGBA16_FLOAT,
             .DepthFormat = nvrhi::Format::D32,
             .FramesInFlight = renderDevice.GetCapabilities().FramesInFlight,
             .bReversedDepth = false,
-        });
+        };
+        HEngine::EffekseerRuntime::Initialize(vfxRuntimeDesc);
+        if (bEarlyVfxProbe)
+        {
+            RunEarlyVfxSmoke(*window, renderDevice, vfxRuntimeDesc);
+            renderDevice.WaitForIdle();
+            HEngine::EffekseerRuntime::Shutdown();
+            renderDevice.Shutdown();
+            moduleManager.StopPlugins();
+            window.reset();
+            return 0;
+        }
+        if (bDepthShadowProbe)
+        {
+            RunMaterialDepthShadowSmoke(renderDevice);
+            renderDevice.WaitForIdle();
+            HEngine::EffekseerRuntime::Shutdown();
+            renderDevice.Shutdown();
+            moduleManager.StopPlugins();
+            window.reset();
+            return 0;
+        }
+#if HE_WITH_OFFLINE_REFERENCE_RENDERER_SMOKE
+        if (bMaterialSamplingProbe)
+        {
+            RunMaterialSamplingSmoke(renderDevice);
+            renderDevice.WaitForIdle();
+            HEngine::EffekseerRuntime::Shutdown();
+            renderDevice.Shutdown();
+            moduleManager.StopPlugins();
+            window.reset();
+            return 0;
+        }
+        if (const char* pbr = std::getenv("HE_PBRTEST_PT_SMOKE"); pbr && std::string_view(pbr) == "1")
+        {
+            RunPbrTestPathTracingSmoke(renderDevice);
+            renderDevice.WaitForIdle();
+            HEngine::EffekseerRuntime::Shutdown();
+            renderDevice.Shutdown();
+            moduleManager.StopPlugins();
+            window.reset();
+            return 0;
+        }
+        if (const char* progressive = std::getenv("HE_OFFLINE_PROGRESSIVE_SMOKE"); progressive && std::string_view(progressive) == "1")
+        {
+            RunOfflineProgressiveSmoke(renderDevice);
+            renderDevice.WaitForIdle();
+            HEngine::EffekseerRuntime::Shutdown();
+            renderDevice.Shutdown();
+            moduleManager.StopPlugins();
+            window.reset();
+            return 0;
+        }
+#endif
+        if (const char* sharedRt = std::getenv("HE_SHARED_RT_SCENE_SMOKE"); sharedRt && std::string_view(sharedRt) == "1")
+        {
+            RunHardwareRayTracingSmoke(*window, renderDevice, false);
+            auto cornell = BuildImportedCornellWorld();
+            RunImportedCornellSurfaceAovSmoke(renderDevice, cornell.World,
+                HEngine::ConfigManager::GetEngineGeneratedContentFullPath("Shaders/CACHES/DXIL"));
+            renderDevice.WaitForIdle();
+            HEngine::EffekseerRuntime::Shutdown();
+            renderDevice.Shutdown();
+            moduleManager.StopPlugins();
+            window.reset();
+            return 0;
+        }
         auto sceneRenderer = std::make_unique<HEngine::SceneRenderer>(HEngine::SceneRendererDesc{
             .Device = renderDevice.GetDevice(),
             .FramesInFlight = renderDevice.GetCapabilities().FramesInFlight,
@@ -5995,7 +7685,7 @@ int main()
             !stats.bOffscreenOutputRecorded ||
             !stats.bEnvironmentReady ||
             stats.EnvironmentPath != world.Environment.HdrTexturePath ||
-            stats.BindlessMaterialCount != 6 || stats.BindlessTextureCount != 4 ||
+            stats.BindlessMaterialCount != 6 || stats.BindlessTextureCount != 6 ||
             stats.GpuMaterialCount != 6 ||
             stats.CustomMaterialCpuFallbackDrawCount != 5 ||
             stats.MaterialProgramCount != 3 || stats.MaterialParameterRowCount != 22 ||
@@ -6008,7 +7698,7 @@ int main()
             stats.SkinnedDrawCount != 1 || stats.SkinnedBoneMatrixCount != 100 ||
             stats.SkinnedNonIdentityBoneMatrixCount != 1 ||
             stats.EditorOutlineDrawCount != 2 ||
-            stats.MaterialBindingSetCreationCount != 1 ||
+            stats.MaterialBindingSetCreationCount != 0 ||
             stats.Primitive2DCount != 3 || stats.Primitive2DBatchCount != 2 ||
             stats.Primitive2DVertexCount != 18 ||
             stats.CompiledPasses.size() != expectedPasses.size())
@@ -6177,6 +7867,7 @@ int main()
         if (hardwareRtSmoke != nullptr && std::string_view(hardwareRtSmoke) == "1")
             RunHardwareRayTracingSmoke(*window, renderDevice);
 
+        renderDevice.WaitForIdle();
         sceneRenderer.reset();
         HEngine::EffekseerRuntime::Shutdown();
         renderDevice.Shutdown();
@@ -6186,11 +7877,12 @@ int main()
     catch (const std::exception& exception)
     {
         std::cerr << "DX12_SCENE_SMOKE_FAIL: " << exception.what() << '\n';
-        HEngine::EffekseerRuntime::Shutdown();
         if (renderDevice.IsInitialized())
         {
             try
             {
+                renderDevice.WaitForIdle();
+                HEngine::EffekseerRuntime::Shutdown();
                 renderDevice.Shutdown();
             }
             catch (const std::exception& shutdownException)

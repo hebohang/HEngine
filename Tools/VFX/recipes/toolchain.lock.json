@@ -1,0 +1,10 @@
+{
+  "version": "1.80.6",
+  "commit": "93dd29c7b4e353fcef6186fe4ac74c9757243550",
+  "files": {
+    "Engine/Tools/Effekseer/bin/Effekseer.exe": "cc2ea1f64d86b203ee9924c72252421996a848d2416ebbf8432abe9e4f7e30c6",
+    "Engine/Tools/Effekseer/bin/EffekseerCore.dll": "d8de02503e9e847b673bcf5201ebc8c977a033ea3689a089ca611d980f90b264"
+  },
+  "gpu_source_sha256": "f4e94742a8c1b4dab03f4c427b07cb0a4a5650139b95f4fd6584e300326f79ce",
+  "gpu_xml_decoder": "Bundled Effekseer.IO.EfkEfcXml.Decompress on official sample EDIT chunk; no runtime binary patch"
+}

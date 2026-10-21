@@ -10,12 +10,38 @@
 #include "Runtime/Resource/ConfigManager/ConfigManager.h"
 #include "Runtime/Resource/ResType/BehaviorTreeRes.h"
 
+#include <algorithm>
+#include <cmath>
+
 namespace HEngine
 {
+    float AdvanceBehaviorTreeTickCadence(
+        float& accumulator, float fixedDt, float tickInterval) noexcept
+    {
+        if (!std::isfinite(fixedDt) || fixedDt <= 0.0f) return 0.0f;
+        if (!std::isfinite(tickInterval) || tickInterval <= fixedDt)
+        {
+            accumulator = 0.0f;
+            return fixedDt;
+        }
+        if (!std::isfinite(accumulator) || accumulator < 0.0f)
+            accumulator = 0.0f;
+        const double elapsed = static_cast<double>(accumulator) + fixedDt;
+        if (elapsed + 1e-7 * tickInterval < tickInterval)
+        {
+            accumulator = static_cast<float>(elapsed);
+            return 0.0f;
+        }
+        accumulator = static_cast<float>(std::max(0.0, elapsed - tickInterval));
+        return tickInterval;
+    }
+
     void BehaviorTreeSystem::OnRuntiemStart()
     {
         RegisterBuiltinBTNodes();
+#if HE_ENABLE_NAVIGATION
         NavigationService::Get().BuildNavMesh(mLevel);
+#endif
 
         auto view = mLevel->mRegistry.view<BehaviorTreeComponent>();
         for (auto e : view)
@@ -55,12 +81,10 @@ namespace HEngine
             if (!btComp.bEnabled || !btComp.mRootNode)
                 continue;
 
-            btComp.mTickTimer += dt;
-            if (btComp.mTickTimer < btComp.tickInterval)
+            const float actualDt = AdvanceBehaviorTreeTickCadence(
+                btComp.mTickTimer, dt, btComp.tickInterval);
+            if (actualDt <= 0.0f)
                 continue;
-
-            const float actualDt = btComp.mTickTimer;
-            btComp.mTickTimer = 0.0f;
 
             Entity entity = { e, mLevel };
             btComp.mRootNode->Tick(actualDt, btComp.mBlackboard, entity);

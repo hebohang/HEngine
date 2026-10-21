@@ -12,6 +12,8 @@ add_subdirectory(Math)
 RUNTIME_ADD_SOURCE(
     Timer.h Timestep.h
     SimulationClock.h SimulationClock.cpp
+    FrameStageGraph.h
+    TaskScheduler.h TaskScheduler.cpp
     PresentationClock.h PresentationClock.cpp
     UUID.h UUID.cpp
     Buffer.h

@@ -3,7 +3,7 @@
 #include "Runtime/Core/Meta/Json.h"
 #include "Runtime/Core/Meta/Serializer/Serializer.h"
 #include <crossguid/Guid.hpp>
-#include <xhash>
+#include <functional>
 
 namespace HEngine
 {
@@ -38,7 +38,7 @@ namespace HEngine
 namespace std
 {
 	template <>
-	void swap(HEngine::UUID& uuid0, HEngine::UUID& uuid1) noexcept;
+	void swap(HEngine::UUID& uuid0, HEngine::UUID& uuid1);
 
 	template <>
 	struct hash<HEngine::UUID>

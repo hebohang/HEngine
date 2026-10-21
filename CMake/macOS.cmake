@@ -1,0 +1,16 @@
+# Native Apple Silicon host. Graphics use the existing Vulkan renderer through
+# MoltenVK; the same ICD entry points are shared with GLFW and Effekseer.
+if(NOT CMAKE_OSX_ARCHITECTURES)
+    set(CMAKE_OSX_ARCHITECTURES arm64 CACHE STRING "HEngine macOS architectures")
+endif()
+if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET 14.0 CACHE STRING "Minimum macOS deployment target")
+endif()
+set(CMAKE_OBJCXX_STANDARD 20)
+set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
+set(CMAKE_OBJCXX_EXTENSIONS OFF)
+set(HE_MOLTENVK_ROOT "/opt/homebrew/opt/molten-vk" CACHE PATH "MoltenVK SDK installation")
+set(HE_LIBCLANG_ROOT "/opt/homebrew/opt/llvm" CACHE PATH "LLVM installation containing libclang >=20")
+list(APPEND CMAKE_PREFIX_PATH "/opt/homebrew" "/usr/local")
+set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
+set(CMAKE_INSTALL_RPATH "@executable_path/../Frameworks")

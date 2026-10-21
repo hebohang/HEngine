@@ -85,6 +85,7 @@ namespace nvrhi::vulkan
             { VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME, &m_Context.extensions.KHR_fragment_shading_rate },
             { VK_KHR_RAY_QUERY_EXTENSION_NAME,&m_Context.extensions.KHR_ray_query },
             { VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME, &m_Context.extensions.KHR_ray_tracing_pipeline },
+            { VK_KHR_RAY_TRACING_POSITION_FETCH_EXTENSION_NAME, &m_Context.extensions.KHR_ray_tracing_position_fetch },
             { VK_EXT_MESH_SHADER_EXTENSION_NAME, &m_Context.extensions.EXT_mesh_shader },
             { VK_NV_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME, &m_Context.extensions.NV_ray_tracing_invocation_reorder },
             { VK_NV_CLUSTER_ACCELERATION_STRUCTURE_EXTENSION_NAME, &m_Context.extensions.NV_cluster_acceleration_structure },
@@ -121,6 +122,8 @@ namespace nvrhi::vulkan
         // The Vulkan 1.2 way of enabling bufferDeviceAddress
         if (desc.bufferDeviceAddressSupported)
             m_Context.extensions.buffer_device_address = true;
+
+        m_Context.descriptorBindingUniformBufferUpdateAfterBind = desc.descriptorBindingUniformBufferUpdateAfterBind;
 
         void* pNext = nullptr;
         vk::PhysicalDeviceAccelerationStructurePropertiesKHR accelStructProperties;
@@ -371,6 +374,8 @@ namespace nvrhi::vulkan
         }
         case Feature::RayTracingClusters:
             return m_Context.extensions.NV_cluster_acceleration_structure;
+        case Feature::RayTracingPositionFetch:
+            return m_Context.extensions.KHR_ray_tracing_position_fetch;
         case Feature::ShaderSpecializations:
             return true;
         case Feature::Meshlets:

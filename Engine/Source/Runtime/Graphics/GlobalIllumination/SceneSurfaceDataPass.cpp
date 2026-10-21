@@ -649,4 +649,12 @@ namespace HEngine
         mImpl->DrawBindings.clear();
         mImpl->SceneGeneration = 0;
     }
+
+    std::function<void()> SceneSurfaceDataPass::CaptureGraphState()
+    {
+        return [impl = mImpl.get(), frames = mImpl->Framebuffers]() mutable noexcept
+        { impl->Framebuffers.swap(frames); };
+    }
+
+    void SceneSurfaceDataPass::ClearGraphResourceCaches() noexcept { mImpl->Framebuffers.clear(); }
 }

@@ -310,7 +310,7 @@ void _main(uint3 dtid)
         float3 direction = normalize(UnpackNormalizedFloat3(param_8));
         uint2 param_9 = particle.Velocity;
         float3 velocity = UnpackFloat4(param_9).xyz;
-        if (_620_emitter.TrailSize > 0u)
+        if (deltaTime > 0.0f && _620_emitter.TrailSize > 0u)
         {
             uint trailID = (_620_emitter.TrailHead + (dtid.x * _687_paramData.ShapeData)) + _620_emitter.TrailPhase;
             TrailData trail;
@@ -467,6 +467,12 @@ void _main(uint3 dtid)
         particle.Direction = PackNormalizedFloat3(param_41);
         float4 param_42 = color;
         particle.Color = PackColor(param_42);
+        // Zero time publishes presentation color only, preserving GPU history.
+        if (deltaTime == 0.0f)
+        {
+            Particles.Store(particleID * 80 + 16, particle.Color);
+            return;
+        }
         Particles.Store(particleID * 80 + 0, particle.FlagBits);
         Particles.Store(particleID * 80 + 4, particle.Seed);
         Particles.Store(particleID * 80 + 8, asuint(particle.LifeAge));

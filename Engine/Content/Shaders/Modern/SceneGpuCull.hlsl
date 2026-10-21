@@ -10,6 +10,13 @@ struct GpuObjectData
     float4x4 World;
     float4x4 WorldInverseTranspose;
     uint4 MaterialObjectMeshIndices;
+    float4x4 PreviousWorld;
+    float4 StaticLightmapUvScaleBias;
+    float4 StaticLightmapScale0;
+    float4 StaticLightmapAdd0;
+    float4 StaticLightmapScale1;
+    float4 StaticLightmapAdd1;
+    uint4 StaticLightmapDescriptor;
 };
 
 struct GpuBoundsData
@@ -53,19 +60,27 @@ RWStructuredBuffer<DrawIndexedArguments> g_IndirectArguments : register(u1, spac
 
 bool IsSphereVisible(float3 center, float radius)
 {
-    const float4 clip = mul(g_CullViewProjection, float4(center, 1.0f));
-    const float3 rowLength = float3(
-        length(float3(g_CullViewProjection[0][0], g_CullViewProjection[1][0], g_CullViewProjection[2][0])),
-        length(float3(g_CullViewProjection[0][1], g_CullViewProjection[1][1], g_CullViewProjection[2][1])),
-        length(float3(g_CullViewProjection[0][2], g_CullViewProjection[1][2], g_CullViewProjection[2][2])));
-    const float radiusX = radius * max(rowLength.x, 1e-6f);
-    const float radiusY = radius * max(rowLength.y, 1e-6f);
-    const float radiusZ = radius * max(rowLength.z, 1e-6f);
-
-    // D3D clip space: -w..w for x/y and 0..w for z.
-    return clip.x >= -clip.w - radiusX && clip.x <= clip.w + radiusX &&
-        clip.y >= -clip.w - radiusY && clip.y <= clip.w + radiusY &&
-        clip.z >= -radiusZ && clip.z <= clip.w + radiusZ;
+    // A world-space sphere projects to varying clip w. Expanding only clip xyz
+    // loses that contribution and can reject visible geometry at frustum edges.
+    // HLSL matrix indexing selects logical rows regardless of buffer packing.
+    const float4 planes[6] = {
+        g_CullViewProjection[3] + g_CullViewProjection[0],
+        g_CullViewProjection[3] - g_CullViewProjection[0],
+        g_CullViewProjection[3] + g_CullViewProjection[1],
+        g_CullViewProjection[3] - g_CullViewProjection[1],
+        g_CullViewProjection[2],
+        g_CullViewProjection[3] - g_CullViewProjection[2]
+    };
+    if (!all(isfinite(center)) || !isfinite(radius) || radius <= 0.0f)
+        return true;
+    [unroll]
+    for (uint planeIndex = 0; planeIndex < 6; ++planeIndex)
+    {
+        const float4 plane = planes[planeIndex];
+        if (dot(plane.xyz, center) + plane.w < -radius * length(plane.xyz))
+            return false;
+    }
+    return true;
 }
 
 [numthreads(64, 1, 1)]
@@ -76,6 +91,8 @@ void CS(uint3 dispatchThreadId : SV_DispatchThreadID)
         return;
 
     const GpuDrawData draw = g_DrawData[drawIndex];
+    // CPU-certified main-view AABB rejection. Shadow inputs are independent.
+    if ((draw.Padding & 1u) != 0u) return;
     const GpuBoundsData bounds = g_Bounds[draw.ObjectIndex];
     if (!IsSphereVisible(bounds.CenterRadius.xyz, max(bounds.CenterRadius.w, 0.0f)))
         return;

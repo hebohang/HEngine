@@ -5,6 +5,14 @@
 namespace EffekseerRenderer
 {
 
+RecordedCommandCounts GetRecordedCommandCounts(Effekseer::RefPtr<EffekseerRenderer::CommandList> commandList)
+{
+	if (commandList == nullptr)
+		return {};
+	auto* internal = commandList.DownCast<EffekseerRendererLLGI::CommandList>()->GetInternal();
+	return {internal->GetRecordedDrawCount(), internal->GetRecordedDispatchCount()};
+}
+
 void ChangeRenderPassPipelineState(EffekseerRenderer::RendererRef renderer, RenderPassPipelineStateKey key)
 {
 	auto r = renderer.DownCast<EffekseerRendererLLGI::RendererImplemented>();

@@ -11,6 +11,9 @@ set(HE_D3D12_AGILITY_PACKAGE_VERSION "1.619.5")
 set(HE_D3D12_AGILITY_SDK_VERSION 619)
 set(HE_D3D12_AGILITY_CORE_SHA256
     "eddf4cff4eda8162624b88694ad2adf4b09bc5aee6339191f39adf8ae48b41e7")
+if(HE_WINDOWS_ARCH STREQUAL "arm64")
+    set(HE_D3D12_AGILITY_CORE_SHA256 "b424f7774dbff9bc142cadc59c399a596019c70307153947b62d237c8595ef1b")
+endif()
 
 # Configure must be deterministic and offline: VS, Agent, codegen and every
 # project build consume the same engine-owned SDK subset. An explicit CMake
@@ -41,13 +44,13 @@ get_filename_component(heAgilitySdkRoot "${heAgilitySdkRoot}" ABSOLUTE
     BASE_DIR "${CMAKE_SOURCE_DIR}")
 
 if(IS_DIRECTORY "${heAgilitySdkRoot}/Include" AND
-   IS_DIRECTORY "${heAgilitySdkRoot}/Runtime/x64")
+   IS_DIRECTORY "${heAgilitySdkRoot}/Runtime/${HE_WINDOWS_ARCH}")
     set(HE_D3D12_AGILITY_INCLUDE_DIR "${heAgilitySdkRoot}/Include")
-    set(HE_D3D12_AGILITY_RUNTIME_DIR "${heAgilitySdkRoot}/Runtime/x64")
+    set(HE_D3D12_AGILITY_RUNTIME_DIR "${heAgilitySdkRoot}/Runtime/${HE_WINDOWS_ARCH}")
 elseif(IS_DIRECTORY "${heAgilitySdkRoot}/build/native/include" AND
-       IS_DIRECTORY "${heAgilitySdkRoot}/build/native/bin/x64")
+       IS_DIRECTORY "${heAgilitySdkRoot}/build/native/bin/${HE_WINDOWS_ARCH}")
     set(HE_D3D12_AGILITY_INCLUDE_DIR "${heAgilitySdkRoot}/build/native/include")
-    set(HE_D3D12_AGILITY_RUNTIME_DIR "${heAgilitySdkRoot}/build/native/bin/x64")
+    set(HE_D3D12_AGILITY_RUNTIME_DIR "${heAgilitySdkRoot}/build/native/bin/${HE_WINDOWS_ARCH}")
 else()
     message(FATAL_ERROR
         "DirectX Agility SDK root has neither the bundled Include/Runtime layout nor "

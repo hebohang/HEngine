@@ -1,0 +1,15 @@
+cmake_minimum_required(VERSION 4.2)
+project(HEngineManagedProbe LANGUAGES CXX)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+get_filename_component(heRoot "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
+include("${heRoot}/CMake/ScriptCore.cmake")
+add_executable(HEngineScriptCoreContracts CoreTestMain.cpp
+    "${heRoot}/Engine/Source/Runtime/UnitTest/ScriptCoreTests.cpp")
+target_link_libraries(HEngineScriptCoreContracts PRIVATE HEngineScriptCore)
+add_executable(HEngineEditorScriptCoreContracts EditorAbiProbe.cpp)
+target_compile_definitions(HEngineEditorScriptCoreContracts PRIVATE WITH_EDITOR=1)
+target_link_libraries(HEngineEditorScriptCoreContracts PRIVATE HEngineScriptCore)
+add_executable(HEngineManagedProbe PcHost.cpp
+    "${heRoot}/Engine/Source/Runtime/Platform/Scripting/CoreClrHost.cpp")
+target_compile_features(HEngineManagedProbe PRIVATE cxx_std_20)
+target_include_directories(HEngineManagedProbe PRIVATE "${heRoot}/Engine/Source")

@@ -403,7 +403,11 @@ namespace HEngine
         [[nodiscard]] Json QueryOsInformation()
         {
             Json result;
+#if defined(_M_ARM64)
+            result["architecture"] = "arm64";
+#else
             result["architecture"] = "x64";
+#endif
             const WindowsVersionInformation version = QueryWindowsVersion();
             if (!version.bAvailable)
             {
@@ -454,6 +458,9 @@ namespace HEngine
                 { "heapDirectlyIndexed", nativeCapabilities.bHeapDirectlyIndexed },
                 { "enhancedBarriers", nativeCapabilities.bEnhancedBarriers },
                 { "supportedSceneMsaaSampleMask", capabilities.SupportedMsaaSampleMask },
+                { "drawIndirectFirstInstance", capabilities.bDrawIndirectFirstInstance },
+                { "multiDrawIndirect", capabilities.bMultiDrawIndirect },
+                { "drawIndirectCount", capabilities.bDrawIndirectCount },
                 { "supportedSceneMsaaSamples", SupportedMsaaSamplesToJson(
                     capabilities.SupportedMsaaSampleMask) },
             };
@@ -719,6 +726,9 @@ namespace HEngine
         capabilities.bSoftwareAdapter =
             (adapter.Description.Flags & DXGI_ADAPTER_FLAG3_SOFTWARE) != 0;
         capabilities.SupportedMsaaSampleMask = QuerySceneMsaaSampleMask(device);
+        capabilities.bDrawIndirectFirstInstance = true;
+        capabilities.bMultiDrawIndirect = true;
+        capabilities.bDrawIndirectCount = true;
 
         constexpr std::array featureLevels = {
             D3D_FEATURE_LEVEL_12_2,

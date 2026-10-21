@@ -1,0 +1,11 @@
+{
+    "Rendering.AO.Enabled": true,
+    "Rendering.AO.Technique": "GTAO",
+    "Rendering.AO.Radius": 1.0,
+    "Rendering.AO.Intensity": 1.0,
+    "Rendering.AO.NormalBias": 0.01,
+    "Rendering.AO.SliceCount": 3,
+    "Rendering.AO.StepsPerSide": 6,
+    "Rendering.AO.FastUpsample": true,
+    "Rendering.Reflections.SSR.Enabled": false
+}

@@ -47,10 +47,14 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
 $script:ManifestSchemaVersion = 1
-$script:DriverVersion = '1'
+$script:DriverVersion = '2'
 $script:ExpectedIndexSchemaVersion = 1
 $script:Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-$script:PathComparison = [System.StringComparison]::OrdinalIgnoreCase
+$script:PathComparison = if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) {
+    [System.StringComparison]::OrdinalIgnoreCase
+} else {
+    [System.StringComparison]::Ordinal
+}
 $script:ArgumentNormalizationError = $null
 $script:TestOnlyPublishFault = $TestOnlyPublishFault
 $script:TestOnlyPublishFaultArmed = $false
@@ -622,7 +626,8 @@ function Get-CodeGenFingerprint {
         [Parameter(Mandatory = $true)][string]$ResolvedInputList,
         [Parameter(Mandatory = $true)][string]$ResolvedContextFile,
         [Parameter(Mandatory = $true)][string]$ResolvedTemplateRoot,
-        [Parameter(Mandatory = $true)][string]$ResolvedModule
+        [Parameter(Mandatory = $true)][string]$ResolvedModule,
+        [string[]]$IncludedFiles = @()
     )
 
     $records = New-Object System.Collections.ArrayList
@@ -715,6 +720,10 @@ function Get-CodeGenFingerprint {
 
         Add-InputRecord -Records $records -Kind 'track' -Path $trackedPath -DisplayPath $displayTrack
         [void]$issues.Add("track-missing:$displayTrack")
+    }
+
+    foreach ($includedFile in @(Sort-StringsOrdinal -Values @($IncludedFiles) -Unique)) {
+        Add-InputRecord -Records $records -Kind 'include' -Path $includedFile -DisplayPath (ConvertTo-LogicalPath -Path $includedFile)
     }
 
     $sortedRecords = @(Sort-ObjectsOrdinal -Values @($records.ToArray()) -KeySelector {
@@ -996,7 +1005,18 @@ function Read-AndValidateParserIndex {
         })
     }
 
+    $includedFiles = @()
+    $rawIncludes = Get-ObjectProperty -Object $index -Name 'includeDependencies'
+    if ($null -ne $rawIncludes) {
+        foreach ($dependency in @($rawIncludes)) {
+            if ($dependency -isnot [string] -or ![IO.Path]::IsPathRooted($dependency)) {
+                throw 'Parser include dependency must be an absolute file path.'
+            }
+            $includedFiles += Get-FullPath -Path $dependency
+        }
+    }
     return [pscustomobject][ordered]@{
+        includeDependencies = [object[]]@(Sort-StringsOrdinal -Values @($includedFiles) -Unique)
         schemaVersion = [int]$schemaVersion
         generatorVersion = $generatorVersion
         types = [object[]]$sortedTypes
@@ -1987,26 +2007,36 @@ function Invoke-CodeGenRun {
     [void][System.IO.Directory]::CreateDirectory($stagingRoot)
 
     try {
-        $parserIndex = Invoke-CodeGenParser `
-            -ResolvedParserExecutable $ResolvedParserExecutable `
-            -ResolvedInputList $ResolvedInputList `
-            -ResolvedContextFile $ResolvedContextFile `
-            -ResolvedTemplateRoot $ResolvedTemplateRoot `
-            -ResolvedModule $ResolvedModule `
-            -StagingRoot $stagingRoot `
-            -ResolvedLogPath $ResolvedLogPath
+        $includedFiles = @($Fingerprint.inputs | Where-Object {$_.kind -eq 'include'} | ForEach-Object {$_.path})
+        for ($dependencyPass = 0; $dependencyPass -lt 2; $dependencyPass++) {
+            $parserIndex = Invoke-CodeGenParser `
+                -ResolvedParserExecutable $ResolvedParserExecutable `
+                -ResolvedInputList $ResolvedInputList `
+                -ResolvedContextFile $ResolvedContextFile `
+                -ResolvedTemplateRoot $ResolvedTemplateRoot `
+                -ResolvedModule $ResolvedModule `
+                -StagingRoot $stagingRoot `
+                -ResolvedLogPath $ResolvedLogPath
 
-        $afterFingerprint = Get-CodeGenFingerprint `
-            -ResolvedRepositoryRoot $ResolvedRepositoryRoot `
-            -ResolvedProjectRoot $ResolvedProjectRoot `
-            -ResolvedParserExecutable $ResolvedParserExecutable `
-            -ResolvedInputList $ResolvedInputList `
-            -ResolvedContextFile $ResolvedContextFile `
-            -ResolvedTemplateRoot $ResolvedTemplateRoot `
-            -ResolvedModule $ResolvedModule
-        Assert-FingerprintUsable -Fingerprint $afterFingerprint
-        if (-not (Test-FingerprintsEqual -Before $Fingerprint -After $afterFingerprint)) {
-            throw 'Codegen inputs changed while HEngineParser was running; retry with a stable input snapshot.'
+            $afterFingerprint = Get-CodeGenFingerprint `
+                -ResolvedRepositoryRoot $ResolvedRepositoryRoot `
+                -ResolvedProjectRoot $ResolvedProjectRoot `
+                -ResolvedParserExecutable $ResolvedParserExecutable `
+                -ResolvedInputList $ResolvedInputList `
+                -ResolvedContextFile $ResolvedContextFile `
+                -ResolvedTemplateRoot $ResolvedTemplateRoot `
+                -ResolvedModule $ResolvedModule `
+                -IncludedFiles $includedFiles
+            Assert-FingerprintUsable -Fingerprint $afterFingerprint
+            if (-not (Test-FingerprintsEqual -Before $Fingerprint -After $afterFingerprint)) {
+                throw 'Codegen inputs changed while HEngineParser was running; retry with a stable input snapshot.'
+            }
+
+            $nextIncludes = @($parserIndex.includeDependencies)
+            if ((@($includedFiles | Sort-Object) -join "`n") -eq (@($nextIncludes | Sort-Object) -join "`n")) { break }
+            if ($dependencyPass -eq 1) { throw 'Parser include closure changed during verification; retry with stable inputs.' }
+            $includedFiles = $nextIncludes
+            $Fingerprint = Get-CodeGenFingerprint -ResolvedRepositoryRoot $ResolvedRepositoryRoot -ResolvedProjectRoot $ResolvedProjectRoot -ResolvedParserExecutable $ResolvedParserExecutable -ResolvedInputList $ResolvedInputList -ResolvedContextFile $ResolvedContextFile -ResolvedTemplateRoot $ResolvedTemplateRoot -ResolvedModule $ResolvedModule -IncludedFiles $includedFiles
         }
 
         $manifest = New-ManifestObject `
@@ -2036,7 +2066,8 @@ function Invoke-CodeGenRun {
                 -ResolvedInputList $ResolvedInputList `
                 -ResolvedContextFile $ResolvedContextFile `
                 -ResolvedTemplateRoot $ResolvedTemplateRoot `
-                -ResolvedModule $ResolvedModule
+                -ResolvedModule $ResolvedModule `
+                -IncludedFiles $includedFiles
             Assert-FingerprintUsable -Fingerprint $commitFingerprint
             if (-not (Test-FingerprintsEqual -Before $afterFingerprint -After $commitFingerprint)) {
                 throw 'Codegen inputs changed during publish; rolling back to the previous valid tree.'
@@ -2384,6 +2415,11 @@ try {
     }
 
     Recover-CodeGenTransaction -Scope $scope -ResolvedOutputRoot $resolvedOutputRoot -ManifestPath $manifestPath
+    $manifestState = Read-ManifestState -ManifestPath $manifestPath -ResolvedOutputRoot $resolvedOutputRoot
+    $includedFiles = @()
+    if ($manifestState.valid) {
+        $includedFiles = @($manifestState.manifest.inputs | Where-Object {$_.kind -eq 'include'} | ForEach-Object {$_.path})
+    }
     $fingerprint = Get-CodeGenFingerprint `
         -ResolvedRepositoryRoot $resolvedRepositoryRoot `
         -ResolvedProjectRoot $resolvedProjectRoot `
@@ -2391,8 +2427,8 @@ try {
         -ResolvedInputList $resolvedInputList `
         -ResolvedContextFile $resolvedContextFile `
         -ResolvedTemplateRoot $resolvedTemplateRoot `
-        -ResolvedModule $resolvedModule
-    $manifestState = Read-ManifestState -ManifestPath $manifestPath -ResolvedOutputRoot $resolvedOutputRoot
+        -ResolvedModule $resolvedModule `
+        -IncludedFiles $includedFiles
     $statusState = Get-CodeGenStatus `
         -ManifestState $manifestState `
         -Fingerprint $fingerprint `

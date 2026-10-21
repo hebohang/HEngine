@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import math
 import pathlib
 import unittest
@@ -6,6 +7,10 @@ import unittest
 
 REPOSITORY = pathlib.Path(__file__).resolve().parents[2]
 MOTION_PATH = REPOSITORY / "Project" / "Scripts" / "HEngineUI" / "motion.py"
+SURVIVOR_MOTION_PATH = (
+    REPOSITORY / "Project" / "Assets" / "UI" / "SurvivorHUD.uimotion.json"
+)
+SURVIVOR_STYLE_PATH = REPOSITORY / "Project" / "Assets" / "UI" / "SurvivorHUD.rcss"
 SPEC = importlib.util.spec_from_file_location("he_ui_motion_test_target", MOTION_PATH)
 MOTION = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MOTION)
@@ -257,6 +262,39 @@ class UiMotionTests(unittest.TestCase):
         calls_after_first_close = list(fake.calls)
         self.assertEqual(screens.close_modal("go"), 0)
         self.assertEqual(fake.calls, calls_after_first_close)
+
+    def test_modal_enter_has_static_scale_zero_before_display(self):
+        motion_asset = json.loads(SURVIVOR_MOTION_PATH.read_text(encoding="utf-8"))
+        style = SURVIVOR_STYLE_PATH.read_text(encoding="utf-8")
+        self.assertIn(
+            ".modal_entering {\n  opacity: 0;\n"
+            "  animation: 0.32s screen-zoom-backdrop-enter cubic-out;",
+            style,
+        )
+        self.assertIn(
+            ".modal_entering > .modal_card {\n  opacity: 0;\n"
+            "  transform: scale(0);",
+            style,
+        )
+        fake = FakeRml()
+        director = MOTION.UIAnimationDirector("doc", motion_asset, fake)
+        director.register_screen("start", "screen-a", visible=True)
+        director.register_screen("settings", "screen-b", modal=True)
+        screens = MOTION.UIScreenStack(director)
+
+        screens.show_modal("settings", "modal_enter")
+        displayed = ("style", "doc", "screen-b", "display", "flex")
+        entering = ("class", "doc", "screen-b", "modal_entering", True)
+        self.assertLess(fake.calls.index(entering), fake.calls.index(displayed))
+
+        reduced_fake = FakeRml()
+        reduced = MOTION.UIAnimationDirector("doc", motion_asset, reduced_fake)
+        reduced.register_screen("start", "screen-a", visible=True)
+        reduced.register_screen("settings", "screen-b", modal=True)
+        reduced.set_accessibility(True, False)
+        MOTION.UIScreenStack(reduced).show_modal("settings", "modal_enter")
+        self.assertIn(displayed, reduced_fake.calls)
+        self.assertNotIn(entering, reduced_fake.calls)
 
     def test_clock_failure_and_shutdown_cannot_leak_input_lock(self):
         director, fake = self.director(asset([

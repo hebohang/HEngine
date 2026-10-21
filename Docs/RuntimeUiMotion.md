@@ -67,7 +67,7 @@ director.Update()
 
 RmlUi SVG 与 Lottie 插件在构建中启用。SVG 使用 LunaSVG v3.0.1 + PlutoVG v0.0.4；Lottie 使用 rlottie v0.2 的 CPU BGRA 光栅化，经 RmlUi 转为预乘 RGBA 后上传 NVRHI 纹理。版本和提交见 `Engine/Source/ThirdParty/RmlUiPluginDependencies.json`。
 
-制作预算：SVG/Lottie JSON 单文件不超过 1 MiB；推荐 Lottie 画布不超过 512×512、30 fps、单片段不超过 3 秒、同屏活动实例不超过 4。默认展示项目提供原创的 `showcase-starburst.svg` 与 `showcase-burst.lottie.json` 作为最小示例。Cooker 会从 `.hui` 的 RML/RCSS 结构依赖以及 markup 引用闭包发现资源，包内必须同时存在许可证。
+制作预算：SVG/Lottie JSON 单文件不超过 1 MiB；推荐 Lottie 画布不超过 512×512、30 fps、单片段不超过 3 秒、同屏活动实例不超过 4。当前项目素材是原创 `starbloom-starburst.svg` 与 `starbloom-burst.lottie.json`。Cooker 会从 `.hui` 的 RML/RCSS 结构依赖以及 markup 引用闭包发现资源，包内必须同时存在许可证。
 
 rlottie v0.2 不支持的 After Effects 表达式、脚本、部分 3D/插件效果应在导出前烘焙；不允许依赖网络图片或绝对路径。加载失败会由 RmlUi 明确记录，页面应提供同尺寸 SVG/PNG 或 sprite sheet fallback。
 
@@ -80,7 +80,7 @@ rlottie v0.2 不支持的 After Effects 表达式、脚本、部分 3D/插件效
 - 最多 8 个逻辑 Layer；物理 `RGBA8_UNORM + D24S8` 资源按 frame slot 隔离并按实际深度懒分配；
 - opacity、固定 9-tap blur/drop-shadow，以及 brightness、contrast、invert、grayscale、sepia、hue-rotate、saturate；
 - `SaveLayerAsTexture`、`SaveLayerAsMaskImage` 和全视口 MaskImage alpha 合成；
-- 预编译 Custom Shader 白名单 `he-sheen`、`he-halftone`；RML 不能提供路径、源码或任意 HLSL；
+- 预编译 Custom Shader 白名单 `starbloom-sheen`、`starbloom-halftone`；RML 不能提供路径、源码或任意 HLSL；
 - geometry/texture 首次上传采用 record/submit/abort 两阶段确认，资源、handle 与辅助 target 遵守 frames-in-flight 延迟释放。
 
 高级路径的语义边界：blur/drop-shadow 是 sigma 上限 32 的固定成本近似，不是多级精确高斯；标准 linear/radial/conic gradient shader 暂未实现；backdrop 优先采样 RenderGraph 明确声明的 LDR scene snapshot，不包含同一 UI pass 中更低 z-order 已绘制 UI；`SaveLayerAsTexture` 只保存正常 RmlUi 调用路径中的 RGBA8 active layer；MaskImage 为全视口 alpha，Layer 暂无 MSAA resolve。未知 filter/shader 会明确拒绝并计入 `UnsupportedFeatureRequests`，不会静默显示错误内容。

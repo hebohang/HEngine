@@ -353,6 +353,12 @@ namespace HEngine::Tests
             const RenderGraphResourceLifetimeInfo lifetime = validGraph.GetLifetimeInfo(backbuffer);
             Require(lifetime.FirstUse == 0 && lifetime.LastUse == 0,
                 "Imported-resource lifetime analysis returned the wrong interval.");
+            validGraph.SetTextureResource(backbuffer, {}, nvrhi::ResourceStates::ShaderResource);
+            Require(validGraph.NeedsCompile(),
+                "An imported state update did not invalidate observable final-state analysis.");
+            Require(validGraph.Compile(), "Updated imported state failed compilation.");
+            validGraph.SetTextureResource(backbuffer, {}, nvrhi::ResourceStates::ShaderResource);
+            Require(!validGraph.NeedsCompile(), "An unchanged imported state invalidated the graph cache.");
         }
 
         void UsageStateMapping()
@@ -760,6 +766,414 @@ namespace HEngine::Tests
                 "The diagnostic snapshot omitted a structured compile error.");
         }
 
+        void FeatureOwnershipContract()
+        {
+            RenderGraph graph;
+            auto add = [&graph](const char* name)
+            {
+                graph.AddPass<TexturePassData>(name,
+                    [](RenderGraphBuilder& builder, TexturePassData&) { builder.SetSideEffect(); },
+                    [](RenderGraphContext&, const TexturePassData&) {});
+            };
+            {
+                RenderGraphFeatureScope outer(graph, "test.outer", "outer-1");
+                add("Outer");
+                try
+                {
+                    RenderGraphFeatureScope inner(graph, "test.inner", "inner-2");
+                    add("Inner");
+                    throw std::runtime_error("expected failure");
+                }
+                catch (const std::runtime_error&) {}
+                add("RestoredOuter");
+            }
+            add("Core");
+            Require(graph.Compile(), "Feature ownership graph failed compilation.");
+            const auto snapshot = graph.BuildDiagnosticSnapshot();
+            Require(snapshot.Passes[0].FeatureTypeId == "test.outer" &&
+                    snapshot.Passes[1].FeatureInstanceId == "inner-2" &&
+                    snapshot.Passes[2].FeatureInstanceId == "outer-1" &&
+                    snapshot.Passes[3].FeatureTypeId.empty(),
+                "Nested or failed feature build scopes leaked pass ownership.");
+            Require(!snapshot.Passes[0].bHasRecordedCommands,
+                "A CPU-only graph claimed an actual recorded queue before recording.");
+        }
+
+        void BackendDepthReadContract()
+        {
+            for (const auto other : { RenderGraphUsage::ShaderResource, RenderGraphUsage::CopySource,
+                    RenderGraphUsage::ResolveSource, RenderGraphUsage::Present })
+            {
+                bool rejected = false;
+                try { (void)RenderGraph::MapTextureUsageToResourceStates(RenderGraphUsage::DepthRead | other,
+                    nvrhi::Format::D32, nvrhi::GraphicsAPI::D3D12); }
+                catch (const RenderGraphValidationError&) { rejected = true; }
+                Require(rejected, "D3D12 accepted depth-read combined with an incompatible layout.");
+            }
+            for (const bool overlap : { false, true })
+            {
+                RenderGraph graph;
+                auto desc = MakeTextureDesc("Depth array");
+                desc.Format = nvrhi::Format::D32;
+                desc.ArrayLayers = 2;
+                const auto texture = graph.CreateTexture(desc, RenderGraphResourceLifetime::Transient, true);
+                graph.AddPass<TexturePassData>("Depth mixed ranges",
+                    [texture, overlap](RenderGraphBuilder& builder, TexturePassData& data) {
+                        data.Texture = builder.DepthRead(texture, { 0, 1, 0, 1 });
+                        (void)builder.ShaderResource(texture, { 0, 1, overlap ? 0u : 1u, overlap ? 2u : 1u });
+                        builder.SetSideEffect();
+                    }, [](RenderGraphContext&, const TexturePassData&) {});
+                Require(graph.Compile(), "Portable depth graph failed logical compilation.");
+                graph.ValidateBackendResourceUsages(nvrhi::GraphicsAPI::VULKAN);
+                bool rejected = false;
+                try { graph.ValidateBackendResourceUsages(nvrhi::GraphicsAPI::D3D12); }
+                catch (const RenderGraphValidationError&) { rejected = true; }
+                Require(rejected == overlap, "D3D12 preparation did not distinguish overlapping and disjoint depth ranges.");
+            }
+        }
+
+        void OverwrittenContentsCulling()
+        {
+            Require(RenderGraph::MapTextureUsageToResourceStates(RenderGraphUsage::ShaderResource,
+                    nvrhi::Format::D32, nvrhi::GraphicsAPI::D3D12) == nvrhi::ResourceStates::ShaderResource,
+                "D3D12 depth sampling acquired an incompatible enhanced depth-attachment layout.");
+            for (const auto format : { nvrhi::Format::D32, nvrhi::Format::D24S8 })
+                Require(RenderGraph::MapTextureUsageToResourceStates(RenderGraphUsage::ShaderResource, format, nvrhi::GraphicsAPI::VULKAN) ==
+                    (nvrhi::ResourceStates::ShaderResource | nvrhi::ResourceStates::DepthRead),
+                    "Depth SRV barriers do not match NVRHI's depth-read descriptor layout.");
+            Require(RenderGraph::MapTextureUsageToResourceStates(RenderGraphUsage::ShaderResource,
+                    nvrhi::Format::RGBA16_FLOAT, nvrhi::GraphicsAPI::VULKAN) == nvrhi::ResourceStates::ShaderResource,
+                "Color SRV incorrectly acquired a depth attachment state.");
+            Require(RenderGraph::MapTextureUsageToResourceStates(RenderGraphUsage::DepthWrite,
+                    nvrhi::Format::D32, nvrhi::GraphicsAPI::VULKAN) == nvrhi::ResourceStates::DepthWrite,
+                "Depth writes incorrectly acquired shader-read state.");
+            for (const auto load : { RenderGraphAttachmentLoad::Load, RenderGraphAttachmentLoad::Clear,
+                    RenderGraphAttachmentLoad::Discard })
+            {
+                RenderGraph graph;
+                const auto texture = graph.CreateTexture(MakeTextureDesc("Overwrite"));
+                const auto old = graph.AddPass<TexturePassData>("Old",
+                    [texture](RenderGraphBuilder& builder, TexturePassData& data) {
+                        data.Texture = builder.RenderTarget(texture);
+                    }, [](RenderGraphContext&, const TexturePassData&) {});
+                graph.AddPass<TexturePassData>("Replacement",
+                    [texture, load](RenderGraphBuilder& builder, TexturePassData& data) {
+                        RenderGraphAttachmentOps ops;
+                        ops.Load = load;
+                        ops.bFullOverwrite = load == RenderGraphAttachmentLoad::Discard;
+                        data.Texture = builder.ColorAttachment(texture, ops);
+                        builder.Export(texture);
+                    }, [](RenderGraphContext&, const TexturePassData&) {});
+                Require(graph.Compile(), "Overwrite graph failed compilation.");
+                Require(graph.IsPassCulled(old) == (load != RenderGraphAttachmentLoad::Load),
+                    "Attachment overwrite/load did not distinguish old content liveness.");
+            }
+            RenderGraph conservative;
+            const auto legacyTexture = conservative.CreateTexture(MakeTextureDesc("Legacy writes"));
+            const auto legacyOld = conservative.AddPass<TexturePassData>("Legacy old",
+                [legacyTexture](RenderGraphBuilder& builder, TexturePassData& data) {
+                    data.Texture = builder.RenderTarget(legacyTexture);
+                }, [](RenderGraphContext&, const TexturePassData&) {});
+            conservative.AddPass<TexturePassData>("Legacy new",
+                [legacyTexture](RenderGraphBuilder& builder, TexturePassData& data) {
+                    data.Texture = builder.RenderTarget(legacyTexture);
+                    builder.Export(legacyTexture);
+                }, [](RenderGraphContext&, const TexturePassData&) {});
+            Require(conservative.Compile() && !conservative.IsPassCulled(legacyOld),
+                "Ordinary Write incorrectly implied a complete overwrite.");
+            // A clear of one mip/slice cannot kill a producer of exported peers.
+            RenderGraph partial;
+            auto desc = MakeTextureDesc("Partial overwrite");
+            desc.MipLevels = 2;
+            desc.ArrayLayers = 2;
+            const auto texture = partial.CreateTexture(desc);
+            const auto old = partial.AddPass<TexturePassData>("Whole texture",
+                [texture](RenderGraphBuilder& builder, TexturePassData& data) {
+                    data.Texture = builder.RenderTarget(texture);
+                }, [](RenderGraphContext&, const TexturePassData&) {});
+            partial.AddPass<TexturePassData>("One subresource",
+                [texture](RenderGraphBuilder& builder, TexturePassData& data) {
+                    RenderGraphAttachmentOps ops;
+                    ops.Load = RenderGraphAttachmentLoad::Clear;
+                    data.Texture = builder.ColorAttachment(texture, ops, { 1, 1, 1, 1 });
+                    builder.Export(texture);
+                }, [](RenderGraphContext&, const TexturePassData&) {});
+            Require(partial.Compile() && !partial.IsPassCulled(old),
+                "Partial mip/slice clear killed the producer of untouched exported contents.");
+
+            for (const bool keepReader : { false, true })
+            {
+                RenderGraph ordered;
+                const auto target = ordered.CreateTexture(MakeTextureDesc("Hazards"));
+                ordered.AddPass<TexturePassData>("Old live writer",
+                    [target](RenderGraphBuilder& builder, TexturePassData& data) {
+                        data.Texture = builder.RenderTarget(target);
+                        builder.SetSideEffect();
+                    }, [](RenderGraphContext&, const TexturePassData&) {});
+                const auto reader = ordered.AddPass<TexturePassData>("Reader",
+                    [target, keepReader](RenderGraphBuilder& builder, TexturePassData& data) {
+                        data.Texture = builder.ShaderResource(target);
+                        builder.SetSideEffect(keepReader);
+                    }, [](RenderGraphContext&, const TexturePassData&) {});
+                ordered.AddPass<TexturePassData>("Clear writer",
+                    [target](RenderGraphBuilder& builder, TexturePassData& data) {
+                        RenderGraphAttachmentOps ops;
+                        ops.Load = RenderGraphAttachmentLoad::Clear;
+                        data.Texture = builder.ColorAttachment(target, ops);
+                        builder.Export(target);
+                    }, [](RenderGraphContext&, const TexturePassData&) {});
+                Require(ordered.Compile() && ordered.IsPassCulled(reader) == !keepReader,
+                    "WAR ordering made an unused reader live or killed an observable reader.");
+                const auto expected = keepReader
+                    ? std::vector<std::string>{ "Old live writer", "Reader", "Clear writer" }
+                    : std::vector<std::string>{ "Old live writer", "Clear writer" };
+                Require(ordered.GetCompiledPassNames() == expected,
+                    "Live WAW/WAR hazards lost their execution order.");
+            }
+        }
+
+        void AttachmentContentsContract()
+        {
+            for (const auto load : {RenderGraphAttachmentLoad::Load,
+                    RenderGraphAttachmentLoad::Clear, RenderGraphAttachmentLoad::Discard})
+            {
+                for (const auto store : {RenderGraphAttachmentStore::Store, RenderGraphAttachmentStore::Discard})
+                {
+                    RenderGraph graph;
+                    const auto texture = graph.CreateTexture(MakeTextureDesc("Attachment"));
+                    graph.AddPass<TexturePassData>("AttachmentWriter",
+                        [texture, load, store](RenderGraphBuilder& builder, TexturePassData& data)
+                        {
+                            RenderGraphAttachmentOps ops;
+                            ops.Load = load;
+                            ops.Store = store;
+                            ops.bFullOverwrite = load == RenderGraphAttachmentLoad::Discard;
+                            data.Texture = builder.ColorAttachment(texture, ops);
+                        }, [](RenderGraphContext&, const TexturePassData&) {});
+                    graph.AddPass<TexturePassData>("AttachmentReader",
+                        [texture](RenderGraphBuilder& builder, TexturePassData& data)
+                        {
+                            data.Texture = builder.ShaderResource(texture);
+                            builder.SetSideEffect();
+                        }, [](RenderGraphContext&, const TexturePassData&) {});
+                    const bool expected = load != RenderGraphAttachmentLoad::Load &&
+                        store == RenderGraphAttachmentStore::Store;
+                    Require(graph.Compile() == expected,
+                        "Attachment load/store initialization contract was not enforced.");
+                }
+            }
+            RenderGraph graph;
+            const auto texture = graph.CreateTexture(MakeTextureDesc("PartialDiscard"));
+            bool bRejected = false;
+            try
+            {
+                graph.AddPass<TexturePassData>("PartialDiscard",
+                    [texture](RenderGraphBuilder& builder, TexturePassData& data)
+                    {
+                        RenderGraphAttachmentOps ops;
+                        ops.Load = RenderGraphAttachmentLoad::Discard;
+                        data.Texture = builder.ColorAttachment(texture, ops);
+                    }, [](RenderGraphContext&, const TexturePassData&) {});
+            }
+            catch (const RenderGraphValidationError&)
+            {
+                bRejected = true;
+            }
+            Require(bRejected, "Discard/store accepted a partial write without initialized contents.");
+
+            RenderGraph depthGraph;
+            auto depthDesc = MakeTextureDesc("DepthAttachment");
+            depthDesc.Format = nvrhi::Format::D32;
+            const auto depth = depthGraph.CreateTexture(depthDesc);
+            depthGraph.AddPass<TexturePassData>("ClearDepth",
+                [depth](RenderGraphBuilder& builder, TexturePassData& data)
+                {
+                    RenderGraphAttachmentOps ops;
+                    ops.Load = RenderGraphAttachmentLoad::Clear;
+                    ops.ClearDepth = 0.0f;
+                    data.Texture = builder.DepthAttachment(depth, ops);
+                }, [](RenderGraphContext&, const TexturePassData&) {});
+            depthGraph.AddPass<TexturePassData>("PreserveDepth",
+                [depth](RenderGraphBuilder& builder, TexturePassData& data)
+                {
+                    data.Texture = builder.DepthAttachment(depth, {});
+                    builder.Export(depth);
+                }, [](RenderGraphContext&, const TexturePassData&) {});
+            Require(depthGraph.Compile(), "Cleared depth attachment could not preserve existing contents.");
+
+            RenderGraph discardGraph;
+            const auto discarded = discardGraph.CreateTexture(MakeTextureDesc("DiscardedExport"));
+            discardGraph.AddPass<TexturePassData>("DiscardExport",
+                [discarded](RenderGraphBuilder& builder, TexturePassData& data)
+                {
+                    RenderGraphAttachmentOps ops;
+                    ops.Load = RenderGraphAttachmentLoad::Clear;
+                    ops.Store = RenderGraphAttachmentStore::Discard;
+                    data.Texture = builder.ColorAttachment(discarded, ops);
+                    builder.Export(discarded);
+                }, [](RenderGraphContext&, const TexturePassData&) {});
+            Require(!discardGraph.Compile() && ContainsError(discardGraph, "exports discarded"),
+                "An exported attachment retained discarded contents.");
+        }
+
+        void SubresourceInitializationContract()
+        {
+            {
+                RenderGraph graph;
+                auto desc = MakeTextureDesc("OverlappingRanges");
+                desc.MipLevels = 2;
+                const auto texture = graph.CreateTexture(desc);
+                bool bRejected = false;
+                try
+                {
+                    graph.AddPass<TexturePassData>("OverlappingReadWrite",
+                        [texture](RenderGraphBuilder& builder, TexturePassData& data)
+                        {
+                            builder.ShaderResource(texture);
+                            data.Texture = builder.CopyDest(texture, {1, 1, 0, 1});
+                        }, [](RenderGraphContext&, const TexturePassData&) {});
+                }
+                catch (const RenderGraphValidationError&)
+                {
+                    bRejected = true;
+                }
+                Require(bRejected, "Overlapping unequal ranges bypassed incompatible-state validation.");
+                bRejected = false;
+                try
+                {
+                    graph.AddPass<TexturePassData>("OutOfBounds",
+                        [texture](RenderGraphBuilder& builder, TexturePassData& data)
+                        {
+                            data.Texture = builder.CopyDest(texture, {1, 2, 0, 1});
+                        }, [](RenderGraphContext&, const TexturePassData&) {});
+                }
+                catch (const RenderGraphValidationError&)
+                {
+                    bRejected = true;
+                }
+                Require(bRejected, "Out-of-bounds mip access was accepted.");
+            }
+            for (bool bReadOtherSlice : {false, true})
+            {
+                RenderGraph graph;
+                auto desc = MakeTextureDesc("PartialTexture");
+                desc.MipLevels = 2;
+                desc.ArrayLayers = 2;
+                const auto texture = graph.CreateTexture(desc);
+                graph.AddPass<TexturePassData>("WriteOneSubresource",
+                    [texture](RenderGraphBuilder& builder, TexturePassData& data)
+                    {
+                        data.Texture = builder.CopyDest(texture, {0, 1, 0, 1});
+                    }, [](RenderGraphContext&, const TexturePassData&) {});
+                graph.AddPass<TexturePassData>("ReadUnwrittenSubresource",
+                    [texture, bReadOtherSlice](RenderGraphBuilder& builder, TexturePassData& data)
+                    {
+                        data.Texture = builder.ShaderResource(texture,
+                            {bReadOtherSlice ? 0u : 1u, 1, bReadOtherSlice ? 1u : 0u, 1});
+                        builder.SetSideEffect();
+                    }, [](RenderGraphContext&, const TexturePassData&) {});
+                Require(!graph.Compile() && ContainsError(graph, "read before initialization"),
+                    "Writing a sibling mip or slice initialized unread texture contents.");
+            }
+
+            RenderGraph graph;
+            auto desc = MakeTextureDesc("MipChain");
+            desc.MipLevels = 2;
+            const auto texture = graph.CreateTexture(desc);
+            graph.AddPass<TexturePassData>("InitializeMip0",
+                [texture](RenderGraphBuilder& builder, TexturePassData& data)
+                {
+                    data.Texture = builder.CopyDest(texture, {0, 1, 0, 1});
+                }, [](RenderGraphContext&, const TexturePassData&) {});
+            graph.AddPass<TexturePassData>("GenerateMip1",
+                [texture](RenderGraphBuilder& builder, TexturePassData& data)
+                {
+                    builder.ShaderResource(texture, {0, 1, 0, 1});
+                    data.Texture = builder.Write(texture, RenderGraphUsage::UnorderedAccess, {1, 1, 0, 1});
+                }, [](RenderGraphContext&, const TexturePassData&) {});
+            graph.AddPass<TexturePassData>("ConsumeAllMips",
+                [texture](RenderGraphBuilder& builder, TexturePassData& data)
+                {
+                    data.Texture = builder.ShaderResource(texture);
+                    builder.SetSideEffect();
+                }, [](RenderGraphContext&, const TexturePassData&) {});
+            Require(graph.Compile(), "Disjoint mip reads/writes failed valid mip-chain compilation.");
+
+            RenderGraph exportGraph;
+            const auto exported = exportGraph.CreateTexture(desc);
+            for (uint32_t mip = 0; mip < 2; ++mip)
+                exportGraph.AddPass<TexturePassData>("IndependentMip" + std::to_string(mip),
+                    [exported, mip](RenderGraphBuilder& builder, TexturePassData& data)
+                    {
+                        data.Texture = builder.CopyDest(exported, {mip, 1, 0, 1});
+                        builder.Export(exported);
+                    }, [](RenderGraphContext&, const TexturePassData&) {});
+            Require(exportGraph.Compile(), "Independent exported mip writers failed compilation.");
+            const auto snapshot = exportGraph.BuildDiagnosticSnapshot();
+            Require(snapshot.Passes.size() == 2 && !snapshot.Passes[0].bCulled && !snapshot.Passes[1].bCulled,
+                "Export culling lost an independently written texture subresource.");
+
+            RenderGraph partialExport;
+            const auto incomplete = partialExport.CreateTexture(desc);
+            partialExport.AddPass<TexturePassData>("IncompleteExport",
+                [incomplete](RenderGraphBuilder& builder, TexturePassData& data)
+                {
+                    data.Texture = builder.CopyDest(incomplete, {0, 1, 0, 1});
+                    builder.Export(incomplete);
+                }, [](RenderGraphContext&, const TexturePassData&) {});
+            Require(!partialExport.Compile() && ContainsError(partialExport, "exports uninitialized subresource"),
+                "An export exposed a never-initialized mip.");
+        }
+
+        void SparseResourceDependencyContract()
+        {
+            // A material-rich scene has many unrelated textures/buffers and
+            // multiple declarations for disjoint subresources in the same pass.
+            // Read-before-writer reordering must retain both writers without
+            // inventing dependencies between independent resources.
+            RenderGraph graph;
+            constexpr uint32_t resourceCount = 192;
+            for (uint32_t index = 0; index < resourceCount; ++index)
+            {
+                auto desc = MakeTextureDesc("SparseTexture" + std::to_string(index));
+                desc.MipLevels = 3;
+                desc.ArrayLayers = 2;
+                const auto texture = graph.CreateTexture(desc);
+                const auto buffer = graph.CreateBuffer(MakeBufferDesc("SparseBuffer" + std::to_string(index)));
+                graph.AddPass<LifetimePassData>("Read" + std::to_string(index),
+                    [texture, buffer](RenderGraphBuilder& builder, LifetimePassData& data)
+                    {
+                        data.Texture = builder.ShaderResource(texture, { 0, 1, 0, 1 });
+                        data.Buffer = builder.ShaderResource(buffer);
+                        builder.ShaderResource(texture, { 2, 1, 1, 1 });
+                        builder.SetSideEffect();
+                    }, [](RenderGraphContext&, const LifetimePassData&) {});
+                graph.AddPass<LifetimePassData>("Write" + std::to_string(index),
+                    [texture, buffer](RenderGraphBuilder& builder, LifetimePassData& data)
+                    {
+                        data.Texture = builder.CopyDest(texture, { 0, 1, 0, 1 });
+                        data.Buffer = builder.Write(buffer, RenderGraphUsage::CopyDest);
+                        builder.CopyDest(texture, { 2, 1, 1, 1 });
+                    }, [](RenderGraphContext&, const LifetimePassData&) {});
+            }
+            for (uint32_t compile = 0; compile < 2; ++compile)
+            {
+                Require(graph.Compile(), "Sparse multi-resource graph failed compilation.");
+                const auto snapshot = graph.BuildDiagnosticSnapshot();
+                Require(snapshot.ExecutionOrder.size() == resourceCount * 2,
+                    "Sparse dependency compilation culled a required subresource writer.");
+                Require(snapshot.Dependencies.size() == resourceCount,
+                    "Sparse dependency compilation introduced cross-resource hazards.");
+                for (uint32_t index = 0; index < resourceCount; ++index)
+                {
+                    const auto& dependency = snapshot.Dependencies[index];
+                    Require(dependency.PrerequisitePassId == index * 2 + 1 &&
+                            dependency.DependentPassId == index * 2,
+                        "Sparse dependency compilation lost read-before-writer ordering.");
+                }
+            }
+        }
+
         void ResizeInvalidatesCompilation()
         {
             RenderGraph graph;
@@ -806,7 +1220,13 @@ namespace HEngine::Tests
         ReadWriteRenderTargetOrdering();
         DepthShaderResourceThenDepthReadOrdering();
         ReadBeforeInitializationValidation();
+        SubresourceInitializationContract();
+        AttachmentContentsContract();
+        OverwrittenContentsCulling();
+        BackendDepthReadContract();
+        FeatureOwnershipContract();
         DiagnosticSnapshotContract();
+        SparseResourceDependencyContract();
         ResizeInvalidatesCompilation();
     }
 }

@@ -6,7 +6,7 @@
 #include "../Vulkan/LLGI.PlatformVulkan.h"
 #endif
 
-#if defined(_WIN32) && !defined(ENABLE_WEBGPU)
+#if defined(_WIN32) && LLGI_ENABLE_DX12 && !defined(ENABLE_WEBGPU)
 #include "../DX12/LLGI.CompilerDX12.h"
 #include "../DX12/LLGI.PlatformDX12.h"
 #include "../Win/LLGI.WindowWin.h"
@@ -112,7 +112,7 @@ Platform* CreatePlatform(const PlatformParameter& parameter, Window* window)
 #endif
 
 #ifdef ENABLE_VULKAN
-#if defined(__linux__)
+#if defined(__linux__) || (defined(_WIN32) && !LLGI_ENABLE_DX12)
 	if (parameter.Device == DeviceType::Vulkan || parameter.Device == DeviceType::Default)
 #else
 	if (parameter.Device == DeviceType::Vulkan)
@@ -128,7 +128,7 @@ Platform* CreatePlatform(const PlatformParameter& parameter, Window* window)
 	}
 #endif
 
-#if defined(_WIN32) && !defined(ENABLE_WEBGPU)
+#if defined(_WIN32) && LLGI_ENABLE_DX12 && !defined(ENABLE_WEBGPU)
 
 	if (parameter.Device == DeviceType::Default || parameter.Device == DeviceType::DirectX12)
 	{
@@ -155,7 +155,7 @@ Compiler* CreateCompiler(DeviceType device)
 {
 #ifdef ENABLE_CREATE_COMPILER
 
-#if defined(_WIN32) && !defined(ENABLE_WEBGPU)
+#if defined(_WIN32) && LLGI_ENABLE_DX12 && !defined(ENABLE_WEBGPU)
 	if (device == DeviceType::Default || device == DeviceType::DirectX12)
 	{
 		auto obj = new CompilerDX12();
@@ -164,7 +164,7 @@ Compiler* CreateCompiler(DeviceType device)
 #endif
 
 #ifdef ENABLE_VULKAN
-	if (device == DeviceType::Vulkan)
+	if (device == DeviceType::Vulkan || (!LLGI_ENABLE_DX12 && device == DeviceType::Default))
 	{
 #if defined(ENABLE_VULKAN_COMPILER)
 		auto obj = new CompilerVulkan();

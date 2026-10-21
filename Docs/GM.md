@@ -21,15 +21,19 @@ gm.discover
 gm.execute
 ```
 
-发现当前项目注册的命令：
+常用入口：
 
 ```powershell
 .\hectl.bat agent start
 .\hectl.bat agent gm-discover
+.\hectl.bat agent gm-execute `
+    -GMCommand survivor.profile.add_gold `
+    -GMArgumentsJson '{"amount":100}' `
+    -GMConfirm
 .\hectl.bat agent stop
 ```
 
-项目注册命令后，可通过 `hectl agent gm-execute` 传入 `command`、`arguments` 和 `confirm`。动态 Project 命令不会成为独立 Agent method。
+`gm.execute` 参数为 `command`、`arguments` 和 `confirm`。动态 Project 命令不会成为独立 Agent method。
 
 ## Project Python 注册
 

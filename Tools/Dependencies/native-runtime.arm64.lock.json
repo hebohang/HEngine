@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "architecture": "arm64",
+  "agilitySdkVersion": 619,
+  "agilityPackageVersion": "1.619.5",
+  "fsrSourceArchiveSha256": "0216556bfb0e243cec30004a2a98d38f4e3f7406cb7938e3c1b85c758e95d952",
+  "files": {
+    "D3D12/D3D12Core.dll": "b424f7774dbff9bc142cadc59c399a596019c70307153947b62d237c8595ef1b"
+  }
+}

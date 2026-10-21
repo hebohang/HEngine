@@ -53,7 +53,9 @@ namespace HEngine
         MeshSource,
         Config,
         Binary,
-        Data
+        Data,
+        // Append new types to preserve existing serialized numeric values and registry hashes.
+        Collision
     };
 
     enum class RuntimeCatalogDependencyKind : uint8_t
@@ -154,6 +156,8 @@ namespace HEngine
     private:
         RuntimeResourceCatalog();
 
-        std::atomic<std::shared_ptr<const RuntimeResourceCatalogSnapshot>> mSnapshot;
+        // C++20 libc++ used by Emscripten lacks atomic<shared_ptr>; the standard
+        // shared_ptr atomic free functions preserve the same publication contract.
+        std::shared_ptr<const RuntimeResourceCatalogSnapshot> mSnapshot;
     };
 }

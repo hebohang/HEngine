@@ -4,6 +4,7 @@ param([string]$ParserExecutable = "")
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+$script:PowerShellExecutable = (Get-Process -Id $PID).Path
 $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\.."))
 $driver = Join-Path $repositoryRoot "Tools\Agent\CodeGenDriver.ps1"
 $fixtureSource = Join-Path $repositoryRoot "Engine\Source\Programs\HEngineParser\Tests\Fixtures\Contract"
@@ -37,7 +38,7 @@ function Invoke-Driver([string]$Action) {
         '-ParserExecutable', $script:Parser, '-InputList', $script:InputList,
         '-ContextFile', $script:Context, '-TemplateRoot', $script:TemplateRoot,
         '-Module', 'EndToEnd', '-LogPath', $script:LogPath, '--json')
-    $output = @(& powershell.exe @arguments 2>&1)
+    $output = @(& $script:PowerShellExecutable @arguments 2>&1)
     return [pscustomobject]@{
         exitCode = $LASTEXITCODE
         text = (@($output | ForEach-Object { [string]$_ }) -join [Environment]::NewLine)
@@ -55,6 +56,14 @@ if ([string]::IsNullOrWhiteSpace($ParserExecutable)) {
 $script:Parser = [System.IO.Path]::GetFullPath($ParserExecutable)
 
 $temporaryBase = [System.IO.Path]::GetTempPath().TrimEnd('\', '/')
+if (($PSVersionTable.PSEdition -eq 'Core') -and $IsMacOS) {
+    # macOS exposes /var through a system symlink; use its physical path so
+    # the transaction's prohibition on reparse points remains effective.
+    $physicalVar = [System.IO.DirectoryInfo]::new('/var').ResolveLinkTarget($true).FullName
+    if ($temporaryBase.StartsWith('/var/')) {
+        $temporaryBase = $physicalVar + $temporaryBase.Substring(4)
+    }
+}
 $testRoot = Join-Path $temporaryBase ("HEngine-CodeGen-E2E-" + [guid]::NewGuid().ToString("N"))
 try {
     $fixture = Join-Path $testRoot "Fixture"
@@ -93,6 +102,21 @@ try {
         Assert-True ((Get-FileHash $path -Algorithm SHA256).Hash -eq $beforeNoop[$relative].hash) "no-op changed $relative"
         Assert-True ([System.IO.File]::GetLastWriteTimeUtc($path).Ticks -eq $beforeNoop[$relative].ticks) "no-op touched $relative mtime"
     }
+
+    $commonHeader = Join-Path $fixture "Common.h"
+    $indirectHeader = Join-Path $fixture "Indirect.h"
+    Write-Utf8 -Path $indirectHeader -Text "#pragma once`ninline constexpr int DependencyProbe = 1;`n"
+    Write-Utf8 -Path $commonHeader -Text ([IO.File]::ReadAllText($commonHeader) + "`n#include `"Indirect.h`"`n")
+    $discovered = Invoke-Driver -Action "Ensure"
+    Assert-True ($discovered.exitCode -eq 0) "include closure discovery failed: $($discovered.text)"
+    $dependencyManifest = [IO.File]::ReadAllText($manifestPath) | ConvertFrom-Json
+    Assert-True (@($dependencyManifest.inputs | Where-Object {$_.kind -eq 'include' -and $_.path -match 'Indirect[.]h$'}).Count -eq 1) "transitive include not recorded"
+    Write-Utf8 -Path $indirectHeader -Text "#pragma once`ninline constexpr int DependencyProbe = 2;`n"
+    $dependentUpdate = Invoke-Driver -Action "Ensure"
+    Assert-True ($dependentUpdate.exitCode -eq 0) "transitive include update failed: $($dependentUpdate.text)"
+    $dependentJson = $dependentUpdate.text | ConvertFrom-Json
+    Assert-True ($dependentJson.status -eq 'generated') "transitive include change did not invalidate codegen"
+    Assert-True ($dependentJson.changed -eq 0) "unrelated constant rewrote generated content"
 
     $unrelatedSource = Join-Path $testRoot "Unrelated.cpp"
     Write-Utf8 -Path $unrelatedSource -Text "int UnrelatedCodegenContract() { return 42; }`n"
@@ -163,7 +187,7 @@ try {
     Assert-True ($projectJson.configIdentity -ne $pluginIdentity) "external Project.heproject change reused old identity"
 
     [Console]::Out.WriteLine(
-        "Codegen end-to-end: PASS (fieldChanged=$($incrementalJson.changed), staleDeleted=$($staleJson.deleted), real parser bootstrap/no-op, syntax rollback, unrelated-source no-op, host/plugin/external-project identity)")
+        "Codegen end-to-end: PASS (fieldChanged=$($incrementalJson.changed), staleDeleted=$($staleJson.deleted), real parser bootstrap/no-op, transitive include discovery/invalidation, syntax rollback, unrelated-source no-op, host/plugin/external-project identity)")
 }
 finally {
     $fullTestRoot = [System.IO.Path]::GetFullPath($testRoot)

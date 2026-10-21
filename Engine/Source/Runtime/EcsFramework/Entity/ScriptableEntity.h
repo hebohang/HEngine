@@ -8,6 +8,8 @@ namespace HEngine
     {
     public:
         virtual ~ScriptableEntity() {}
+        virtual void LoadProperties(const Json& properties) {}
+        virtual Json SaveProperties() const { return Json::object(); }
 
         template<typename T>
         T& GetComponent()
@@ -21,5 +23,6 @@ namespace HEngine
     private:
         Entity mEntity;
         friend class NativeScriptSystem;
+        friend class NativeScriptComponent;
     };
 }

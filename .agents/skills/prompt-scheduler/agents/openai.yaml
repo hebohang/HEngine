@@ -1,0 +1,4 @@
+interface:
+  display_name: "Prompt 调度器"
+  short_description: "直接粘贴多个 prompt，依次新建任务、验收、按授权提交并记录恢复进度"
+  default_prompt: "$prompt-scheduler\n\n【任务 1】\n"

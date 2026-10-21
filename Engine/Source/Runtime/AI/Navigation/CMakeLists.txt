@@ -1,3 +1,7 @@
-RUNTIME_ADD_SOURCE(
-    NavigationService.h NavigationService.cpp
-)
+set(featureSources NavigationService.h NavigationSettings.cpp)
+if(HE_ENABLE_NAVIGATION)
+    list(APPEND featureSources NavigationService.cpp)
+else()
+    list(APPEND featureSources NavigationServiceDisabled.cpp)
+endif()
+RUNTIME_ADD_SOURCE(${featureSources})

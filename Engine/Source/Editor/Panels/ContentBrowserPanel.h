@@ -18,6 +18,7 @@ namespace HEngine
 		ContentBrowserPanel(EditorLayer* parent, std::string panelName, bool* pOpen);
 
 		void OnEvent(Event& e) override;
+		void OnImGuiRender() override;
 	protected:
 		void OnImGuiRenderImpl() override;
 	private:
@@ -63,6 +64,7 @@ namespace HEngine
 		std::filesystem::path mRenamePath;
 		std::string mRenameError;
 		bool bHandleTreeEvent = false;
+		bool bFocusForDirectoryCheck = false;
 		bool bHandleContentEvent = false;
 		bool bRenamePopupRequested = false;
 		bool bRenameFocusRequested = false;

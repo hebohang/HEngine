@@ -20,7 +20,7 @@ namespace HEngine
         void OnUpdateEditor(Timestep ts, EditorCamera& camera) override;
 #endif
     private:
-        void TickEntity(Entity entity, Timestep ts, bool bRuntime);
+        void TickEntity(Entity entity, Timestep ts, bool bRuntime, bool bAllowAsyncPreparation = true);
     };
 }
 

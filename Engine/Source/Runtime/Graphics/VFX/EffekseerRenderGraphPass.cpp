@@ -15,6 +15,17 @@
 
 namespace HEngine
 {
+    void EffekseerRenderGraphPass::AddSimulationToGraph(RenderGraph& graph)
+    {
+        struct SimulationPassData {};
+        graph.AddPass<SimulationPassData>("VFXSimulation",
+            [](RenderGraphBuilder& builder, SimulationPassData&) { builder.SetSideEffect(); },
+            [](RenderGraphContext& context, const SimulationPassData&)
+            {
+                EffekseerRuntime::ComputeParticles(context.GetCommandList());
+            });
+    }
+
     namespace
     {
         struct DepthSnapshotPassData
@@ -179,10 +190,11 @@ namespace HEngine
             }
 
             nvrhi::BindingSetDesc desc;
+            // Let NVRHI select the depth SRV for each backend. Forcing R32
+            // creates an invalid color-aspect view of a Vulkan D32 image.
             desc.addItem(nvrhi::BindingSetItem::Texture_SRV(
                 0,
-                sceneDepth,
-                nvrhi::Format::R32_FLOAT));
+                sceneDepth));
             nvrhi::BindingSetHandle bindingSet = Device->createBindingSet(desc, DepthBindingLayout);
             if (!bindingSet)
                 throw std::runtime_error(
@@ -314,6 +326,9 @@ namespace HEngine
             .CameraPosition = inputs.CameraPosition,
             .ZNear = inputs.ZNear,
             .ZFar = inputs.ZFar,
+            .LightDirection = inputs.LightDirection,
+            .LightColor = inputs.LightColor,
+            .LightAmbientColor = inputs.LightAmbientColor,
         };
         const nvrhi::Format sceneColorFormat = graph.GetTextureDesc(inputs.SceneColor).Format;
         if (requirements.bRequiresDepthSnapshot)
@@ -422,6 +437,9 @@ namespace HEngine
                     .ZNear = view.ZNear,
                     .ZFar = view.ZFar,
                     .CameraPosition = view.CameraPosition,
+                    .LightDirection = view.LightDirection,
+                    .LightColor = view.LightColor,
+                    .LightAmbientColor = view.LightAmbientColor,
                 });
             });
         result.bAdded = true;
@@ -436,6 +454,26 @@ namespace HEngine
     void EffekseerRenderGraphPass::ClearResourceCaches()
     {
         mImpl->ClearResourceCaches();
+    }
+
+    std::function<void()> EffekseerRenderGraphPass::CaptureGraphState()
+    {
+        return [impl = mImpl.get(), depthBindings = mImpl->DepthBindingSets,
+            depthFramebuffers = mImpl->DepthFramebuffers,
+            vfxFramebuffers = mImpl->VfxFramebuffers, view = mImpl->View]() mutable noexcept
+        {
+            impl->DepthBindingSets.swap(depthBindings);
+            impl->DepthFramebuffers.swap(depthFramebuffers);
+            impl->VfxFramebuffers.swap(vfxFramebuffers);
+            std::swap(impl->View, view);
+        };
+    }
+
+    void EffekseerRenderGraphPass::ClearGraphResourceCaches() noexcept
+    {
+        mImpl->DepthBindingSets.clear();
+        mImpl->DepthFramebuffers.clear();
+        mImpl->VfxFramebuffers.clear();
     }
 
     size_t EffekseerRenderGraphPass::GetFramebufferCacheSize() const noexcept

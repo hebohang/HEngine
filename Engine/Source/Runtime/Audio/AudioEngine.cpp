@@ -203,6 +203,11 @@ namespace HEngine
             mImpl->Backend->SetGameplayPaused(bPaused);
     }
 
+    void AudioEngine::SetSuspended(bool suspended)
+    {
+        if (mImpl->Backend) mImpl->Backend->SetSuspended(suspended);
+    }
+
     bool AudioEngine::IsGameplayPaused() const
     {
         return mImpl->Backend && mImpl->Backend->IsGameplayPaused();

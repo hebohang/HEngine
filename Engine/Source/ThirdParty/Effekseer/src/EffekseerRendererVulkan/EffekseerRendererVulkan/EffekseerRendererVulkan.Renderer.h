@@ -47,7 +47,11 @@ Create(::Effekseer::Backend::GraphicsDeviceRef graphicsDevice, RenderPassInforma
 
 Effekseer::Backend::TextureRef CreateTexture(::Effekseer::Backend::GraphicsDeviceRef graphicsDevice, const VulkanImageInfo& info);
 
-void BeginCommandList(Effekseer::RefPtr<EffekseerRenderer::CommandList> commandList, VkCommandBuffer nativeCommandList);
+// Set false when recording compute/upload commands before the host render pass.
+void BeginCommandList(Effekseer::RefPtr<EffekseerRenderer::CommandList> commandList, VkCommandBuffer nativeCommandList, bool insideRenderPass = true);
+
+void BeginExternalRenderPass(Effekseer::RefPtr<EffekseerRenderer::CommandList> commandList);
+void EndExternalRenderPass(Effekseer::RefPtr<EffekseerRenderer::CommandList> commandList);
 
 void EndCommandList(Effekseer::RefPtr<EffekseerRenderer::CommandList> commandList);
 

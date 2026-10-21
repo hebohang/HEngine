@@ -50,6 +50,7 @@ namespace HEngine
 		struct EditorState;
 		void RemoveBinding(const UUID& entityID) noexcept;
 		void ClearBindings() noexcept;
+		bool SynchronizeEditorPickScene();
 
 		Scope<EditorState> mEditorState;
 #endif

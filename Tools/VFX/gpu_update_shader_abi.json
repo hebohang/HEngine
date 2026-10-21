@@ -1,0 +1,530 @@
+{
+  "workgroup": [
+    256,
+    1,
+    1
+  ],
+  "resources": {
+    "ubos": [
+      {
+        "name": "cb0",
+        "block_size": 16,
+        "set": 0,
+        "binding": 0,
+        "type": {
+          "name": "cb0",
+          "members": [
+            {
+              "name": "constants",
+              "offset": 0,
+              "type": {
+                "name": "ComputeConstants",
+                "members": [
+                  {
+                    "name": "CoordinateReversed",
+                    "offset": 0,
+                    "type": "uint"
+                  },
+                  {
+                    "name": "Reserved0",
+                    "offset": 4,
+                    "type": "float"
+                  },
+                  {
+                    "name": "Reserved1",
+                    "offset": 8,
+                    "type": "float"
+                  },
+                  {
+                    "name": "Reserved2",
+                    "offset": 12,
+                    "type": "float"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "cb1",
+        "block_size": 368,
+        "set": 0,
+        "binding": 1,
+        "type": {
+          "name": "cb1",
+          "members": [
+            {
+              "name": "paramData",
+              "offset": 0,
+              "type": {
+                "name": "ParameterData",
+                "members": [
+                  {
+                    "name": "EmitCount",
+                    "offset": 0,
+                    "type": "int"
+                  },
+                  {
+                    "name": "EmitPerFrame",
+                    "offset": 4,
+                    "type": "int"
+                  },
+                  {
+                    "name": "EmitOffset",
+                    "offset": 8,
+                    "type": "float"
+                  },
+                  {
+                    "name": "Padding0",
+                    "offset": 12,
+                    "type": "uint"
+                  },
+                  {
+                    "name": "LifeTime",
+                    "offset": 16,
+                    "type": "vec2"
+                  },
+                  {
+                    "name": "EmitShapeType",
+                    "offset": 24,
+                    "type": "uint"
+                  },
+                  {
+                    "name": "EmitRotationApplied",
+                    "offset": 28,
+                    "type": "uint"
+                  },
+                  {
+                    "name": "EmitShapeData",
+                    "array": [
+                      2
+                    ],
+                    "array_size_is_literal": [
+                      true
+                    ],
+                    "offset": 32,
+                    "array_stride": 16,
+                    "type": "vec4"
+                  },
+                  {
+                    "name": "Direction",
+                    "offset": 64,
+                    "type": "vec3"
+                  },
+                  {
+                    "name": "Spread",
+                    "offset": 76,
+                    "type": "float"
+                  },
+                  {
+                    "name": "InitialSpeed",
+                    "offset": 80,
+                    "type": "vec2"
+                  },
+                  {
+                    "name": "Damping",
+                    "offset": 88,
+                    "type": "vec2"
+                  },
+                  {
+                    "name": "AngularOffset",
+                    "array": [
+                      2
+                    ],
+                    "array_size_is_literal": [
+                      true
+                    ],
+                    "offset": 96,
+                    "array_stride": 16,
+                    "type": "vec4"
+                  },
+                  {
+                    "name": "AngularVelocity",
+                    "array": [
+                      2
+                    ],
+                    "array_size_is_literal": [
+                      true
+                    ],
+                    "offset": 128,
+                    "array_stride": 16,
+                    "type": "vec4"
+                  },
+                  {
+                    "name": "ScaleData1",
+                    "array": [
+                      2
+                    ],
+                    "array_size_is_literal": [
+                      true
+                    ],
+                    "offset": 160,
+                    "array_stride": 16,
+                    "type": "vec4"
+                  },
+                  {
+                    "name": "ScaleData2",
+                    "array": [
+                      2
+                    ],
+                    "array_size_is_literal": [
+                      true
+                    ],
+                    "offset": 192,
+                    "array_stride": 16,
+                    "type": "vec4"
+                  },
+                  {
+                    "name": "ScaleEasing",
+                    "offset": 224,
+                    "type": "vec3"
+                  },
+                  {
+                    "name": "ScaleFlags",
+                    "offset": 236,
+                    "type": "uint"
+                  },
+                  {
+                    "name": "Gravity",
+                    "offset": 240,
+                    "type": "vec3"
+                  },
+                  {
+                    "name": "Padding2",
+                    "offset": 252,
+                    "type": "uint"
+                  },
+                  {
+                    "name": "VortexCenter",
+                    "offset": 256,
+                    "type": "vec3"
+                  },
+                  {
+                    "name": "VortexRotation",
+                    "offset": 268,
+                    "type": "float"
+                  },
+                  {
+                    "name": "VortexAxis",
+                    "offset": 272,
+                    "type": "vec3"
+                  },
+                  {
+                    "name": "VortexAttraction",
+                    "offset": 284,
+                    "type": "float"
+                  },
+                  {
+                    "name": "TurbulencePower",
+                    "offset": 288,
+                    "type": "float"
+                  },
+                  {
+                    "name": "TurbulenceSeed",
+                    "offset": 292,
+                    "type": "uint"
+                  },
+                  {
+                    "name": "TurbulenceScale",
+                    "offset": 296,
+                    "type": "float"
+                  },
+                  {
+                    "name": "TurbulenceOctave",
+                    "offset": 300,
+                    "type": "float"
+                  },
+                  {
+                    "name": "RenderState",
+                    "offset": 304,
+                    "type": "uint"
+                  },
+                  {
+                    "name": "ShapeType",
+                    "offset": 308,
+                    "type": "uint"
+                  },
+                  {
+                    "name": "ShapeData",
+                    "offset": 312,
+                    "type": "uint"
+                  },
+                  {
+                    "name": "ShapeSize",
+                    "offset": 316,
+                    "type": "float"
+                  },
+                  {
+                    "name": "Emissive",
+                    "offset": 320,
+                    "type": "float"
+                  },
+                  {
+                    "name": "FadeIn",
+                    "offset": 324,
+                    "type": "float"
+                  },
+                  {
+                    "name": "FadeOut",
+                    "offset": 328,
+                    "type": "float"
+                  },
+                  {
+                    "name": "MaterialType",
+                    "offset": 332,
+                    "type": "uint"
+                  },
+                  {
+                    "name": "ColorData",
+                    "offset": 336,
+                    "type": "uvec4"
+                  },
+                  {
+                    "name": "ColorEasing",
+                    "offset": 352,
+                    "type": "vec3"
+                  },
+                  {
+                    "name": "ColorFlags",
+                    "offset": 364,
+                    "type": "uint"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "cb2",
+        "block_size": 112,
+        "set": 0,
+        "binding": 2,
+        "type": {
+          "name": "cb2",
+          "members": [
+            {
+              "name": "emitter",
+              "offset": 0,
+              "type": {
+                "name": "EmitterData",
+                "members": [
+                  {
+                    "name": "FlagBits",
+                    "offset": 0,
+                    "type": "uint"
+                  },
+                  {
+                    "name": "Seed",
+                    "offset": 4,
+                    "type": "uint"
+                  },
+                  {
+                    "name": "ParticleHead",
+                    "offset": 8,
+                    "type": "uint"
+                  },
+                  {
+                    "name": "ParticleSize",
+                    "offset": 12,
+                    "type": "uint"
+                  },
+                  {
+                    "name": "TrailHead",
+                    "offset": 16,
+                    "type": "uint"
+                  },
+                  {
+                    "name": "TrailSize",
+                    "offset": 20,
+                    "type": "uint"
+                  },
+                  {
+                    "name": "TrailPhase",
+                    "offset": 24,
+                    "type": "uint"
+                  },
+                  {
+                    "name": "NextEmitCount",
+                    "offset": 28,
+                    "type": "uint"
+                  },
+                  {
+                    "name": "TotalEmitCount",
+                    "offset": 32,
+                    "type": "uint"
+                  },
+                  {
+                    "name": "EmitPointCount",
+                    "offset": 36,
+                    "type": "uint"
+                  },
+                  {
+                    "name": "TimeCount",
+                    "offset": 40,
+                    "type": "float"
+                  },
+                  {
+                    "name": "TimeStopped",
+                    "offset": 44,
+                    "type": "float"
+                  },
+                  {
+                    "name": "Reserved0",
+                    "offset": 48,
+                    "type": "uint"
+                  },
+                  {
+                    "name": "Reserved1",
+                    "offset": 52,
+                    "type": "uint"
+                  },
+                  {
+                    "name": "DeltaTime",
+                    "offset": 56,
+                    "type": "float"
+                  },
+                  {
+                    "name": "Color",
+                    "offset": 60,
+                    "type": "uint"
+                  },
+                  {
+                    "name": "Transform",
+                    "offset": 64,
+                    "matrix_stride": 16,
+                    "row_major": true,
+                    "type": "mat4x3"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "ssbos": [
+      {
+        "name": "Particles",
+        "block_size": 0,
+        "set": 2,
+        "binding": 0,
+        "type": {
+          "name": "Particles",
+          "members": [
+            {
+              "name": "_data",
+              "array": [
+                0
+              ],
+              "array_size_is_literal": [
+                true
+              ],
+              "offset": 0,
+              "array_stride": 80,
+              "type": {
+                "name": "ParticleData",
+                "members": [
+                  {
+                    "name": "FlagBits",
+                    "offset": 0,
+                    "type": "uint"
+                  },
+                  {
+                    "name": "Seed",
+                    "offset": 4,
+                    "type": "uint"
+                  },
+                  {
+                    "name": "LifeAge",
+                    "offset": 8,
+                    "type": "float"
+                  },
+                  {
+                    "name": "InheritColor",
+                    "offset": 12,
+                    "type": "uint"
+                  },
+                  {
+                    "name": "Color",
+                    "offset": 16,
+                    "type": "uint"
+                  },
+                  {
+                    "name": "Direction",
+                    "offset": 20,
+                    "type": "uint"
+                  },
+                  {
+                    "name": "Velocity",
+                    "offset": 24,
+                    "type": "uvec2"
+                  },
+                  {
+                    "name": "Transform",
+                    "offset": 32,
+                    "matrix_stride": 16,
+                    "row_major": true,
+                    "type": "mat4x3"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "Trails",
+        "block_size": 0,
+        "set": 2,
+        "binding": 1,
+        "type": {
+          "name": "Trails",
+          "members": [
+            {
+              "name": "_data",
+              "array": [
+                0
+              ],
+              "array_size_is_literal": [
+                true
+              ],
+              "offset": 0,
+              "array_stride": 16,
+              "type": {
+                "name": "TrailData",
+                "members": [
+                  {
+                    "name": "Position",
+                    "offset": 0,
+                    "type": "vec3"
+                  },
+                  {
+                    "name": "Direction",
+                    "offset": 12,
+                    "type": "uint"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "textures": [
+      {
+        "name": "Sampler_NoiseSamp",
+        "set": 1,
+        "binding": 2,
+        "type": "sampler3D"
+      },
+      {
+        "name": "Sampler_GradientSamp",
+        "set": 1,
+        "binding": 4,
+        "type": "sampler2D"
+      }
+    ]
+  }
+}

@@ -110,11 +110,7 @@ float DistributionGGX(float nDotH, float roughness)
     return alphaSquared / max(c_Pi * denominator * denominator, 1e-12f);
 }
 
-float GeometrySchlickGGX(float nDotV, float roughness)
-{
-    const float k = (roughness * roughness) * 0.5f;
-    return nDotV / max(nDotV * (1.0f - k) + k, 1e-5f);
-}
+#include "Shared/SurfaceLightingMath.hlsli"
 
 float2 IntegrateBrdf(float nDotV, float roughness)
 {
@@ -132,9 +128,11 @@ float2 IntegrateBrdf(float nDotV, float roughness)
         const float vDotH = saturate(dot(view, halfway));
         if (nDotL <= 0.0f)
             continue;
-        const float geometry = GeometrySchlickGGX(nDotV, roughness) *
-            GeometrySchlickGGX(nDotL, roughness);
-        const float visibility = geometry * vDotH / max(nDotH * nDotV, 1e-5f);
+        // The PDF cancels D and the view denominator, leaving 4*NoL*V*VoH/NoH.
+        // Use exactly the same correlated visibility as direct illumination.
+        const float visibility = 4.0f * nDotL *
+            HE_VisibilitySmithGGXCorrelated(nDotV, nDotL, roughness) *
+            vDotH / max(nDotH, 1e-5f);
         const float fresnel = pow(1.0f - vDotH, 5.0f);
         scale += (1.0f - fresnel) * visibility;
         bias += fresnel * visibility;
@@ -207,34 +205,27 @@ void CS(uint3 dispatchId : SV_DispatchThreadID)
     float weight = 0.0f;
     if (g_Mode == 1u)
     {
-        const float3 tangent = BuildTangent(normal);
-        const float3 bitangent = cross(normal, tangent);
-        for (uint sampleIndex = 0u; sampleIndex < count; ++sampleIndex)
+        // Integrate a fixed set of WORLD-space directions. Rotating a finite
+        // hemisphere kernel with each output normal turns HDR quadrature error
+        // into visible bands on smooth faces. Shared directions make neighboring
+        // normals vary only through the continuous cosine weight.
+        const uint diffuseCount = count * 4u;
+        const float sampleSolidAngle = 4.0f * c_Pi / float(diffuseCount);
+        const float sourceLod = clamp(
+            0.5f * log2(max(sampleSolidAngle / texelSolidAngle, 1.0f)),
+            0.0f, sourceMaxMip);
+        for (uint sampleIndex = 0u; sampleIndex < diffuseCount; ++sampleIndex)
         {
-            const float2 xi = Hammersley(sampleIndex, count);
-            const float phi = 2.0f * c_Pi * xi.x;
-            const float cosTheta = sqrt(1.0f - xi.y);
-            const float sinTheta = sqrt(xi.y);
-            const float3 sampleDirection = normalize(
-                tangent * (cos(phi) * sinTheta) +
-                bitangent * (sin(phi) * sinTheta) + normal * cosTheta);
-            // Cosine-weighted samples must filter the source over the solid
-            // angle represented by each sample, or tiny HDR lights become
-            // isolated high-energy texels in the irradiance cubemap.
-            const float nDotL = saturate(dot(normal, sampleDirection));
-            const float pdf = max(nDotL / c_Pi, 1e-6f);
-            const float sampleSolidAngle = 1.0f /
-                max(float(count) * pdf, 1e-6f);
-            const float sourceLod = clamp(
-                0.5f * log2(max(sampleSolidAngle / texelSolidAngle, 1.0f)),
-                0.0f,
-                sourceMaxMip);
+            const float2 xi = Hammersley(sampleIndex, diffuseCount);
+            const float z = 1.0f - 2.0f * (float(sampleIndex) + 0.5f) / float(diffuseCount);
+            const float phi = 2.0f * c_Pi * xi.y;
+            const float radial = sqrt(saturate(1.0f - z * z));
+            const float3 sampleDirection = float3(radial * cos(phi), radial * sin(phi), z);
+            const float cosineWeight = saturate(dot(normal, sampleDirection));
             result += SanitizeRadiance(g_SourceCube.SampleLevel(
-                g_LinearSampler,
-                sampleDirection,
-                sourceLod).rgb);
+                g_LinearSampler, sampleDirection, sourceLod).rgb) * cosineWeight;
         }
-        result *= c_Pi / float(count);
+        result *= sampleSolidAngle;
     }
     else
     {

@@ -4,6 +4,9 @@ HEngine 的模型导入由 `HAssetImporter` 和 `AssimpImporter` 完成。导入
 `.hmesh`、`.bin`、`.hmat` 与纹理文件；Editor 和 Game 只读取这些引擎资源，不在运行时依赖
 源 `.gltf`、外部模型目录或构建机路径。
 
+UE/Fab 资产的只读导出、项目配置、稳定 ID、内容同步及重导入流程见
+[UE/Fab 资产接入](UEFabAssetIntake.md)。
+
 ## glTF 保真规则
 
 - 保留 `aiProcess_FlipUVs`。Assimp 的 glTF reader 会先把 glTF UV 转成 Assimp 坐标约定，
@@ -36,6 +39,22 @@ out/agent/editor-relwithdebinfo/bin/Programs/HAssetImporter/HAssetImporter.exe `
 directory 必须已经存在并位于项目或引擎的 `Assets` 下。导入前建议使用空的 staging 目录，
 确认生成资源和引用闭包后再替换正式目录。不要在包含旧导入
 产物的目录上直接覆盖，因为自动避让重名会产生 `_0`、`_1` 纹理和陈旧未引用材质。
+模型模式导入失败时，工具会回滚这次在输出目录中新建的普通文件，保留预先存在的条目；
+这不替代空 staging 目录，也不保证并发写入同一目录时的事务隔离。
+
+## 布料绘制与顶点颜色
+
+`.hmesh` 的蒙皮 primitive 可选用 `CLOTH_WEIGHT` 属性：与 `POSITION` 顶点数相同的
+`SCALAR`/float32 数组，值域 0–1，0 表示固定，1 表示使用布料面板的完整最大位移。
+运行时布料解算优先读取该独立权重；没有此属性的旧资源仍按历史约定读取 `COLOR_0.r`。
+新内容不要覆写 `COLOR_0` 来绘制布料，因为它可能包含角色材质分区或实际顶点颜色。
+`MechanicGirlLab/Tools/Author-UnrealMechanicGirlDynamics.py` 展示了保留原网格二进制前段、
+追加独立权重流的项目内制作流程。
+
+Editor 可直接打开带形变目标的 `.hmesh`，在资源预览面板中选择目标、调整权重、重置，
+并聚焦该目标实际移动的顶点。预览修改只作用于独立网格实例，不写回资源文件；含蒙皮
+primitive 的网格按 bind palette 计算取景边界，不依赖是否正在播放动画。若需要保存表情
+时间曲线，应使用 `.hface` 或场景 Animator 配置，而不是把预览滑条当作资源保存操作。
 
 导入后的最低检查项：
 

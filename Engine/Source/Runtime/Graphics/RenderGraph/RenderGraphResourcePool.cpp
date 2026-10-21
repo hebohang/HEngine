@@ -22,6 +22,10 @@ namespace HEngine
         constexpr RenderGraphUsage BufferCapabilityUsages =
             RenderGraphUsage::ShaderResource |
             RenderGraphUsage::UnorderedAccess |
+            RenderGraphUsage::VertexBuffer |
+            RenderGraphUsage::IndexBuffer |
+            RenderGraphUsage::ConstantBuffer |
+            RenderGraphUsage::IndirectArgument |
             RenderGraphUsage::AccelerationStructureBuildInput;
 
         [[nodiscard]] uint32_t UsageBits(RenderGraphUsage usage) noexcept
@@ -65,9 +69,9 @@ namespace HEngine
                 const uint64_t blocksX = (width + blockSize - 1u) / blockSize;
                 const uint64_t blocksY = (height + blockSize - 1u) / blockSize;
                 total += blocksX * blocksY * depth * format.bytesPerBlock;
-                width = std::max(width >> 1u, 1ull);
-                height = std::max(height >> 1u, 1ull);
-                depth = std::max(depth >> 1u, 1ull);
+                width = std::max<uint64_t>(width >> 1u, 1);
+                height = std::max<uint64_t>(height >> 1u, 1);
+                depth = std::max<uint64_t>(depth >> 1u, 1);
             }
             return total * std::max<uint64_t>(desc.ArrayLayers, 1u) *
                 std::max<uint64_t>(desc.SampleCount, 1u);
@@ -174,6 +178,9 @@ namespace HEngine
             if (bTransient)
                 result.debugName += " [frame-slot " + std::to_string(frameSlot) + ']';
             result.canHaveUAVs = HasRenderGraphUsage(capabilities, RenderGraphUsage::UnorderedAccess);
+            result.isVertexBuffer = HasRenderGraphUsage(capabilities, RenderGraphUsage::VertexBuffer);
+            result.isIndexBuffer = HasRenderGraphUsage(capabilities, RenderGraphUsage::IndexBuffer);
+            result.isConstantBuffer = HasRenderGraphUsage(capabilities, RenderGraphUsage::ConstantBuffer);
             result.isDrawIndirectArgs = HasRenderGraphUsage(
                 capabilities,
                 RenderGraphUsage::IndirectArgument);
@@ -228,6 +235,13 @@ namespace HEngine
         };
     }
 
+    nvrhi::BufferDesc MakeRenderGraphBufferAllocationDesc(
+        const RenderGraphBufferDesc& desc, RenderGraphUsage requiredUsage,
+        uint32_t frameSlot, bool bTransient)
+    {
+        return MakeBufferDesc(desc, BufferCapabilities(requiredUsage), frameSlot, bTransient);
+    }
+
     struct RenderGraphResourcePool::Impl
     {
         struct TextureAllocation
@@ -266,6 +280,7 @@ namespace HEngine
             uint64_t Submission = 0;
             nvrhi::TextureHandle Texture;
             nvrhi::BufferHandle Buffer;
+            uint64_t NominalBytes = 0;
         };
 
         explicit Impl(nvrhi::IDevice* device, uint32_t frameSlotCount)
@@ -299,35 +314,96 @@ namespace HEngine
         {
             if (!resource || submission <= CompletedSubmission)
                 return;
-            RetiredResources.push_back({ .Submission = submission, .Texture = std::move(resource) });
+            const auto& source = resource->getDesc();
+            RenderGraphTextureDesc desc;
+            desc.Width = source.width;
+            desc.Height = source.height;
+            desc.Depth = source.depth;
+            desc.MipLevels = source.mipLevels;
+            desc.ArrayLayers = source.arraySize;
+            desc.SampleCount = source.sampleCount;
+            desc.Format = source.format;
+            RetiredResources.push_back({ .Submission = submission, .Texture = std::move(resource),
+                .NominalBytes = EstimateTextureBytes(desc) });
         }
 
         void Retire(nvrhi::BufferHandle resource, uint64_t submission)
         {
             if (!resource || submission <= CompletedSubmission)
                 return;
-            RetiredResources.push_back({ .Submission = submission, .Buffer = std::move(resource) });
+            const uint64_t bytes = resource->getDesc().byteSize;
+            RetiredResources.push_back({ .Submission = submission, .Buffer = std::move(resource), .NominalBytes = bytes });
         }
 
         nvrhi::IDevice* Device = nullptr;
         uint64_t CompletedSubmission = 0;
         uint64_t NextPhysicalAllocationId = 1;
+        bool bTransientTextureReuse = false;
+        uint64_t TransientCacheBudgetBytes = std::numeric_limits<uint64_t>::max();
+        uint64_t TrimmedTransientBytes = 0;
         std::vector<FrameSlot> FrameSlots;
         std::unordered_map<RenderGraphPoolResourceKey, TextureAllocation, ResourceKeyHash> PersistentTextures;
         std::unordered_map<RenderGraphPoolResourceKey, BufferAllocation, ResourceKeyHash> PersistentBuffers;
         std::vector<RetiredResource> RetiredResources;
     };
 
-    RenderGraphResourcePool::RenderGraphResourcePool(nvrhi::IDevice* device, uint32_t frameSlotCount)
+    RenderGraphResourcePool::RenderGraphResourcePool(nvrhi::IDevice* device, uint32_t frameSlotCount,
+        bool bTransientTextureReuse)
         : mImpl(std::make_unique<Impl>(device, frameSlotCount))
     {
         if (!device)
             throw std::invalid_argument("RenderGraphResourcePool requires a valid NVRHI device");
         if (frameSlotCount == 0)
             throw std::invalid_argument("RenderGraphResourcePool requires at least one frame slot");
+        mImpl->bTransientTextureReuse = bTransientTextureReuse;
     }
 
     RenderGraphResourcePool::~RenderGraphResourcePool() = default;
+
+    void RenderGraphResourcePool::Swap(RenderGraphResourcePool& other) noexcept
+    {
+        mImpl.swap(other.mImpl);
+    }
+
+    uint64_t RenderGraphResourcePool::GetLastSubmission() const noexcept
+    {
+        uint64_t submission = 0;
+        for (const auto& slot : mImpl->FrameSlots)
+            submission = std::max(submission, slot.State.LastSubmission);
+        return submission;
+    }
+
+    void RenderGraphResourcePool::SeedCompletedTransients(
+        const RenderGraphResourcePool& source, uint64_t completedSubmission)
+    {
+        if (&source == this || mImpl->Device != source.mImpl->Device ||
+            mImpl->FrameSlots.size() != source.mImpl->FrameSlots.size())
+            throw RenderGraphValidationError("Candidate pool requires a distinct source on the same device and frame slots.");
+        for (size_t index = 0; index < mImpl->FrameSlots.size(); ++index)
+        {
+            const auto& destination = mImpl->FrameSlots[index];
+            const auto& donor = source.mImpl->FrameSlots[index];
+            if (!destination.State.IsUnsubmitted() || !destination.Textures.empty() ||
+                !destination.Buffers.empty() || !donor.State.CanBegin(completedSubmission))
+                throw RenderGraphValidationError("Candidate seeding requires empty destination and completed source slots.");
+        }
+        // Copies retain handles, not native allocations. All validation occurs
+        // before mutation; allocation exceptions only affect the disposable
+        // candidate. Source metadata and rollback behavior remain unchanged.
+        for (size_t index = 0; index < mImpl->FrameSlots.size(); ++index)
+        {
+            auto& destination = mImpl->FrameSlots[index];
+            const auto& donor = source.mImpl->FrameSlots[index];
+            destination.Textures = donor.Textures;
+            destination.Buffers = donor.Buffers;
+            destination.State = donor.State;
+            for (auto& allocation : destination.Textures)
+                allocation.PhysicalAllocationId = mImpl->AllocatePhysicalId();
+            for (auto& allocation : destination.Buffers)
+                allocation.PhysicalAllocationId = mImpl->AllocatePhysicalId();
+        }
+        mImpl->CompletedSubmission = completedSubmission;
+    }
 
     void RenderGraphResourcePool::BeginFrame(uint32_t frameSlot, uint64_t completedSubmission)
     {
@@ -392,6 +468,17 @@ namespace HEngine
         slot.State.bRecording = false;
     }
 
+    void RenderGraphResourcePool::EndPreparation(uint32_t frameSlot)
+    {
+        Impl::FrameSlot& slot = mImpl->RequireFrameSlot(frameSlot);
+        if (!slot.State.bRecording)
+            throw RenderGraphValidationError("RenderGraph preparation ended without BeginFrame.");
+        // Unlike abort, all cursor-assigned allocations remain part of the
+        // prepared working set. BeginFrame for another bank calls Collect;
+        // clearing these cursors would silently discard proven allocations.
+        slot.State.bRecording = false;
+    }
+
     void RenderGraphResourcePool::AbortFrame(uint32_t frameSlot) noexcept
     {
         if (frameSlot >= mImpl->FrameSlots.size())
@@ -412,7 +499,51 @@ namespace HEngine
         {
             return resource.Submission <= mImpl->CompletedSubmission;
         });
+        uint64_t cachedBytes = 0;
+        for (const auto& slot : mImpl->FrameSlots)
+        {
+            for (size_t index = slot.TextureCursor; index < slot.Textures.size(); ++index)
+                cachedBytes += EstimateTextureBytes(slot.Textures[index].Desc);
+            for (size_t index = slot.BufferCursor; index < slot.Buffers.size(); ++index)
+                cachedBytes += slot.Buffers[index].Desc.ByteSize;
+        }
+        // Release only the unused tail of completed slots. Never shift active
+        // cursor indices or evict a resource referenced by a pending submission.
+        for (auto& slot : mImpl->FrameSlots)
+        {
+            if (!slot.State.CanBegin(mImpl->CompletedSubmission))
+                continue;
+            while (cachedBytes > mImpl->TransientCacheBudgetBytes && slot.Textures.size() > slot.TextureCursor)
+            {
+                const auto& allocation = slot.Textures.back();
+                if (!CanTrimRenderGraphTransient(slot.State, slot.Textures.size() - 1,
+                        slot.TextureCursor, allocation.LastSubmission, mImpl->CompletedSubmission))
+                    break;
+                const uint64_t bytes = EstimateTextureBytes(allocation.Desc);
+                cachedBytes -= bytes;
+                mImpl->TrimmedTransientBytes += bytes;
+                slot.Textures.pop_back();
+            }
+            while (cachedBytes > mImpl->TransientCacheBudgetBytes && slot.Buffers.size() > slot.BufferCursor)
+            {
+                const auto& allocation = slot.Buffers.back();
+                if (!CanTrimRenderGraphTransient(slot.State, slot.Buffers.size() - 1,
+                        slot.BufferCursor, allocation.LastSubmission, mImpl->CompletedSubmission))
+                    break;
+                const uint64_t bytes = allocation.Desc.ByteSize;
+                cachedBytes -= bytes;
+                mImpl->TrimmedTransientBytes += bytes;
+                slot.Buffers.pop_back();
+            }
+        }
         mImpl->Device->runGarbageCollection();
+    }
+
+    void RenderGraphResourcePool::SetTransientCacheBudget(uint64_t bytes)
+    {
+        mImpl->TransientCacheBudgetBytes = bytes;
+        // Collection remains tied to an explicit completed submission value.
+        // Changing policy never waits for the device or immediately frees work.
     }
 
     uint32_t RenderGraphResourcePool::GetFrameSlotCount() const noexcept
@@ -477,6 +608,17 @@ namespace HEngine
                 frameBytes);
         }
         stats.RetiredResourceCount = mImpl->RetiredResources.size();
+        for (const auto& retired : mImpl->RetiredResources)
+            stats.RetiredResourceBytes += retired.NominalBytes;
+        for (const auto& slot : mImpl->FrameSlots)
+        {
+            for (size_t index = slot.TextureCursor; index < slot.Textures.size(); ++index)
+                stats.CachedTransientBytes += EstimateTextureBytes(slot.Textures[index].Desc);
+            for (size_t index = slot.BufferCursor; index < slot.Buffers.size(); ++index)
+                stats.CachedTransientBytes += slot.Buffers[index].Desc.ByteSize;
+        }
+        stats.TransientCacheBudgetBytes = mImpl->TransientCacheBudgetBytes;
+        stats.TrimmedTransientBytes = mImpl->TrimmedTransientBytes;
         return stats;
     }
 
@@ -486,7 +628,8 @@ namespace HEngine
         const RenderGraphTextureDesc& desc,
         RenderGraphResourceLifetime lifetime,
         RenderGraphUsage requiredUsage,
-        RenderGraphResourceLifetimeInfo passInterval)
+        RenderGraphResourceLifetimeInfo passInterval,
+        bool bTextureReuseEligible)
     {
         Impl::FrameSlot& slot = mImpl->RequireFrameSlot(frameSlot);
         if (!slot.State.bRecording)
@@ -497,6 +640,24 @@ namespace HEngine
         const RenderGraphUsage capabilities = TextureCapabilities(
             requiredUsage | desc.CapabilityUsage);
         Impl::TextureAllocation* allocation = nullptr;
+        if (mImpl->bTransientTextureReuse && bTextureReuseEligible &&
+            lifetime == RenderGraphResourceLifetime::Transient)
+        {
+            // Only already assigned allocations in this completed frame slot
+            // participate. Declaration order need not match execution order.
+            for (size_t index = 0; index < slot.TextureCursor; ++index)
+            {
+                auto& candidate = slot.Textures[index];
+                if (SameTextureShape(candidate.Desc, desc) && IncludesUsage(candidate.Capabilities, capabilities) &&
+                    CanReuseRenderGraphTextureAllocation(slot.AllocationIntervals,
+                        candidate.PhysicalAllocationId, key, passInterval))
+                {
+                    slot.AllocationIntervals.push_back({key, lifetime, passInterval,
+                        candidate.PhysicalAllocationId, true});
+                    return candidate.Resource;
+                }
+            }
+        }
         if (lifetime == RenderGraphResourceLifetime::Persistent)
         {
             auto [found, inserted] = mImpl->PersistentTextures.try_emplace(key);
@@ -554,7 +715,8 @@ namespace HEngine
             .Resource = key,
             .Lifetime = lifetime,
             .PassInterval = passInterval,
-            .PhysicalAllocationId = allocation->PhysicalAllocationId
+            .PhysicalAllocationId = allocation->PhysicalAllocationId,
+            .bTextureReuseEligible = bTextureReuseEligible
         });
         return allocation->Resource;
     }
@@ -587,7 +749,7 @@ namespace HEngine
                 allocation->Desc = desc;
                 allocation->Capabilities = capabilities;
                 allocation->Resource = mImpl->Device->createBuffer(
-                    MakeBufferDesc(desc, capabilities, frameSlot, false));
+                    MakeRenderGraphBufferAllocationDesc(desc, capabilities, frameSlot, false));
                 allocation->PhysicalAllocationId = mImpl->AllocatePhysicalId();
                 allocation->LastSubmission = 0;
                 if (!allocation->Resource)
@@ -619,7 +781,7 @@ namespace HEngine
                 allocation->Desc = desc;
                 allocation->Capabilities = capabilities;
                 allocation->Resource = mImpl->Device->createBuffer(
-                    MakeBufferDesc(desc, capabilities, frameSlot, true));
+                    MakeRenderGraphBufferAllocationDesc(desc, capabilities, frameSlot, true));
                 allocation->PhysicalAllocationId = mImpl->AllocatePhysicalId();
                 allocation->LastSubmission = 0;
                 if (!allocation->Resource)

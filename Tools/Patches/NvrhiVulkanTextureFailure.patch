@@ -1,0 +1,40 @@
+--- a/Engine/Source/ThirdParty/NVRHI/src/vulkan/vulkan-texture.cpp
++++ b/Engine/Source/ThirdParty/NVRHI/src/vulkan/vulkan-texture.cpp
+@@ -21,6 +21,7 @@
+ */
+ 
+ #include <algorithm>
++#include <memory>
+ 
+ #include "vulkan-backend.h"
+ #include <nvrhi/common/misc.h>
+@@ -328,9 +329,9 @@
+ 
+     TextureHandle Device::createTexture(const TextureDesc& desc)
+     {
+-        Texture *texture = new Texture(m_Context, m_Allocator);
++        auto texture = std::make_unique<Texture>(m_Context, m_Allocator);
+         assert(texture);
+-        fillTextureInfo(texture, desc);
++        fillTextureInfo(texture.get(), desc);
+ 
+         vk::Result res = m_Context.device.createImage(&texture->imageInfo, m_Context.allocationCallbacks, &texture->image);
+         ASSERT_VK_OK(res);
+@@ -340,7 +341,7 @@
+ 
+         if (!desc.isVirtual && !desc.isTiled)
+         {
+-            res = m_Allocator.allocateTextureMemory(texture);
++            res = m_Allocator.allocateTextureMemory(texture.get());
+             ASSERT_VK_OK(res);
+             CHECK_VK_FAIL(res)
+ 
+@@ -356,7 +357,7 @@
+             m_Context.nameVKObject(texture->memory, vk::ObjectType::eDeviceMemory, vk::DebugReportObjectTypeEXT::eDeviceMemory, desc.debugName.c_str());
+         }
+ 
+-        return TextureHandle::Create(texture);
++        return TextureHandle::Create(texture.release());
+     }
+ 
+     MemoryRequirements Device::getTextureMemoryRequirements(ITexture* _texture)

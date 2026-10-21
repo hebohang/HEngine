@@ -156,6 +156,12 @@ namespace HEngine
             nvrhi::TextureSubresourceSet subresources = nvrhi::AllSubresources,
             nvrhi::Format format = nvrhi::Format::UNKNOWN,
             nvrhi::TextureDimension dimension = nvrhi::TextureDimension::Unknown);
+        // Publication may change the physical handle. Heap-direct readers retain
+        // the old descriptor through their last submission. False means a full
+        // heap still has readers in flight; retry after collection, without mutation.
+        [[nodiscard]] bool TryPublishTexture(BindlessTextureHandle& handle,
+            const nvrhi::TextureHandle& texture, uint64_t lastSubmittedSubmission,
+            uint64_t completedSubmission);
         void ReleaseTexture(BindlessTextureHandle handle, uint64_t retireAfterSubmission);
         void Collect(uint64_t completedSubmission);
 

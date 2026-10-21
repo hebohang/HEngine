@@ -6,17 +6,6 @@
 
 namespace HEngine
 {
-    // From UE4.27.2
-    // TODO
-    enum class EditMode
-    {
-        Select = 0,
-        Landscape = 1,
-        Foliage = 2,
-        BrushEditing = 3,
-        MeshPaint = 4
-    };
-
     enum class PhysicsDebugDrawModeFlag : uint32_t
     {
         None = 0,
@@ -77,6 +66,5 @@ namespace HEngine
 #endif
     private:
         static bool bEditState;
-        static EditMode mEditMode;
     };
 }

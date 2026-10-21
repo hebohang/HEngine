@@ -226,7 +226,8 @@ namespace nvrhi::d3d12
 
                             TextureSubresourceSet subresources = binding.subresources;
 
-                            texture->createSRV(descriptorHandle.ptr, binding.format, binding.dimension, subresources);
+                            texture->createSRV(descriptorHandle.ptr, binding.format, binding.dimension, subresources,
+                                resolveComponentMapping(binding.overrideComponentMapping, texture->desc.defaultComponentMapping));
                             pResource = texture;
 
                             if (!texture->permanentState)
@@ -845,7 +846,8 @@ namespace nvrhi::d3d12
             break; 
         case ResourceType::Texture_SRV: {
             Texture* texture = checked_cast<Texture*>(binding.resourceHandle);
-            texture->createSRV(descriptorHandle.ptr, binding.format, binding.dimension, binding.subresources);
+            texture->createSRV(descriptorHandle.ptr, binding.format, binding.dimension, binding.subresources,
+                resolveComponentMapping(binding.overrideComponentMapping, texture->desc.defaultComponentMapping));
             break;
         }
         case ResourceType::Texture_UAV: {

@@ -25,7 +25,7 @@ set(HE_STATIC_PLUGIN_KNOWN_PACKAGE_POLICIES
     Always
     ProjectSelectable
     Never)
-set(HE_STATIC_PLUGIN_KNOWN_PLATFORMS Windows)
+set(HE_STATIC_PLUGIN_KNOWN_PLATFORMS Windows Web WeChat Android macOS)
 set(HE_STATIC_PLUGIN_KNOWN_CONFIGURATIONS
     Debug
     Release
@@ -1255,6 +1255,9 @@ function(he_attach_static_plugins targetName hostName)
     get_property(pluginConfiguration GLOBAL PROPERTY HE_STATIC_PLUGIN_CONFIGURATION)
     set(pluginTargets "")
     set(pluginShaderTargets "")
+    # Restore runtime payloads on incremental builds even when no relink occurs.
+    add_custom_target(${targetName}PluginRuntime)
+    add_dependencies(${targetName} ${targetName}PluginRuntime)
     foreach(pluginId IN LISTS hostPluginIds)
         _he_plugin_get(moduleName "${pluginId}" MODULE_NAME)
         if(NOT TARGET "${moduleName}")
@@ -1262,6 +1265,43 @@ function(he_attach_static_plugins targetName hostName)
                 "host ${hostName} plugin '${pluginId}' target '${moduleName}' was not created")
         endif()
         list(APPEND pluginTargets "Plugin::${moduleName}")
+        # Only enabled hosts receive a plugin's declared runtime dependencies.
+        get_target_property(pluginRuntimeFiles "${moduleName}" HE_PLUGIN_RUNTIME_FILES)
+        if(pluginRuntimeFiles AND NOT pluginRuntimeFiles STREQUAL "pluginRuntimeFiles-NOTFOUND")
+            get_target_property(pluginRuntimeDirectory "${moduleName}" HE_PLUGIN_RUNTIME_DIRECTORY)
+            if(NOT pluginRuntimeDirectory OR pluginRuntimeDirectory STREQUAL "pluginRuntimeDirectory-NOTFOUND")
+                set(pluginRuntimeDirectory ".")
+            endif()
+            add_custom_command(TARGET "${targetName}PluginRuntime" POST_BUILD
+                COMMAND "${CMAKE_COMMAND}" -E make_directory
+                    "$<TARGET_FILE_DIR:${targetName}>/${pluginRuntimeDirectory}"
+                COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    ${pluginRuntimeFiles} "$<TARGET_FILE_DIR:${targetName}>/${pluginRuntimeDirectory}"
+                COMMAND_EXPAND_LISTS VERBATIM)
+        endif()
+        get_target_property(pluginSharedRuntime "${moduleName}" HE_PLUGIN_SHARED_RUNTIME_FILES)
+        if(pluginSharedRuntime AND NOT pluginSharedRuntime STREQUAL "pluginSharedRuntime-NOTFOUND")
+            add_custom_command(TARGET "${targetName}PluginRuntime" POST_BUILD
+                COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    ${pluginSharedRuntime} "$<TARGET_FILE_DIR:${targetName}>"
+                COMMAND_EXPAND_LISTS VERBATIM)
+        endif()
+        get_target_property(pluginOidn "${moduleName}" HE_OIDN_ENABLED)
+        if(pluginOidn)
+            set_property(TARGET "${targetName}" PROPERTY HE_OIDN_ENABLED TRUE)
+            if(WIN32)
+                include("${CMAKE_SOURCE_DIR}/CMake/WindowsVendorRuntime.cmake")
+                he_deploy_vendor_crt(${targetName})
+            endif()
+        endif()
+        get_target_property(pluginLicenseFiles "${moduleName}" HE_PLUGIN_LICENSE_FILES)
+        if(pluginLicenseFiles AND NOT pluginLicenseFiles STREQUAL "pluginLicenseFiles-NOTFOUND")
+            add_custom_command(TARGET "${targetName}PluginRuntime" POST_BUILD
+                COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:${targetName}>/licenses/${moduleName}"
+                COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    ${pluginLicenseFiles} "$<TARGET_FILE_DIR:${targetName}>/licenses/${moduleName}"
+                COMMAND_EXPAND_LISTS VERBATIM)
+        endif()
         get_target_property(pluginShaderTarget
             "${moduleName}" HE_PLUGIN_SHADER_TARGET)
         if(pluginShaderTarget AND

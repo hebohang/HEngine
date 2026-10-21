@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "id": "aura-ember",
+  "template": "aura",
+  "semantic": {
+    "purpose": "aura presentation",
+    "style": "ember compact"
+  },
+  "compile": {
+    "color": [
+      255,
+      85,
+      25,
+      255
+    ],
+    "radius_m": 0.8,
+    "attack_s": 0.12,
+    "sustain_s": 0.8,
+    "decay_s": 0.35,
+    "particles": 3,
+    "direction": [
+      0,
+      1,
+      0
+    ],
+    "seed": 1806,
+    "simulation": "cpu",
+    "quality": "High"
+  },
+  "playback": {
+    "scale": 1,
+    "speed": 1,
+    "intensity": 1
+  },
+  "budget": {
+    "max_particles": 3
+  },
+  "requirements": {
+    "backends": [
+      "DX12",
+      "Vulkan"
+    ],
+    "fallback_recipe": null
+  },
+  "dependencies": []
+}

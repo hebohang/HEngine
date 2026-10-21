@@ -1,0 +1,60 @@
+{
+  "schema": 1,
+  "activeProfile": "windows",
+  "profiles": [
+    {
+      "id": "windows",
+      "name": "Windows",
+      "platform": "Windows",
+      "configuration": "Release",
+      "quality": "Desktop",
+      "output": "Dist/Windows",
+      "requiredFeatures": [
+        "game.shared-session",
+        "render.portable-view"
+      ]
+    },
+    {
+      "id": "android",
+      "name": "Android",
+      "platform": "Android",
+      "configuration": "Release",
+      "quality": "Desktop",
+      "output": "Dist/Android",
+      "requiredFeatures": [
+        "game.shared-session",
+        "render.portable-view"
+      ]
+    },
+    {
+      "id": "web",
+      "name": "Web",
+      "platform": "Web",
+      "configuration": "Release",
+      "quality": "Portable",
+      "output": "Dist/Web",
+      "requiredFeatures": [
+        "game.shared-session",
+        "render.portable-view"
+      ],
+      "managedProject": "Build/Web/Game.Web.csproj",
+      "contentExporter": "Tools/ExportWeb.py",
+      "previewPort": 8781
+    },
+    {
+      "id": "wechat",
+      "name": "WeChat",
+      "platform": "WeChat",
+      "configuration": "Release",
+      "quality": "Portable",
+      "output": "Dist/WeChat",
+      "requiredFeatures": [
+        "game.shared-session",
+        "render.portable-view"
+      ],
+      "managedProject": "Build/Web/Game.Web.csproj",
+      "contentExporter": "Tools/ExportWeb.py",
+      "platformExporter": "Tools/ExportWeChat.cjs"
+    }
+  ]
+}

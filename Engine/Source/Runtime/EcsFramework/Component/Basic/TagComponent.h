@@ -15,6 +15,9 @@ namespace HEngine
 
         TagComponent() = default;
         TagComponent(const TagComponent&) = default;
+        TagComponent& operator=(const TagComponent&) = default;
+        TagComponent(TagComponent&&) noexcept = default;
+        TagComponent& operator=(TagComponent&&) noexcept = default;
         TagComponent(const std::string& tag)
             : Tag(tag) {}
     };

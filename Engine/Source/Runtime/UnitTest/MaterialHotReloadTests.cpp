@@ -232,6 +232,43 @@ namespace HEngine::Tests
         Require(first.Program->HasShader(forwardKey) &&
                 !first.Program->FindShader(forwardKey),
             "Metadata-only program did not retain typed artifact lookups.");
+        const auto legacyGeometry = ResolveMaterialGeometryCapabilities(
+            *first.Program, MaterialShaderDescriptorMode::Baseline, false);
+        Require(legacyGeometry.bAuthoredLod && !legacyGeometry.bGpuInstances &&
+                std::string_view(legacyGeometry.FallbackReason).find("missing") != std::string_view::npos,
+            "Legacy opaque surface must keep LOD and explicitly fall back when GPU artifacts are absent.");
+        {
+            ScopedMaterialCaches gpuFixture;
+            WriteArtifacts(gpuFixture, false);
+            auto gpuManifest = MakeManifest(false);
+            const auto cpuArtifacts = gpuManifest.Artifacts;
+            for (auto artifact : cpuArtifacts)
+            {
+                artifact.Pass = MaterialShaderPass::GBuffer;
+                artifact.Permutation = "GBUFFER_" + artifact.Permutation;
+                gpuManifest.Artifacts.push_back(std::move(artifact));
+            }
+            for (const auto pass : { MaterialShaderPass::Forward, MaterialShaderPass::GBuffer })
+                for (const auto stage : { "vs", "ps" })
+                    gpuManifest.Artifacts.push_back(MakeArtifact(pass,
+                        MaterialShaderVertexPath::GpuDriven, MaterialShaderDescriptorMode::Baseline,
+                        stage, "DXIL/Materials/Test/forward-v1.ps", std::string(c_ForwardV1Hash)));
+            gpuFixture.WriteManifest(gpuManifest);
+            MaterialShaderManager gpuManager(nullptr, gpuFixture.GetCachesRoot());
+            const auto gpu = gpuManager.Refresh(c_SourcePath);
+            Require(gpu.Succeeded() && gpu.Program, "GPU material fixture publication failed.");
+            const auto capable = ResolveMaterialGeometryCapabilities(
+                *gpu.Program, MaterialShaderDescriptorMode::Baseline, false);
+            Require(capable.bAuthoredLod && capable.bGpuInstances,
+                "Complete opaque GPU shader contract was not admitted.");
+            Require(!ResolveMaterialGeometryCapabilities(*gpu.Program,
+                    MaterialShaderDescriptorMode::HeapDirect, false).bGpuInstances,
+                "GPU capability must check the active descriptor tier.");
+            const auto skinned = ResolveMaterialGeometryCapabilities(
+                *gpu.Program, MaterialShaderDescriptorMode::Baseline, true);
+            Require(!skinned.bAuthoredLod && !skinned.bGpuInstances,
+                "Skinned materials must retain conservative geometry and CPU submission.");
+        }
         const std::span<const ShaderCacheKey> firstCacheKeys =
             first.Program->GetShaderCacheKeys();
         std::unordered_set<ShaderCacheKey, ShaderCacheKeyHash> uniqueCacheKeys(

@@ -5,6 +5,7 @@
 
 #include "Runtime/Camera/EditorCamera.h"
 #include "Runtime/Core/Timestep.h"
+#include "Runtime/Core/Meta/Json.h"
 #include "Runtime/Core/Base/Base.h"
 #include "Runtime/EcsFramework/Entity/Entity.h"
 #include "Runtime/Graphics/Renderer2D.h"
@@ -14,6 +15,7 @@
 #include <imgui/imgui.h>
 
 #include <filesystem>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -42,6 +44,7 @@ namespace HEngine
 		void OnEvent(Event& e) override;
 
 		static std::string BuildPanelKey(const std::string& assetPath);
+        Json AutomationPreview(const Json& params);
 
 	private:
 		struct PreviewSkeletonSegment
@@ -65,6 +68,7 @@ namespace HEngine
 		void DrawAssetDetailsSection();
 		void DrawPreviewDetailsSection();
 		void DrawAnimationDetailsSection();
+		void DrawMorphDetailsSection();
 		void DrawSkeletonDetailsSection();
 		void DrawSkeletonOverlay(const ImVec2& viewportMin, const ImVec2& viewportSize);
 		void DrawSkeletonTreeNode(int boneVectorIndex, const std::vector<std::vector<int>>& childBoneIndices, const std::vector<bool>& visibleBoneMask);
@@ -75,6 +79,14 @@ namespace HEngine
 		void UpdatePreviewEntityPlacement();
 		void UpdateSkeletonPreviewOffset();
 		void ResetAnimationPreviewState();
+		void SetMorphPreviewWeight(const std::string& name, float weight);
+		void ResetMorphPreviewWeights();
+		void FocusMorphPreview(const std::string& name);
+        void SetPreviewPlaying(bool playing);
+        void ScrubPreview(float progress);
+        uint32_t mAutomationFramesRemaining = 0;
+        uint64_t mAutomationPoseUpdates = 0;
+        uint64_t mAutomationLastRenderedFrame = 0;
 
 		[[nodiscard]] AssetKind ResolveAssetKind() const;
 		[[nodiscard]] bool IsRenderableAsset() const;
@@ -108,6 +120,10 @@ namespace HEngine
 
 		AnimRes mAnimRes;
 		SkeletonRes mSkeletonRes;
+		std::vector<std::string> mPreviewMorphNames;
+		std::map<std::string, float> mPreviewMorphDefaults;
+		std::map<std::string, float> mPreviewMorphWeights;
+		int mSelectedMorphIndex = 0;
 		std::string mLoadError;
 		std::string mPreviewNote;
 

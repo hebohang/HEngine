@@ -1,0 +1,13 @@
+{
+  "sceneId": "REPLACE_WITH_SCENE_OPEN_RESULT",
+  "baseRevision": 0,
+  "requestId": "create-three-cubes-01",
+  "operations": [
+    {"op":"create","temporaryId":"$parent","name":"Cube Group"},
+    {"op":"create","temporaryId":"$left","name":"Left Cube","parent":"$parent","components":{"MeshComponent":{"Path":"Assets/Models/Cube/Cube.hmesh"},"TransformComponent":{"Translation":[-2,0,0]}}},
+    {"op":"create","temporaryId":"$center","name":"Center Cube","parent":"$parent","components":{"MeshComponent":{"Path":"Assets/Models/Cube/Cube.hmesh"}}},
+    {"op":"create","temporaryId":"$right","name":"Right Cube","parent":"$parent","components":{"MeshComponent":{"Path":"Assets/Models/Cube/Cube.hmesh"},"TransformComponent":{"Translation":[2,0,0]}}},
+    {"op":"transform","entities":["$left","$center","$right"],"patch":{"Scale":[0.65,0.65,0.65]}},
+    {"op":"material","entity":"$center","slot":0,"path":"Assets/Material/Emissive.hmat"}
+  ]
+}

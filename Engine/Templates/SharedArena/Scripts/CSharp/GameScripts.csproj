@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <HEngineRoot Condition="'$(HEngineRoot)' == ''">$(HE_ENGINE_ROOT)</HEngineRoot>
+    <TargetFramework>net10.0</TargetFramework><RuntimeFrameworkVersion>10.0.10</RuntimeFrameworkVersion>
+    <Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <Import Project="$(HEngineRoot)/Engine/Managed/Platform.props" />
+  <ItemGroup>
+    <ProjectReference Include="$(HEngineRoot)/Engine/Managed/HEngine.ScriptCore/HEngine.ScriptCore.csproj" />
+    <Compile Include="$(HEngineRoot)/Engine/Managed/Portable/*.cs" Link="HEngine/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="../../Config/GameRules.json" LogicalName="Game.rules.json" />
+  </ItemGroup>
+  <Target Name="CompileGameUI" BeforeTargets="PrepareForBuild">
+    <Exec Command="node &quot;$(HEngineRoot)/Tools/Build/CompileSharedUI.cjs&quot; &quot;$(MSBuildProjectDirectory)/../..&quot;" />
+  </Target>
+</Project>

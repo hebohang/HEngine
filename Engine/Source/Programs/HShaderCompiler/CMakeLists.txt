@@ -1,4 +1,14 @@
 ADD_PROGRAM(HShaderCompiler)
+target_compile_definitions(HShaderCompiler PRIVATE NOMINMAX _CRT_SECURE_NO_WARNINGS)
+if(MSVC)
+    target_compile_options(HShaderCompiler PRIVATE /utf-8)
+endif()
+
+if(APPLE)
+    set(heShaderFileSystem "${EngineRuntimeDir}/Platform/macOS/MacPlatformFileSystem.cpp")
+else()
+    set(heShaderFileSystem "${EngineRuntimeDir}/Platform/Windows/WindowsPlatformFileSystem.cpp")
+endif()
 
 set(src
     "${CMAKE_CURRENT_SOURCE_DIR}/Main.cpp"
@@ -6,7 +16,7 @@ set(src
     "${EngineRuntimeDir}/Graphics/Material/MaterialShaderManifest.cpp"
     "${EngineRuntimeDir}/Graphics/RHI/ShaderArtifact.h"
     "${EngineRuntimeDir}/Platform/PlatformFileSystem.h"
-    "${EngineRuntimeDir}/Platform/Windows/WindowsPlatformFileSystem.cpp"
+    "${heShaderFileSystem}"
 )
 
 target_sources(${TARGET_NAME} PRIVATE ${src})
@@ -19,18 +29,26 @@ source_group("Runtime/Graphics/RHI" FILES
     "${EngineRuntimeDir}/Graphics/RHI/ShaderArtifact.h")
 source_group("Runtime/Platform" FILES
     "${EngineRuntimeDir}/Platform/PlatformFileSystem.h"
-    "${EngineRuntimeDir}/Platform/Windows/WindowsPlatformFileSystem.cpp")
+    "${heShaderFileSystem}")
 
 target_include_directories(${TARGET_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/cmdline")
 target_include_directories(${TARGET_NAME} PRIVATE "${EngineSourceDir}")
 
 # SPIRV-Tools is an offline compiler dependency only. Runtime/Game never link
 # it and shipping packages contain neither the validator nor Vulkan SDK tools.
-if(NOT TARGET SPIRV-Tools-static)
-    find_package(Python3 COMPONENTS Interpreter REQUIRED)
-    # SPIRV-Tools still invokes the legacy variable in its generated-table
-    # commands. Set it explicitly so Windows never falls back to the .py file
-    # association (which may be an editor rather than Python).
+set(heShaderSpirvDefault ${HE_RENDER_VULKAN})
+if(HE_SHADER_TOOL_ONLY)
+    set(heShaderSpirvDefault ON)
+endif()
+option(HE_SHADER_SPIRV "Enable offline SPIR-V generation and validation." ${heShaderSpirvDefault})
+if(HE_RENDER_VULKAN AND NOT HE_SHADER_SPIRV)
+    message(FATAL_ERROR "Vulkan requires SPIR-V shader support.")
+endif()
+if(HE_SHADER_SPIRV AND NOT TARGET SPIRV-Tools-static)
+    # Upstream SPIRV-Tools consumes the legacy PYTHON_EXECUTABLE variable.  On
+    # Windows an empty value executes .py files through the user's file
+    # association (which may launch an editor and hang an owned build).
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(PYTHON_EXECUTABLE "${Python3_EXECUTABLE}")
     set(SPIRV-Headers_SOURCE_DIR
         "${EngineSourceDir}/ThirdParty/SPIRV-Headers")
@@ -44,15 +62,38 @@ if(NOT TARGET SPIRV-Tools-static)
         EXCLUDE_FROM_ALL)
 endif()
 target_link_libraries(${TARGET_NAME} PRIVATE
-    nlohmann_json::nlohmann_json
-    SPIRV-Tools-static)
+    nlohmann_json::nlohmann_json)
+if(HE_SHADER_SPIRV)
+    target_link_libraries(${TARGET_NAME} PRIVATE SPIRV-Tools-static)
+endif()
+target_compile_definitions(${TARGET_NAME} PRIVATE HE_SHADER_SPIRV=$<BOOL:${HE_SHADER_SPIRV}>)
 
+set(HE_DXC_RUNTIME_TARGET "${TARGET_NAME}RuntimeFiles")
+if(APPLE)
+    find_program(HE_DXC_EXECUTABLE NAMES dxc HINTS "$ENV{VULKAN_SDK}/bin"
+        DOC "Native macOS DXC executable from the Vulkan SDK" REQUIRED)
+    if(NOT HE_SHADER_SPIRV)
+        message(FATAL_ERROR "The native macOS shader compiler requires SPIR-V support.")
+    endif()
+    target_compile_definitions(${TARGET_NAME} PRIVATE
+        HE_DXC_DEFAULT_EXECUTABLE="${HE_DXC_EXECUTABLE}")
+    add_custom_target(${HE_DXC_RUNTIME_TARGET}
+        COMMAND ${CMAKE_COMMAND}
+            "-DHE_DXC_INPUT=${HE_DXC_EXECUTABLE}"
+            "-DHE_DXC_OUTPUT=$<TARGET_FILE_DIR:${TARGET_NAME}>"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/DeployMacDxc.cmake"
+        DEPENDS "${HE_DXC_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/DeployMacDxc.cmake"
+        COMMENT "Installing the native macOS DXC runtime"
+        VERBATIM)
+else()
 set(HE_DXC_RUNTIME_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/dxc/binary/x64")
+if(HE_WINDOWS_ARCH STREQUAL "arm64")
+    set(HE_DXC_RUNTIME_DIR "${HE_ARM64_DXC_ROOT}")
+endif()
 set(HE_DXC_RUNTIME_FILES
     "${HE_DXC_RUNTIME_DIR}/dxc.exe"
     "${HE_DXC_RUNTIME_DIR}/dxcompiler.dll"
     "${HE_DXC_RUNTIME_DIR}/dxil.dll")
-set(HE_DXC_RUNTIME_TARGET "${TARGET_NAME}RuntimeFiles")
 add_custom_target(${HE_DXC_RUNTIME_TARGET}
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${TARGET_NAME}>"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -64,9 +105,22 @@ add_custom_target(${HE_DXC_RUNTIME_TARGET}
     DEPENDS ${HE_DXC_RUNTIME_FILES}
     COMMENT "Installing the HShaderCompiler DXC runtime"
     VERBATIM)
+endif()
 set_target_properties(${HE_DXC_RUNTIME_TARGET} PROPERTIES
     FOLDER "Programs/HShaderCompiler")
 add_dependencies(${TARGET_NAME} ${HE_DXC_RUNTIME_TARGET})
+
+if(HE_SHADER_TOOL_ONLY)
+    return()
+endif()
+
+if(HE_RENDER_DX12 AND HE_RENDER_VULKAN)
+    set(HE_SHADER_BINARY_FORMAT all)
+elseif(HE_RENDER_DX12)
+    set(HE_SHADER_BINARY_FORMAT dxil)
+else()
+    set(HE_SHADER_BINARY_FORMAT spirv)
+endif()
 
 # Runtime shaders are generated from source and intentionally ignored by Git.
 # Keep one authoritative dependency target so Game and Editor never rely on a
@@ -80,6 +134,13 @@ set(HE_RUNTIME_SHADER_SOURCES
     "${EngineContentShadersDir}/Materials/BuiltInShowcase/ProceduralPattern.hlsl"
     "${EngineContentShadersDir}/Materials/BuiltInShowcase/ShowcaseFloor.hlsl"
     "${EngineContentShadersDir}/Materials/BuiltInShowcase/ShowcasePBR.hlsl"
+    "${EngineContentShadersDir}/Materials/Character/Skin.hlsl"
+    "${EngineContentShadersDir}/Materials/Character/SkinTwoSided.hlsl"
+    "${EngineContentShadersDir}/Materials/Character/HairCards.hlsl"
+    "${EngineContentShadersDir}/Materials/Character/Cloth.hlsl"
+    "${EngineContentShadersDir}/Materials/Character/Eye.hlsl"
+    "${EngineContentShadersDir}/Materials/Character/Cornea.hlsl"
+    "${EngineContentShadersDir}/Materials/Foliage/Subsurface.hlsl"
     "${EngineContentShadersDir}/GlobalIllumination/SceneSurfaceData.hlsl"
     "${EngineContentShadersDir}/GlobalIllumination/DepthPyramid.hlsl"
     "${EngineContentShadersDir}/GlobalIllumination/RtgiSvgf.hlsl"
@@ -94,6 +155,11 @@ set(HE_RUNTIME_SHADER_SOURCES
     "${EngineContentShadersDir}/Modern/SceneFxaa.hlsl"
     "${EngineContentShadersDir}/Modern/SceneGpuCull.hlsl"
     "${EngineContentShadersDir}/Modern/SceneOpaque.hlsl"
+    "${EngineContentShadersDir}/Modern/SceneDeferred.hlsl"
+    "${EngineContentShadersDir}/Modern/SceneDeferredSkin.hlsl"
+    "${EngineContentShadersDir}/Modern/SceneSkinSubsurface.hlsl"
+    "${EngineContentShadersDir}/Modern/SceneGBufferUnpack.hlsl"
+    "${EngineContentShadersDir}/Modern/SceneGBufferTaaGuides.hlsl"
     "${EngineContentShadersDir}/Modern/SceneOpaqueHeapDirect.hlsl"
     "${EngineContentShadersDir}/Modern/SceneOutline.hlsl"
     "${EngineContentShadersDir}/Modern/ScenePrimitive2D.hlsl"
@@ -103,7 +169,20 @@ set(HE_RUNTIME_SHADER_SOURCES
     "${EngineContentShadersDir}/Modern/SceneSky.hlsl"
     "${EngineContentShadersDir}/Modern/SceneSmaa.hlsl"
     "${EngineContentShadersDir}/Modern/SceneToneMap.hlsl"
+    "${EngineContentShadersDir}/Modern/ScenePostProcess.hlsl"
+    "${EngineContentShadersDir}/Modern/SceneUpscalingInputs.hlsl"
+    "${EngineContentShadersDir}/Modern/SceneUpscalingFallback.hlsl"
+    "${EngineContentShadersDir}/Modern/SceneUpscalingCoverage.hlsl"
+    "${EngineContentShadersDir}/Modern/SceneLightGrid.hlsl"
+    "${EngineContentShadersDir}/Modern/SceneCloud.hlsl"
+    "${EngineContentShadersDir}/Modern/SceneCloudComposite.hlsl"
+    "${EngineContentShadersDir}/Modern/SceneGtao.hlsl"
+    "${EngineContentShadersDir}/Modern/SceneReflections.hlsl"
+    "${EngineContentShadersDir}/Modern/SceneShadowGpuCull.hlsl"
+    "${EngineContentShadersDir}/Modern/SceneGpuOcclusion.hlsl"
+    "${EngineContentShadersDir}/Modern/SceneIndirectCompaction.hlsl"
     "${EngineContentShadersDir}/Modern/SceneTaa.hlsl"
+    "${EngineContentShadersDir}/Modern/SceneTaaReconstruct.hlsl"
     "${EngineContentShadersDir}/Validation/NvrhiImGui.hlsl"
     "${EngineContentShadersDir}/Validation/NvrhiRml.hlsl"
     "${EngineContentShadersDir}/Validation/NvrhiRmlDecorator.hlsl"
@@ -199,7 +278,7 @@ foreach(shaderSource IN LISTS HE_RUNTIME_SHADER_SOURCES)
             --rootPath "${EngineContentShadersDir}"
             --outputPath "${EngineGeneratedShadersDir}"
             --shader "${shaderSource}"
-            --binary-format all)
+            --binary-format ${HE_SHADER_BINARY_FORMAT})
 endforeach()
 if(HE_PROJECT_SHADER_SOURCES)
     list(APPEND HE_RUNTIME_SHADER_COMMANDS
@@ -208,7 +287,7 @@ if(HE_PROJECT_SHADER_SOURCES)
             --rootPath "${ProjectShadersDir}"
             --outputPath "${EngineGeneratedShadersDir}"
             --includePath "${EngineContentShadersDir}"
-            --binary-format all)
+            --binary-format ${HE_SHADER_BINARY_FORMAT})
 endif()
 
 add_custom_target(HEngineRuntimeShaders
@@ -281,7 +360,7 @@ foreach(pluginId IN LISTS HE_ENABLED_PLUGIN_IDS)
                 --outputPath "${pluginShaderOutput}"
                 --shader "${pluginShaderSource}"
                 --includePath "${EngineContentShadersDir}"
-                --binary-format all)
+                --binary-format ${HE_SHADER_BINARY_FORMAT})
         list(APPEND pluginShaderContractCommands
             COMMAND $<TARGET_FILE:HShaderCompiler>
                 --rootPath "${pluginShaderRoot}"
@@ -289,7 +368,7 @@ foreach(pluginId IN LISTS HE_ENABLED_PLUGIN_IDS)
                     "${CMAKE_CURRENT_BINARY_DIR}/${pluginModule}ShaderContract"
                 --shader "${pluginShaderSource}"
                 --includePath "${EngineContentShadersDir}"
-                --binary-format all)
+                --binary-format ${HE_SHADER_BINARY_FORMAT})
     endforeach()
 
     set(pluginShaderTarget "${pluginModule}Shaders")
@@ -343,7 +422,7 @@ foreach(shaderContractSource IN LISTS HE_SHADER_ARTIFACT_CONTRACT_SOURCES)
             --rootPath "${EngineContentShadersDir}"
             --outputPath "${HE_SHADER_ARTIFACT_CONTRACT_OUTPUT}"
             --shader "${shaderContractSource}"
-            --binary-format all)
+            --binary-format ${HE_SHADER_BINARY_FORMAT})
 endforeach()
 add_custom_target(HShaderArtifactContract
     ${HE_SHADER_ARTIFACT_CONTRACT_COMMANDS}

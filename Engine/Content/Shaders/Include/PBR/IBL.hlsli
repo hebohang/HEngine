@@ -40,7 +40,8 @@ float3 EvaluateImageBasedLighting(
     const float3 kD = (float3(1.0f, 1.0f, 1.0f) - kS) * (1.0f - surface.Metallic);
 
     const float3 irradiance = g_IrradianceMap.Sample(g_LinearClampSampler, iblNormalDir).rgb;
-    const float3 diffuse = irradiance * surface.BaseColor;
+    // The irradiance cube stores integral(Li * NoL); Lambert BRDF is albedo / PI.
+    const float3 diffuse = irradiance * (surface.BaseColor / PI);
 
     const float3 prefilteredColor = g_PrefilterMap.SampleLevel(
         g_LinearClampSampler,

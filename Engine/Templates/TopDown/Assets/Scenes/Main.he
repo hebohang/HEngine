@@ -1,0 +1,465 @@
+{
+  "d2000000-0000-4000-8000-000000000001": {
+    "TagComponent": {
+      "Tag": "Player"
+    },
+    "TransformComponent": {
+      "Translation": [
+        0,
+        0.55,
+        5
+      ],
+      "Rotation": [
+        0,
+        0,
+        0
+      ],
+      "Scale": [
+        0.45,
+        0.55,
+        0.45
+      ]
+    },
+    "MeshComponent": {
+      "Path": "Assets/Models/Box/Box.hmesh",
+      "MaterialOverrides": [
+        "Assets/StarterContent/Materials/Player.hmat"
+      ]
+    },
+    "ScriptComponent": {
+      "Backend": "he.script.csharp",
+      "Type": "starter.top-down",
+      "Fields": "{\"schema\":1,\"fields\":{}}",
+      "Enabled": true
+    }
+  },
+  "d2000000-0000-4000-8000-000000000002": {
+    "TagComponent": {
+      "Tag": "Camera"
+    },
+    "TransformComponent": {
+      "Translation": [
+        0,
+        21,
+        15
+      ],
+      "Rotation": [
+        -0.95,
+        0,
+        0
+      ],
+      "Scale": [
+        1,
+        1,
+        1
+      ]
+    },
+    "CameraComponent": {
+      "Primary": true,
+      "bOverrideExposure": true,
+      "ExposureEV100": 0,
+      "Camera": {
+        "mProjectionType": 0,
+        "mPerspectiveFOV": 0.9,
+        "mPerspectiveNear": 0.1,
+        "mPerspectiveFar": 100
+      }
+    }
+  },
+  "d2000000-0000-4000-8000-000000000003": {
+    "TagComponent": {
+      "Tag": "AimMarker"
+    },
+    "TransformComponent": {
+      "Translation": [
+        0,
+        0,
+        -1.35
+      ],
+      "Rotation": [
+        0,
+        0,
+        0
+      ],
+      "Scale": [
+        0.22,
+        0.18,
+        0.5
+      ],
+      "ParentUuid": "d2000000-0000-4000-8000-000000000001"
+    },
+    "MeshComponent": {
+      "Path": "Assets/Models/Box/Box.hmesh",
+      "MaterialOverrides": [
+        "Assets/StarterContent/Materials/Cover.hmat"
+      ]
+    }
+  },
+  "d2000000-0000-4000-8000-000000000004": {
+    "TagComponent": {
+      "Tag": "Floor"
+    },
+    "TransformComponent": {
+      "Translation": [
+        0,
+        -0.25,
+        0
+      ],
+      "Rotation": [
+        0,
+        0,
+        0
+      ],
+      "Scale": [
+        9.5,
+        0.25,
+        9.5
+      ]
+    },
+    "MeshComponent": {
+      "Path": "Assets/Models/Box/Box.hmesh",
+      "MaterialOverrides": [
+        "Assets/StarterContent/Materials/Floor.hmat"
+      ]
+    }
+  },
+  "d2000000-0000-4000-8000-000000000005": {
+    "TagComponent": {
+      "Tag": "NorthWall"
+    },
+    "TransformComponent": {
+      "Translation": [
+        0,
+        0.6,
+        -9.5
+      ],
+      "Rotation": [
+        0,
+        0,
+        0
+      ],
+      "Scale": [
+        10,
+        0.6,
+        0.5
+      ]
+    },
+    "MeshComponent": {
+      "Path": "Assets/Models/Box/Box.hmesh",
+      "MaterialOverrides": [
+        "Assets/StarterContent/Materials/Wall.hmat"
+      ]
+    }
+  },
+  "d2000000-0000-4000-8000-000000000006": {
+    "TagComponent": {
+      "Tag": "SouthWall"
+    },
+    "TransformComponent": {
+      "Translation": [
+        0,
+        0.6,
+        9.5
+      ],
+      "Rotation": [
+        0,
+        0,
+        0
+      ],
+      "Scale": [
+        10,
+        0.6,
+        0.5
+      ]
+    },
+    "MeshComponent": {
+      "Path": "Assets/Models/Box/Box.hmesh",
+      "MaterialOverrides": [
+        "Assets/StarterContent/Materials/Wall.hmat"
+      ]
+    }
+  },
+  "d2000000-0000-4000-8000-000000000007": {
+    "TagComponent": {
+      "Tag": "WestWall"
+    },
+    "TransformComponent": {
+      "Translation": [
+        -9.5,
+        0.6,
+        0
+      ],
+      "Rotation": [
+        0,
+        0,
+        0
+      ],
+      "Scale": [
+        0.5,
+        0.6,
+        9
+      ]
+    },
+    "MeshComponent": {
+      "Path": "Assets/Models/Box/Box.hmesh",
+      "MaterialOverrides": [
+        "Assets/StarterContent/Materials/Wall.hmat"
+      ]
+    }
+  },
+  "d2000000-0000-4000-8000-000000000008": {
+    "TagComponent": {
+      "Tag": "EastWall"
+    },
+    "TransformComponent": {
+      "Translation": [
+        9.5,
+        0.6,
+        0
+      ],
+      "Rotation": [
+        0,
+        0,
+        0
+      ],
+      "Scale": [
+        0.5,
+        0.6,
+        9
+      ]
+    },
+    "MeshComponent": {
+      "Path": "Assets/Models/Box/Box.hmesh",
+      "MaterialOverrides": [
+        "Assets/StarterContent/Materials/Wall.hmat"
+      ]
+    }
+  },
+  "d2000000-0000-4000-8000-000000000009": {
+    "TagComponent": {
+      "Tag": "Cover"
+    },
+    "TransformComponent": {
+      "Translation": [
+        -2,
+        1,
+        -1
+      ],
+      "Rotation": [
+        0,
+        0,
+        0
+      ],
+      "Scale": [
+        1,
+        1,
+        1
+      ]
+    },
+    "MeshComponent": {
+      "Path": "Assets/Models/Box/Box.hmesh",
+      "MaterialOverrides": [
+        "Assets/StarterContent/Materials/Cover.hmat"
+      ]
+    }
+  },
+  "d2000000-0000-4000-8000-000000000010": {
+    "TagComponent": {
+      "Tag": "Target1"
+    },
+    "TransformComponent": {
+      "Translation": [
+        -5,
+        0.9,
+        -5
+      ],
+      "Rotation": [
+        0,
+        0,
+        0
+      ],
+      "Scale": [
+        0.7,
+        0.7,
+        0.4
+      ]
+    },
+    "MeshComponent": {
+      "Path": "Assets/Models/Box/Box.hmesh",
+      "MaterialOverrides": [
+        "Assets/StarterContent/Materials/Target.hmat"
+      ]
+    }
+  },
+  "d2000000-0000-4000-8000-000000000011": {
+    "TagComponent": {
+      "Tag": "TargetStand1"
+    },
+    "TransformComponent": {
+      "Translation": [
+        -5,
+        0.1,
+        -5
+      ],
+      "Rotation": [
+        0,
+        0,
+        0
+      ],
+      "Scale": [
+        0.7,
+        0.1,
+        0.4
+      ]
+    },
+    "MeshComponent": {
+      "Path": "Assets/Models/Box/Box.hmesh",
+      "MaterialOverrides": [
+        "Assets/StarterContent/Materials/Wall.hmat"
+      ]
+    }
+  },
+  "d2000000-0000-4000-8000-000000000012": {
+    "TagComponent": {
+      "Tag": "Target2"
+    },
+    "TransformComponent": {
+      "Translation": [
+        0,
+        0.9,
+        -5
+      ],
+      "Rotation": [
+        0,
+        0,
+        0
+      ],
+      "Scale": [
+        0.7,
+        0.7,
+        0.4
+      ]
+    },
+    "MeshComponent": {
+      "Path": "Assets/Models/Box/Box.hmesh",
+      "MaterialOverrides": [
+        "Assets/StarterContent/Materials/Target.hmat"
+      ]
+    }
+  },
+  "d2000000-0000-4000-8000-000000000013": {
+    "TagComponent": {
+      "Tag": "TargetStand2"
+    },
+    "TransformComponent": {
+      "Translation": [
+        0,
+        0.1,
+        -5
+      ],
+      "Rotation": [
+        0,
+        0,
+        0
+      ],
+      "Scale": [
+        0.7,
+        0.1,
+        0.4
+      ]
+    },
+    "MeshComponent": {
+      "Path": "Assets/Models/Box/Box.hmesh",
+      "MaterialOverrides": [
+        "Assets/StarterContent/Materials/Wall.hmat"
+      ]
+    }
+  },
+  "d2000000-0000-4000-8000-000000000014": {
+    "TagComponent": {
+      "Tag": "Target3"
+    },
+    "TransformComponent": {
+      "Translation": [
+        5,
+        0.9,
+        -5
+      ],
+      "Rotation": [
+        0,
+        0,
+        0
+      ],
+      "Scale": [
+        0.7,
+        0.7,
+        0.4
+      ]
+    },
+    "MeshComponent": {
+      "Path": "Assets/Models/Box/Box.hmesh",
+      "MaterialOverrides": [
+        "Assets/StarterContent/Materials/Target.hmat"
+      ]
+    }
+  },
+  "d2000000-0000-4000-8000-000000000015": {
+    "TagComponent": {
+      "Tag": "TargetStand3"
+    },
+    "TransformComponent": {
+      "Translation": [
+        5,
+        0.1,
+        -5
+      ],
+      "Rotation": [
+        0,
+        0,
+        0
+      ],
+      "Scale": [
+        0.7,
+        0.1,
+        0.4
+      ]
+    },
+    "MeshComponent": {
+      "Path": "Assets/Models/Box/Box.hmesh",
+      "MaterialOverrides": [
+        "Assets/StarterContent/Materials/Wall.hmat"
+      ]
+    }
+  },
+  "d2000000-0000-4000-8000-000000000016": {
+    "TagComponent": {
+      "Tag": "Sun"
+    },
+    "TransformComponent": {
+      "Translation": [
+        0,
+        8,
+        0
+      ],
+      "Rotation": [
+        -2.45,
+        -0.5,
+        0
+      ],
+      "Scale": [
+        1,
+        1,
+        1
+      ]
+    },
+    "DirectionalLightComponent": {
+      "Color": [
+        1,
+        0.95,
+        0.85
+      ],
+      "Intensity": 3,
+      "bCastShadows": true
+    }
+  }
+}

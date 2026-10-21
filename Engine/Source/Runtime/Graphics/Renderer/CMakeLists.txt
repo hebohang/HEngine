@@ -1,7 +1,20 @@
 RUNTIME_ADD_SOURCE(
+    RenderPipeline.h
+    RenderPipelineRegistry.h
+    RenderPipelineRegistry.cpp
+    RenderFeature.h
+    RenderFeature.cpp
+    VolumetricCloud.h
+    CloudRenderFeature.h
+    CloudRenderFeature.cpp
+    SceneCloudPass.h
+    SceneCloudPass.cpp
     AntiAliasing.cpp
     AntiAliasing.h
+    Upscaling.h
+    SceneUpscalingPass.h SceneUpscalingPass.cpp
     RuntimeRenderer.cpp
+    RejectedViewConfigurationInputs.h
     RuntimeRenderer.h
     RuntimeUiRenderGraphPass.cpp
     RuntimeUiRenderGraphPass.h
@@ -9,6 +22,24 @@ RUNTIME_ADD_SOURCE(
     SceneRenderer.h
     SceneAntiAliasingPass.cpp
     SceneAntiAliasingPass.h
+    ScenePostProcessPass.cpp
+    ScenePostProcessPass.h
+    SceneLightGrid.cpp
+    SceneLightGrid.h
+    SceneAmbientOcclusionPass.cpp
+    SceneAmbientOcclusionPass.h
+    SceneLocalShadowPass.cpp
+    SceneLocalShadowPass.h
+    SceneReflectionPass.cpp
+    SceneReflectionPass.h
+    SceneShadowGpuSubmission.cpp
+    SceneShadowGpuSubmission.h
+    SceneGpuOcclusionPass.cpp
+    SceneGpuOcclusionPass.h
+    SceneGeometryArena.cpp
+    SceneGeometryArena.h
+    SceneIndirectCompactionPass.cpp
+    SceneIndirectCompactionPass.h
     ViewportRendererExtension.cpp
     ViewportRendererExtension.h
     ViewportMode.cpp

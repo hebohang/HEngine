@@ -240,6 +240,32 @@ namespace HEngine
         }
     }
 
+    bool BindlessTextureTable::TryPublishTexture(BindlessTextureHandle& handle,
+        const nvrhi::TextureHandle& texture, uint64_t lastSubmittedSubmission,
+        uint64_t completedSubmission)
+    {
+        if (!IsValid(handle))
+            throw std::out_of_range("Cannot publish an invalid or stale bindless texture handle");
+        if (!texture)
+            throw std::invalid_argument("Cannot publish a null texture");
+        const TextureView view = mTextureViews[handle.Index];
+        if (mAccess == ShaderDescriptorAccess::BoundedTable ||
+            completedSubmission >= lastSubmittedSubmission)
+        {
+            // Bounded mode creates a new immutable binding set; command lists
+            // retain their original set. Heap-direct overwrite is safe only idle.
+            UpdateTexture(handle, texture, view.Subresources, view.Format, view.Dimension);
+            return true;
+        }
+        if (mAllocator.GetLiveCount() + mAllocator.GetRetiredCount() + DefaultTextureCount >=
+            mAllocator.GetCapacity())
+            return false;
+        const auto replacement = AllocateTexture(texture, view.Subresources, view.Format, view.Dimension);
+        ReleaseTexture(handle, lastSubmittedSubmission);
+        handle = replacement;
+        return true;
+    }
+
     void BindlessTextureTable::ReleaseTexture(
         BindlessTextureHandle handle,
         uint64_t retireAfterSubmission)

@@ -16,6 +16,7 @@ namespace HEngine
             std::mutex Mutex;
             std::bitset<SyntheticKeyCapacity> HeldKeys;
             glm::vec2 PointerPosition{ 0.0f, 0.0f };
+            bool bRightMouseHeld = false;
             bool bActive = false;
             bool bIsolatePhysicalKeyboard = true;
             bool bPointerPositionOverridden = false;
@@ -41,6 +42,7 @@ namespace HEngine
         state.HeldKeys.reset();
         state.bIsolatePhysicalKeyboard = bIsolatePhysicalKeyboard;
         state.bPointerPositionOverridden = false;
+        state.bRightMouseHeld = false;
         state.bActive = true;
     }
 
@@ -52,6 +54,7 @@ namespace HEngine
         state.bActive = false;
         state.bIsolatePhysicalKeyboard = true;
         state.bPointerPositionOverridden = false;
+        state.bRightMouseHeld = false;
     }
 
     bool Input::SetSyntheticKeys(std::span<const KeyCode> heldKeys)
@@ -98,6 +101,22 @@ namespace HEngine
             : SyntheticKeyQuery::UsePhysical;
     }
 
+    void Input::SetSyntheticRightMouseButton(bool held)
+    {
+        auto& state = GetSyntheticKeyboardState();
+        std::scoped_lock lock(state.Mutex);
+        if (state.bActive) state.bRightMouseHeld = held;
+    }
+
+    Input::SyntheticKeyQuery Input::QuerySyntheticMouseButton(MouseCode button)
+    {
+        auto& state = GetSyntheticKeyboardState();
+        std::scoped_lock lock(state.Mutex);
+        if (!state.bActive) return SyntheticKeyQuery::UsePhysical;
+        return button == MouseCode::ButtonRight && state.bRightMouseHeld
+            ? SyntheticKeyQuery::Pressed : SyntheticKeyQuery::Released;
+    }
+
     void Input::SetSyntheticPointerPosition(glm::vec2 position)
     {
         SyntheticKeyboardState& state = GetSyntheticKeyboardState();
@@ -113,6 +132,7 @@ namespace HEngine
         SyntheticKeyboardState& state = GetSyntheticKeyboardState();
         std::scoped_lock lock(state.Mutex);
         state.bPointerPositionOverridden = false;
+        state.bRightMouseHeld = false;
     }
 
     bool Input::TryGetSyntheticPointerPosition(glm::vec2& position)

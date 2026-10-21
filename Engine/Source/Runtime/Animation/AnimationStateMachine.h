@@ -13,6 +13,11 @@ namespace HEngine
     {
     public:
         void Reset();
+        std::vector<FiredAnimationEvent> ConsumeEvents()
+        {
+            if (mInTransition) { (void)mFromAnimator.ConsumeEvents(); return mToAnimator.ConsumeEvents(); }
+            return mMainAnimator.ConsumeEvents();
+        }
 
         void SetController(const AnimControllerRes& controller);
         void SetNodeToClipIndex(const std::map<int, int>& nodeToClipIndex);

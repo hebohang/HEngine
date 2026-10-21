@@ -430,8 +430,10 @@ namespace HEngine
 
     void RuntimeResourceRegistry::Init(size_t workerCount, std::thread::id initThreadId)
     {
-        if (workerCount == 0)
-            throw std::invalid_argument("Runtime resource registry worker count must be greater than zero.");
+#if defined(HE_WECHAT)
+        if (workerCount != 0)
+            throw std::invalid_argument("WeChat requires a synchronous-only resource registry (zero workers).");
+#endif
         if (initThreadId == std::thread::id{})
             throw std::invalid_argument("Runtime resource registry Init thread cannot be empty.");
 
@@ -454,6 +456,7 @@ namespace HEngine
 
         try
         {
+#if !defined(HE_WECHAT)
             mImpl->Workers.reserve(workerCount);
             for (size_t index = 0; index < workerCount; ++index)
             {
@@ -463,6 +466,7 @@ namespace HEngine
                     WorkerLoop(stopToken);
                 });
             }
+#endif
         }
         catch (...)
         {
@@ -662,6 +666,9 @@ namespace HEngine
             std::lock_guard lock(mImpl->Mutex);
             if (!mImpl->bInitialized || !mImpl->bAcceptingRequests)
                 throw std::logic_error("Runtime resource registry is not accepting requests.");
+
+            if (mImpl->Workers.empty())
+                throw std::logic_error("QueueAsync is unavailable in a synchronous-only resource registry; complete host IO before AcquireBlocking.");
 
             auto groupIt = mImpl->Groups.end();
             if (pinGroupId != 0)

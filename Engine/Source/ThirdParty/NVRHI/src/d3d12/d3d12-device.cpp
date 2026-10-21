@@ -778,6 +778,11 @@ namespace nvrhi::d3d12
             return m_OpacityMicromapSupported;
         case Feature::RayTracingClusters:
             return m_RayTracingClustersSupported;
+        case Feature::RayTracingPositionFetch:
+            // Exposed through the NVAPI HLSL extensions (NvRtTriangleObjectPositions),
+            // which ride the shader extension UAV slot -- so it needs both ray
+            // tracing and an initialized NVAPI shader-extension path.
+            return m_RayTracingSupported && m_HlslExtensionsSupported;
         case Feature::RayQuery:
             return m_TraceRayInlineSupported;
         case Feature::FastGeometryShader:

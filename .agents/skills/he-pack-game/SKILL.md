@@ -1,11 +1,11 @@
 ---
 name: he-pack-game
-description: Build and verify the cooked shipping game package with PACK_GAME enabled. Use only for package, cooker, manifest, shipping dependency, or distributable artifact requests.
+description: Build and verify HEngine cooked shipping artifacts for cooker, packaging, or shipping validation requests.
 ---
 
 # Package game
 
-Use the unified explicit package route:
+Use the package route for the current project, or pass `-Project` for another project:
 
 ```powershell
 .\hectl.bat package

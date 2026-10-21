@@ -25,6 +25,13 @@ namespace HEngine
     {
         using Json = nlohmann::json;
 
+        // This unit is also built into the standalone shader compiler.
+        std::string DiagnosticPath(const std::filesystem::path& path)
+        {
+            const auto value = path.generic_u8string();
+            return {value.begin(), value.end()};
+        }
+
         class Sha256 final
         {
         public:
@@ -402,7 +409,8 @@ namespace HEngine
             { "Forward", MaterialShaderPass::Forward },
             { "Depth", MaterialShaderPass::Depth },
             { "Shadow", MaterialShaderPass::Shadow },
-            { "Outline", MaterialShaderPass::Outline });
+            { "Outline", MaterialShaderPass::Outline },
+            { "GBuffer", MaterialShaderPass::GBuffer });
         HE_PARSE_ENUM(MaterialShaderPropertyType,
             { "Float", MaterialShaderPropertyType::Float },
             { "Float2", MaterialShaderPropertyType::Float2 },
@@ -592,6 +600,7 @@ namespace HEngine
             case MaterialShaderPass::Depth: return "Depth";
             case MaterialShaderPass::Shadow: return "Shadow";
             case MaterialShaderPass::Outline: return "Outline";
+            case MaterialShaderPass::GBuffer: return "GBuffer";
         }
         return "Invalid";
     }
@@ -802,7 +811,7 @@ namespace HEngine
         std::ifstream stream(path, std::ios::in | std::ios::binary);
         if (!stream)
         {
-            error = "Failed to open file for SHA-256: " + path.generic_string();
+            error = "Failed to open file for SHA-256: " + DiagnosticPath(path);
             return false;
         }
 
@@ -823,7 +832,7 @@ namespace HEngine
             }
             if (!stream.eof())
             {
-                error = "Failed while reading file for SHA-256: " + path.generic_string();
+                error = "Failed while reading file for SHA-256: " + DiagnosticPath(path);
                 return false;
             }
             hash = ToHex(sha256.Finalize());
@@ -831,7 +840,7 @@ namespace HEngine
         }
         catch (const std::exception& exception)
         {
-            error = "Failed to compute SHA-256 for '" + path.generic_string() + "': " +
+            error = "Failed to compute SHA-256 for '" + DiagnosticPath(path) + "': " +
                 exception.what();
             return false;
         }
@@ -1253,21 +1262,21 @@ namespace HEngine
         if (!stream)
         {
             result.Diagnostics.push_back(MakeError(
-                "Manifest.Open", "Failed to open material shader manifest.", path.generic_string()));
+                "Manifest.Open", "Failed to open material shader manifest.", DiagnosticPath(path)));
             return result;
         }
 
         try
         {
             const Json json = Json::parse(stream, nullptr, true, true);
-            return ParseMaterialShaderManifest(json, path.generic_string());
+            return ParseMaterialShaderManifest(json, DiagnosticPath(path));
         }
         catch (const std::exception& exception)
         {
             result.Diagnostics.push_back(MakeError(
                 "Manifest.Json",
                 "Invalid material shader manifest JSON: " + std::string(exception.what()),
-                path.generic_string()));
+                DiagnosticPath(path)));
             return result;
         }
     }
@@ -1624,14 +1633,50 @@ namespace HEngine
                 }
             };
             requirePassMatrix(MaterialShaderPass::Forward);
+            // Keep old Forward-only manifests loadable. A Deferred candidate
+            // resolves GBuffer explicitly and must compile missing artifacts.
+            const bool bHasGBufferArtifacts = std::ranges::any_of(
+                set.Artifacts, [](const MaterialShaderArtifact& artifact)
+                {
+                    return artifact.Pass == MaterialShaderPass::GBuffer;
+                });
+            if (bHasGBufferArtifacts)
+            {
+                if (manifest.BlendMode == MaterialShaderBlendMode::Transparent)
+                    add("Manifest.ArtifactMatrix", "Transparent materials cannot provide GBuffer artifacts.");
+                requirePassMatrix(MaterialShaderPass::GBuffer);
+            }
             if (manifest.BlendMode == MaterialShaderBlendMode::Mask)
             {
                 requirePassMatrix(MaterialShaderPass::Depth);
                 requirePassMatrix(MaterialShaderPass::Shadow);
                 requirePassMatrix(MaterialShaderPass::Outline);
             }
-            const std::size_t passCount = manifest.BlendMode == MaterialShaderBlendMode::Mask ? 4u : 1u;
-            const std::size_t expectedArtifactCount = passCount * 2u * descriptorModeCount * 2u;
+            const std::size_t passCount =
+                (manifest.BlendMode == MaterialShaderBlendMode::Mask ? 4u : 1u) +
+                (bHasGBufferArtifacts ? 1u : 0u);
+            // GPU variants are optional for old manifests and per descriptor
+            // tier, but any advertised tier must provide both raster passes.
+            std::size_t gpuArtifactCount = 0;
+            for (std::size_t modeIndex = 0; modeIndex < descriptorModeCount; ++modeIndex)
+            {
+                const auto mode = descriptorModes[modeIndex];
+                const bool bHasGpuTier = std::ranges::any_of(set.Artifacts,
+                    [mode](const MaterialShaderArtifact& artifact)
+                    { return artifact.VertexPath == MaterialShaderVertexPath::GpuDriven && artifact.DescriptorMode == mode; });
+                if (!bHasGpuTier) continue;
+                if (manifest.BlendMode != MaterialShaderBlendMode::Opaque)
+                    add("Manifest.ArtifactMatrix", "GPU surface instances require opaque coverage.");
+                for (const auto pass : { MaterialShaderPass::Forward, MaterialShaderPass::GBuffer })
+                    for (const auto stage : { MaterialShaderArtifactStage::Vertex, MaterialShaderArtifactStage::Pixel })
+                    {
+                        const MaterialShaderArtifactKey required{ pass, MaterialShaderVertexPath::GpuDriven, mode, stage };
+                        if (std::find(artifactKeys.begin(), artifactKeys.end(), required) == artifactKeys.end())
+                            add("Manifest.ArtifactMatrix", "GPU instance tier is missing a required Forward/GBuffer artifact.");
+                        ++gpuArtifactCount;
+                    }
+            }
+            const std::size_t expectedArtifactCount = passCount * 2u * descriptorModeCount * 2u + gpuArtifactCount;
             if (set.Artifacts.size() != expectedArtifactCount)
                 add("Manifest.ArtifactMatrix", "Artifact count does not match the target pass matrix.");
         }

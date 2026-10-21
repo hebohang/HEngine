@@ -2,12 +2,18 @@
 
 #include "Runtime/Core/Window/Window.h"
 #include "Runtime/Graphics/RHI/RenderSurface.h"
+#if HE_RENDER_VULKAN
+#include "Runtime/Platform/Vulkan/VulkanSurface.h"
+#endif
 
 #include <GLFW/glfw3.h>
 
 namespace HEngine
 {
 	class CommonWindow final : public Window, public RenderSurface
+#if HE_RENDER_VULKAN
+        , public VulkanSurface
+#endif
 	{
 		friend class Application;
 	public:
@@ -20,6 +26,7 @@ namespace HEngine
 
 		uint32_t GetWidth() const override { return mData.Width; }
 		uint32_t GetHeight() const override { return mData.Height; }
+		void SetClientSize(uint32_t width, uint32_t height) override;
 
 		// Window attributes
 		void SetEventCallback(const EventCallbackFn& callback) override { mData.EventCallback = callback; }
@@ -37,8 +44,17 @@ namespace HEngine
 		void ResetMouseCursor() override;
 
 		[[nodiscard]] GLFWwindow* GetGlfwWindow() const { return mWindow; }
+#if HE_RENDER_VULKAN
+        [[nodiscard]] std::vector<const char*> GetVulkanInstanceExtensions() const override;
+        [[nodiscard]] VkResult CreateVulkanSurface(VkInstance instance,
+            PFN_vkGetInstanceProcAddr getProcAddr, VkSurfaceKHR* surface) const override;
+        void GetFramebufferExtent(uint32_t& width, uint32_t& height) const override;
+        [[nodiscard]] bool GetSurfaceVSync() const override { return IsVSync(); }
+#endif
 	private:
 		void Init(const WindowProps& props);
+		void DispatchDeferredResizeEvent();
+        void LogDisplayState(const char* reason) const;
 	private:
 		GLFWwindow* mWindow;
 		GLFWcursor* mCustomCursor = nullptr;
@@ -50,6 +66,9 @@ namespace HEngine
 		int mWindowedWidth = 1600;
 		int mWindowedHeight = 900;
 		bool mWindowedMaximized = false;
+        bool mWindowedResizable = true;
+        bool mBorderlessFullscreen = false;
+        bool mFullscreenLocked = false;
 		bool bAllowFullscreen = true;
 
 		struct WindowData
@@ -58,6 +77,8 @@ namespace HEngine
 			uint32_t Width, Height;
 			bool VSync;
 			bool InputMethodEnabled = true;
+			bool bDeferResizeEvent = false;
+			bool bResizeEventDeferred = false;
 
 			EventCallbackFn EventCallback;
 		};

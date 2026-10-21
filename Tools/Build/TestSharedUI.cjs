@@ -1,0 +1,46 @@
+'use strict';
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
+const esbuild=require('../Scripting/node_modules/esbuild');
+const {compile,rml}=require('./CompileSharedUI.cjs');
+const scope={};
+vm.runInNewContext(esbuild.buildSync({entryPoints:[path.resolve(__dirname,'../../Engine/Source/Runtime/Platform/Web/HuiDocument.js')],bundle:true,write:false,format:'iife',globalName:'Hui'}).outputFiles[0].text,scope);
+const {HuiDocument,normalizeHui,resolveHuiRect,normalizeColor}=scope.Hui;
+const source=JSON.parse(fs.readFileSync(path.resolve(__dirname,'../../Project/Assets/UI/SharedPause.hui')));
+const copy=()=>JSON.parse(JSON.stringify(source));
+function reject(change,pattern){const doc=copy();change(doc);assert.throws(()=>normalizeHui(doc,'fixture.hui'),pattern);}
+reject(d=>d.Nodes.push({...d.Nodes[0]}),/duplicate/);
+reject(d=>d.Nodes[1].ParentId=987,/missing parent/);
+reject(d=>{d.Nodes[1].ParentId=3;d.Nodes[2].ParentId=2;},/cycle/);
+reject(d=>d.Nodes[1].Style.ExtraStyle='filter:blur(4px)',/ExtraStyle/);
+reject(d=>d.Nodes[1].Style.ClassName='platform-only',/ClassName/);
+reject(d=>d.Nodes[1].Style.FontPath='Fonts/unimplemented.ttf',/FontPath/);
+reject(d=>d.Nodes[1].Layout.OffsetMax=[NaN,12],/OffsetMax/);
+reject(d=>d.Nodes[1].Type='Video',/unsupported widget/);
+assert.equal(normalizeColor('rgba(32,32,32,220)'),`rgba(32,32,32,${220/255})`);
+const stretch=resolveHuiRect({AnchorMin:[0,.5],AnchorMax:[1,.5],Pivot:[0,.5],OffsetMin:[12,0],OffsetMax:[-18,40]},[800,600]);
+assert.deepEqual(JSON.parse(JSON.stringify(stretch)),{x:12,y:280,w:770,h:40});
+let depth=0;const texts=[];
+const ctx={save(){depth++;},restore(){depth--;},scale(){},beginPath(){},rect(){},clip(){},moveTo(){},arcTo(){},fill(){},stroke(){},drawImage(){},fillText(text){texts.push(text);}};
+for(const [w,h] of [[1280,720],[780,1688],[1920,1080]]){
+    const doc=new HuiDocument(copy());let targets=doc.paint(ctx,w,h,{density:1});
+    const resume=targets.find(t=>t.element==='shared_resume');
+    assert.equal(resume.w,372);assert.equal(resume.x,(w-420)/2+24);assert.equal(resume.y,(h-350)/2+100);
+    doc.setText('shared_pause_title','Editor 修改后的标题');doc.paint(ctx,w,h);assert.ok(texts.includes('Editor 修改后的标题'));
+    doc.setVisible('shared_pause_card',false);targets=doc.paint(ctx,w,h);assert.ok(!targets.some(t=>t.element==='shared_resume'));
+    assert.equal(depth,0);
+}
+assert.equal(new HuiDocument(copy()).paint(ctx,960,540).find(t=>t.element==='shared_resume').w,279);
+const failure={...ctx,fillText(){throw Error('paint failed');}};
+assert.throws(()=>new HuiDocument(copy()).paint(failure,1280,720),/paint failed/);assert.equal(depth,0);
+const escaped=copy();escaped.Nodes[2].Text='<script>&"';const native=rml(normalizeHui(escaped));
+assert.ok(native.includes('&lt;script&gt;&amp;&quot;'));assert.ok(native.includes('margin-right:24dp'));assert.ok(!native.includes('<script>'));
+const fixture=path.resolve(__dirname,'../../out/agent/shared-ui-tests');fs.mkdirSync(path.join(fixture,'Assets/UI'),{recursive:true});fs.mkdirSync(path.join(fixture,'Config'),{recursive:true});
+fs.writeFileSync(path.join(fixture,'Config/SharedUI.json'),JSON.stringify({schema:1,documents:{pause:'Assets/UI/SharedPause.hui'}}));
+fs.writeFileSync(path.join(fixture,'Assets/UI/SharedPause.hui'),JSON.stringify(source));
+compile(fixture);const generated=path.join(fixture,'Assets/UI/SharedPause.rml');const before=fs.readFileSync(generated,'utf8');
+const changed=copy();changed.Nodes[2].Text='Changed in Editor';changed.Nodes[3].Layout.OffsetMin[1]=110;
+fs.writeFileSync(path.join(fixture,'Assets/UI/SharedPause.hui'),JSON.stringify(changed));compile(fixture,{check:true});assert.equal(fs.readFileSync(generated,'utf8'),before);
+compile(fixture);assert.ok(fs.readFileSync(generated,'utf8').includes('Changed in Editor'));assert.ok(fs.readFileSync(generated,'utf8').includes('margin-top:110dp'));
+const bad=copy();bad.Nodes[3].Style.ExtraStyle='unsupported:1';fs.writeFileSync(path.join(fixture,'Assets/UI/SharedPause.hui'),JSON.stringify(bad));
+const lastGood=fs.readFileSync(generated,'utf8');assert.throws(()=>compile(fixture),/ExtraStyle/);assert.equal(fs.readFileSync(generated,'utf8'),lastGood);
+console.log('unit-test PASS: shared UI hierarchy, explicit capability rejection, native/canvas anchor contract, text edits, visibility, clipping, escaping, balanced drawing, read-only checks and generation');

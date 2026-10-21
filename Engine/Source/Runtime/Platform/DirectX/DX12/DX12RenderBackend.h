@@ -16,7 +16,8 @@ namespace HEngine
         void Initialize(
             RenderSurface& surface,
             bool bEnableValidation,
-            const RenderAdapterSelectionOptions& selection) override;
+            const RenderAdapterSelectionOptions& selection,
+            uint32_t framesInFlight) override;
         void Shutdown() override;
         [[nodiscard]] FrameContext& BeginFrame() override;
         void AbortFrame(FrameContext& frame) noexcept override;
@@ -28,6 +29,7 @@ namespace HEngine
         [[nodiscard]] const RenderCapabilities& GetCapabilities() const override { return mCapabilities; }
         [[nodiscard]] nvrhi::IDevice* GetDevice() const override;
         [[nodiscard]] SwapChain& GetSwapChain() override;
+        [[nodiscard]] RenderMemoryBudget QueryMemoryBudget() const override;
 
     private:
         struct Impl;

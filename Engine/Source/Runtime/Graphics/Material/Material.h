@@ -42,6 +42,7 @@ namespace HEngine
         // Texture properties are asset references. GPU ownership belongs to
         // the renderer's texture cache, never to the serialized Material.
         std::string TextureValue;
+        TextureSampling Sampling;
     };
 
     enum class MaterialTextureSemantic
@@ -56,6 +57,7 @@ namespace HEngine
     struct MaterialTextureReference
     {
         std::string AssetPath;
+        TextureSampling Sampling;
         // Stable built-in token (white/black/normal) used when AssetPath is
         // empty or unavailable; the renderer maps it to its default handles.
         std::string Fallback;

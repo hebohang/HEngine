@@ -1,11 +1,16 @@
 #pragma once
 
 #include "Plugins/OfflineReferenceRenderer/Source/OfflineReferenceRendererSession.h"
+#include "Plugins/OfflineReferenceRenderer/Source/ProgressiveSchedule.h"
+#include "Plugins/OfflineReferenceRenderer/Source/OfflineReferenceRendererSettingsJson.h"
+#include "Plugins/OfflineReferenceRenderer/Source/ProgressiveDenoiser.h"
 
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <chrono>
+#include <thread>
 
 namespace HEngine::Tests
 {
@@ -36,6 +41,91 @@ namespace HEngine::Tests
         };
 
         OfflineViewportRendererSettings settings;
+        const double normalBudget = Detail::ResolveProgressiveTraceBudget(4.0, 60.0, 0.0);
+        require(Detail::ResolveProgressiveTraceBudget(4.0, 60.0, 6.0) == normalBudget,
+            "Other GPU work below the frame allowance starved path tracing.");
+        const double overloadedBudget = Detail::ResolveProgressiveTraceBudget(4.0, 60.0, 30.0);
+        require(overloadedBudget >= normalBudget * 0.5 && overloadedBudget <= normalBudget,
+            "An overloaded frame must retain bounded tracing progress.");
+        require(Detail::ResolveProgressiveTraceBudget(16.0, 120.0, 0.0) <= 1000.0 / 120.0 * 0.5,
+            "Tracing exceeded the interactive frame allowance.");
+        Detail::ProgressiveSchedule busySchedule;
+        busySchedule.Reset(1080);
+        const auto busyBand = busySchedule.Reserve(1920, 256,
+            Detail::ResolveProgressiveTraceBudget(4.0, 60.0, 6.0), 0.00002, true);
+        require(busyBand.Rows >= 64,
+            "A 6 ms background pass reduced a 60 FPS trace to single-row dispatches.");
+        Detail::ProgressiveSchedule schedule;
+        schedule.Reset(20);
+        auto band = schedule.Reserve(1024, 4, 2, 0, true);
+        require(band.Rows == 4 && band.Sample == 0, "Unknown timing must use conservative work.");
+        schedule.Abort();
+        require(schedule.Submitted() == 0 && schedule.Average() == 0, "Abort changed progress.");
+        band = schedule.Reserve(1024, 4, 2, 0, true);
+        schedule.Submit(10);
+        require(schedule.Reserve(1024, 4, 2, 0, true).Rows == 0, "In-flight cap failed.");
+        require(!schedule.Collect(9) && schedule.Average() == 0, "Completion was fabricated.");
+        require(schedule.Collect(10) && schedule.Average() == 0.2 && schedule.Maximum() == 1,
+            "Partial sample normalization failed.");
+        band = schedule.Reserve(1024, 4, 2, 0, true);
+        require(band.FirstRow == 4, "Aborted or committed rows repeated.");
+        schedule.Submit(11);
+        schedule.Reset(20);
+        require(schedule.Reserve(1024, 4, 2, 0, true).Rows == 0, "Reset lost stale flight ownership.");
+        schedule.Collect(11);
+        require(schedule.Average() == 0 && schedule.Stale() == 1, "Late generation contaminated progress.");
+        for (uint64_t submission = 12; submission < 32; ++submission)
+        {
+            band = schedule.Reserve(1024, 4, 2, 0, true);
+            require(band.Sample == (submission - 12) / 5 && band.FirstRow == ((submission - 12) % 5) * 4,
+                "Band sequence repeated or skipped a pixel sample.");
+            schedule.Submit(submission);
+            schedule.Collect(submission);
+        }
+        require(schedule.Completed() == 4 && schedule.Maximum() == 4 &&
+            schedule.Reserve(1024, 4, 2, 0, true).Rows == 0, "Final sample boundary failed.");
+        const auto migrated = DeserializeOfflineReferenceRendererSettings(Json{{"SamplesPerFrame", 46}}, {});
+        require(migrated.bInteractive && migrated.SamplesPerFrame == 46 && migrated.WorkBudgetMilliseconds == 4,
+            "Legacy settings were lost or bypassed the automatic budget.");
+        if (ProgressiveDenoiser::Available())
+        {
+            ProgressiveDenoiser denoiser;
+            DenoiseSnapshot snapshot;
+            snapshot.Width = snapshot.Height = 32;
+            snapshot.Generation = 7;
+            snapshot.Samples = 4;
+            snapshot.Color.resize(32 * 32 * 4, 1.f);
+            snapshot.Albedo.resize(snapshot.Color.size(), 1.f);
+            snapshot.Normal.resize(snapshot.Color.size(), 0.f);
+            uint32_t rng = 123;
+            double rawError = 0;
+            for (size_t pixel = 0; pixel < 1024; ++pixel)
+            {
+                rng = rng * 1664525u + 1013904223u;
+                const float noise = (float(rng & 65535u) / 65535.f - .5f) * .8f;
+                for (size_t c = 0; c < 3; ++c) snapshot.Color[pixel * 4 + c] += noise;
+                snapshot.Normal[pixel * 4 + 2] = 1.f;
+                rawError += noise * noise * 3;
+            }
+            const auto raw = snapshot.Color;
+            require(denoiser.Submit(std::move(snapshot)), "OIDN did not accept a snapshot.");
+            require(!denoiser.Submit({}), "OIDN accepted an unbounded second task.");
+            std::unique_ptr<DenoiseSnapshot> denoised;
+            const auto started = std::chrono::steady_clock::now();
+            while (!(denoised = denoiser.Poll()) && std::chrono::steady_clock::now() - started < std::chrono::seconds(30))
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            require(denoised && denoised->Error.empty(), "OIDN execution failed or timed out.");
+            require(denoised->Color == raw && denoised->Generation == 7 && denoised->Samples == 4,
+                "OIDN overwrote raw samples or snapshot identity.");
+            double filteredError = 0;
+            for (size_t pixel = 0; pixel < 1024; ++pixel)
+                for (size_t c = 0; c < 3; ++c)
+                {
+                    const float error = denoised->Output[pixel * 4 + c] - 1.f;
+                    filteredError += error * error;
+                }
+            require(filteredError < rawError, "OIDN did not reduce error in a constant-radiance image.");
+        }
         settings.TargetSamples = 10;
         settings.SamplesPerFrame = 4;
         require(
@@ -44,16 +134,16 @@ namespace HEngine::Tests
                 OfflineViewportSessionState::Rendering,
                 0,
                 false,
-                false) == 4,
-            "Offline reference did not schedule SamplesPerFrame at frame start.");
+                false) == 1,
+            "Legacy batch size bypassed the budgeted dispatch cap.");
         require(
             Detail::ResolveReferenceOfflineDispatchCount(
                 settings,
                 OfflineViewportSessionState::Rendering,
                 8,
                 false,
-                false) == 2,
-            "Offline reference did not clamp dispatches to remaining TargetSamples.");
+                false) == 1,
+            "Remaining target samples bypassed the budgeted dispatch cap.");
         require(
             Detail::ResolveReferenceOfflineDispatchCount(
                 settings,
@@ -133,17 +223,17 @@ namespace HEngine::Tests
         require(
             Detail::ResolveReferenceOfflineControlState(
                 OfflineViewportSessionState::Rendering,
-                Command::SamplesSubmitted,
+                Command::SamplesCompleted,
                 9,
                 10,
                 false) == OfflineViewportSessionState::Rendering &&
                 Detail::ResolveReferenceOfflineControlState(
                     OfflineViewportSessionState::Rendering,
-                    Command::SamplesSubmitted,
+                    Command::SamplesCompleted,
                     10,
                     10,
                     false) == OfflineViewportSessionState::Complete,
-            "Offline reference submitted-sample completion boundary failed.");
+            "Offline reference completed-sample boundary failed.");
 
         Detail::ValidateReferenceOfflineExportRequest(
             OfflineViewportAov::Beauty,

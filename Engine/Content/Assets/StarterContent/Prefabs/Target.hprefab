@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 2,
+  "root": "root",
+  "nested": [],
+  "entities": {
+    "root": {
+      "TagComponent": {
+        "Tag": "Target"
+      },
+      "TransformComponent": {
+        "Translation": [
+          0,
+          1.6,
+          0
+        ],
+        "Rotation": [
+          0,
+          0,
+          0
+        ],
+        "Scale": [
+          0.7,
+          0.7,
+          0.4
+        ],
+        "ParentUuid": ""
+      },
+      "MeshComponent": {
+        "Path": "Assets/Models/Box/Box.hmesh",
+        "MaterialOverrides": [
+          "Assets/StarterContent/Materials/Target.hmat"
+        ]
+      }
+    }
+  }
+}

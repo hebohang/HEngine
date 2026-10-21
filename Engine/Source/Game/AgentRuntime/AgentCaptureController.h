@@ -2,6 +2,7 @@
 
 #include "Game/AgentRuntime/AgentProtocol.h"
 #include "Runtime/Core/Base/Base.h"
+#include "Runtime/Graphics/RHI/FrameCaptureSource.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -27,10 +28,12 @@ namespace HEngine
         void Stop();
 
         [[nodiscard]] Json Request(const Json& params, std::uint64_t renderFrame);
+        [[nodiscard]] Json RequestSequence(const Json& params, Application& application, std::uint64_t renderFrame);
         [[nodiscard]] AgentCaptureProcessResult ProcessPending(
             Application& application,
             std::uint64_t renderFrame);
         [[nodiscard]] Json BuildStatus() const;
+        [[nodiscard]] bool IsSequencePending() const { return mSequence && (mState == State::Pending || mState == State::InFlight); }
 
     private:
         enum class State
@@ -52,6 +55,7 @@ namespace HEngine
         std::string mSessionId;
         std::string mTicket;
         std::string mFilename;
+        FrameCaptureSource mSource = FrameCaptureSource::Automatic;
         std::string mErrorCode;
         std::uint64_t mSubmittedCaptures = 0;
         std::uint64_t mSettledCaptures = 0;
@@ -59,5 +63,10 @@ namespace HEngine
         std::uint64_t mSettledRenderFrame = 0;
         State mState = State::Idle;
         bool mActive = false;
+        bool mSequence = false;
+        Json mSequenceFrames = Json::array();
+        Json mSequenceHistoryArtifact = nullptr;
+        std::filesystem::path mSequenceHistoryPath;
+        Json mRecordedIdentity = nullptr;
     };
 }

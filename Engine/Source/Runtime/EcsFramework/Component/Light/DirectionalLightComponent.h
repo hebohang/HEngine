@@ -17,8 +17,12 @@ namespace HEngine
         DirectionalLightComponent(float intensity, const glm::vec3& color = glm::vec3(1.0f, 1.0f, 1.0f))
             : Intensity(intensity), Color(color) {}
 
-        float Intensity = 3.0f;
+        // Normal illuminance in lux; no distance attenuation.
+        float Intensity = 100000.0f;
         glm::vec3 Color = { 1.0f, 1.0f, 1.0f };
+        // Direction of light travel in the entity's local space. Native lights
+        // retain the historical +Y axis; glTF KHR_lights_punctual uses -Z.
+        glm::vec3 LocalDirection = { 0.0f, 1.0f, 0.0f };
 
         bool bCastShadows = true;
         int CascadeCount = 4;

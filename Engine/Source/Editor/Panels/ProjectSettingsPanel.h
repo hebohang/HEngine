@@ -3,6 +3,8 @@
 #include "BasePanel.h"
 
 #include "Runtime/Graphics/Settings/RenderSettingsService.h"
+#include "Runtime/Resource/ResType/InputMap.h"
+#include "Runtime/Resource/ResType/NavigationSettings.h"
 
 #include <array>
 #include <string>
@@ -28,6 +30,9 @@ namespace HEngine
         void Refresh(bool bDiscardPending);
         void DrawNavigation();
         void DrawSettings();
+        void DrawInputSettings();
+        void DrawNavigationSettings();
+        void DrawPipelineProfiles();
         void DrawSetting(const RenderSettingDescriptor& descriptor);
         void DrawFooter();
         void DrawDiagnostics();
@@ -42,12 +47,20 @@ namespace HEngine
         [[nodiscard]] const char* GetSelectedPageDescription() const;
 
         ResolvedRenderSettings mSnapshot;
+        ResolvedRenderSettings mBaseSnapshot;
+        std::string mEditedView;
         Json mPendingPatch = Json::object();
         std::array<char, 160> mSearch{};
-        std::string mSelectedPage = "Engine.General";
+        std::array<char, 128> mProfileName{};
+        std::string mSelectedProfileAsset;
+        std::string mSelectedPage = "Rendering.PostProcess";
         std::string mLastMessage;
         SettingsLayer mTargetLayer = SettingsLayer::Session;
         bool bShowAdvanced = false;
         bool bInitialized = false;
+        InputMapRes mInputDraft;
+        std::string mInputProject, mInputMessage;
+        NavigationBuildSettings mNavigationDraft;
+        std::string mNavigationProject, mNavigationMessage;
     };
 }

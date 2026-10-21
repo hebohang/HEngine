@@ -1,4 +1,5 @@
 #include "AssimpImporter.h"
+#include "NativeMeshOutput.h"
 
 #include "Runtime/Core/Log/Log.h"
 #include "Runtime/Core/Meta/Json.h"
@@ -28,6 +29,9 @@
 #include <assimp/postprocess.h>
 
 #include <algorithm>
+#include <chrono>
+#include <functional>
+#include <set>
 #include <cctype>
 #include <cmath>
 #include <cstring>
@@ -440,32 +444,6 @@ namespace HEngine
         buf.insert(buf.end(), bytes, bytes + sizeof(T) * count);
     }
 
-    // Create an Accessor + BufferView pointing at [offset, offset+bytes) inside bufferIndex
-    static int AddAccessor(MeshRes& meshRes, int bufferIndex,
-                           size_t byteOffset, size_t byteLength,
-                           int componentType, const std::string& type,
-                           size_t count)
-    {
-        MeshBufferView bv;
-        bv.bufferIndex = bufferIndex;
-        bv.byteOffset  = byteOffset;
-        bv.byteLength  = byteLength;
-        bv.byteStride  = 0;
-        int bvIdx = (int)meshRes.bufferViewVec.size();
-        meshRes.bufferViewVec.push_back(bv);
-
-        Accessor acc;
-        acc.bufferViewIndex = bvIdx;
-        acc.byteOffset      = 0;
-        acc.componentType   = componentType;
-        acc.count           = count;
-        acc.type            = type;
-        acc.normalized      = false;
-        int accIdx = (int)meshRes.accessorVec.size();
-        meshRes.accessorVec.push_back(acc);
-        return accIdx;
-    }
-
     static std::string ToLowerAscii(std::string value)
     {
         std::transform(value.begin(), value.end(), value.begin(),
@@ -835,6 +813,130 @@ namespace HEngine
     };
 
     bool AssimpImporter::Import(const std::filesystem::path& assetPath,
+        const std::filesystem::path& outDir)
+    {
+        // A source manifest opts this import into stable-name reimport. Existing
+        // unmanaged destinations retain the legacy create-new behavior.
+        const auto manifestPath = outDir / (assetPath.stem().string() + ".himport");
+        try
+        {
+            std::filesystem::create_directories(outDir);
+            const std::string source = PathToUtf8(std::filesystem::weakly_canonical(assetPath));
+            if (!std::filesystem::exists(manifestPath))
+            {
+                std::set<std::filesystem::path> before;
+                for (const auto& entry : std::filesystem::directory_iterator(outDir))
+                    if (entry.is_regular_file()) before.insert(entry.path().filename());
+                if (!ImportOnce(assetPath, outDir)) return false;
+                Json files = Json::array();
+                for (const auto& entry : std::filesystem::directory_iterator(outDir))
+                    if (entry.is_regular_file() && !before.contains(entry.path().filename()))
+                        files.push_back(PathToUtf8(entry.path().filename()));
+                Utils::SaveJsonToFile(Json{{"version", 1}, {"source", source}, {"files", files}}, manifestPath);
+                return true;
+            }
+            const Json manifest = Utils::LoadJsonFile(manifestPath);
+            if (manifest.value("source", std::string{}) != source)
+                throw std::runtime_error("Import destination belongs to a different source; choose a separate destination");
+            std::set<std::string> ownedFiles;
+            for (const auto& file : manifest.at("files"))
+            {
+                const auto name = file.get<std::string>();
+                const std::filesystem::path relative = std::filesystem::u8path(name);
+                if (relative.empty() || relative.has_parent_path() || relative.is_absolute())
+                    throw std::runtime_error("Import manifest contains an unsafe filename");
+                ownedFiles.insert(name);
+            }
+            const auto stage = outDir / (".he-reimport-" + std::to_string(
+                std::chrono::steady_clock::now().time_since_epoch().count()));
+            if (!std::filesystem::create_directory(stage))
+                throw std::runtime_error("Could not create unique reimport staging directory");
+            struct StageCleanup
+            {
+                std::filesystem::path Path;
+                ~StageCleanup() { if (!Path.empty()) { std::error_code error; std::filesystem::remove_all(Path, error); } }
+            } cleanup{stage};
+            if (!ImportOnce(assetPath, stage)) return false;
+            const std::string stagePrefix = Utils::NormalizeAssetPath(ConfigManager::GetRelativePath(stage)) + "/";
+            const std::string finalPrefix = Utils::NormalizeAssetPath(ConfigManager::GetRelativePath(outDir)) + "/";
+            const auto remap = [&](auto&& self, Json& value) -> void
+            {
+                if (value.is_string())
+                {
+                    std::string text = value.get<std::string>();
+                    std::replace(text.begin(), text.end(), '\\', '/');
+                    if (text.starts_with(stagePrefix)) value = finalPrefix + text.substr(stagePrefix.size());
+                }
+                else if (value.is_array() || value.is_object())
+                    for (auto& child : value) self(self, child);
+            };
+            std::vector<std::filesystem::path> publish;
+            for (const auto& entry : std::filesystem::directory_iterator(stage))
+            {
+                if (!entry.is_regular_file()) continue;
+                const auto filename = entry.path().filename();
+                const auto destination = outDir / filename;
+                if (std::filesystem::exists(destination) && !ownedFiles.contains(PathToUtf8(filename)))
+                    throw std::runtime_error("Reimport would overwrite an unowned asset: " + PathToUtf8(filename));
+                // Keep artists' material edits, including shader model and texture parameters.
+                if (filename.extension() == ".hmat" && std::filesystem::exists(destination)) continue;
+                const auto extension = filename.extension().string();
+                if (extension == ".hmesh" || extension == ".hskel" || extension == ".hanim" || extension == ".hmat")
+                {
+                    Json data = Utils::LoadJsonFile(entry.path());
+                    remap(remap, data);
+                    Utils::SaveJsonToFile(data, entry.path());
+                }
+                publish.push_back(filename);
+            }
+            const auto backup = stage / "backup";
+            std::filesystem::create_directory(backup);
+            for (const auto& name : publish)
+                if (std::filesystem::exists(outDir / name))
+                    std::filesystem::copy_file(outDir / name, backup / name);
+            std::vector<std::filesystem::path> published;
+            try
+            {
+                for (const auto& name : publish)
+                {
+                    std::ifstream file(stage / name, std::ios::binary);
+                    if (!file.is_open()) throw std::runtime_error("Failed opening staged asset");
+                    std::vector<char> bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+                    if (file.bad()) throw std::runtime_error("Failed reading staged asset");
+                    Utils::WriteBytesToFileAtomically(outDir / name, bytes.data(), bytes.size());
+                    published.push_back(name);
+                    ownedFiles.insert(PathToUtf8(name));
+                }
+                Utils::SaveJsonToFile(Json{{"version", 1}, {"source", source}, {"files", ownedFiles}}, manifestPath);
+            }
+            catch (...)
+            {
+                for (const auto& name : published)
+                {
+                    std::error_code error;
+                    if (std::filesystem::exists(backup / name))
+                        std::filesystem::copy_file(backup / name, outDir / name, std::filesystem::copy_options::overwrite_existing, error);
+                    else std::filesystem::remove(outDir / name, error);
+                    if (error)
+                    {
+                        HE_CORE_ERROR("Reimport rollback failed for {0}: {1}; recovery retained at {2}",
+                            PathToUtf8(name), error.message(), PathToUtf8(stage));
+                        cleanup.Path.clear();
+                    }
+                }
+                throw;
+            }
+            HE_CORE_INFO("Reimported {0} at stable asset paths; existing materials preserved", source);
+            return true;
+        }
+        catch (const std::exception& error)
+        {
+            HE_CORE_ERROR("Asset import/reimport failed: {0}", error.what());
+            return false;
+        }
+    }
+
+    bool AssimpImporter::ImportOnce(const std::filesystem::path& assetPath,
                                 const std::filesystem::path& outDir)
     {
         // PathToUtf8 is always safe: on Windows it goes wstring→UTF-8 via
@@ -854,11 +956,12 @@ namespace HEngine
 			assetPath.extension().string());
 		const bool bGltfSource =
 			sourceExtension == ".gltf" || sourceExtension == ".glb";
+		const bool bFbxSource = sourceExtension == ".fbx";
 		unsigned int postProcessFlags =
 			aiProcess_Triangulate |
 			aiProcess_GenSmoothNormals |
 			aiProcess_CalcTangentSpace |
-			aiProcess_LimitBoneWeights |
+
 			aiProcess_FlipUVs |
 			aiProcess_JoinIdenticalVertices;
 		// Assimp's glTF reader converts raw glTF UVs to Assimp's lower-left
@@ -882,9 +985,11 @@ namespace HEngine
         int boneCounter = 0;
         bool hasSkinning = false;
         bool hasRenderableMesh = false;
+        bool hasMorphTargets = false;
         for (uint32_t mi = 0; mi < scene->mNumMeshes; ++mi)
         {
             aiMesh* mesh = scene->mMeshes[mi];
+            hasMorphTargets = hasMorphTargets || mesh->mNumAnimMeshes > 0;
             if (mesh->mNumBones > 0)
                 hasSkinning = true;
             if (mesh->mNumVertices > 0 && mesh->mNumFaces > 0)
@@ -892,6 +997,44 @@ namespace HEngine
         }
         if (hasSkinning)
             CollectBones(scene, boneMap, boneCounter);
+        else if (bGltfSource && scene->mNumAnimations == 0 && hasMorphTargets)
+        {
+            // Assimp PreTransformVertices drops animation meshes. Bake static
+            // morph models ourselves, transforming BOTH base and target coordinates.
+            std::map<unsigned, aiMatrix4x4> worlds;
+            const auto visit = [&](auto&& self, const aiNode* node, const aiMatrix4x4& parent) -> void
+            {
+                const aiMatrix4x4 world = parent * node->mTransformation;
+                for (unsigned i = 0; i < node->mNumMeshes; ++i)
+                {
+                    const unsigned index = node->mMeshes[i];
+                    if (worlds.contains(index) && worlds.at(index) != world)
+                        throw std::runtime_error("Static morph mesh instances require distinct realized meshes before import");
+                    worlds[index] = world;
+                }
+                for (unsigned i = 0; i < node->mNumChildren; ++i) self(self, node->mChildren[i], world);
+            };
+            visit(visit, scene->mRootNode, aiMatrix4x4());
+            for (const auto& [index, world] : worlds)
+            {
+                aiMesh* mesh = scene->mMeshes[index];
+                aiMatrix3x3 normalMatrix(world);
+                normalMatrix.Inverse().Transpose();
+                const aiMatrix3x3 directionMatrix(world);
+                const auto transform = [&](auto* vertices)
+                {
+                    for (unsigned vertex = 0; vertex < vertices->mNumVertices; ++vertex)
+                    {
+                        if (vertices->mVertices) vertices->mVertices[vertex] = world * vertices->mVertices[vertex];
+                        if (vertices->mNormals) vertices->mNormals[vertex] = (normalMatrix * vertices->mNormals[vertex]).Normalize();
+                        if (vertices->mTangents) vertices->mTangents[vertex] = (directionMatrix * vertices->mTangents[vertex]).Normalize();
+                        if (vertices->mBitangents) vertices->mBitangents[vertex] = (directionMatrix * vertices->mBitangents[vertex]).Normalize();
+                    }
+                };
+                transform(mesh);
+                for (unsigned i = 0; i < mesh->mNumAnimMeshes; ++i) transform(mesh->mAnimMeshes[i]);
+            }
+        }
 		else if (bGltfSource && scene->mNumAnimations == 0)
 		{
 			// Static glTF nodes may carry the model's authored unit conversion or
@@ -1073,6 +1216,35 @@ namespace HEngine
 						texType,
 						textureIndex,
 						textureRes);
+                    const auto applySampling = [&](auto& info) {
+                        if (&info.textureRes != &textureRes) return;
+                        int uvIndex = 0;
+                        mat->Get(AI_MATKEY_UVWSRC(texType, textureIndex), uvIndex);
+                        info.texCoord = info.sampling.texCoord = uvIndex;
+                        if (uvIndex == 1) {
+                            for (uint32_t meshIndex = 0; meshIndex < scene->mNumMeshes; ++meshIndex) {
+                                const auto* sourceMesh = scene->mMeshes[meshIndex];
+                                if (sourceMesh->mMaterialIndex == mi && !sourceMesh->HasTextureCoords(1))
+                                    throw std::invalid_argument("texture_uv_missing: Material selects UV1 on a mesh without UV1.");
+                            }
+                        }
+                        info.sampling.wrapS = textureRes.sampler.wrapS; info.sampling.wrapT = textureRes.sampler.wrapT;
+                        info.sampling.minFilter = textureRes.sampler.minFilter; info.sampling.magFilter = textureRes.sampler.magFilter;
+                        aiUVTransform transform;
+                        if (mat->Get(AI_MATKEY_UVTRANSFORM(texType, textureIndex), transform) == AI_SUCCESS) {
+                            // Assimp's centered S*R convention, after its FlipUVs conversion.
+                            const float c = std::cos(transform.mRotation), sn = std::sin(transform.mRotation);
+                            const float a = transform.mScaling.x*c, b = -transform.mScaling.x*sn;
+                            const float d = transform.mScaling.y*sn, e = transform.mScaling.y*c;
+                            info.sampling.useAffine = true;
+                            info.sampling.affineRow0 = {a,b, .5f + a*(transform.mTranslation.x-.5f) + b*(transform.mTranslation.y-.5f)};
+                            info.sampling.affineRow1 = {d,e, .5f + d*(transform.mTranslation.x-.5f) + e*(transform.mTranslation.y-.5f)};
+                        }
+                        (void)PackTextureSampling(info.sampling);
+                    };
+                    applySampling(pbrMat.pbrMetallicRoughness.baseColorTexture); applySampling(pbrMat.normalTexture);
+                    applySampling(pbrMat.pbrMetallicRoughness.metallicRoughnessTexture); applySampling(pbrMat.occlusionTexture); applySampling(pbrMat.emissiveTexture);
+
 					return true;
 				}
 				return false;
@@ -1351,6 +1523,28 @@ namespace HEngine
                     pbrMat.doubleSided = doubleSided != 0;
                 }
 
+                // Assimp keeps glTF normal scale and occlusion strength as
+                // texture properties, separate from its material factors.
+                float normalScale = pbrMat.normalTexture.scale;
+                if ((mat->Get(AI_MATKEY_GLTF_TEXTURE_SCALE(aiTextureType_NORMALS, 0), normalScale) == AI_SUCCESS ||
+                     mat->Get(AI_MATKEY_GLTF_TEXTURE_SCALE(aiTextureType_NORMAL_CAMERA, 0), normalScale) == AI_SUCCESS) &&
+                    std::isfinite(normalScale))
+                {
+                    pbrMat.normalTexture.scale = normalScale;
+                }
+
+                float occlusionStrength = pbrMat.occlusionTexture.strength;
+                // This Assimp revision writes the glTF occlusion property
+                // under $tex.file.strength; accept its public macro as well.
+                if ((mat->Get(AI_MATKEY_GLTF_TEXTURE_STRENGTH(aiTextureType_LIGHTMAP, 0), occlusionStrength) == AI_SUCCESS ||
+                     mat->Get("$tex.file.strength", aiTextureType_LIGHTMAP, 0, occlusionStrength) == AI_SUCCESS ||
+                     mat->Get(AI_MATKEY_GLTF_TEXTURE_STRENGTH(aiTextureType_AMBIENT_OCCLUSION, 0), occlusionStrength) == AI_SUCCESS ||
+                     mat->Get("$tex.file.strength", aiTextureType_AMBIENT_OCCLUSION, 0, occlusionStrength) == AI_SUCCESS) &&
+                    std::isfinite(occlusionStrength))
+                {
+                    pbrMat.occlusionTexture.strength = std::clamp(occlusionStrength, 0.0f, 1.0f);
+                }
+
                 aiColor4D baseColor4;
                 if (mat->Get(AI_MATKEY_BASE_COLOR, baseColor4) == AI_SUCCESS)
                 {
@@ -1471,6 +1665,40 @@ namespace HEngine
             size_t numVerts  = mesh->mNumVertices;
             Primitive prim;
 
+            // Assimp aiAnimMesh stores replacement coordinates; native targets store deltas.
+            if (mesh->mNumAnimMeshes > 256)
+                throw std::runtime_error("Mesh morph target count exceeds 256");
+            for (unsigned targetIndex = 0; targetIndex < mesh->mNumAnimMeshes; ++targetIndex)
+            {
+                const aiAnimMesh* target = mesh->mAnimMeshes[targetIndex];
+                if (!target || target->mNumVertices != numVerts)
+                    throw std::runtime_error("Morph target does not match its base mesh");
+                std::map<std::string, int> streams;
+                const auto appendDelta = [&](const char* name, const aiVector3D* values, const aiVector3D* base)
+                {
+                    if (!values || !base) return;
+                    const size_t off = meshBinData.size();
+                    for (unsigned v = 0; v < numVerts; ++v)
+                    {
+                        const aiVector3D delta = values[v] - base[v];
+                        const float xyz[3] = {delta.x, delta.y, delta.z};
+                        AppendData(meshBinData, xyz, 3);
+                    }
+                    streams[name] = AddAccessor(meshRes, sharedBufferIndex, off, meshBinData.size() - off,
+                        HENGINE_COMPONENT_TYPE_FLOAT, "VEC3", numVerts);
+                };
+                appendDelta("POSITION", target->mVertices, mesh->mVertices);
+                appendDelta("NORMAL", target->mNormals, mesh->mNormals);
+                appendDelta("TANGENT", target->mTangents, mesh->mTangents);
+                prim.targets.push_back(std::move(streams));
+                prim.targetNames.push_back(target->mName.length ? target->mName.C_Str() : "Target_" + std::to_string(targetIndex));
+                // Assimp's FBX converter assigns 1.0 to every single-shape
+                // blend channel regardless of the FBX DeformPercent. Treat
+                // these as shape definitions, not an authored active pose.
+                // glTF does carry meaningful mesh default weights.
+                prim.targetWeights.push_back(bFbxSource ? 0.0f : target->mWeight);
+            }
+
             // ---- POSITION (VEC3 FLOAT) ----
             {
                 size_t off = meshBinData.size();
@@ -1526,6 +1754,16 @@ namespace HEngine
                 prim.attributes["TEXCOORD_0"] = accIdx;
             }
 
+            if (mesh->HasTextureCoords(1)) {
+                const size_t off = meshBinData.size();
+                for (uint32_t v = 0; v < mesh->mNumVertices; ++v) { float uv[2] = {mesh->mTextureCoords[1][v].x, mesh->mTextureCoords[1][v].y}; AppendData(meshBinData, uv, 2); }
+                prim.attributes["TEXCOORD_1"] = AddAccessor(meshRes, sharedBufferIndex, off, meshBinData.size()-off, HENGINE_COMPONENT_TYPE_FLOAT, "VEC2", numVerts);
+            }
+            if (mesh->HasVertexColors(0)) {
+                const size_t off = meshBinData.size();
+                for (uint32_t v = 0; v < mesh->mNumVertices; ++v) { const auto& c = mesh->mColors[0][v]; float color[4] = {c.r,c.g,c.b,c.a}; AppendData(meshBinData, color, 4); }
+                prim.attributes["COLOR_0"] = AddAccessor(meshRes, sharedBufferIndex, off, meshBinData.size()-off, HENGINE_COMPONENT_TYPE_FLOAT, "VEC4", numVerts);
+            }
             // ---- TANGENT (VEC3 FLOAT) ----
             if (mesh->HasTangentsAndBitangents())
             {
@@ -1558,87 +1796,56 @@ namespace HEngine
                 prim.attributes["BITANGENT"] = accIdx;
             }
 
-            // ---- JOINTS_0 & WEIGHTS_0 (VEC4 FLOAT) ----
+            // Preserve all authored influences, merge duplicate joints, never silently truncate.
             if (skinned)
             {
-                // Build per-vertex bone arrays
-                std::vector<std::array<float, 4>> joints(numVerts, {-1.0f,-1.0f,-1.0f,-1.0f});
-                std::vector<std::array<float, 4>> weights(numVerts, {0.0f,0.0f,0.0f,0.0f});
-
+                std::vector<std::map<int, double>> influences(numVerts);
                 for (uint32_t b = 0; b < mesh->mNumBones; ++b)
                 {
-                    aiBone* bone = mesh->mBones[b];
-                    std::string boneName = bone->mName.C_Str();
-                    int boneId = -1;
-                    auto it = boneMap.find(boneName);
-                    if (it != boneMap.end()) boneId = it->second.id;
-                    if (boneId < 0) continue;
-
-                    for (uint32_t wi = 0; wi < bone->mNumWeights; ++wi)
+                    const auto* bone = mesh->mBones[b];
+                    const auto found = boneMap.find(bone->mName.C_Str());
+                    if (found == boneMap.end() || found->second.id < 0)
+                        throw std::runtime_error("Skin bone is missing from exported skeleton");
+                    for (uint32_t w = 0; w < bone->mNumWeights; ++w)
                     {
-                        uint32_t vId    = bone->mWeights[wi].mVertexId;
-                        float    weight = bone->mWeights[wi].mWeight;
-                        for (int slot = 0; slot < 4; ++slot)
+                        const auto& source = bone->mWeights[w];
+                        if (source.mVertexId >= numVerts || !std::isfinite(source.mWeight) || source.mWeight < 0)
+                            throw std::runtime_error("Invalid skin weight or vertex index");
+                        if (source.mWeight > 0) influences[source.mVertexId][found->second.id] += source.mWeight;
+                    }
+                }
+                std::vector<std::array<float, 16>> joints(numVerts), weights(numVerts);
+                for (uint32_t vertex = 0; vertex < numVerts; ++vertex)
+                {
+                    if (influences[vertex].size() > 16)
+                        throw std::runtime_error("Mesh " + std::string(mesh->mName.C_Str()) + " vertex " + std::to_string(vertex) +
+                            " has " + std::to_string(influences[vertex].size()) + " influences; maximum is 16, no weights were discarded");
+                    double total = 0;
+                    for (const auto& [joint, weight] : influences[vertex]) total += weight;
+                    if (!std::isfinite(total)) throw std::runtime_error("Non-finite total skin weight");
+                    if (total <= 0) { joints[vertex][0] = 0; weights[vertex][0] = 1; }
+                    else
+                    {
+                        size_t slot = 0;
+                        for (const auto& [joint, weight] : influences[vertex])
                         {
-                            if (joints[vId][slot] < 0.0f)
-                            {
-                                joints[vId][slot]  = (float)boneId;
-                                weights[vId][slot] = weight;
-                                break;
-                            }
+                            joints[vertex][slot] = static_cast<float>(joint);
+                            weights[vertex][slot++] = static_cast<float>(weight / total);
                         }
                     }
                 }
-                // Normalize after limiting the influences. Some FBX exporters keep
-                // overlapping vertex groups whose accumulated weight is greater
-                // than one; feeding those values directly to linear blend skinning
-                // transforms the affected vertices more than once.
-                for (uint32_t vertex = 0; vertex < numVerts; ++vertex)
+                for (int group = 0; group < 4; ++group)
                 {
-                    float totalWeight = 0.0f;
-                    for (float weight : weights[vertex])
-                        totalWeight += std::max(0.0f, weight);
-
-                    if (totalWeight > 1.0e-6f)
+                    for (int stream = 0; stream < 2; ++stream)
                     {
-                        const float inverseTotalWeight = 1.0f / totalWeight;
-                        for (float& weight : weights[vertex])
-                            weight = std::max(0.0f, weight) * inverseTotalWeight;
+                        const size_t offset = meshBinData.size();
+                        const auto& values = stream == 0 ? joints : weights;
+                        for (uint32_t vertex = 0; vertex < numVerts; ++vertex)
+                            AppendData(meshBinData, values[vertex].data() + group * 4, 4);
+                        const int accessor = AddAccessor(meshRes, sharedBufferIndex, offset, meshBinData.size() - offset,
+                            HENGINE_COMPONENT_TYPE_FLOAT, "VEC4", numVerts);
+                        prim.attributes[(stream == 0 ? "JOINTS_" : "WEIGHTS_") + std::to_string(group)] = accessor;
                     }
-                    else
-                    {
-                        joints[vertex][0] = 0.0f;
-                        weights[vertex][0] = 1.0f;
-                    }
-
-                    for (float& joint : joints[vertex])
-                    {
-                        if (joint < 0.0f)
-                            joint = 0.0f;
-                    }
-                }
-
-                // JOINTS_0
-                {
-                    size_t off = meshBinData.size();
-                    for (uint32_t v = 0; v < numVerts; ++v)
-                        AppendData(meshBinData, joints[v].data(), 4);
-                    size_t bytes = meshBinData.size() - off;
-                    int accIdx = AddAccessor(meshRes, sharedBufferIndex,
-                                             off, bytes, HENGINE_COMPONENT_TYPE_FLOAT,
-                                             "VEC4", numVerts);
-                    prim.attributes["JOINTS_0"] = accIdx;
-                }
-                // WEIGHTS_0
-                {
-                    size_t off = meshBinData.size();
-                    for (uint32_t v = 0; v < numVerts; ++v)
-                        AppendData(meshBinData, weights[v].data(), 4);
-                    size_t bytes = meshBinData.size() - off;
-                    int accIdx = AddAccessor(meshRes, sharedBufferIndex,
-                                             off, bytes, HENGINE_COMPONENT_TYPE_FLOAT,
-                                             "VEC4", numVerts);
-                    prim.attributes["WEIGHTS_0"] = accIdx;
                 }
             }
 
@@ -1829,7 +2036,12 @@ namespace HEngine
                 BuildAnimNode(scene->mRootNode, animRes.rootNode);
                 animRes.clips.push_back(clip);
 
-                std::string animName = animRes.name.empty() ? stem : animRes.name;
+                // Animation-only FBX exports can give every take the same name.
+                // Include the source identity so independent clips can coexist
+                // and reimport at stable paths.
+                std::string animName = scene->mNumMeshes == 0
+                    ? stem + (animRes.name.empty() ? "" : "_" + animRes.name)
+                    : (animRes.name.empty() ? stem : animRes.name);
                 for (auto& c : animName) if (c == ' ' || c == '|') c = '_';
                 auto animPath = AssetManager::GetAvailableFileName((animName + ".hanim").c_str(), outDir);
                 if (!SaveAnimResJson(animRes, animPath))

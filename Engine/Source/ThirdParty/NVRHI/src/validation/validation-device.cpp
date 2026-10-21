@@ -1585,6 +1585,12 @@ namespace nvrhi::validation
             }
         }
 
+        if ((binding.overrideComponentMapping & c_ComponentMappingExplicit) && binding.type != ResourceType::Texture_SRV)
+        {
+            errorStream << "Component mappings are only supported on ResourceType::Texture_SRV bindings." << std::endl;
+            return false;
+        }
+
         switch (binding.type)
         {
         case ResourceType::None:
@@ -1981,6 +1987,12 @@ namespace nvrhi::validation
         wrapper->maxInstances = desc.topLevelMaxInstances;
         
         return rt::AccelStructHandle::Create(wrapper);
+    }
+
+    bool DeviceWrapper::queryTopLevelAccelStructPrebuildInfo(const rt::AccelStructDesc& desc,
+        uint32_t instanceCount, rt::AccelStructPrebuildInfo& outInfo)
+    {
+        return m_Device->queryTopLevelAccelStructPrebuildInfo(desc, instanceCount, outInfo);
     }
 
     MemoryRequirements DeviceWrapper::getAccelStructMemoryRequirements(rt::IAccelStruct* as)

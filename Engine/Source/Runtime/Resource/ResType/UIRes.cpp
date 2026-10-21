@@ -172,6 +172,7 @@ namespace HEngine
             const std::string fontFamily = ResolveFontFamilyFromPath(node.Style.FontPath);
             css << "#" << elementId << " {\n";
             css << "  position: absolute;\n";
+            css << "  box-sizing: border-box;\n";
             css << "  background-color: " << node.Style.BackgroundColor << ";\n";
             css << "  color: " << node.Style.TextColor << ";\n";
             if (node.Style.BorderWidth > 0.0f)
@@ -211,12 +212,11 @@ namespace HEngine
             const std::string className = SanitizeClassName(node.Style.ClassName.empty() ? ("hui-node-" + std::to_string(node.Id)) : node.Style.ClassName);
             const std::string elementId = node.ElementId.empty() ? ("node_" + std::to_string(node.Id)) : node.ElementId;
 
-            glm::vec2 position(0.0f, 0.0f);
             glm::vec2 size = parentSize;
-            if (node.Type != UIWidgetType::Canvas)
+            const bool bRootCanvas = node.Type == UIWidgetType::Canvas && node.ParentId < 0;
+            if (!bRootCanvas)
             {
                 const UILayoutRect rect = ResolveUILayoutRect(node.Layout, parentSize);
-                position = rect.Position;
                 size = rect.Size;
             }
 
@@ -231,17 +231,36 @@ namespace HEngine
                 << " data-he-offset-max=\"" << node.Layout.OffsetMax.x << "," << node.Layout.OffsetMax.y << "\""
                 << " style=\"";
 
-            if (node.Type == UIWidgetType::Canvas)
+            if (bRootCanvas)
             {
                 rml << "left:0dp; top:0dp; width:100%; height:100%;";
             }
             else
             {
-                rml << "left:" << ToCssLength(position.x)
-                    << "; top:" << ToCssLength(position.y)
-                    << "; width:" << ToCssLength(size.x)
-                    << "; height:" << ToCssLength(size.y)
-                    << ";";
+                // Preserve the Slot constraints, rather than baking the design
+                // resolution into pixel coordinates. RmlUi then relayouts the
+                // hierarchy whenever its parent or viewport changes size.
+                for (int axis = 0; axis < 2; ++axis)
+                {
+                    const char* nearEdge = axis == 0 ? "left" : "top";
+                    const char* farEdge = axis == 0 ? "right" : "bottom";
+                    const char* dimension = axis == 0 ? "width" : "height";
+                    rml << nearEdge << ":" << node.Layout.AnchorMin[axis] * 100.0f << "%;";
+                    if (node.Layout.AnchorMin[axis] != node.Layout.AnchorMax[axis])
+                    {
+                        rml << farEdge << ":" << (1.0f - node.Layout.AnchorMax[axis]) * 100.0f << "%;"
+                            << "margin-" << nearEdge << ":" << ToCssLength(node.Layout.OffsetMin[axis]) << ";"
+                            << "margin-" << farEdge << ":" << ToCssLength(-node.Layout.OffsetMax[axis]) << ";"
+                            << dimension << ":auto;";
+                    }
+                    else
+                    {
+                        const float length = std::max(node.Layout.OffsetMax[axis], 0.0f);
+                        rml << "margin-" << nearEdge << ":"
+                            << ToCssLength(node.Layout.OffsetMin[axis] - node.Layout.Pivot[axis] * length) << ";"
+                            << dimension << ":" << ToCssLength(length) << ";";
+                    }
+                }
             }
 
             if (!node.bVisible)

@@ -4,6 +4,8 @@
 
 #include "Editor/ImGuiWrapper/ImGuiWrapper.h"
 #include "Runtime/Core/AppFramework/Application.h"
+#include "Runtime/Graphics/Renderer/RenderPipeline.h"
+#include "Runtime/Graphics/RHI/RenderDevice.h"
 
 #include <imgui/imgui.h>
 
@@ -133,10 +135,16 @@ namespace HEngine
         const RenderGraphDiagnosticPassSnapshot& pass =
             mSnapshot.Passes[mSelectedPass];
         ImGui::Text("%s", pass.Name.c_str());
-        ImGui::TextDisabled("PassId %u · 队列 %s · 执行序号 %s",
+        ImGui::TextDisabled("PassId %u · 调度提示 %s · 执行序号 %s",
             pass.PassId, QueueName(pass.Queue),
             pass.ExecutionIndex == InvalidRenderGraphIndex
                 ? "已裁剪" : std::to_string(pass.ExecutionIndex).c_str());
+        ImGui::TextDisabled("实际录制队列：%s", pass.bHasRecordedCommands
+            ? QueueName(pass.RecordedQueue) : "尚未录制");
+        if (pass.FeatureInstanceId.empty())
+            ImGui::TextDisabled("管线内建阶段：顺序受输入依赖约束。");
+        else
+            ImGui::TextWrapped("渲染功能：%s（%s）", pass.FeatureInstanceId.c_str(), pass.FeatureTypeId.c_str());
         ImGui::Separator();
         if (ImGui::BeginTable("##PassAccesses", 4,
                 ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH))
@@ -259,6 +267,18 @@ namespace HEngine
         ImGui::TextDisabled("Pass %zu · Resource %zu · Access %zu · Dependency %zu",
             mSnapshot.Passes.size(), mSnapshot.Resources.size(),
             mSnapshot.Accesses.size(), mSnapshot.Dependencies.size());
+        const auto& stats = Application::GetInstance().GetMainSceneStats();
+        constexpr double mib = 1024.0 * 1024.0;
+        ImGui::TextDisabled("实时名义内存：活动/保留 %.1f MiB · 空闲缓存 %.1f MiB · 退役 %.1f MiB · 已回收 %.1f MiB",
+            (stats.RenderGraphPersistentBytes + stats.RenderGraphTransientReservedBytes) / mib,
+            stats.RenderGraphCachedTransientBytes / mib, stats.RenderGraphRetiredResourceBytes / mib,
+            stats.RenderGraphTrimmedTransientBytes / mib);
+        const auto budget = Application::GetInstance().GetRenderMemoryBudget();
+        if (budget.bAvailable)
+            ImGui::TextDisabled("系统显存：本进程 %.1f MiB / 预算 %.1f MiB",
+                budget.LocalUsageBytes / mib, budget.LocalBudgetBytes / mib);
+        else
+            ImGui::TextDisabled("系统显存预算：当前后端未提供；名义资源字节不代表实际显存占用。");
         for (const RenderGraphDiagnosticCompileErrorSnapshot& error :
             mSnapshot.CompileErrors)
         {

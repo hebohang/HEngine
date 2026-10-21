@@ -2,6 +2,8 @@
 
 #include "Plugins/OfflineReferenceRenderer/Source/OfflineReferenceRendererSession.h"
 #include "Plugins/OfflineReferenceRenderer/Source/OfflineReferenceRendererSettingsJson.h"
+#include "Plugins/OfflineReferenceRenderer/Source/ProgressiveSchedule.h"
+#include "Plugins/OfflineReferenceRenderer/Source/ProgressiveDenoiser.h"
 
 #include "Runtime/Graphics/RHI/ShaderManager.h"
 #include "Runtime/Utils/PathUtils/PathUtils.h"
@@ -12,10 +14,13 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <fstream>
 #include <limits>
+#include <numeric>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -32,7 +37,8 @@ namespace HEngine
             "he.viewport.path-tracing";
         constexpr uint32_t MaximumOfflineDimension = 16384u;
         constexpr uint32_t MaximumOfflineSamplesPerFrame = 1024u;
-        constexpr std::array<OfflineViewportAov, 9> ReferenceAovs = {
+        constexpr std::array<OfflineViewportAov, 10> ReferenceAovs = {
+            OfflineViewportAov::DenoisedBeauty,
             OfflineViewportAov::Beauty,
             OfflineViewportAov::DirectDiffuse,
             OfflineViewportAov::IndirectDiffuse,
@@ -91,6 +97,12 @@ namespace HEngine
         void ValidateOfflineSettings(
             const OfflineViewportRendererSettings& settings)
         {
+            if (!std::isfinite(settings.TargetFramesPerSecond) || settings.TargetFramesPerSecond < 15.f ||
+                settings.TargetFramesPerSecond > 120.f || !std::isfinite(settings.WorkBudgetMilliseconds) ||
+                settings.WorkBudgetMilliseconds < .25f || settings.WorkBudgetMilliseconds > 16.f ||
+                !std::isfinite(settings.InteractiveScale) || settings.InteractiveScale < .05f || settings.InteractiveScale > 1.f ||
+                !std::isfinite(settings.SettleMilliseconds) || settings.SettleMilliseconds < 100.f || settings.SettleMilliseconds > 2000.f)
+                throw std::invalid_argument("Offline viewport budget or navigation settings are outside the supported range");
             if (settings.TargetSamples == 0)
                 throw std::invalid_argument(
                     "Offline reference target samples must be non-zero");
@@ -258,6 +270,7 @@ namespace HEngine
 
         struct ReferenceExportRequest
         {
+            uint64_t Generation = 0;
             OfflineViewportAov Aov = OfflineViewportAov::Beauty;
             OfflineViewportOutputFormat Format =
                 OfflineViewportOutputFormat::Pfm;
@@ -292,6 +305,8 @@ namespace HEngine
 
         struct ReferenceTracePassData
         {
+            BufferHandle AnalyticLights;
+            std::vector<TextureHandle> MaterialTextures;
             AccelerationStructureHandle SceneTlas;
             BufferHandle Vertices;
             BufferHandle Indices;
@@ -410,12 +425,9 @@ namespace HEngine
         {
             return 0u;
         }
-        const uint64_t remaining =
-            static_cast<uint64_t>(settings.TargetSamples) -
-            accumulatedSamples;
-        return static_cast<uint32_t>(std::min<uint64_t>(
-            remaining,
-            settings.SamplesPerFrame));
+        // A dispatch is a budgeted row band. Legacy batch preferences cannot
+        // bypass the scheduler, including in deterministic Reference mode.
+        return 1u;
     }
 
     OfflineViewportSessionState Detail::ResolveReferenceOfflineControlState(
@@ -449,7 +461,7 @@ namespace HEngine
             return OfflineViewportSessionState::Rendering;
         case ReferenceOfflineControlCommand::Cancel:
             return OfflineViewportSessionState::Cancelled;
-        case ReferenceOfflineControlCommand::SamplesSubmitted:
+        case ReferenceOfflineControlCommand::SamplesCompleted:
             return accumulatedSamples >= targetSamples
                 ? OfflineViewportSessionState::Complete
                 : state;
@@ -472,7 +484,7 @@ namespace HEngine
                 "Offline reference export format is invalid");
         }
         if (format == OfflineViewportOutputFormat::ToneMappedPng &&
-            aov != OfflineViewportAov::Beauty)
+            aov != OfflineViewportAov::Beauty && aov != OfflineViewportAov::DenoisedBeauty)
         {
             throw std::invalid_argument(
                 "Tone-mapped PNG export currently requires the Beauty AOV");
@@ -524,6 +536,7 @@ namespace HEngine
             if (FramesInFlight == 0)
                 throw std::invalid_argument("ReferencePathTracer requires at least one frame in flight");
             ReadbackQueue = CreateScope<TextureReadbackQueue>(Device);
+            TraceTimer = Device->createTimerQuery();
             bOfflineControlEnabled = desc.bOfflineViewportSession;
             ResolvedSeed = OfflineSettings.Seed;
             CreatePipeline();
@@ -535,6 +548,9 @@ namespace HEngine
 
         void SetOfflineState(OfflineViewportSessionState state) noexcept
         {
+            // Graph construction omits tracing in non-rendering states. Any
+            // transition (including raising a completed target) must rebuild it.
+            if (state != OfflineState) bGraphRebuildRequested = true;
             const Clock::time_point now = Clock::now();
             if (OfflineState == OfflineViewportSessionState::Rendering)
             {
@@ -586,6 +602,9 @@ namespace HEngine
         {
             HistoryTracker.Reset(reason);
             AccumulatedSamples = 0;
+            Schedule.Reset(NativeOutputs.Height);
+            bClearAccumulation = true;
+            PendingDenoisedUpload.reset();
             RecordedSamples = 0;
             ++Stats.HistoryResetCount;
             Stats.LastResetReasons = reason;
@@ -609,6 +628,8 @@ namespace HEngine
         {
             switch (aov)
             {
+            case OfflineViewportAov::DenoisedBeauty:
+                return DenoisedGeneration == Schedule.Generation() ? NativeOutputs.DenoisedRadiance : nullptr;
             case OfflineViewportAov::Beauty:
                 return NativeOutputs.AccumulatedRadiance;
             case OfflineViewportAov::DirectDiffuse:
@@ -637,6 +658,8 @@ namespace HEngine
         {
             switch (aov)
             {
+            case OfflineViewportAov::DenoisedBeauty:
+                return DenoisedGeneration == Schedule.Generation() ? GraphOutputs.DenoisedRadiance : GraphOutputs.AccumulatedRadiance;
             case OfflineViewportAov::Beauty:
                 return GraphOutputs.AccumulatedRadiance;
             case OfflineViewportAov::DirectDiffuse:
@@ -839,7 +862,9 @@ namespace HEngine
                 libraryKey,
                 "ReferenceClosestHit",
                 nvrhi::ShaderType::ClosestHit);
-            if (!RayGenerationShader || !MissShader || !ClosestHitShader)
+            AnyHitShader = ShaderManagerInstance.GetShaderFromLibrary(libraryKey,
+                "ReferenceAnyHit", nvrhi::ShaderType::AnyHit);
+            if (!RayGenerationShader || !MissShader || !ClosestHitShader || !AnyHitShader)
                 throw std::runtime_error("Reference path tracer shader library is incomplete");
 
             nvrhi::BindingLayoutDesc frameLayoutDesc;
@@ -861,7 +886,10 @@ namespace HEngine
                 .addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(3))
                 .addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(4))
                 .addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(5))
-                .addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(6));
+                .addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(6))
+                .addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(7))
+                .addItem(nvrhi::BindingLayoutItem::Texture_SRV(8).setSize(512))
+                .addItem(nvrhi::BindingLayoutItem::Sampler(0));
             SceneBindingLayout = Device->createBindingLayout(sceneLayoutDesc);
 
             nvrhi::BindingLayoutDesc outputLayoutDesc;
@@ -885,6 +913,15 @@ namespace HEngine
             environmentSamplerDesc.setAllFilters(true)
                 .setAllAddressModes(nvrhi::SamplerAddressMode::Clamp);
             EnvironmentSampler = Device->createSampler(environmentSamplerDesc);
+            MaterialSampler = Device->createSampler(nvrhi::SamplerDesc().setAllFilters(true)
+                .setAllAddressModes(nvrhi::SamplerAddressMode::Wrap));
+            nvrhi::TextureDesc unusedTextureDesc;
+            unusedTextureDesc.width = unusedTextureDesc.height = 1;
+            unusedTextureDesc.format = nvrhi::Format::RGBA8_UNORM;
+            unusedTextureDesc.initialState = nvrhi::ResourceStates::ShaderResource;
+            unusedTextureDesc.keepInitialState = true;
+            unusedTextureDesc.debugName = "Unused PT material descriptor";
+            UnusedMaterialTexture = Device->createTexture(unusedTextureDesc);
 
             nvrhi::TextureDesc fallbackEnvironmentDesc;
             fallbackEnvironmentDesc.width = 1;
@@ -945,12 +982,12 @@ namespace HEngine
                     .setShader(MissShader))
                 .addHitGroup(nvrhi::rt::PipelineHitGroupDesc()
                     .setExportName("ReferenceHitGroup")
-                    .setClosestHitShader(ClosestHitShader))
+                    .setClosestHitShader(ClosestHitShader).setAnyHitShader(AnyHitShader))
                 .addBindingLayout(FrameBindingLayout)
                 .addBindingLayout(SceneBindingLayout)
                 .addBindingLayout(OutputBindingLayout)
                 .addBindingLayout(EnvironmentBindingLayout)
-                .setMaxPayloadSize(64)
+                .setMaxPayloadSize(96)
                 .setMaxAttributeSize(sizeof(float) * 2u)
                 .setMaxRecursionDepth(1);
             Pipeline = Device->createRayTracingPipeline(pipelineDesc);
@@ -1016,10 +1053,10 @@ namespace HEngine
                 width, height, nvrhi::Format::RGBA32_FLOAT,
                 "Reference PT Indirect Diffuse");
             NativeOutputs.Albedo = CreateOutputTexture(
-                width, height, nvrhi::Format::RGBA16_FLOAT,
+                width, height, nvrhi::Format::RGBA32_FLOAT,
                 "Reference PT Albedo");
             NativeOutputs.WorldNormal = CreateOutputTexture(
-                width, height, nvrhi::Format::RGBA16_FLOAT,
+                width, height, nvrhi::Format::RGBA32_FLOAT,
                 "Reference PT World Normal");
             NativeOutputs.ViewDepth = CreateOutputTexture(
                 width, height, nvrhi::Format::R32_FLOAT,
@@ -1034,6 +1071,8 @@ namespace HEngine
                 width, height, nvrhi::Format::R32_UINT,
                 "Reference PT Sample Count");
             NativeOutputs.Width = width;
+            NativeOutputs.DenoisedRadiance = CreateOutputTexture(
+                width, height, nvrhi::Format::RGBA32_FLOAT, "Reference PT Denoised Beauty");
             NativeOutputs.Height = height;
             NativeOutputs.Generation = ++OutputGeneration;
 
@@ -1070,6 +1109,7 @@ namespace HEngine
             const RayTracingSceneGpuResources& sceneResources =
                 Scene->GetGpuResources();
             if (SceneResourceGeneration == sceneResources.Generation &&
+                MaterialTextureGeneration == Scene->GetMaterialTextureGeneration() &&
                 SceneBindingSet)
             {
                 return;
@@ -1096,13 +1136,20 @@ namespace HEngine
                 .addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
                     5, sceneResources.Instances))
                 .addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(
-                    6, sceneResources.EmissiveTriangles));
+                    6, sceneResources.EmissiveTriangles))
+                .addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(7, sceneResources.AnalyticLights))
+                .addItem(nvrhi::BindingSetItem::Sampler(0, MaterialSampler));
+            const auto textures = Scene->GetMaterialTextures();
+            for (uint32_t i = 0; i < 512; ++i)
+                sceneDesc.addItem(nvrhi::BindingSetItem::Texture_SRV(8,
+                    i < textures.size() ? textures[i].Get() : UnusedMaterialTexture.Get()).setArrayElement(i));
             SceneBindingSet = Device->createBindingSet(
                 sceneDesc,
                 SceneBindingLayout);
             if (!SceneBindingSet)
                 throw std::runtime_error("NVRHI failed to bind reference path tracer scene tables");
             SceneResourceGeneration = sceneResources.Generation;
+            MaterialTextureGeneration = Scene->GetMaterialTextureGeneration();
             bGraphRebuildRequested = true;
         }
 
@@ -1211,6 +1258,10 @@ namespace HEngine
         nvrhi::ShaderHandle RayGenerationShader;
         nvrhi::ShaderHandle MissShader;
         nvrhi::ShaderHandle ClosestHitShader;
+        nvrhi::ShaderHandle AnyHitShader;
+        nvrhi::SamplerHandle MaterialSampler;
+        nvrhi::TextureHandle UnusedMaterialTexture;
+        uint64_t MaterialTextureGeneration = 0;
         nvrhi::BindingLayoutHandle FrameBindingLayout;
         nvrhi::BindingLayoutHandle SceneBindingLayout;
         nvrhi::BindingLayoutHandle OutputBindingLayout;
@@ -1243,6 +1294,7 @@ namespace HEngine
         Clock::time_point RenderingStartedAt{};
         double ElapsedRenderingSeconds = 0.0;
         std::string OfflineError;
+        bool bSceneUnavailable = false;
         std::vector<ReferenceExportRequest> PendingExports;
         std::vector<ReferenceExportRequest> ScheduledExports;
         ReferencePathTracerConstants Constants;
@@ -1259,6 +1311,34 @@ namespace HEngine
         uint64_t OutputGeneration = 0;
         uint64_t LastSubmittedSubmission = 0;
         uint64_t AccumulatedSamples = 0;
+        Detail::ProgressiveSchedule Schedule;
+        ProgressiveDenoiser Denoiser;
+        std::array<nvrhi::StagingTextureHandle, 3> DenoiseStaging;
+        DenoiseSnapshot Snapshot;
+        std::unique_ptr<DenoiseSnapshot> PendingDenoisedUpload;
+        uint64_t SnapshotSubmission = 0;
+        bool bSnapshotRecorded = false;
+        bool bNeedSnapshot = false;
+        bool bDenoiseUploadRecorded = false;
+        uint64_t DenoiseUploadSubmission = 0;
+        uint64_t UploadedGeneration = 0, UploadedSamples = 0;
+        uint64_t DenoisedGeneration = 0;
+        uint64_t DenoisedSamples = 0;
+        uint64_t LastSnapshotSamples = 0;
+        uint64_t LastSnapshotGeneration = 0;
+        double DenoiseMilliseconds = 0;
+        std::string DenoiserStatus = ProgressiveDenoiser::Available() ? "OIDN CPU ready" : "OIDN unavailable: build with HE_OFFLINE_OIDN=ON";
+        Clock::time_point LastDenoiseAt{};
+        nvrhi::TimerQueryHandle TraceTimer;
+        uint64_t TimerSubmission = 0;
+        uint64_t TimerPixels = 0;
+        double TraceMillisecondsPerPixel = 0.0;
+        double LastTraceMilliseconds = 0.0;
+        double OtherGpuMilliseconds = 0.0;
+        bool bClearAccumulation = true;
+        bool bRecordedClear = false;
+        bool bInteractivePreview = true;
+        Clock::time_point LastMotionAt = Clock::now();
         uint64_t LastCameraFingerprint = 0;
         uint64_t LastSceneStateFingerprint = 0;
         uint32_t ResolvedSeed = 0x48454e47u;
@@ -1317,7 +1397,8 @@ namespace HEngine
         const bool bIntegralChanged = !bWasOffline ||
             !HaveSameIntegralSettings(mImpl->OfflineSettings, normalized);
         const bool bPreviewChanged = !bWasOffline ||
-            mImpl->OfflineSettings.PreviewAov != normalized.PreviewAov;
+            mImpl->OfflineSettings.PreviewAov != normalized.PreviewAov ||
+            mImpl->OfflineSettings.bDenoise != normalized.bDenoise;
         const uint32_t previousTarget = mImpl->OfflineSettings.TargetSamples;
         mImpl->EnableOfflineControl();
         mImpl->OfflineSettings = std::move(normalized);
@@ -1344,7 +1425,8 @@ namespace HEngine
                 mImpl->SetOfflineState(OfflineViewportSessionState::Paused);
             }
         }
-        else if (mImpl->AccumulatedSamples >=
+        else if (mImpl->OfflineState != OfflineViewportSessionState::Paused &&
+            mImpl->OfflineState != OfflineViewportSessionState::Cancelled && mImpl->AccumulatedSamples >=
             mImpl->OfflineSettings.TargetSamples)
         {
             mImpl->SetOfflineState(OfflineViewportSessionState::Complete);
@@ -1371,6 +1453,26 @@ namespace HEngine
         return {
             .State = mImpl->OfflineState,
             .AccumulatedSamples = mImpl->AccumulatedSamples,
+            .SubmittedSamples = mImpl->Schedule.Submitted(),
+            .Generation = mImpl->Schedule.Generation(),
+            .MaximumSamples = mImpl->Schedule.Maximum(),
+            .AverageSamples = mImpl->Schedule.Average(),
+            .InFlight = mImpl->Schedule.InFlight() ? 1u : 0u,
+            .StaleResults = mImpl->Schedule.Stale(),
+            .bTimingAvailable = mImpl->TraceMillisecondsPerPixel > 0.0,
+            .TracingMilliseconds = mImpl->LastTraceMilliseconds,
+            .IncludedInstances = mImpl->Scene->GetStats().TlasInstanceCount,
+            .ExcludedInstances = mImpl->Scene->GetStats().ExcludedInstanceCount,
+            .RetiredOutputSets = static_cast<uint32_t>(mImpl->RetiredOutputSets.size()),
+            .Phase = mImpl->OfflineState == OfflineViewportSessionState::Failed ? "Failed" :
+                !mImpl->bHasPreparedFingerprint ? "Preparing" :
+                mImpl->OfflineState == OfflineViewportSessionState::Complete ? "Converged (sample target)" :
+                mImpl->OfflineState == OfflineViewportSessionState::Paused ? "Paused" :
+                mImpl->OfflineState == OfflineViewportSessionState::Cancelled ? "Cancelled" :
+                mImpl->bInteractivePreview ? "Interactive / Settling" : "Accumulating",
+            .DenoiserStatus = mImpl->DenoiserStatus,
+            .DenoiseMilliseconds = mImpl->DenoiseMilliseconds,
+            .DenoisedSamples = mImpl->DenoisedGeneration == mImpl->Schedule.Generation() ? mImpl->DenoisedSamples : 0,
             .TargetSamples = mImpl->OfflineSettings.TargetSamples,
             .ElapsedSeconds = mImpl->GetElapsedSeconds(),
             .LastGpuMilliseconds = mImpl->Stats.LastGpuMilliseconds,
@@ -1386,6 +1488,8 @@ namespace HEngine
     void ReferencePathTracer::SetLastGpuMilliseconds(
         double milliseconds) noexcept
     {
+        if (std::isfinite(milliseconds) && milliseconds > 0)
+            mImpl->OtherGpuMilliseconds = std::max(0.0, milliseconds - mImpl->LastTraceMilliseconds);
         mImpl->Stats.LastGpuMilliseconds =
             std::isfinite(milliseconds) ? std::max(milliseconds, 0.0) : 0.0;
     }
@@ -1403,7 +1507,7 @@ namespace HEngine
         if (!texture)
             return {};
         const nvrhi::TextureDesc& desc = texture->getDesc();
-        const bool bSceneLinear = aov == OfflineViewportAov::Beauty ||
+        const bool bSceneLinear = aov == OfflineViewportAov::Beauty || aov == OfflineViewportAov::DenoisedBeauty ||
             aov == OfflineViewportAov::DirectDiffuse ||
             aov == OfflineViewportAov::IndirectDiffuse ||
             aov == OfflineViewportAov::Albedo;
@@ -1485,6 +1589,9 @@ namespace HEngine
 
     void ReferencePathTracer::Cancel() noexcept
     {
+        mImpl->bInteractivePreview = false;
+        mImpl->bNeedSnapshot = false;
+        mImpl->PendingDenoisedUpload.reset();
         if (!mImpl->bOfflineControlEnabled)
             mImpl->bOfflineControlEnabled = true;
         mImpl->RecordedSamples = 0;
@@ -1498,16 +1605,27 @@ namespace HEngine
         mImpl->bGraphRebuildRequested = true;
     }
 
+    bool ReferencePathTracer::HasPendingWork() const noexcept
+    {
+        return mImpl->Denoiser.Busy() || mImpl->SnapshotSubmission || mImpl->DenoiseUploadSubmission || mImpl->Schedule.InFlight() ||
+            mImpl->ReadbackQueue->GetPendingCount() != 0;
+    }
+
     TextureReadbackHandle ReferencePathTracer::RequestExport(
         OfflineViewportAov aov,
         std::filesystem::path outputPath,
         OfflineViewportOutputFormat format)
     {
         Detail::ValidateReferenceOfflineExportRequest(aov, format);
+        if (mImpl->bSceneUnavailable)
+            throw std::runtime_error(mImpl->OfflineError);
+        if (aov == OfflineViewportAov::DenoisedBeauty && !mImpl->GetNativeAovTexture(aov))
+            throw std::runtime_error("No completed denoised result is available for this generation");
 
         nvrhi::Format nativeFormat = nvrhi::Format::UNKNOWN;
         switch (aov)
         {
+        case OfflineViewportAov::DenoisedBeauty:
         case OfflineViewportAov::Beauty:
         case OfflineViewportAov::DirectDiffuse:
         case OfflineViewportAov::IndirectDiffuse:
@@ -1515,7 +1633,7 @@ namespace HEngine
             break;
         case OfflineViewportAov::Albedo:
         case OfflineViewportAov::WorldNormal:
-            nativeFormat = nvrhi::Format::RGBA16_FLOAT;
+            nativeFormat = nvrhi::Format::RGBA32_FLOAT;
             break;
         case OfflineViewportAov::ViewDepth:
             nativeFormat = nvrhi::Format::R32_FLOAT;
@@ -1566,6 +1684,7 @@ namespace HEngine
         try
         {
             mImpl->PendingExports.push_back({
+                .Generation = mImpl->Schedule.Generation(),
                 .Aov = aov,
                 .Format = format,
                 .Handle = handle,
@@ -1626,10 +1745,48 @@ namespace HEngine
             throw std::invalid_argument("ReferencePathTracer currently records exactly one sample per pixel per frame");
         if (settings.MaxBounces > 16)
             throw std::invalid_argument("ReferencePathTracer maximum bounce count exceeds 16");
-        if (!mImpl->Scene->IsReady())
-            throw std::logic_error("ReferencePathTracer requires a prepared RayTracingScene");
-
         Collect(frame.CompletedSubmission);
+        if (!mImpl->Scene->IsReady())
+        {
+            // Empty or fully excluded worlds are valid editor states. Do not
+            // bind a null TLAS or present a previous generation as this world.
+            if (!mImpl->bSceneUnavailable)
+            {
+                mImpl->ResetAccumulation(GlobalIlluminationHistoryResetReason::SceneReload);
+                mImpl->bSceneUnavailable = true;
+                for (const auto& request : mImpl->PendingExports)
+                    mImpl->ReadbackQueue->CancelPending(request.Handle);
+                mImpl->PendingExports.clear();
+            }
+            mImpl->bNeedSnapshot = false;
+            mImpl->PendingDenoisedUpload.reset();
+            mImpl->bInteractivePreview = false;
+            if (mImpl->NativeOutputs.Width != 1 || mImpl->NativeOutputs.Height != 1)
+                mImpl->CreateOutputs(1, 1);
+            const auto& stats = mImpl->Scene->GetStats();
+            std::string error = "Path tracing has no supported geometry (excluded " +
+                std::to_string(stats.ExcludedInstanceCount) + " sections).";
+            for (size_t index = 0; index < stats.ExcludedBySupport.size(); ++index)
+            {
+                if (stats.ExcludedBySupport[index] != 0)
+                    error += " " + std::string(ToString(static_cast<RayTracingGeometrySupport>(index))) +
+                        ": " + std::to_string(stats.ExcludedBySupport[index]) + ".";
+            }
+            error += " Use Raster 3D for this scene; supported static opaque geometry will resume PT automatically.";
+            if (error != mImpl->OfflineError) HE_CORE_WARN("{0}", error);
+            mImpl->MarkOfflineFailed(std::move(error));
+            mImpl->Stats.RaysPerPixel = 0;
+            mImpl->Stats.AccumulatedSamples = 0;
+            mImpl->bFramePrepared = true;
+            return;
+        }
+        if (std::exchange(mImpl->bSceneUnavailable, false))
+        {
+            mImpl->OfflineError.clear();
+            mImpl->ResetAccumulation(GlobalIlluminationHistoryResetReason::SceneReload);
+            if (mImpl->OfflineState == OfflineViewportSessionState::Failed)
+                mImpl->SetOfflineState(OfflineViewportSessionState::Rendering);
+        }
         const uint64_t cameraFingerprint =
             ComputeCameraFingerprint(frame.Camera);
         const bool bCameraChanged = mImpl->bHasPreparedFingerprint &&
@@ -1664,6 +1821,9 @@ namespace HEngine
         if (resetReasons != GlobalIlluminationHistoryResetReason::None)
         {
             mImpl->AccumulatedSamples = 0;
+            mImpl->Schedule.Reset(frame.Height);
+            mImpl->bClearAccumulation = true;
+            mImpl->PendingDenoisedUpload.reset();
             ++mImpl->Stats.HistoryResetCount;
             mImpl->Stats.LastResetReasons = resetReasons;
             mImpl->bCameraInvalidated = bCameraChanged ||
@@ -1697,8 +1857,8 @@ namespace HEngine
                 {
                     mImpl->bRestartRequired = false;
                     mImpl->OfflineError.clear();
-                    mImpl->SetOfflineState(
-                        OfflineViewportSessionState::Rendering);
+                    if (mImpl->OfflineState != OfflineViewportSessionState::Paused)
+                        mImpl->SetOfflineState(OfflineViewportSessionState::Rendering);
                 }
                 else
                 {
@@ -1736,7 +1896,7 @@ namespace HEngine
         mImpl->Stats.RaysPerPixel = 1;
         if (mImpl->bOfflineControlEnabled)
         {
-            mImpl->Stats.RaysPerPixel = mImpl->ResolveDispatchCount();
+            mImpl->Stats.RaysPerPixel = mImpl->ResolveDispatchCount() > 0 ? 1 : 0;
             if (mImpl->AccumulatedSamples >=
                     mImpl->OfflineSettings.TargetSamples &&
                 mImpl->OfflineState == OfflineViewportSessionState::Rendering)
@@ -1770,10 +1930,28 @@ namespace HEngine
         GlobalIlluminationSettings effectiveSettings = settings;
         if (mImpl->bOfflineControlEnabled)
         {
-            const auto [width, height] = ResolveOfflineDimensions(
+            auto [width, height] = ResolveOfflineDimensions(
                 frame.Width,
                 frame.Height,
                 mImpl->OfflineSettings);
+            const auto now = Impl::Clock::now();
+            if (!mImpl->bHasPreparedFingerprint || mImpl->LastCameraFingerprint != ComputeCameraFingerprint(frame.Camera))
+                mImpl->LastMotionAt = now;
+            mImpl->bInteractivePreview = mImpl->OfflineSettings.bInteractive &&
+                std::chrono::duration<double, std::milli>(now - mImpl->LastMotionAt).count() <
+                    mImpl->OfflineSettings.SettleMilliseconds;
+            if (mImpl->bInteractivePreview)
+            {
+                const double budget = std::min<double>(mImpl->OfflineSettings.WorkBudgetMilliseconds,
+                    500.0 / mImpl->OfflineSettings.TargetFramesPerSecond) * 0.65;
+                const double previewPixels = mImpl->TraceMillisecondsPerPixel > 0
+                    ? std::clamp(budget / mImpl->TraceMillisecondsPerPixel, 1024.0, 65536.0) : 4096.0;
+                const float scale = std::min({mImpl->OfflineSettings.InteractiveScale,
+                    320.0f / static_cast<float>(width),
+                    static_cast<float>(std::sqrt(previewPixels / (double(width) * height)))});
+                width = std::max(1u, static_cast<uint32_t>(width * scale));
+                height = std::max(1u, static_cast<uint32_t>(height * scale));
+            }
             referenceFrame.Width = width;
             referenceFrame.Height = height;
             referenceFrame.FixedSeed = mImpl->ResolvedSeed;
@@ -1822,6 +2000,22 @@ namespace HEngine
         {
             throw std::invalid_argument("ReferencePathTracer received incompatible settings");
         }
+        if (mImpl->bSceneUnavailable)
+        {
+            const auto output = mImpl->ImportOutput(renderGraph, mImpl->NativeOutputs.AccumulatedRadiance);
+            renderGraph.AddPass<TextureHandle>("OfflineUnavailablePreview", RenderGraphQueue::Graphics,
+                [output](RenderGraphBuilder& builder, TextureHandle& data)
+                {
+                    data = builder.UnorderedAccess(output);
+                },
+                [](RenderGraphContext& context, const TextureHandle& data)
+                {
+                    context.GetCommandList()->clearTextureFloat(
+                        context.GetTexture(data, RenderGraphAccess::ReadWrite),
+                        nvrhi::AllSubresources, nvrhi::Color(0.f));
+                });
+            return {.CompositeRadiance = output};
+        }
         if (!inputs.SceneTlas || !inputs.GeometryBuffer ||
             !inputs.MaterialBuffer || !inputs.RayTracingVertexBuffer ||
             !inputs.RayTracingIndexBuffer ||
@@ -1831,6 +2025,7 @@ namespace HEngine
         }
 
         mImpl->GraphOutputs = {
+            .DenoisedRadiance = mImpl->ImportOutput(renderGraph, mImpl->NativeOutputs.DenoisedRadiance),
             .AccumulatedRadiance = mImpl->ImportOutput(
                 renderGraph, mImpl->NativeOutputs.AccumulatedRadiance),
             .DirectDiffuse = mImpl->ImportOutput(
@@ -1856,13 +2051,19 @@ namespace HEngine
             mImpl->OfflineState == OfflineViewportSessionState::Rendering;
         if (bRecordTracePass)
         {
+            std::vector<TextureHandle> materialTextures;
+            for (const auto& texture : mImpl->Scene->GetMaterialTextures())
+                materialTextures.push_back(renderGraph.ImportTexture(ToGraphDesc(texture), texture,
+                    nvrhi::ResourceStates::ShaderResource, nvrhi::ResourceStates::ShaderResource));
             renderGraph.AddPass<ReferenceTracePassData>(
             "ReferencePathTrace",
             RenderGraphQueue::Graphics,
-            [inputs, outputs = mImpl->GraphOutputs](
+            [inputs, materialTextures, outputs = mImpl->GraphOutputs](
                 RenderGraphBuilder& builder,
                 ReferenceTracePassData& data)
             {
+                data.AnalyticLights = builder.ShaderResource(inputs.AnalyticLightBuffer);
+                for (auto texture : materialTextures) data.MaterialTextures.push_back(builder.ShaderResource(texture));
                 data.SceneTlas = builder.AccelerationStructureRead(inputs.SceneTlas);
                 data.Vertices = builder.ShaderResource(
                     inputs.RayTracingVertexBuffer);
@@ -1895,6 +2096,8 @@ namespace HEngine
             {
                 try
                 {
+                    (void)context.GetBuffer(data.AnalyticLights, RenderGraphAccess::Read);
+                    for (auto texture : data.MaterialTextures) (void)context.GetTexture(texture, RenderGraphAccess::Read);
                     (void)context.GetAccelerationStructure(
                         data.SceneTlas,
                         RenderGraphAccess::Read);
@@ -1961,8 +2164,29 @@ namespace HEngine
                                 environment));
                     nvrhi::ICommandList* commandList = context.GetCommandList();
                     commandList->setRayTracingState(state);
-                    const uint32_t dispatchCount = impl->ResolveDispatchCount();
+                    const double budget = Detail::ResolveProgressiveTraceBudget(
+                        impl->OfflineSettings.WorkBudgetMilliseconds,
+                        impl->OfflineSettings.TargetFramesPerSecond, impl->OtherGpuMilliseconds);
+                    const auto band = impl->Schedule.Reserve(impl->NativeOutputs.Width,
+                        impl->bOfflineControlEnabled ? impl->OfflineSettings.TargetSamples : 1048576u,
+                        budget, impl->TraceMillisecondsPerPixel,
+                        impl->ResolveDispatchCount() > 0 && !impl->bNeedSnapshot);
+                    const uint32_t dispatchCount = band.Rows ? 1u : 0u;
                     impl->RecordedSamples = 0;
+                    if (dispatchCount && impl->bClearAccumulation)
+                    {
+                        for (size_t index = 0; index < outputTextures.size(); ++index)
+                        {
+                            if (index >= 6)
+                                commandList->clearTextureUInt(outputTextures[index], nvrhi::AllSubresources, 0);
+                            else
+                                commandList->clearTextureFloat(outputTextures[index], nvrhi::AllSubresources, nvrhi::Color(0.f));
+                        }
+                        impl->bRecordedClear = true;
+                    }
+                    if (dispatchCount) commandList->setRayTracingState(state);
+                    if (dispatchCount && impl->TraceTimer && !impl->TimerSubmission)
+                        commandList->beginTimerQuery(impl->TraceTimer);
                     for (uint32_t dispatchIndex = 0;
                         dispatchIndex < dispatchCount;
                         ++dispatchIndex)
@@ -1974,8 +2198,11 @@ namespace HEngine
                             if (impl->Constants.SamplingSettings.w != 0u)
                                 constants.EnvironmentRadiance = glm::vec4(0.0f);
                         }
-                        const uint64_t sampleIndex = impl->AccumulatedSamples +
-                            dispatchIndex;
+                        const uint64_t sampleIndex = band.Sample;
+                        uint32_t stride = 17;
+                        while (std::gcd(stride, impl->NativeOutputs.Height) != 1u) ++stride;
+                        constants.EnvironmentRadiance.w = std::bit_cast<float>(
+                            band.FirstRow | (stride << 16u));
                         constants.DimensionsSampleBounces.z =
                             static_cast<uint32_t>(std::min<uint64_t>(
                                 sampleIndex,
@@ -1986,7 +2213,7 @@ namespace HEngine
                         commandList->dispatchRays(
                             nvrhi::rt::DispatchRaysArguments().setDimensions(
                                 impl->NativeOutputs.Width,
-                                impl->NativeOutputs.Height));
+                                band.Rows));
                         if (dispatchIndex + 1u < dispatchCount)
                         {
                             for (nvrhi::ITexture* texture : outputTextures)
@@ -1999,6 +2226,11 @@ namespace HEngine
                         }
                     }
                     impl->RecordedSamples = dispatchCount;
+                    if (dispatchCount && impl->TraceTimer && !impl->TimerSubmission)
+                    {
+                        commandList->endTimerQuery(impl->TraceTimer);
+                        impl->TimerPixels = uint64_t(band.Rows) * impl->NativeOutputs.Width;
+                    }
                 }
                 catch (const std::exception& exception)
                 {
@@ -2030,8 +2262,55 @@ namespace HEngine
 
         TextureHandle previewComposite =
             mImpl->GraphOutputs.AccumulatedRadiance;
+        struct DenoisePassData { std::array<TextureHandle, 3> Inputs; TextureHandle Output; };
+        renderGraph.AddPass<DenoisePassData>("OfflineDenoiseTransfer", RenderGraphQueue::Graphics,
+            [outputs = mImpl->GraphOutputs](RenderGraphBuilder& builder, DenoisePassData& data)
+            {
+                data.Inputs = {builder.CopySource(outputs.AccumulatedRadiance),
+                    builder.CopySource(outputs.Albedo), builder.CopySource(outputs.WorldNormal)};
+                data.Output = builder.CopyDest(outputs.DenoisedRadiance);
+                builder.SetSideEffect();
+            },
+            [impl = mImpl.get()](RenderGraphContext& context, const DenoisePassData& data)
+            {
+                auto* commandList = context.GetCommandList();
+                if (impl->bNeedSnapshot && !impl->SnapshotSubmission && !impl->Denoiser.Busy())
+                {
+                    impl->Snapshot = {};
+                    impl->Snapshot.Generation = impl->Schedule.Generation();
+                    impl->Snapshot.Samples = impl->Schedule.Completed();
+                    impl->Snapshot.Width = impl->NativeOutputs.Width;
+                    impl->Snapshot.Height = impl->NativeOutputs.Height;
+                    for (size_t index = 0; index < 3; ++index)
+                    {
+                        auto* source = context.GetTexture(data.Inputs[index], RenderGraphAccess::Read);
+                        nvrhi::TextureDesc desc;
+                        desc.width = impl->Snapshot.Width;
+                        desc.height = impl->Snapshot.Height;
+                        desc.format = source->getDesc().format;
+                        desc.debugName = "Offline OIDN snapshot";
+                        impl->DenoiseStaging[index] = impl->Device->createStagingTexture(desc, nvrhi::CpuAccessMode::Read);
+                        if (!impl->DenoiseStaging[index]) throw std::runtime_error("OIDN staging allocation failed");
+                        const auto slice = nvrhi::TextureSlice().setSize(desc.width, desc.height, 1);
+                        commandList->copyTexture(impl->DenoiseStaging[index], slice, source, slice);
+                    }
+                    impl->bSnapshotRecorded = true;
+                }
+                if (impl->PendingDenoisedUpload &&
+                    impl->PendingDenoisedUpload->Generation == impl->Schedule.Generation())
+                {
+                    const auto& snapshot = *impl->PendingDenoisedUpload;
+                    commandList->writeTexture(context.GetTexture(data.Output, RenderGraphAccess::Write),
+                        0, 0, snapshot.Output.data(), size_t(snapshot.Width) * 4 * sizeof(float));
+                    impl->bDenoiseUploadRecorded = true;
+                }
+            });
+        if (mImpl->OfflineSettings.bDenoise && mImpl->DenoisedGeneration == mImpl->Schedule.Generation() &&
+            mImpl->OfflineSettings.PreviewAov == OfflineViewportAov::DenoisedBeauty)
+            previewComposite = mImpl->GraphOutputs.DenoisedRadiance;
         if (mImpl->bOfflineControlEnabled &&
-            mImpl->OfflineSettings.PreviewAov != OfflineViewportAov::Beauty)
+            mImpl->OfflineSettings.PreviewAov != OfflineViewportAov::Beauty &&
+            mImpl->OfflineSettings.PreviewAov != OfflineViewportAov::DenoisedBeauty)
         {
             previewComposite = mImpl->AddPreviewPass(
                 renderGraph,
@@ -2049,6 +2328,7 @@ namespace HEngine
                     OfflineViewportOutputFormat::ToneMappedPng;
             });
         TextureHandle toneMappedPng;
+        TextureHandle denoisedToneMappedPng;
         if (bToneMappedPngRequested)
         {
             toneMappedPng = mImpl->AddPreviewPass(
@@ -2056,6 +2336,10 @@ namespace HEngine
                 mImpl->GraphOutputs.AccumulatedRadiance,
                 OfflineViewportAov::Beauty,
                 true);
+            if (std::ranges::any_of(mImpl->PendingExports, [](const ReferenceExportRequest& request)
+                { return request.Aov == OfflineViewportAov::DenoisedBeauty && request.Format == OfflineViewportOutputFormat::ToneMappedPng; }))
+                denoisedToneMappedPng = mImpl->AddPreviewPass(renderGraph,
+                    mImpl->GraphOutputs.DenoisedRadiance, OfflineViewportAov::DenoisedBeauty, true);
         }
 
         if (!mImpl->PendingExports.empty())
@@ -2065,7 +2349,7 @@ namespace HEngine
             renderGraph.AddPass<ReferenceExportPassData>(
                 "ReferencePathTracerExport",
                 RenderGraphQueue::Copy,
-                [impl = mImpl.get(), requests, toneMappedPng](
+                [impl = mImpl.get(), requests, toneMappedPng, denoisedToneMappedPng](
                     RenderGraphBuilder& builder,
                     ReferenceExportPassData& data)
                 {
@@ -2076,13 +2360,13 @@ namespace HEngine
                         data.Sources.push_back(builder.CopySource(
                             request.Format ==
                                     OfflineViewportOutputFormat::ToneMappedPng
-                                ? toneMappedPng
+                                ? (request.Aov == OfflineViewportAov::DenoisedBeauty ? denoisedToneMappedPng : toneMappedPng)
                                 : impl->GetGraphAovTexture(request.Aov)));
                         data.Handles.push_back(request.Handle);
                     }
                     builder.SetSideEffect();
                 },
-                [impl = mImpl.get()](
+                [impl = mImpl.get(), requests](
                     RenderGraphContext& context,
                     const ReferenceExportPassData& data)
                 {
@@ -2093,6 +2377,11 @@ namespace HEngine
                             impl->ReadbackQueue->GetResult(handle).Status !=
                                 TextureReadbackStatus::PendingSubmission)
                         {
+                            continue;
+                        }
+                        if (requests[index].Generation != impl->Schedule.Generation())
+                        {
+                            impl->ReadbackQueue->CancelPending(handle);
                             continue;
                         }
                         try
@@ -2154,6 +2443,10 @@ namespace HEngine
 
     bool ReferencePathTracer::RequiresContinuousUpdate() const noexcept
     {
+        if (mImpl->bGraphRebuildRequested) return true;
+        if (mImpl->bInteractivePreview || mImpl->Schedule.InFlight() || mImpl->Denoiser.Busy() ||
+            mImpl->SnapshotSubmission || mImpl->DenoiseUploadSubmission || mImpl->bNeedSnapshot || mImpl->PendingDenoisedUpload)
+            return true;
         if (!mImpl->PendingExports.empty() || !mImpl->ScheduledExports.empty())
             return true;
         if (!mImpl->bOfflineControlEnabled)
@@ -2217,6 +2510,24 @@ namespace HEngine
 
     void ReferencePathTracer::NotifyFrameSubmitted(uint64_t submission) noexcept
     {
+        if (mImpl->bSnapshotRecorded)
+        {
+            mImpl->SnapshotSubmission = submission;
+            mImpl->bSnapshotRecorded = false;
+            mImpl->bNeedSnapshot = false;
+            mImpl->LastSnapshotGeneration = mImpl->Snapshot.Generation;
+            mImpl->LastSnapshotSamples = mImpl->Snapshot.Samples;
+            mImpl->LastDenoiseAt = Impl::Clock::now();
+        }
+        if (mImpl->bDenoiseUploadRecorded && mImpl->PendingDenoisedUpload)
+        {
+            mImpl->UploadedGeneration = mImpl->PendingDenoisedUpload->Generation;
+            mImpl->UploadedSamples = mImpl->PendingDenoisedUpload->Samples;
+            mImpl->DenoiseUploadSubmission = submission;
+            mImpl->PendingDenoisedUpload.reset();
+            mImpl->bDenoiseUploadRecorded = false;
+            mImpl->bGraphRebuildRequested = true;
+        }
         mImpl->LastSubmittedSubmission = std::max(
             mImpl->LastSubmittedSubmission,
             submission);
@@ -2257,26 +2568,24 @@ namespace HEngine
         mImpl->ScheduledExports.clear();
         if (mImpl->RecordedSamples > 0)
         {
-            mImpl->AccumulatedSamples += mImpl->RecordedSamples;
-            mImpl->Stats.AccumulatedSamples = mImpl->AccumulatedSamples;
+            mImpl->Schedule.Submit(submission);
+            if (mImpl->TraceTimer && !mImpl->TimerSubmission)
+                mImpl->TimerSubmission = submission;
+            if (mImpl->bRecordedClear)
+                mImpl->bClearAccumulation = false;
+            mImpl->bRecordedClear = false;
             mImpl->RecordedSamples = 0;
-            if (mImpl->bOfflineControlEnabled)
-            {
-                const OfflineViewportSessionState nextState =
-                    Detail::ResolveReferenceOfflineControlState(
-                        mImpl->OfflineState,
-                        Detail::ReferenceOfflineControlCommand::SamplesSubmitted,
-                        mImpl->AccumulatedSamples,
-                        mImpl->OfflineSettings.TargetSamples,
-                        mImpl->bRestartRequired);
-                if (nextState != mImpl->OfflineState)
-                    mImpl->SetOfflineState(nextState);
-            }
         }
     }
 
     void ReferencePathTracer::AbortFrame() noexcept
     {
+        mImpl->bSnapshotRecorded = false;
+        mImpl->bDenoiseUploadRecorded = false;
+        mImpl->Schedule.Abort();
+        mImpl->bRecordedClear = false;
+        if (mImpl->TraceTimer && !mImpl->TimerSubmission)
+            mImpl->Device->resetTimerQuery(mImpl->TraceTimer);
         mImpl->RecordedSamples = 0;
         for (const ReferenceExportRequest& request : mImpl->ScheduledExports)
         {
@@ -2303,6 +2612,97 @@ namespace HEngine
 
     void ReferencePathTracer::Collect(uint64_t completedSubmission)
     {
+        if (mImpl->DenoiseUploadSubmission && mImpl->DenoiseUploadSubmission <= completedSubmission)
+        {
+            if (mImpl->UploadedGeneration == mImpl->Schedule.Generation() &&
+                mImpl->OfflineState != OfflineViewportSessionState::Cancelled)
+            {
+                mImpl->DenoisedGeneration = mImpl->UploadedGeneration;
+                mImpl->DenoisedSamples = mImpl->UploadedSamples;
+                mImpl->bGraphRebuildRequested = true;
+            }
+            mImpl->DenoiseUploadSubmission = 0;
+        }
+        if (auto result = mImpl->Denoiser.Poll())
+        {
+            mImpl->DenoiseMilliseconds = result->Milliseconds;
+            mImpl->DenoiserStatus = result->Error.empty() ? "OIDN CPU ready" : result->Error;
+            if (result->Error.empty() && mImpl->OfflineState != OfflineViewportSessionState::Cancelled &&
+                result->Generation == mImpl->Schedule.Generation() &&
+                (mImpl->DenoisedGeneration != result->Generation || result->Samples >= mImpl->DenoisedSamples))
+                mImpl->PendingDenoisedUpload = std::move(result);
+        }
+        if (mImpl->SnapshotSubmission && mImpl->SnapshotSubmission <= completedSubmission)
+        {
+            if (mImpl->Snapshot.Generation == mImpl->Schedule.Generation() &&
+                mImpl->OfflineState != OfflineViewportSessionState::Cancelled)
+            {
+                try
+                {
+                    const std::array<std::vector<float>*, 3> destinations = {
+                        &mImpl->Snapshot.Color, &mImpl->Snapshot.Albedo, &mImpl->Snapshot.Normal};
+                    for (size_t index = 0; index < 3; ++index)
+                    {
+                        const uint32_t width = mImpl->Snapshot.Width, height = mImpl->Snapshot.Height;
+                        auto& destination = *destinations[index];
+                        destination.resize(size_t(width) * height * 4);
+                        size_t rowPitch = 0;
+                        const auto slice = nvrhi::TextureSlice().setSize(width, height, 1);
+                        const auto* mapped = static_cast<const uint8_t*>(mImpl->Device->mapStagingTexture(
+                            mImpl->DenoiseStaging[index], slice, nvrhi::CpuAccessMode::Read, &rowPitch));
+                        if (!mapped) throw std::runtime_error("OIDN completed snapshot map failed");
+                        for (uint32_t y = 0; y < height; ++y)
+                            std::memcpy(destination.data() + size_t(y) * width * 4,
+                                mapped + y * rowPitch, size_t(width) * 4 * sizeof(float));
+                        mImpl->Device->unmapStagingTexture(mImpl->DenoiseStaging[index]);
+                    }
+                    mImpl->Denoiser.Submit(std::move(mImpl->Snapshot));
+                    mImpl->DenoiserStatus = "OIDN CPU working";
+                }
+                catch (const std::exception& error) { mImpl->DenoiserStatus = error.what(); }
+            }
+            mImpl->DenoiseStaging = {};
+            mImpl->SnapshotSubmission = 0;
+        }
+        if (mImpl->TimerSubmission && mImpl->TimerSubmission <= completedSubmission &&
+            mImpl->Device->pollTimerQuery(mImpl->TraceTimer))
+        {
+            const double milliseconds = 1000.0 * mImpl->Device->getTimerQueryTime(mImpl->TraceTimer);
+            if (std::isfinite(milliseconds) && milliseconds > 0 && mImpl->TimerPixels)
+            {
+                mImpl->LastTraceMilliseconds = milliseconds;
+                // Fast response to slow work; cautious recovery to larger bands.
+                mImpl->TraceMillisecondsPerPixel = std::max(milliseconds / mImpl->TimerPixels,
+                    mImpl->TraceMillisecondsPerPixel * 0.95);
+            }
+            mImpl->Device->resetTimerQuery(mImpl->TraceTimer);
+            mImpl->TimerSubmission = 0;
+        }
+        if (mImpl->Schedule.Collect(completedSubmission))
+        {
+            mImpl->AccumulatedSamples = mImpl->Schedule.Completed();
+            mImpl->Stats.AccumulatedSamples = mImpl->AccumulatedSamples;
+            if (mImpl->bOfflineControlEnabled && mImpl->OfflineState == OfflineViewportSessionState::Rendering &&
+                mImpl->AccumulatedSamples >= mImpl->OfflineSettings.TargetSamples)
+            {
+                mImpl->SetOfflineState(OfflineViewportSessionState::Complete);
+                mImpl->bGraphRebuildRequested = true;
+            }
+        }
+        const bool bNewSnapshot = mImpl->LastSnapshotGeneration != mImpl->Schedule.Generation() ||
+            mImpl->LastSnapshotSamples < mImpl->Schedule.Completed();
+        mImpl->bNeedSnapshot = mImpl->OfflineSettings.bDenoise && ProgressiveDenoiser::Available() &&
+            !mImpl->bInteractivePreview && !mImpl->Denoiser.Busy() && !mImpl->SnapshotSubmission &&
+            !mImpl->PendingDenoisedUpload && !mImpl->DenoiseUploadSubmission && !mImpl->Schedule.InFlight() && bNewSnapshot &&
+            mImpl->Schedule.Completed() > 0 && mImpl->Schedule.Average() == double(mImpl->Schedule.Completed()) &&
+            mImpl->OfflineState != OfflineViewportSessionState::Cancelled &&
+            std::chrono::duration<double, std::milli>(Impl::Clock::now() - mImpl->LastDenoiseAt).count() >=
+                mImpl->OfflineSettings.DenoiseIntervalMilliseconds;
+        if (uint64_t(mImpl->NativeOutputs.Width) * mImpl->NativeOutputs.Height > 4194304u)
+        {
+            mImpl->bNeedSnapshot = false;
+            mImpl->DenoiserStatus = "OIDN snapshot exceeds the 4 megapixel memory limit";
+        }
         mImpl->ReadbackQueue->Collect(completedSubmission);
         std::erase_if(mImpl->RetiredSceneBindings,
             [completedSubmission](const Impl::RetiredBindingSet& retired)
@@ -2332,10 +2732,13 @@ namespace HEngine
         mImpl->HistoryTracker.Reset(
             GlobalIlluminationHistoryResetReason::Explicit);
         mImpl->AccumulatedSamples = 0;
+        mImpl->Schedule.Reset(mImpl->NativeOutputs.Height);
+        mImpl->bClearAccumulation = true;
         mImpl->RecordedSamples = 0;
         mImpl->LastCameraFingerprint = 0;
         mImpl->LastSceneStateFingerprint = 0;
         mImpl->bHasPreparedFingerprint = false;
+        mImpl->bSceneUnavailable = false;
         mImpl->bRestartRequired = false;
         mImpl->bSceneInvalidated = false;
         mImpl->bCameraInvalidated = false;

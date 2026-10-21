@@ -2,10 +2,12 @@
 
 #include "Editor/EditorHistory.h"
 #include "BasePanel.h"
+#include "Runtime/Core/Meta/Json.h"
 #include "Runtime/Resource/ResType/AnimController.h"
 
 #include <imgui/imgui.h>
 
+#include <cstdint>
 #include <filesystem>
 #include <vector>
 
@@ -22,6 +24,7 @@ namespace HEngine
         AnimControllerPanel(EditorLayer* parent, std::string controllerPath);
         ~AnimControllerPanel() override;
 
+        Json AutomationGraph(const Json& params);
         void OnImGuiRender() override;
         void OnImGuiRenderImpl() override;
         IEditorUndoClient* GetUndoClient() override { return this; }
@@ -50,6 +53,7 @@ namespace HEngine
         void DrawInspector();
         void DrawParameters();
         void DrawControllerProperties();
+        void DrawMotionSettings(AnimControllerNodeRes& node);
         void DrawStateNodeInlineClipUI(AnimControllerNodeRes& node);
         void DrawTransitionInspector(AnimControllerTransitionRes& transition);
 
@@ -95,6 +99,18 @@ namespace HEngine
         bool mApplySavedNodePositions = true;
         bool mGraphCacheValid = false;
         bool mPendingNavigateToContent = true;
+        Json mAutomationCanvasState = Json::object();
+        std::uint64_t mGraphFocusRequests = 0;
+        std::uint64_t mGraphFocusExecutions = 0;
+        std::uint64_t mGraphFocusFrame = 0;
+        std::uint64_t mGraphCanvasSizeChanges = 0;
+        bool mInitialGraphFitActive = true;
+        bool mInitialGraphFitExhausted = false;
+        unsigned mInitialGraphFitFrames = 0;
+        unsigned mInitialGraphFitAttempts = 0;
+        unsigned mGraphStableSizeFrames = 0;
+        ImVec2 mPreviousCanvasSize = ImVec2(0, 0);
+        void RequestGraphFocus();
         EditorHistoryStack mHistory;
         std::string mSavedSnapshot;
         bool mPendingInteractiveHistory = false;

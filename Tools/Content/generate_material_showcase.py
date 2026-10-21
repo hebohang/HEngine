@@ -518,7 +518,8 @@ def _build_scene() -> dict[str, Any]:
 
     scene[_entity_uuid("environment-light")] = {
         "EnvironmentLightComponent": {
-            "Exposure": 0.82,
+            "ExposureEV100": 0.286304185156641,
+            "ExposureCompensation": 0.0,
             "HdrTexturePath": DEFAULT_HDR_LOGICAL_PATH,
             "IBLIntensity": 1.15,
         },
@@ -550,7 +551,7 @@ def _build_scene() -> dict[str, Any]:
 
     scene[_entity_uuid("point-light")] = {
         "PointLightComponent": {
-            "FalloffExponent": 2.0,
+            "IntensityUnits": 1,
             "Intensity": 5.0,
             "LightColor": [0.38, 0.72, 1.0],
             "Radius": 28.0,

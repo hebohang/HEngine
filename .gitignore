@@ -1,5 +1,7 @@
 # Binaries
 **/bin/
+!Engine/Source/Programs/HEngineParser/3rd_party/LLVM/Win64/bin/
+!Engine/Source/Programs/HEngineParser/3rd_party/LLVM/Win64/bin/libclang.dll
 !Engine/Tools/Effekseer/bin/
 !Engine/Tools/Effekseer/bin/**
 Engine/Tools/Effekseer/bin/Effekseer.config.Dock.xml
@@ -7,6 +9,9 @@ Engine/Tools/Effekseer/bin/Effekseer.imgui.ini
 bin-int/
 out/
 build/
+!Tools/Build/
+!Tools/Build/*.ps1
+!Tools/Build/*.cjs
 *.pdb
 *.ilk
 !Engine/Tools/Effekseer/bin/Effekseer.pdb
@@ -46,6 +51,7 @@ Engine/Source/_generated/
 
 # Cache
 Engine/Shaders/Caches
+.codex-remote-attachments/
 
 # Game
 /Game
@@ -53,12 +59,21 @@ build_game
 /dist
 
 # Project
-Project/Config/EditorLayout.ini
-Project/Shaders/CACHES
-Project/Scripts/HEngine
-Project/Dist/
-Project/Saved/
+HEngine.workspace.local.json
+HEngine.workspace.local.json.lock
+/Project/
 
 # Python
 *.pyc
 __pycache__
+
+# Content import state is durable source provenance; only transient work is ignored.
+**/.he-content/**
+!**/.he-content/
+!**/.he-content/*/
+!**/.he-content/*/state.json
+
+# Asset identity catalogs are durable; operation locks and recovery journals are local.
+**/.he-assets/operation.lock
+**/.he-assets/pending.json
+Tools/Scripting/WorkflowTests/obj/

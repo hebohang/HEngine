@@ -339,6 +339,21 @@ namespace HEngine
 
     RealtimeRayTracedGlobalIllumination::~RealtimeRayTracedGlobalIllumination() = default;
 
+    std::function<void()> RealtimeRayTracedGlobalIllumination::CaptureGraphState()
+    {
+        return [impl = mImpl.get(), bindings = mImpl->PassBindingSets,
+            outputs = mImpl->LastRawOutputs]() mutable noexcept
+        {
+            using std::swap;
+            swap(impl->PassBindingSets, bindings); swap(impl->LastRawOutputs, outputs);
+        };
+    }
+
+    void RealtimeRayTracedGlobalIllumination::ClearGraphResourceCaches() noexcept
+    {
+        mImpl->PassBindingSets.clear();
+    }
+
     void RealtimeRayTracedGlobalIllumination::PrepareFrame(
         const RealtimeRtgiFrameParameters& frame,
         const GlobalIlluminationSettings& settings)
@@ -354,8 +369,10 @@ namespace HEngine
         }
         if (settings.SamplesPerPixel != 1)
             throw std::invalid_argument("The real-time RTGI vertical slice requires exactly 1 spp");
-        if (settings.MaxBounces < 2 || settings.MaxBounces > 4)
-            throw std::invalid_argument("Real-time RTGI supports 2-4 diffuse bounces");
+        // Primary direct lighting is evaluated separately; one secondary hit
+        // already provides indirect light and is valid for the shared Low preset.
+        if (settings.MaxBounces < 1 || settings.MaxBounces > 4)
+            throw std::invalid_argument("Real-time RTGI supports 1-4 diffuse bounces");
         if (!std::isfinite(settings.RenderScale) ||
             settings.RenderScale < 0.5f || settings.RenderScale > 1.0f)
         {

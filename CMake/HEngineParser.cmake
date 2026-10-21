@@ -5,6 +5,7 @@
 set(HENGINE_PRECOMPILE_PARAMS_IN_PATH "${CMAKE_SOURCE_DIR}/CMake/precompile.json.in")
 set(HE_CODEGEN_STATE_DIR "${CMAKE_BINARY_DIR}/codegen")
 file(MAKE_DIRECTORY "${HE_CODEGEN_STATE_DIR}")
+file(REAL_PATH "${HE_CODEGEN_STATE_DIR}" HE_CODEGEN_STATE_DIR)
 
 set(HEProjectHeaders)
 if(IS_DIRECTORY "${ProjectRootDir}/Source")
@@ -26,6 +27,8 @@ list(APPEND HECodeGenHeaders ${HECodeGenRuntimeCandidateHeaders})
 list(REMOVE_DUPLICATES HECodeGenHeaders)
 list(SORT HECodeGenHeaders)
 
+# Existing headers acquiring/removing a reflection marker must refresh the input list.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${HECodeGenHeaders})
 set(HECodeGenInputHeaders)
 foreach(codegenHeader IN LISTS HECodeGenHeaders)
     if(EXISTS "${codegenHeader}")
@@ -89,7 +92,7 @@ if(NOT HE_CODEGEN_PLUGIN_IDS)
 endif()
 set(HE_CODEGEN_TOOLSET_ID "${CMAKE_GENERATOR_TOOLSET}")
 if(NOT HE_CODEGEN_TOOLSET_ID AND MSVC)
-    set(HE_CODEGEN_TOOLSET_ID "v143-$ENV{VCToolsVersion}")
+    set(HE_CODEGEN_TOOLSET_ID "msvc-${CMAKE_CXX_COMPILER_VERSION}-$ENV{VCToolsVersion}")
 elseif(NOT HE_CODEGEN_TOOLSET_ID)
     set(HE_CODEGEN_TOOLSET_ID "native")
 endif()
@@ -133,9 +136,22 @@ string(CONCAT HE_CODEGEN_CONTEXT_CONTENT
     "include=${EngineSourceDir}\n"
     "track=${CMAKE_SOURCE_DIR}/Engine/Source/Programs/HEngineParser/Parser\n"
     "track=${CMAKE_SOURCE_DIR}/Engine/Source/Programs/HEngineParser/CMakeLists.txt\n"
-    "arg=-fms-extensions\n"
-    "arg=-fms-compatibility\n"
-    "arg=-fdelayed-template-parsing\n")
+    )
+if(MSVC)
+    string(APPEND HE_CODEGEN_CONTEXT_CONTENT
+        "arg=-fms-extensions\n"
+        "arg=-fms-compatibility\n"
+        "arg=-fdelayed-template-parsing\n")
+elseif(APPLE)
+    execute_process(COMMAND xcrun --show-sdk-path
+        OUTPUT_VARIABLE heCodegenSdk OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+    string(APPEND HE_CODEGEN_CONTEXT_CONTENT
+        "arg=-isysroot\narg=${heCodegenSdk}\n"
+        "arg=-mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET}\n")
+    foreach(heSystemInclude IN LISTS CMAKE_CXX_IMPLICIT_INCLUDE_DIRECTORIES)
+        string(APPEND HE_CODEGEN_CONTEXT_CONTENT "arg=-isystem\narg=${heSystemInclude}\n")
+    endforeach()
+endif()
 
 if(IS_DIRECTORY "${ProjectRootDir}/Source")
     string(APPEND HE_CODEGEN_CONTEXT_CONTENT
@@ -180,11 +196,7 @@ foreach(trackedConfig IN LISTS HE_CODEGEN_TRACKED_CONFIGS)
         string(APPEND HE_CODEGEN_CONTEXT_CONTENT "track=${trackedConfig}\n")
     endif()
 endforeach()
-foreach(trackedHeader IN LISTS HECodeGenHeaders)
-    if(EXISTS "${trackedHeader}")
-        string(APPEND HE_CODEGEN_CONTEXT_CONTENT "track=${trackedHeader}\n")
-    endif()
-endforeach()
+
 
 set(HE_CODEGEN_CONTEXT_PATH "${HE_CODEGEN_STATE_DIR}/context-$<CONFIG>.txt")
 file(GENERATE
@@ -216,44 +228,9 @@ set(HE_CODEGEN_LOG
 set(HE_CODEGEN_RESULT "${HE_CODEGEN_STATE_DIR}/result-$<CONFIG>.json")
 set(HE_CODEGEN_VERIFY_RESULT "${HE_CODEGEN_STATE_DIR}/verify-result-$<CONFIG>.json")
 set(HE_CODEGEN_CONTENT_STAMP "${HE_CODEGEN_STATE_DIR}/${CMAKE_CFG_INTDIR}/content.stamp")
-set(HE_CODEGEN_EXECUTION_STAMP "${HE_CODEGEN_STATE_DIR}/${CMAKE_CFG_INTDIR}/inputs.stamp")
 file(GLOB HE_CODEGEN_TEMPLATE_FILES CONFIGURE_DEPENDS
     "${CMAKE_SOURCE_DIR}/Engine/Source/Programs/HEngineParser/Template/*.mustache")
-if(HE_CODEGEN_PARSER_EXECUTABLE)
-    set(HE_CODEGEN_TOOL_DEPENDENCY "${HE_CODEGEN_PARSER_COMMAND}")
-else()
-    set(HE_CODEGEN_TOOL_DEPENDENCY HEngineParser)
-endif()
 
-add_custom_command(
-    OUTPUT "${HE_CODEGEN_EXECUTION_STAMP}"
-    COMMAND "${HE_CODEGEN_POWERSHELL}" -NoProfile -ExecutionPolicy Bypass
-        -File "${HE_CODEGEN_DRIVER}"
-        -Action Ensure
-        -RepositoryRoot "${CMAKE_SOURCE_DIR}"
-        -ProjectRoot "${ProjectRootDir}"
-        -OutputRoot "${HE_GENERATED_SOURCE_DIR}"
-        -ParserExecutable "${HE_CODEGEN_PARSER_COMMAND}"
-        -InputList "${HENGINE_PRECOMPILE_PARAMS_PATH}"
-        -ContextFile "${HE_CODEGEN_CONTEXT_PATH}"
-        -TemplateRoot "${CMAKE_SOURCE_DIR}/Engine/Source/Programs/HEngineParser/Template"
-        -Module HEngine
-        -LogPath "${HE_CODEGEN_LOG}"
-        -ResultPath "${HE_CODEGEN_RESULT}"
-        -StampPath "${HE_CODEGEN_CONTENT_STAMP}"
-    COMMAND "${CMAKE_COMMAND}" -E touch "${HE_CODEGEN_EXECUTION_STAMP}"
-    DEPENDS
-        ${HE_CODEGEN_TOOL_DEPENDENCY}
-        "${HE_CODEGEN_DRIVER}"
-        "${HENGINE_PRECOMPILE_PARAMS_PATH}"
-        "${HE_CODEGEN_CONTEXT_PATH}"
-        ${HE_CODEGEN_TEMPLATE_FILES}
-        ${HECodeGenHeaders}
-        ${HE_CODEGEN_TRACKED_CONFIGS}
-    BYPRODUCTS
-        "${HE_CODEGEN_CONTENT_STAMP}"
-    COMMENT "Checking reflection code generation freshness"
-    VERBATIM)
 
 add_custom_target(HEngineCodeGen
     COMMAND "${HE_CODEGEN_POWERSHELL}" -NoProfile -ExecutionPolicy Bypass
@@ -271,7 +248,7 @@ add_custom_target(HEngineCodeGen
         -StampPath "${HE_CODEGEN_CONTENT_STAMP}"
         -ResultPath "${HE_CODEGEN_VERIFY_RESULT}"
         -Quiet
-    DEPENDS "${HE_CODEGEN_EXECUTION_STAMP}"
+    BYPRODUCTS "${HE_CODEGEN_CONTENT_STAMP}"
     SOURCES
         "${HE_CODEGEN_DRIVER}"
         "${HENGINE_PRECOMPILE_PARAMS_PATH}"
@@ -286,6 +263,7 @@ set_target_properties(HEngineCodeGen PROPERTIES FOLDER "Engine/Generated")
 
 set(HE_CODEGEN_CONSUMERS
     HEngineRuntime
+    HEMacRenderSettingsTests
     HEngineEditor
     HGame
     HEngineTests

@@ -283,14 +283,17 @@ namespace HEngine
             const bool bKnownAttribute =
                 attributeName == "POSITION" || attributeName == "NORMAL" ||
                 attributeName == "BITANGENT" || attributeName == "BINORMAL" ||
-                attributeName == "TEXCOORD_0" || attributeName == "TANGENT" ||
-                attributeName == "JOINTS_0" || attributeName == "WEIGHTS_0";
+                attributeName == "TEXCOORD_0" || attributeName == "TEXCOORD_1" || attributeName == "COLOR_0" ||
+                attributeName == "CLOTH_WEIGHT" || attributeName == "TANGENT" ||
+                attributeName.starts_with("JOINTS_") || attributeName.starts_with("WEIGHTS_");
             const bool bExpectedType =
                 ((attributeName == "POSITION" || attributeName == "NORMAL" ||
                     attributeName == "BITANGENT" || attributeName == "BINORMAL") && accessor.type == "VEC3") ||
-                (attributeName == "TEXCOORD_0" && accessor.type == "VEC2") ||
+                ((attributeName == "TEXCOORD_0" || attributeName == "TEXCOORD_1") && accessor.type == "VEC2") ||
+                (attributeName == "COLOR_0" && (accessor.type == "VEC3" || accessor.type == "VEC4")) ||
+                (attributeName == "CLOTH_WEIGHT" && accessor.type == "SCALAR") ||
                 (attributeName == "TANGENT" && (accessor.type == "VEC3" || accessor.type == "VEC4")) ||
-                ((attributeName == "JOINTS_0" || attributeName == "WEIGHTS_0") && accessor.type == "VEC4");
+                ((attributeName.starts_with("JOINTS_") || attributeName.starts_with("WEIGHTS_")) && accessor.type == "VEC4");
             const std::size_t componentCount = ComponentCount(accessor.type);
             if ((bKnownAttribute && !bExpectedType) ||
                 (!bKnownAttribute && (componentCount < 2 || componentCount > 4)))
@@ -342,7 +345,7 @@ namespace HEngine
                     std::string(attributeName) + " range overflows");
             }
 
-            const bool bJointStream = attributeName == "JOINTS_0";
+            const bool bJointStream = attributeName.starts_with("JOINTS_");
             const double maxJointIndex = static_cast<double>(std::numeric_limits<int>::max());
             for (std::size_t valueIndex = 0; valueIndex < valueCount; ++valueIndex)
             {
@@ -522,6 +525,19 @@ namespace HEngine
                         "primitive[" + std::to_string(primitiveIndex) + "] exceeds the vertex limit");
                 }
 
+                bool missingSkinGroup = false;
+                for (int group = 0; group < 4; ++group)
+                {
+                    const bool joints = primitive.attributes.contains("JOINTS_" + std::to_string(group));
+                    const bool weights = primitive.attributes.contains("WEIGHTS_" + std::to_string(group));
+                    if (joints != weights || (joints && missingSkinGroup))
+                        return Failure(MeshValidationError::InvalidPrimitive, "Skin groups must be contiguous paired JOINTS/WEIGHTS streams");
+                    if (!joints) missingSkinGroup = true;
+                }
+                for (const auto& [name, accessor] : primitive.attributes)
+                    if ((name.starts_with("JOINTS_") && (name.size() != 8 || name.back() < '0' || name.back() > '3')) ||
+                        (name.starts_with("WEIGHTS_") && (name.size() != 9 || name.back() < '0' || name.back() > '3')))
+                        return Failure(MeshValidationError::InvalidPrimitive, "Unsupported skin group; at most 16 influences are supported");
                 const bool bHasJoints = primitive.attributes.contains("JOINTS_0");
                 const bool bHasWeights = primitive.attributes.contains("WEIGHTS_0");
                 if (bHasJoints != bHasWeights)
@@ -577,6 +593,40 @@ namespace HEngine
                 }
                 decodedCpuBytes = newDecodedCpuBytes;
 
+                if (primitive.lods.size() > 8)
+                    return Failure(MeshValidationError::ResourceLimitExceeded, "primitive LOD count exceeds eight");
+                size_t previousLodCount = indexAccessor.count;
+                float previousLodError = 0.0f;
+                for (const MeshLod& lod : primitive.lods)
+                {
+                    if (lod.indices < 0 || size_t(lod.indices) >= meshResource.accessorVec.size() ||
+                        !std::isfinite(lod.objectSpaceError) || lod.objectSpaceError < previousLodError)
+                        return Failure(MeshValidationError::InvalidPrimitive, "invalid LOD accessor/error ordering");
+                    const Accessor& lodAccessor = meshResource.accessorVec[lod.indices];
+                    if (lodAccessor.type != "SCALAR" || !IsValidIndexComponent(lodAccessor.componentType) ||
+                        lodAccessor.count == 0 || lodAccessor.count % 3 != 0 || lodAccessor.count >= previousLodCount)
+                        return Failure(MeshValidationError::InvalidPrimitive, "invalid LOD triangle count/format");
+                    size_t lodBytes = 0;
+                    if (!CheckedMultiply(lodAccessor.count, sizeof(uint32_t), lodBytes) ||
+                        !CheckedAdd(decodedCpuBytes, lodBytes, decodedCpuBytes) || decodedCpuBytes > MaxDecodedCpuBytes)
+                        return Failure(MeshValidationError::ResourceLimitExceeded, "LOD decoded memory limit exceeded");
+                    if (bRequireLoadedData)
+                    {
+                        const auto& lodView = meshResource.bufferViewVec[lodAccessor.bufferViewIndex];
+                        const auto& lodBuffer = meshResource.bufferVec[lodView.bufferIndex];
+                        const size_t offset = lodView.byteOffset + lodAccessor.byteOffset;
+                        const size_t stride = ComponentSize(lodAccessor.componentType);
+                        for (size_t i = 0; i < lodAccessor.count; ++i)
+                        {
+                            if (ShouldCheckCancellation(i) && stopToken.stop_requested()) return CancellationFailure();
+                            if (ReadIndex(lodBuffer.data.data() + offset + i * stride, lodAccessor.componentType) >= positionAccessor.count)
+                                return Failure(MeshValidationError::IndexOutOfRange, "LOD index exceeds vertex stream");
+                        }
+                    }
+                    previousLodCount = lodAccessor.count;
+                    previousLodError = lod.objectSpaceError;
+                }
+
                 if (bRequireLoadedData)
                 {
                     const MeshBufferView& view = meshResource.bufferViewVec[indexAccessor.bufferViewIndex];
@@ -601,23 +651,18 @@ namespace HEngine
 
                     if (bHasJoints)
                     {
-                        const MeshValidationResult jointResult = ValidateSkinStreamValues(
-                            meshResource,
-                            primitiveIndex,
-                            "JOINTS_0",
-							primitive.attributes.at("JOINTS_0"),
-							stopToken);
-                        if (!jointResult)
-                            return jointResult;
-
-                        const MeshValidationResult weightResult = ValidateSkinStreamValues(
-                            meshResource,
-                            primitiveIndex,
-                            "WEIGHTS_0",
-							primitive.attributes.at("WEIGHTS_0"),
-							stopToken);
-                        if (!weightResult)
-                            return weightResult;
+                        for (int group = 0; group < 4; ++group)
+                        {
+                            const std::string joints = "JOINTS_" + std::to_string(group);
+                            const std::string weights = "WEIGHTS_" + std::to_string(group);
+                            if (!primitive.attributes.contains(joints)) break;
+                            for (const auto& name : {joints, weights})
+                            {
+                                const auto result = ValidateSkinStreamValues(meshResource, primitiveIndex, name,
+                                    primitive.attributes.at(name), stopToken);
+                                if (!result) return result;
+                            }
+                        }
                     }
                 }
             }

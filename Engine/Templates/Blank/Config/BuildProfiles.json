@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "activeProfile": "windows",
+  "profiles": [
+    {
+      "id": "windows",
+      "name": "Windows",
+      "platform": "Windows",
+      "configuration": "Release",
+      "output": "Dist/Windows"
+    }
+  ]
+}

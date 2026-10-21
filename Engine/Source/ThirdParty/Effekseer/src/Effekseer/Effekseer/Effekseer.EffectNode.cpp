@@ -1,4 +1,4 @@
-﻿
+
 
 //----------------------------------------------------------------------------------
 //
@@ -317,6 +317,20 @@ void EffectNodeImplemented::LoadParameter(unsigned char*& pos, EffectNode* paren
 		}
 
 		AdjustSettings(setting);
+		#if defined(HE_EFFEKSEER_DEV_TEST_HOOKS) && HE_EFFEKSEER_DEV_TEST_HOOKS
+	const char* diagnostic = std::getenv("HE_VFX_EARLY_SMOKE");
+#else
+	const char* diagnostic = nullptr; // No environment-controlled SDK diagnostics in shipping.
+#endif
+		static std::atomic<unsigned> diagnosticNodes{0};
+		if (diagnostic && diagnostic[0] == '1' && diagnostic[1] == '\0' && diagnosticNodes.fetch_add(1) < 32)
+		{
+			std::fprintf(stderr, "EARLY_NODE_LOADED effect=%p node=%p basic=%p version=%d filter0=%d wrap0=%d\n",
+				static_cast<void*>(m_effect), static_cast<void*>(this), static_cast<void*>(&RendererCommon.BasicParameter),
+				m_effect->GetVersion(), static_cast<int>(RendererCommon.BasicParameter.TextureFilters[0]),
+				static_cast<int>(RendererCommon.BasicParameter.TextureWraps[0]));
+			std::fflush(stderr);
+		}
 	}
 
 	int nodeCount = 0;

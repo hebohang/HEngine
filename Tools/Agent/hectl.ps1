@@ -1,15 +1,17 @@
-param(
+﻿param(
     [Parameter(Position = 0)]
     [string]$Scope = "game",
 
     [Parameter(Position = 1)]
     [string]$Action = "",
 
-    [ValidateSet("Debug", "RelWithDebInfo")]
+    [ValidateSet("Debug", "RelWithDebInfo", "Release")]
     [string]$Configuration = "Debug",
 
     [ValidateRange(1, 16)]
     [int]$Parallel = 4,
+
+    [switch]$AcceptAndroidLicenses,
 
     [ValidateRange(1, 3600)]
     [int]$TimeoutSeconds = 60,
@@ -21,11 +23,30 @@ param(
 
     [string]$Resolution = "1280x720",
 
+    [switch]$UseProjectDisplaySettings,
+
     [string]$CapturePath = "",
+
+    [string]$StartupScene = "",
+    [string]$StartupViewportMode = "",
+    [string]$InputReplayPath = "",
 
     [string]$Method = "",
 
     [string]$ParamsJson = "{}",
+
+    [string]$RequestFile = "",
+
+    [string]$Source = "",
+    [string]$Destination = "",
+    [ValidateSet("none", "visual", "runtime")]
+    [string]$Verify = "none",
+    [string]$BlenderExe = "",
+    [string]$ImporterExe = "",
+    [switch]$InitializeIds,
+    [string]$Report = "",
+    [string]$ObjectId = "",
+    [string]$ErrorCode = "",
 
     [string]$GMCommand = "",
 
@@ -53,6 +74,19 @@ param(
 
     [switch]$RenderStats,
 
+    [ValidateSet("", "Forward", "Deferred")]
+    [string]$RenderPath = "",
+
+    [string]$RenderStatsPath = "",
+
+    [string]$RenderSettingsPath = "",
+
+    [ValidatePattern('^$|^[0-9a-fA-F]{64}$')]
+    [string]$ExistingBuildSha256 = "",
+
+    [ValidateRange(0, 10000000)]
+    [long]$PerformanceWarmupFrames = 30,
+
     [ValidateSet("", "DX12", "Vulkan")]
     [string]$GraphicsApi = "",
 
@@ -69,8 +103,23 @@ param(
     [string]$AgentOwnerTag = "",
 
     [switch]$WhatIf,
+    [string]$Category = "",
+    [string]$CachePath = "",
+    [int]$KeepSuccess = -1,
+    [int]$FailureDays = -1,
+    [long]$BudgetBytes = -1,
 
     [string]$Project = "",
+    [string]$Name = "",
+    [string]$Template = 'Blank',
+    [string]$GameConfig = "",
+    [string]$PluginConfig = "",
+    [string]$BuildProfile = "windows",
+    [string]$DevelopmentTemplate = "",
+
+    [ValidateSet('Editor','DevGame','Tests','Package','Parser','SDK','Source')]
+    [string]$Profile = 'Editor',
+    [switch]$Offline,
 
     [ValidateSet("Editor", "DevGame", "Tests", "Package")]
     [string]$CodeGenHost = "Editor",
@@ -84,6 +133,36 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+if ($UseProjectDisplaySettings -and $PSBoundParameters.ContainsKey('Resolution')) {
+    throw '-UseProjectDisplaySettings cannot be combined with an explicit -Resolution.'
+}
+if (-not [string]::IsNullOrWhiteSpace($RequestFile)) {
+    $requestInfo = Get-Item -LiteralPath $RequestFile
+    if ($requestInfo.Length -gt 262144) { throw "Scene request file exceeds 256 KiB." }
+    $ParamsJson = [System.IO.File]::ReadAllText($requestInfo.FullName, [System.Text.UTF8Encoding]::new($false, $true))
+    $null = $ParamsJson | ConvertFrom-Json
+    if ($Scope -eq "content") {
+        $contentRequest = $ParamsJson | ConvertFrom-Json
+        foreach ($property in $contentRequest.PSObject.Properties) {
+            switch ($property.Name) {
+                'source' { $Source = [string]$property.Value }
+                'project' { $Project = [string]$property.Value }
+                'verify' { $Verify = [string]$property.Value }
+                'blender' { $BlenderExe = [string]$property.Value }
+                'initializeIds' { $InitializeIds = [bool]$property.Value }
+                'timeoutSeconds' { $TimeoutSeconds = [int]$property.Value }
+                default { throw "Unknown content request property: $($property.Name)" }
+            }
+        }
+        if ($Verify -notin @('none','visual','runtime') -or $TimeoutSeconds -lt 1 -or $TimeoutSeconds -gt 3600) { throw 'Invalid content verification mode or timeout.' }
+    }
+}
+if ($Scope -eq "scene") {
+    $Method = "scene.$Action"
+    $Scope = "agent"
+    $Action = "call"
+}
+. (Join-Path $PSScriptRoot "Toolchain.ps1")
 
 foreach ($remainingArgument in @($RemainingArguments)) {
     if ($null -eq $remainingArgument) {
@@ -96,90 +175,7 @@ foreach ($remainingArgument in @($RemainingArguments)) {
     }
 }
 
-function Resolve-HEProject {
-    param(
-        [string]$ProjectPath,
-        [string]$RepositoryRoot
-    )
-
-    if ([string]::IsNullOrWhiteSpace($ProjectPath)) {
-        $ProjectPath = $env:HE_PROJECT_DIR
-    }
-    if ([string]::IsNullOrWhiteSpace($ProjectPath)) {
-        $ProjectPath = Join-Path $RepositoryRoot "Project"
-    }
-    elseif (-not [System.IO.Path]::IsPathRooted($ProjectPath) -and
-        -not (Test-Path -LiteralPath $ProjectPath)) {
-        $repositoryRelativePath = Join-Path $RepositoryRoot $ProjectPath
-        if (Test-Path -LiteralPath $repositoryRelativePath) {
-            $ProjectPath = $repositoryRelativePath
-        }
-    }
-
-    $resolvedInput = Resolve-Path -LiteralPath $ProjectPath -ErrorAction Stop
-    $inputItem = Get-Item -LiteralPath $resolvedInput.Path -Force
-    if ($inputItem.PSIsContainer) {
-        $projectRoot = $inputItem.FullName
-        $descriptorPath = Join-Path $projectRoot "Project.heproject"
-    }
-    else {
-        if ($inputItem.Name -ine "Project.heproject") {
-            throw "-Project must name a project directory or Project.heproject: $($inputItem.FullName)"
-        }
-        $descriptorPath = $inputItem.FullName
-        $projectRoot = $inputItem.Directory.FullName
-    }
-
-    if (-not (Test-Path -LiteralPath $descriptorPath -PathType Leaf)) {
-        throw "Project descriptor was not found: $descriptorPath"
-    }
-    try {
-        $descriptor = Get-Content -Raw -Encoding UTF8 -LiteralPath $descriptorPath | ConvertFrom-Json
-    }
-    catch {
-        throw "Project descriptor is not valid JSON: $descriptorPath. $($_.Exception.Message)"
-    }
-
-    $projectId = [string]$descriptor.ProjectId
-    $executableName = [string]$descriptor.ExecutableName
-    if ($projectId.Length -gt 128 -or
-        $projectId -notmatch '^[a-z0-9][a-z0-9._-]*$' -or
-        $projectId.EndsWith('.') -or
-        $projectId -match '(?i)^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$') {
-        throw "Project.heproject ProjectId must use lowercase ASCII letters, digits, '.', '_' or '-': $descriptorPath"
-    }
-    if ($executableName.Length -gt 64 -or
-        $executableName -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*$' -or
-        $executableName.EndsWith('.') -or $executableName -match '(?i)\.exe$') {
-        throw "Project.heproject ExecutableName must be a safe extension-free executable basename: $descriptorPath"
-    }
-    if ($executableName -match '(?i)^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$') {
-        throw "Project.heproject ExecutableName uses a reserved Windows filename: $descriptorPath"
-    }
-
-    $normalizedRoot = [System.IO.Path]::GetFullPath($projectRoot).TrimEnd('\', '/')
-    $sha256 = [System.Security.Cryptography.SHA256]::Create()
-    try {
-        $rootBytes = [System.Text.Encoding]::UTF8.GetBytes($normalizedRoot.ToLowerInvariant())
-        $pathHash = ([System.BitConverter]::ToString($sha256.ComputeHash($rootBytes))).Replace('-', '').Substring(0, 8).ToLowerInvariant()
-        $packageBytes = [System.Text.Encoding]::UTF8.GetBytes(
-            ("${projectId}`n${normalizedRoot}").ToLowerInvariant())
-        $packageKey = ([System.BitConverter]::ToString(
-            $sha256.ComputeHash($packageBytes))).Replace('-', '').Substring(0, 16).ToLowerInvariant()
-    }
-    finally {
-        $sha256.Dispose()
-    }
-
-    return [pscustomobject]@{
-        Root = $normalizedRoot
-        DescriptorPath = [System.IO.Path]::GetFullPath($descriptorPath)
-        ProjectId = $projectId
-        ExecutableName = $executableName
-        CacheKey = "${projectId}-${pathHash}"
-        PackageKey = $packageKey
-    }
-}
+. (Join-Path $PSScriptRoot "Project.ps1")
 
 function Test-DefaultProject {
     param(
@@ -218,11 +214,34 @@ function Show-Help {
     Write-Host @"
 HEngine command line workflow
 
+  hectl project manager         Open the standalone project manager (no build required)
+  hectl project create -Project D:\Games\NewGame -Name "New Game"
+                                Add -Template FirstPerson or -Template TopDown for playable starter projects
+  hectl project templates       List available project templates and controls (-Json supported)
+  hectl project use -Project D:\Games\NewGame
+                                Remember the default for this engine workspace
+  hectl project current -Json    Explain project, engine and artifact locations
+  hectl project list            List recently registered projects
+  hectl project reset           Restore the checked-in workspace default
   hectl                         Build optimized HGame Dev (RelWithDebInfo, PACK_GAME=OFF)
   hectl doctor                  Read compact toolchain/artifact/session state
-  hectl clean status            Report Agent storage and the stale cleanup set
-  hectl clean stale             Keep reusable Debug caches; remove stale output
-  hectl clean stale -WhatIf     Preview the cleanup without deleting anything
+  hectl lighting bake|check -Project D:\Games\MyGame [-Source Config/LightingBake.json]
+                                Bake/check portable offline lightmaps and probes
+  hectl deps check|install -Profile Source|Editor|DevGame|Tests|Package|Parser|SDK [-Offline] [-WhatIf]
+  hectl capabilities [-Json]                 Binary SDK platform/feature contract (no project required)
+  hectl publish check|build -BuildProfile windows|android|web|wechat [-Project <path>]
+  hectl clean status            Read-only logical-byte inventory and retention report
+  hectl clean caches            Compact read-only build-cache sizes and last writes
+  hectl clean maximize          Reclaim verified idle output, preserving pins and recovery data
+  hectl clean maximize -WhatIf  Preview the same out-only cleanup without filesystem writes
+  hectl clean stale             Recycle only owned completed expired artifacts
+  hectl clean stale -WhatIf     Preview without filesystem mutations
+  hectl clean preview --json    Structured candidates and protection reasons
+    -Category evidence|package-intermediate|package-staging|wechat-backup|wechat-staging
+    -KeepSuccess 5 -FailureDays 7 -BudgetBytes 5368709120 -Report PATH
+  hectl clean cache -CachePath out/agent/game-tracy-debug -WhatIf
+    Explicit entire isolated cache retirement; never automatic; VS caches are report-only.
+    Policy: Tools/Agent/storage-policy.json; caches/SDK/current exports protected
   hectl game build              Build HGame Dev
   hectl game check              Agent-owned bounded game run
   hectl game check -GraphicsApi Vulkan -StrictGraphicsApi
@@ -231,6 +250,8 @@ HEngine command line workflow
                                 Require the DX12 WARP compatibility path
   hectl game run                Alias of game check
   hectl game capture            Bounded game run with a deterministic PNG
+  hectl game check -InputReplayPath C:\Games\MyGame\Tools\walk.json
+                                Bounded Dev Game run with segment-based held-key replay
   hectl game open               Manual game run; streams build output
   hectl editor build            Build HEngineEditor in addition to HGame as needed
   hectl editor check            Agent-owned bounded editor run
@@ -242,6 +263,10 @@ HEngine command line workflow
   hectl editor capture -RenderStats       Print measured frame/render statistics
   hectl editor open             Manual editor run; streams build output
   hectl agent start             Start a paused Dev Game inspection session
+  hectl agent start -BuildProfile windows
+                                Binary SDK: compile C# and run the installed Dev Player
+  hectl agent start -StartupScene Assets/Scenes/MainGame.he
+                                Start directly in a deterministic gameplay scene
   hectl agent start -EnableTracy  Use an isolated Tracy-enabled HGame build
   hectl agent start -AgentOwnerTag <32-hex>  Tag a caller-owned session
   hectl agent status            Read compact structured session state
@@ -257,15 +282,33 @@ HEngine command line workflow
   hectl agent click             Click at -AgentClickX/-AgentClickY
   hectl agent capture           Capture a live frame after the command settles
   hectl agent call -Method ...  Invoke a discovered command with -ParamsJson
+  hectl scene open|describe|query|plan|apply|diff|validate|save|undo|redo|preview -RequestFile request.json
+                               Shared authoring service in an Agent-owned session
   hectl agent stop              Gracefully close the Agent-owned game
   hectl test list               List headless engine tests
   hectl test <name>             Run exactly one headless engine test
+  hectl wechat doctor          Inspect local WeChat host tools and configuration
+  hectl scripting setup       Install locked .NET Wasm and JS probe build tools
+  hectl scripting probe-pc    Build and run the native CoreCLR compatibility probe
+  hectl scripting probe-web   Build the browser C# compatibility probe
+  hectl scripting probe-wechat Build the WXWebAssembly C# compatibility probe
+  hectl scripting matrix-pc   Build/run isolated PC plugin configurations and inspect dependencies
+  hectl scripting build-web   Build/export the real C# and C++ Web sample
+  hectl scripting build-wechat Build/export the same C# and C++ sample for WXWebAssembly
+  hectl scripting serve-web   Serve the exported Web game locally with Wasm MIME types
+  hectl wechat setup           Download pinned Emscripten and sokol_gfx dependencies
+  hectl wechat check           Build Wasm, export locally, run native/host contracts
+  hectl wechat export          Build and export the strict WeChat sample profile
   hectl codegen status          Report manifest freshness without generating
   hectl codegen check           Exit nonzero when reflection outputs are dirty
   hectl codegen run             Generate transactionally when inputs are dirty
   hectl codegen status --json   Emit the stable machine-readable result schema
   hectl codegen run --quiet     Suppress successful terminal output
+  hectl android setup -AcceptAndroidLicenses  Install managed Android toolchain
+  hectl android check|build     Check or package native Android Vulkan
   hectl package                 Cook/package Release game (PACK_GAME=ON)
+  hectl package -GameConfig Config/Game.ScriptSample.json
+                                Package an alternate game config into an isolated output
 
 Project selection:
   -Project <directory|Project.heproject>
@@ -274,7 +317,8 @@ Project selection:
 Configuration defaults:
   game/editor/agent: RelWithDebInfo
   test/codegen/doctor: Debug
-  override either with -Configuration Debug|RelWithDebInfo
+  override game/editor/agent with -Configuration Debug|RelWithDebInfo|Release
+  Release development checks keep PACK_GAME=OFF; use package for shipping validation
 
 Agent automation must use check/run, never open. The check/run commands own and
 close every process they start. The open command and Win-Run*.bat launchers are
@@ -333,190 +377,6 @@ function Test-ArtifactRunning {
     return $false
 }
 
-function Get-AgentStoragePlan {
-    $agentRoot = [System.IO.Path]::GetFullPath(
-        (Join-Path $script:repositoryRoot "out\agent"))
-    $preservedNames = [System.Collections.Generic.HashSet[string]]::new(
-        [System.StringComparer]::OrdinalIgnoreCase)
-    foreach ($name in @(
-        "game-debug",
-        "editor-debug",
-        "game-relwithdebinfo",
-        "editor-relwithdebinfo",
-        "tests-debug",
-        "tests-relwithdebinfo",
-        "projects",
-        "codegen",
-        "deps",
-        "downloads",
-        "tools")) {
-        $null = $preservedNames.Add($name)
-    }
-
-    $preserved = New-Object 'System.Collections.Generic.List[System.IO.FileSystemInfo]'
-    $stale = New-Object 'System.Collections.Generic.List[System.IO.FileSystemInfo]'
-    if (Test-Path -LiteralPath $agentRoot) {
-        foreach ($item in Get-ChildItem -LiteralPath $agentRoot -Force) {
-            if ($preservedNames.Contains($item.Name)) {
-                $preserved.Add($item)
-            }
-            else {
-                $stale.Add($item)
-            }
-        }
-    }
-
-    return [pscustomobject]@{
-        Root = $agentRoot
-        Preserved = $preserved.ToArray()
-        Stale = $stale.ToArray()
-    }
-}
-
-function Get-AgentStorageItemBytes {
-    param([System.IO.FileSystemInfo]$Item)
-
-    if (-not $Item.PSIsContainer) {
-        return [long]$Item.Length
-    }
-    [long]$total = 0
-    foreach ($file in Get-ChildItem -LiteralPath $Item.FullName -File -Recurse -Force) {
-        $total += [long]$file.Length
-    }
-    return $total
-}
-
-function Show-AgentStoragePlan {
-    param($Plan)
-
-    [long]$preservedBytes = 0
-    [long]$staleBytes = 0
-    $preserved = foreach ($item in $Plan.Preserved) {
-        $bytes = Get-AgentStorageItemBytes -Item $item
-        $preservedBytes += $bytes
-        [pscustomobject]@{ disposition = "keep"; name = $item.Name; bytes = $bytes }
-    }
-    $stale = foreach ($item in $Plan.Stale) {
-        $bytes = Get-AgentStorageItemBytes -Item $item
-        $staleBytes += $bytes
-        [pscustomobject]@{ disposition = "remove"; name = $item.Name; bytes = $bytes }
-    }
-    $result = [ordered]@{
-        root = $Plan.Root
-        preservedBytes = $preservedBytes
-        reclaimableBytes = $staleBytes
-        items = @($preserved) + @($stale)
-    }
-    Write-Output ($result | ConvertTo-Json -Depth 4)
-}
-
-function Assert-AgentStorageIdle {
-    $processNames = @(
-        "cmake",
-        "ninja",
-        $script:projectInfo.ExecutableName,
-        "HEngineEditor",
-        "HEngineTests",
-        "HEngineParser",
-        "HShaderCompiler")
-    $running = @(Get-Process -ErrorAction SilentlyContinue |
-        Where-Object { $processNames -contains $_.ProcessName })
-    if ($running.Count -gt 0) {
-        $summary = ($running | ForEach-Object { "$($_.ProcessName):$($_.Id)" }) -join ", "
-        throw "Agent storage cleanup requires idle build/runtime processes. Running: $summary"
-    }
-}
-
-function Assert-AgentStorageCleanupTarget {
-    param(
-        [string]$AgentRoot,
-        [System.IO.FileSystemInfo]$Item
-    )
-
-    $resolvedRoot = [System.IO.Path]::GetFullPath($AgentRoot).TrimEnd('\')
-    $resolvedItem = [System.IO.Path]::GetFullPath($Item.FullName)
-    $parent = [System.IO.Directory]::GetParent($resolvedItem)
-    if ($null -eq $parent -or -not [string]::Equals(
-        $parent.FullName.TrimEnd('\'),
-        $resolvedRoot,
-        [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "Cleanup target is not an immediate child of the Agent root: $resolvedItem"
-    }
-    if (($Item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
-        throw "Cleanup refuses a reparse-point target: $resolvedItem"
-    }
-    if ($Item.PSIsContainer) {
-        $nestedReparsePoints = @(Get-ChildItem -LiteralPath $resolvedItem -Force -Recurse |
-            Where-Object {
-                ($_.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0
-            })
-        if ($nestedReparsePoints.Count -gt 0) {
-            throw "Cleanup refuses a target containing reparse points: $resolvedItem"
-        }
-    }
-}
-
-function Assert-AgentStorageLocksAvailable {
-    param($Plan)
-
-    $lockNames = @(
-        ".agent-build.lock",
-        ".agent-execution.lock",
-        ".agent-session-lifecycle.lock",
-        ".tracy-profile.lock")
-    foreach ($item in @($Plan.Preserved) + @($Plan.Stale)) {
-        if (-not $item.PSIsContainer) {
-            continue
-        }
-        foreach ($lockName in $lockNames) {
-            foreach ($lockPath in Get-ChildItem -LiteralPath $item.FullName -Filter $lockName `
-                -File -Force -Recurse -ErrorAction SilentlyContinue) {
-                $stream = $null
-                try {
-                    $stream = [System.IO.File]::Open(
-                        $lockPath.FullName,
-                        [System.IO.FileMode]::Open,
-                        [System.IO.FileAccess]::ReadWrite,
-                        [System.IO.FileShare]::None)
-                }
-                catch {
-                    throw "Agent storage lock is in use: $($lockPath.FullName)"
-                }
-                finally {
-                    if ($null -ne $stream) {
-                        $stream.Dispose()
-                    }
-                }
-            }
-        }
-    }
-}
-
-function Remove-StaleAgentStorage {
-    param(
-        $Plan,
-        [switch]$Preview
-    )
-
-    if ($Plan.Stale.Count -eq 0) {
-        Write-Host "Agent storage is already clean."
-        return
-    }
-    Assert-AgentStorageIdle
-    Assert-AgentStorageLocksAvailable -Plan $Plan
-    foreach ($item in $Plan.Stale) {
-        Assert-AgentStorageCleanupTarget -AgentRoot $Plan.Root -Item $item
-    }
-    if ($Preview) {
-        Write-Host "WhatIf: no Agent storage was removed."
-        return
-    }
-    foreach ($item in $Plan.Stale) {
-        Write-Host "remove: $($item.FullName)"
-        Remove-Item -LiteralPath $item.FullName -Recurse -Force -ErrorAction Stop
-    }
-}
-
 function Show-Doctor {
     $configurationName = $Configuration.ToLowerInvariant()
     $gameRoot = Get-ProjectBuildRoot -Mode "game" -ConfigurationName $configurationName
@@ -530,7 +390,9 @@ function Show-Doctor {
 		Join-Path $script:repositoryRoot ("dist\projects\{0}" -f $script:projectInfo.PackageKey)
 	}
 	$packageDirectory = Join-Path $packageOutputRoot $script:projectInfo.ExecutableName
-    $activeSessionPath = Join-Path $script:repositoryRoot "out\agent\sessions\active.json"
+    $activeSessionPath = if ($script:bDefaultProject) {
+        Join-Path $script:repositoryRoot "out\agent\sessions\active.json"
+    } else { Join-Path $gameRoot 'sessions/active.json' }
     $session = $null
     if (Test-Path -LiteralPath $activeSessionPath) {
         try {
@@ -560,6 +422,10 @@ function Show-Doctor {
 
     $cmake = Get-Command cmake.exe -CommandType Application -ErrorAction SilentlyContinue |
         Select-Object -First 1
+    $selectedToolchain = $null
+    $toolchainError = $null
+    try { $selectedToolchain = Get-HeVisualStudio }
+    catch { $toolchainError = $_.Exception.Message }
     $result = [ordered]@{
         project = [ordered]@{
             root = $script:projectInfo.Root
@@ -575,6 +441,9 @@ function Show-Doctor {
             gm = $true
         }
         toolchain = [ordered]@{
+            preference = "VS2026/v145, then VS2022/v143"
+            selected = $selectedToolchain
+            error = $toolchainError
             cmake = if ($null -ne $cmake) { $cmake.Source } else { $null }
             vswhere = Test-Path -LiteralPath (Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe")
         }
@@ -617,12 +486,21 @@ function Invoke-Build {
         EnableTracy = $EnableTracy
         RenderValidation = $RenderValidation
         RenderStats = $RenderStats
+        RenderPath = $RenderPath
+        RenderStatsPath = $RenderStatsPath
+        RenderSettingsPath = $RenderSettingsPath
+        InputReplayPath = $InputReplayPath
+        PerformanceWarmupFrames = $PerformanceWarmupFrames
         GraphicsApi = $GraphicsApi
         StrictGraphicsApi = $StrictGraphicsApi
         UseWarp = $UseWarp
     }
     if ($Run) {
         $parameters.Run = $true
+        $parameters.StartupViewportMode = $StartupViewportMode
+        if (-not [string]::IsNullOrWhiteSpace($StartupScene)) {
+            $parameters.StartupScene = $StartupScene
+        }
     }
     if ($ShowBuildOutput) {
         $parameters.ShowBuildOutput = $true
@@ -632,7 +510,7 @@ function Invoke-Build {
         $parameters.ExitAfterFrames = $Frames
         $parameters.FixedDeltaSeconds = $FixedDeltaSeconds
         $parameters.NoVSync = $true
-        $parameters.Resolution = $Resolution
+        if (-not $UseProjectDisplaySettings) { $parameters.Resolution = $Resolution }
         if ($Target -eq "HGame") {
             $parameters.NoCursorCapture = $true
         }
@@ -657,8 +535,76 @@ if ([double]::IsNaN($FixedDeltaSeconds) -or
 }
 
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+if ($Scope -ieq 'capabilities') {
+    if ($Action) { throw 'Use hectl capabilities -Json without an action.' }
+    $catalog = Get-Content -LiteralPath (Join-Path $repositoryRoot 'Tools/Build/Capabilities.json') -Raw -Encoding UTF8
+    if ($Json) { Write-Output $catalog }
+    else {
+        $capabilities = $catalog | ConvertFrom-Json
+        Write-Output $capabilities.scope
+        foreach ($feature in $capabilities.features.PSObject.Properties) {
+            $support = $feature.Value.support
+            Write-Output "$($feature.Name): Windows=$($support.Windows), Android=$($support.Android), Web=$($support.Web), WeChat=$($support.WeChat)"
+        }
+    }
+    exit 0
+}
+# Project management must remain available when there is no project, or a saved
+# binding points to a missing/incompatible project.
+if ($Scope -ieq 'project') {
+    switch ($Action.ToLowerInvariant()) {
+        'manager' { & (Join-Path $PSScriptRoot 'ProjectManager.ps1') -Project $Project; exit 0 }
+        'templates' {
+            if ($Json) { @(Get-HEProjectTemplates) | ConvertTo-Json }
+            else { Get-HEProjectTemplates | Format-Table Id, DisplayName, Description -Wrap }
+            exit 0
+        }
+        'create' {
+            $created = New-HEProject -RepositoryRoot $repositoryRoot -ProjectPath $Project -Name $Name -Template $Template
+            Add-HERecentProject $repositoryRoot $created
+            $created | ConvertTo-Json; exit 0
+        }
+        'use' {
+            if (-not $Project) { throw 'project use requires -Project.' }
+            $selected = Set-HEWorkspaceProject -RepositoryRoot $repositoryRoot -ProjectPath $Project
+            Add-HERecentProject $repositoryRoot $selected
+            $selected | ConvertTo-Json; exit 0
+        }
+        'reset' {
+            Write-HEWorkspace (Join-Path $repositoryRoot 'HEngine.workspace.local.json') ([ordered]@{SchemaVersion=1;DefaultProject=''})
+            Write-Output 'Workspace default restored.'; exit 0
+        }
+        'list' { ConvertTo-Json -InputObject @(Get-HERecentProjects $repositoryRoot); exit 0 }
+        'current' { }
+        default { throw 'Use project manager|templates|create|use|current|list|reset.' }
+    }
+}
+if ($Scope -ieq 'editor' -and $Action -ieq 'open' -and -not $Project -and -not $env:HE_PROJECT_DIR) {
+    try { $null = Resolve-HEProject -RepositoryRoot $repositoryRoot }
+    catch {
+        Write-Warning $_.Exception.Message
+        & (Join-Path $PSScriptRoot 'ProjectManager.ps1')
+        exit 0
+    }
+}
+if ($Scope.Trim() -ieq 'deps' -and $Profile -eq 'Source') {
+    $Project = Join-Path $repositoryRoot 'Engine/Templates/Blank'
+}
 $projectInfo = Resolve-HEProject -ProjectPath $Project -RepositoryRoot $repositoryRoot
 $bDefaultProject = Test-DefaultProject -ProjectRoot $projectInfo.Root -RepositoryRoot $repositoryRoot
+if ($Scope -ieq 'project' -and $Action -ieq 'current') {
+    $selectionSource = if ($Project) { '-Project' } elseif ($env:HE_PROJECT_DIR) { 'HE_PROJECT_DIR' } else { (Find-HEProjectSelection $repositoryRoot).Source }
+    $selectedConfiguration = if ($PSBoundParameters.ContainsKey('Configuration')) { $Configuration.ToLowerInvariant() } else { 'relwithdebinfo' }
+    [ordered]@{
+        engine = $repositoryRoot; project = $projectInfo; selectedBy = $selectionSource
+        configuration = $selectedConfiguration
+        gameBuild = Get-ProjectBuildRoot game $selectedConfiguration
+        editorBuild = Get-ProjectBuildRoot editor $selectedConfiguration
+        agentSessions = if ($bDefaultProject) { Join-Path $repositoryRoot 'out/agent/sessions' } else { Join-Path (Get-ProjectBuildRoot game $selectedConfiguration) 'sessions' }
+        saved = Join-Path $projectInfo.Root 'Saved'
+    } | ConvertTo-Json -Depth 5
+    exit 0
+}
 $buildScript = Join-Path $PSScriptRoot "Build.ps1"
 $codegenScript = Join-Path $PSScriptRoot "CodeGen.ps1"
 $testScript = Join-Path $PSScriptRoot "Run-Test.ps1"
@@ -667,6 +613,18 @@ $packageScript = Join-Path $repositoryRoot "Win-PackGame.bat"
 $normalizedScope = $Scope.Trim().ToLowerInvariant()
 $normalizedAction = $Action.Trim().ToLowerInvariant()
 
+if ($normalizedScope -eq 'scripting') {
+    if (-not $normalizedAction) { $normalizedAction = 'probe-pc' }
+    & (Join-Path $repositoryRoot 'Tools/Scripting/Scripting.ps1') -Action $normalizedAction
+    exit $LASTEXITCODE
+}
+
+if ($normalizedScope -eq 'wechat') {
+    if (-not $normalizedAction) { $normalizedAction = 'doctor' }
+    & (Join-Path $repositoryRoot 'Tools/WeChat/WeChat.ps1') -Action $normalizedAction -ProjectRoot $projectInfo.Root -Config $Source -Output $Report
+    exit $LASTEXITCODE
+}
+
 # Runtime-facing commands should behave like the optimized manual launchers by
 # default, while tests and diagnostic tooling retain their Debug defaults.
 if (-not $PSBoundParameters.ContainsKey("Configuration") -and
@@ -674,15 +632,69 @@ if (-not $PSBoundParameters.ContainsKey("Configuration") -and
     $Configuration = "RelWithDebInfo"
 }
 
-if (-not $bDefaultProject -and $normalizedScope -in @("agent", "test")) {
-    throw "The legacy $normalizedScope helper still owns fixed default-project paths. Use game/editor/package with -Project, or invoke Build.ps1 directly for project-aware engine test builds."
+if ($normalizedScope -eq "asset") {
+    if ($normalizedAction -notin @('plan', 'move', 'recover') -or
+        ($normalizedAction -ne 'recover' -and (!$Source -or !$Destination))) {
+        throw 'Use hectl asset plan|move -Source Assets/<old> -Destination Assets/<new>, or asset recover.'
+    }
+    $assetArgs = @((Join-Path $repositoryRoot 'Tools/Content/asset_operations.py'), $normalizedAction, '--project', $projectInfo.Root)
+    if ($normalizedAction -ne 'recover') { $assetArgs += @('--source', $Source, '--target', $Destination) }
+    & python @assetArgs
+    exit $LASTEXITCODE
 }
 
-if ($WhatIf -and $normalizedScope -ne "clean") {
+if ($normalizedScope -eq "lighting") {
+    if ($normalizedAction -notin @("bake", "check")) {
+        throw "Use hectl lighting bake|check [-Source Config/LightingBake.json] [-BlenderExe PATH]."
+    }
+    $lightingArgs = @((Join-Path $repositoryRoot 'Tools/Lighting/bake.py'), $normalizedAction,
+        '--project', $projectInfo.Root, '--config', $(if ($Source) { $Source } else { 'Config/LightingBake.json' }))
+    if ($BlenderExe) { $lightingArgs += @('--blender', $BlenderExe) }
+    if ($PSBoundParameters.ContainsKey('TimeoutSeconds')) { $lightingArgs += @('--timeout', [string]$TimeoutSeconds) }
+    if ($env:HE_LIGHTING_PYTHON) { & $env:HE_LIGHTING_PYTHON @lightingArgs }
+    elseif (Get-Command py -ErrorAction SilentlyContinue) { & py -3 @lightingArgs }
+    else { & python @lightingArgs }
+    exit $LASTEXITCODE
+}
+
+if ($normalizedScope -eq "content") {
+    if ($normalizedAction -notin @("sync", "plan", "diagnose") -or ($normalizedAction -ne "diagnose" -and -not $Source)) {
+        Write-Output (@{ok=$false;status="parameter_error";errors=@("Use hectl content sync|plan -Source <file>, or diagnose -Report <report.json>.")} | ConvertTo-Json -Compress)
+        exit 2
+    }
+    $contentRoot = Join-Path $repositoryRoot "Tools/Content"
+    if (-not $Report -and $normalizedAction -ne "diagnose") {
+        $Report = Join-Path $repositoryRoot ("out/agent/content/{0}-{1}" -f (Get-Date -Format "yyyyMMdd-HHmmss"), [guid]::NewGuid().ToString('N').Substring(0,8))
+    }
+    if ($normalizedAction -ne "diagnose") {
+        New-Item -ItemType Directory -Path $Report -Force | Out-Null
+        if (-not $ImporterExe) {
+            & $buildScript -Target HAssetImporter -Configuration RelWithDebInfo -Project $projectInfo.Root *> (Join-Path $Report "build.log")
+            if ($LASTEXITCODE -ne 0) {
+                Write-Output (@{ok=$false;status="build_failed";report=(Join-Path $Report "build.log")} | ConvertTo-Json -Compress)
+                exit 3
+            }
+            $ImporterExe = Join-Path (Get-ProjectBuildRoot -Mode editor -ConfigurationName relwithdebinfo) "bin/Programs/HAssetImporter/HAssetImporter.exe"
+        }
+    }
+    $contentArgs = @((Join-Path $contentRoot "content_sync.py"), $normalizedAction,
+        "--project", $projectInfo.Root, "--verify", $Verify,
+        "--timeout", "$TimeoutSeconds", "--report", $Report)
+    if ($Source) { $contentArgs += @("--source", $Source) }
+    if ($ImporterExe) { $contentArgs += @("--importer", $ImporterExe) }
+    if ($BlenderExe) { $contentArgs += @("--blender", $BlenderExe) }
+    if ($InitializeIds) { $contentArgs += "--initialize-ids" }
+    if ($ObjectId) { $contentArgs += @("--object-id", $ObjectId) }
+    if ($ErrorCode) { $contentArgs += @("--error-code", $ErrorCode) }
+    & python @contentArgs
+    exit $LASTEXITCODE
+}
+
+if ($WhatIf -and $normalizedScope -notin @("clean", "deps")) {
     throw "-WhatIf is only valid with: hectl clean stale -WhatIf"
 }
-if (($Json -or $Quiet) -and $normalizedScope -ne "codegen") {
-    throw "--json and --quiet are only valid with: hectl codegen status|check|run"
+if (($Json -or $Quiet) -and $normalizedScope -notin @("codegen", "clean", "deps")) {
+    throw "--json and --quiet are valid with codegen and clean"
 }
 
 # The repository's default Editor dock layout is authored for a wide desktop.
@@ -702,6 +714,20 @@ $env:HE_PROJECT_DIR = $projectInfo.Root
 Push-Location $repositoryRoot
 try {
     switch ($normalizedScope) {
+        "publish" {
+            if (!$normalizedAction) { $normalizedAction = 'check' }
+            if ($normalizedAction -notin @('check','build')) { throw 'Use publish check|build -BuildProfile <id>.' }
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repositoryRoot 'Tools/Build/Publish.ps1') `
+                -Project $projectInfo.Root -Profile $BuildProfile -Action $normalizedAction
+            exit $LASTEXITCODE
+        }
+        "deps" {
+            if (!$normalizedAction) { $normalizedAction = 'check' }
+            & (Join-Path $PSScriptRoot '../Dependencies/Dependencies.ps1') -Action $normalizedAction `
+                -Profile $Profile -Project $projectInfo.Root -PluginConfig $PluginConfig `
+                -Offline:$Offline -WhatIf:$WhatIf -Json:$Json
+            exit $LASTEXITCODE
+        }
         "doctor" {
             if (-not [string]::IsNullOrWhiteSpace($normalizedAction)) {
                 throw "Doctor takes no action argument. Use: hectl doctor"
@@ -709,23 +735,44 @@ try {
             Show-Doctor
         }
         "clean" {
-            if ([string]::IsNullOrWhiteSpace($normalizedAction)) {
-                $normalizedAction = "status"
+            . (Join-Path $PSScriptRoot 'Storage.ps1')
+            if (-not $normalizedAction) { $normalizedAction = 'status' }
+            if ($normalizedAction -notin @('status','preview','stale','cache','caches','retired','maximize')) { throw 'Use clean status|preview|stale|cache|caches|retired|maximize.' }
+            $storageArgs = @($normalizedAction)
+            if ($normalizedAction -eq 'maximize' -and ($Category -or $Project -or $CachePath -or $KeepSuccess -ge 0 -or $FailureDays -ge 0 -or $BudgetBytes -ge 0)) {
+                throw 'clean maximize targets this workspace out with its explicit retention rules; filters are not supported.'
             }
-            $storagePlan = Get-AgentStoragePlan
-            Show-AgentStoragePlan -Plan $storagePlan
-            switch ($normalizedAction) {
-                "status" {
-                    if ($WhatIf) {
-                        throw "-WhatIf is only valid with: hectl clean stale -WhatIf"
-                    }
+            if ($normalizedAction -eq 'cache') {
+                if (-not $CachePath) { throw 'clean cache requires an explicit -CachePath; use -WhatIf first.' }
+                $storageArgs += @('--cache-path',[IO.Path]::GetFullPath($CachePath))
+            }
+            if ($WhatIf) { $storageArgs += '--what-if' }
+            if ($Category) { $storageArgs += @('--kind',$Category) }
+            if ($KeepSuccess -ge 0) { $storageArgs += @('--success-count',[string]$KeepSuccess) }
+            if ($FailureDays -ge 0) { $storageArgs += @('--failure-days',[string]$FailureDays) }
+            if ($BudgetBytes -ge 0) { $storageArgs += @('--budget-bytes',[string]$BudgetBytes) }
+            if ($Report) { $storageArgs += @('--report',$Report) }
+            if ($Project) { $storageArgs += @('--project',$projectInfo.Root) }
+            $storageOutput = Invoke-HEStorage $storageArgs
+            if ($Json -or ($normalizedAction -eq 'status' -and -not $Quiet)) { Write-Output $storageOutput }
+            elseif (-not $Quiet) {
+                $storageResult = $storageOutput | ConvertFrom-Json
+                if ($normalizedAction -eq 'maximize') {
+                    Write-Host "Out cleanup: $($storageResult.outcome); reclaimable=$($storageResult.reclaimableBytes); deleted=$($storageResult.deletedBytes); skipped=$(@($storageResult.skipped).Count); failed=$(@($storageResult.failed).Count)"
+                    Write-Host "Volume free bytes: before=$($storageResult.freeBytesBefore); after=$($storageResult.freeBytesAfter); change=$($storageResult.physicalFreeIncreaseBytes)"
+                    $storageResult.skipped | Select-Object -First 12 path,reason | Format-Table -Wrap
+                    if (-not $WhatIf) { Write-Host 'Report: out/agent/storage/last-maximize-clean.json' }
+                    break
                 }
-                "stale" {
-                    Remove-StaleAgentStorage -Plan $storagePlan -Preview:$WhatIf
+                if ($normalizedAction -eq 'caches') {
+                    $storageResult.caches | Select-Object path,@{Name='GiB';Expression={[math]::Round($_.bytes / 1GB, 2)}},lastWriteUtc,state,defaultHost | Format-Table -AutoSize
+                    Write-Host "Logical cache total: $([math]::Round($storageResult.totalBytes / 1GB, 2)) GiB; run clean cache -CachePath <path> -WhatIf before deletion."
+                    break
                 }
-                default {
-                    throw "Unknown clean action '$Action'. Use status or stale."
-                }
+                if ($normalizedAction -eq 'cache') { Write-Host "Cache unit: $($storageResult.paths -join ', ')" }
+                if ($normalizedAction -eq 'retired') { $storageResult.retired | Select-Object disposition,bytes,path,reason | Format-Table -Wrap }
+                $storageResult.items | Select-Object disposition,reason,bytes,paths | Format-Table -Wrap
+                Write-Host "Logical bytes: reclaimable=$($storageResult.reclaimableBytes); deleted=$($storageResult.deletedBytes); failed=$(@($storageResult.failed).Count); protectedOverBudget=$($storageResult.protectedOverBudgetBytes)"
             }
         }
         "codegen" {
@@ -830,12 +877,12 @@ try {
             Write-Host "route: headless HEngineTests (PACK_GAME=OFF, HE_BUILD_DEV_GAME=ON, HE_ENABLE_GM=ON)"
             if ([string]::IsNullOrWhiteSpace($normalizedAction) -or
                 $normalizedAction -eq "list") {
-                & $testScript -List -Configuration $Configuration -Parallel $Parallel `
-                    -TimeoutSeconds $TimeoutSeconds
+                & $testScript -List -Project $projectInfo.Root -Configuration $Configuration -Parallel $Parallel `
+                    -TimeoutSeconds $TimeoutSeconds -PluginConfig $PluginConfig
             }
             else {
-                & $testScript -Name $Action -Configuration $Configuration -Parallel $Parallel `
-                    -TimeoutSeconds $TimeoutSeconds
+                & $testScript -Name $Action -Project $projectInfo.Root -Configuration $Configuration -Parallel $Parallel `
+                    -TimeoutSeconds $TimeoutSeconds -PluginConfig $PluginConfig
             }
             if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) {
                 exit $LASTEXITCODE
@@ -847,17 +894,35 @@ try {
                 $normalizedAction = "status"
             }
             $sessionParameters = @{
+                DevelopmentTemplate = $DevelopmentTemplate
+                BuildProfile = $BuildProfile
+                UseWarp = $UseWarp
+                ProjectRoot = $projectInfo.Root
+                ArtifactPath = (Join-Path (Get-ProjectBuildRoot -Mode game -ConfigurationName $Configuration.ToLowerInvariant()) ("bin/{0}.exe" -f $projectInfo.ExecutableName))
+                SessionRoot = $(if ($bDefaultProject) { Join-Path $repositoryRoot "out/agent/sessions" } else { Join-Path (Get-ProjectBuildRoot -Mode game -ConfigurationName $Configuration.ToLowerInvariant()) "sessions" })
                 Configuration = $Configuration
                 Parallel = $Parallel
                 TimeoutSeconds = [Math]::Min($TimeoutSeconds, 300)
                 FixedDeltaSeconds = $FixedDeltaSeconds
                 Resolution = $Resolution
+                UseProjectDisplaySettings = $UseProjectDisplaySettings
                 RenderValidation = $RenderValidation
                 RenderStats = $RenderStats
+                RenderPath = $RenderPath
+                RenderStatsPath = $RenderStatsPath
+                RenderSettingsPath = $RenderSettingsPath
+                ExistingBuildSha256 = $ExistingBuildSha256
+                GraphicsApi = $GraphicsApi
+                StrictGraphicsApi = $StrictGraphicsApi
+                PerformanceWarmupFrames = $PerformanceWarmupFrames
                 EnableTracy = $EnableTracy
             }
+            if ($UseProjectDisplaySettings) { $sessionParameters.Remove('Resolution') }
             if (-not [string]::IsNullOrEmpty($AgentOwnerTag)) {
                 $sessionParameters.OwnerTag = $AgentOwnerTag.ToLowerInvariant()
+            }
+            if (-not [string]::IsNullOrWhiteSpace($StartupScene)) {
+                $sessionParameters.StartupScene = $StartupScene
             }
             switch ($normalizedAction) {
                 "start" {
@@ -979,12 +1044,28 @@ try {
                 exit $LASTEXITCODE
             }
         }
+        "android" {
+            if (!$normalizedAction) { $normalizedAction = 'build' }
+            if ($normalizedAction -eq 'setup') {
+                & (Join-Path $repositoryRoot 'Tools/Android/Setup.ps1') -AcceptLicenses:$AcceptAndroidLicenses
+                return
+            }
+            if ($normalizedAction -notin @('check','build','package')) { throw 'Use hectl android setup|check|build|package.' }
+            $androidAction = if ($normalizedAction -eq 'check') { 'Check' } else { 'Build' }
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repositoryRoot 'Tools/Build/Publish.ps1') -Project $projectInfo.Root -Profile android -Action $androidAction
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        }
         "package" {
             if (-not [string]::IsNullOrWhiteSpace($normalizedAction)) {
                 throw "Package takes no action argument. Use: hectl package"
             }
             Write-Host "route: Release cook/package (PACK_GAME=ON, HE_ENABLE_GM=OFF)"
-            & $packageScript $projectInfo.Root
+            if ($GameConfig -or $PluginConfig) {
+                $packageArguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $repositoryRoot 'Tools/Agent/Package.ps1'), '-Project', $projectInfo.Root)
+                if ($GameConfig) { $packageArguments += @('-GameConfig', $GameConfig) }
+                if ($PluginConfig) { $packageArguments += @('-PluginConfig', $PluginConfig) }
+                & powershell.exe @packageArguments
+            } else { & $packageScript $projectInfo.Root }
             if ($LASTEXITCODE -ne 0) {
                 exit $LASTEXITCODE
             }
@@ -1003,3 +1084,4 @@ finally {
         $env:HE_PROJECT_DIR = $previousProjectEnvironment
     }
 }
+

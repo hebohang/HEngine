@@ -1,9 +1,0 @@
-{
-  "SchemaVersion": 1,
-  "ProjectId": "hengine-showcase",
-  "DisplayName": "HEngine Showcase",
-  "EngineVersion": "1.0.0",
-  "GameConfig": "Config/Game.json",
-  "PackageConfig": "Config/Package.json",
-  "ExecutableName": "HEngineDemo"
-}

@@ -86,8 +86,26 @@ namespace HEngine
     enum class RenderGraphAccess : uint8_t
     {
         Read,
+        // Legacy producer declaration: initializes the declared range, retains
+        // preceding write dependencies, and never requests native discard.
+        // Use attachment Load for partial draws that require existing contents.
         Write,
         ReadWrite,
+    };
+
+    enum class RenderGraphAttachmentLoad : uint8_t { Load, Clear, Discard };
+    enum class RenderGraphAttachmentStore : uint8_t { Store, Discard };
+
+    struct RenderGraphAttachmentOps
+    {
+        RenderGraphAttachmentLoad Load = RenderGraphAttachmentLoad::Load;
+        RenderGraphAttachmentStore Store = RenderGraphAttachmentStore::Store;
+        // Required when discarded contents will subsequently be stored/read.
+        // This is a promise that the pass writes every pixel/sample in its range.
+        bool bFullOverwrite = false;
+        nvrhi::Color ClearColor;
+        float ClearDepth = 1.0f;
+        uint8_t ClearStencil = 0;
     };
 
     enum class RenderGraphUsage : uint32_t
@@ -213,10 +231,16 @@ namespace HEngine
         uint32_t TopologicalIndex = InvalidRenderGraphIndex;
         uint32_t ExecutionIndex = InvalidRenderGraphIndex;
         std::string Name;
+        std::string FeatureTypeId;
+        std::string FeatureInstanceId;
         RenderGraphQueue Queue = RenderGraphQueue::Graphics;
         bool bSideEffect = false;
         bool bSetupComplete = false;
         bool bCulled = true;
+        // Queue is a scheduling hint. RecordedQueue comes from the actual
+        // NVRHI command list, and is meaningful only after successful recording.
+        bool bHasRecordedCommands = false;
+        RenderGraphQueue RecordedQueue = RenderGraphQueue::Graphics;
     };
 
     struct RenderGraphDiagnosticResourceSnapshot
@@ -233,6 +257,8 @@ namespace HEngine
 
         // Texture-only descriptor values. FormatName is copied from NVRHI into
         // owned text so the snapshot itself contains no NVRHI type or object.
+        // Snapshot-local identity, zero before realization; never a native address.
+        uint32_t PhysicalTextureGroup = 0;
         uint32_t Width = 0;
         uint32_t Height = 0;
         uint32_t Depth = 0;
@@ -259,6 +285,8 @@ namespace HEngine
         RenderGraphUsage Usage = RenderGraphUsage::None;
         RenderGraphSubresourceRange Subresources;
         bool bHasSubresources = false;
+        bool bAttachment = false;
+        RenderGraphAttachmentOps AttachmentOps;
     };
 
     struct RenderGraphDiagnosticDependencySnapshot
@@ -298,6 +326,20 @@ namespace HEngine
     };
 
     class RenderGraph;
+    // Attributes passes created by this scope without relying on pass names.
+    // The graph must outlive the scope; nesting and exception unwinding restore ownership.
+    class RenderGraphFeatureScope final
+    {
+    public:
+        RenderGraphFeatureScope(RenderGraph& graph, std::string typeId, std::string instanceId);
+        ~RenderGraphFeatureScope();
+        RenderGraphFeatureScope(const RenderGraphFeatureScope&) = delete;
+        RenderGraphFeatureScope& operator=(const RenderGraphFeatureScope&) = delete;
+    private:
+        RenderGraph& mGraph;
+        std::string mPreviousTypeId;
+        std::string mPreviousInstanceId;
+    };
     class RenderGraphResourcePool;
 
     class IRenderGraphInstrumentation
@@ -329,11 +371,27 @@ namespace HEngine
         }
     };
 
+    enum class RenderGraphCpuPhase : uint8_t
+    {
+        Compile, Realize, Validate, Setup, Barriers, Record, Trailing
+    };
+
+    class IRenderGraphCpuObserver
+    {
+    public:
+        virtual ~IRenderGraphCpuObserver() = default;
+        // CPU wall time, including possible scheduling delays; not GPU duration.
+        // Global phases use InvalidRenderGraphIndex and an empty pass name.
+        virtual void OnCpuPhase(RenderGraphCpuPhase phase, uint32_t executionIndex,
+            std::string_view passName, double milliseconds, bool completed) noexcept = 0;
+    };
+
     struct RenderGraphExecutionParams
     {
         nvrhi::ICommandList* CommandList = nullptr;
         RenderGraphResourcePool* ResourcePool = nullptr;
         IRenderGraphInstrumentation* Instrumentation = nullptr;
+        IRenderGraphCpuObserver* CpuObserver = nullptr;
         uint32_t FrameSlot = 0;
     };
 
@@ -438,6 +496,12 @@ namespace HEngine
             RenderGraphUsage usage = RenderGraphUsage::UnorderedAccess);
 
         TextureHandle RenderTarget(TextureHandle handle, RenderGraphSubresourceRange subresources = {});
+        // Explicit color attachment contents contract. Clear is recorded by the
+        // graph; discard invalidates contents without assuming native discard support.
+        TextureHandle ColorAttachment(TextureHandle handle, const RenderGraphAttachmentOps& ops,
+            RenderGraphSubresourceRange subresources = {});
+        TextureHandle DepthAttachment(TextureHandle handle, const RenderGraphAttachmentOps& ops,
+            RenderGraphSubresourceRange subresources = {});
         TextureHandle DepthRead(TextureHandle handle, RenderGraphSubresourceRange subresources = {});
         TextureHandle DepthWrite(TextureHandle handle, RenderGraphSubresourceRange subresources = {});
         TextureHandle ShaderResource(TextureHandle handle, RenderGraphSubresourceRange subresources = {});
@@ -571,7 +635,8 @@ namespace HEngine
             nvrhi::ResourceStates finalState,
             bool bInitiallyBuilt = true);
 
-        void SetTextureResource(TextureHandle handle, const nvrhi::TextureHandle& texture);
+        void SetTextureResource(TextureHandle handle, const nvrhi::TextureHandle& texture,
+            nvrhi::ResourceStates initialState = nvrhi::ResourceStates::Unknown);
         void SetBufferResource(BufferHandle handle, const nvrhi::BufferHandle& buffer);
         void SetAccelerationStructureResource(
             AccelerationStructureHandle handle,
@@ -583,6 +648,12 @@ namespace HEngine
 
         [[nodiscard]] bool Compile();
         void CompileOrThrow();
+        // Allocate/validate a compiled candidate without recording any GPU work.
+        // The caller owns a BeginFrame/AbortFrame preparation scope in its pool.
+        void PrepareResources(RenderGraphResourcePool& resourcePool, uint32_t frameSlot);
+        // Transaction commit exchanges complete namespaces, callbacks and handles.
+        void Swap(RenderGraph& other) noexcept;
+        [[nodiscard]] nvrhi::TextureHandle GetPhysicalTexture(TextureHandle handle) const;
         void Execute(
             nvrhi::ICommandList* commandList,
             IRenderGraphInstrumentation* instrumentation = nullptr);
@@ -618,10 +689,14 @@ namespace HEngine
         [[nodiscard]] std::string BuildDebugDump() const;
 
         [[nodiscard]] static nvrhi::ResourceStates MapUsageToResourceStates(RenderGraphUsage usage);
+        [[nodiscard]] static nvrhi::ResourceStates MapTextureUsageToResourceStates(
+            RenderGraphUsage usage, nvrhi::Format format, nvrhi::GraphicsAPI api);
+        void ValidateBackendResourceUsages(nvrhi::GraphicsAPI api) const;
 
     private:
         friend class RenderGraphBuilder;
         friend class RenderGraphContext;
+        friend class RenderGraphFeatureScope;
 
         struct Impl;
 
@@ -640,6 +715,8 @@ namespace HEngine
             RenderGraphAccess access,
             RenderGraphUsage usage,
             RenderGraphSubresourceRange subresources);
+        void DeclareAttachment(RenderGraphPassHandle pass, TextureHandle handle,
+            const RenderGraphAttachmentOps& ops, RenderGraphSubresourceRange subresources, bool bDepth);
         void DeclareBufferAccess(
             RenderGraphPassHandle pass,
             BufferHandle handle,
@@ -673,7 +750,8 @@ namespace HEngine
         void ValidatePhysicalResources() const;
         void ExecuteCompiled(
             nvrhi::ICommandList* commandList,
-            IRenderGraphInstrumentation* instrumentation);
+            IRenderGraphInstrumentation* instrumentation,
+            IRenderGraphCpuObserver* cpuObserver);
 
         std::unique_ptr<Impl> mImpl;
     };

@@ -3,6 +3,7 @@
 #include "BasePbrMaterialBuilder.h"
 
 #include "_generated/serializer/Material.gen.h"
+#include "_generated/serializer/TextureSampling.gen.h"
 
 #include <algorithm>
 #include <cctype>
@@ -205,6 +206,17 @@ namespace HEngine
         exposedProperties["g_AlphaClip"] = legacyPbr.alphaMode == "MASK" ? 1.0f : 0.0f;
         exposedProperties["g_AlphaCutoff"] = legacyPbr.alphaCutoff;
 
+        const auto sampling = [&](const char* name, const auto& info) {
+            TextureSampling value = info.sampling;
+            value.texCoord = info.texCoord;
+            (void)PackTextureSampling(value);
+            Serializer::Serialize(material.Textures[name]["Sampling"], value);
+        };
+        sampling("g_AlbedoMap", legacyPbr.pbrMetallicRoughness.baseColorTexture);
+        sampling("g_NormalMap", legacyPbr.normalTexture);
+        sampling("g_MetallicRoughnessMap", legacyPbr.pbrMetallicRoughness.metallicRoughnessTexture);
+        sampling("g_AoMap", legacyPbr.occlusionTexture);
+        sampling("g_EmissiveMap", legacyPbr.emissiveTexture);
         Serializer::Serialize(material.Properties, legacyPbr);
         material.Properties["ExposedProperties"] = std::move(exposedProperties);
         return material;

@@ -215,21 +215,25 @@ namespace
             nvrhi::AllSubresources,
             nvrhi::Color(0.025f, 0.04f, 0.08f, 1.f));
 
-        HEngine::EffekseerRuntime::Update(HEngine::Timestep(1.0f / 60.0f));
         try
         {
+            HEngine::EffekseerRuntime::BeginHostFrame(frame.FrameIndex, frame.CompletedSubmissionInstance, frame.GraphicsCommandList);
+            HEngine::EffekseerRuntime::Update(HEngine::Timestep(1.0f / 60.0f));
             graphSmoke.RecordFrame(frame);
             renderDevice.SubmitAndPresent(frame, false);
+            HEngine::EffekseerRuntime::NotifyHostFrameSubmitted(frame.FrameIndex, frame.SubmissionInstance);
             graphSmoke.NotifySubmitted(frame.FrameIndex, frame.SubmissionInstance);
         }
         catch (...)
         {
             if (frame.bSubmissionIssued)
             {
+                HEngine::EffekseerRuntime::NotifyHostFrameSubmitted(frame.FrameIndex, frame.SubmissionInstance);
                 graphSmoke.NotifySubmitted(frame.FrameIndex, frame.SubmissionInstance);
             }
             else
             {
+                HEngine::EffekseerRuntime::AbortHostFrame(frame.FrameIndex);
                 renderDevice.AbortFrame(frame);
                 graphSmoke.AbortFrame(frame.FrameIndex);
             }
@@ -351,11 +355,12 @@ int main()
     catch (const std::exception& exception)
     {
         std::cerr << "EFFEKSEER_DX12_INTEROP_SMOKE_FAIL: " << exception.what() << '\n';
-        HEngine::EffekseerRuntime::Shutdown();
         if (renderDevice.IsInitialized())
         {
             try
             {
+                renderDevice.WaitForIdle();
+                HEngine::EffekseerRuntime::Shutdown();
                 renderDevice.Shutdown();
             }
             catch (const std::exception& shutdownException)

@@ -247,9 +247,12 @@ namespace HEngine
 			throw std::runtime_error("Could not read scene thumbnail timestamp: " + error.message());
 
 		std::ostringstream identity;
+		const auto elapsed = writeTime.time_since_epoch();
+		const auto wholeSeconds = std::chrono::duration_cast<std::chrono::seconds>(elapsed);
+		const auto fractionalNanoseconds = std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed - wholeSeconds);
 		identity << scenePath << '\n'
 			<< fileSize << '\n'
-			<< writeTime.time_since_epoch().count() << '\n'
+			<< wholeSeconds.count() << ':' << fractionalNanoseconds.count() << '\n'
 			<< ThumbnailRendererVersion;
 		const std::string identityText = identity.str();
 		const std::string key = ComputeMaterialShaderSha256(std::as_bytes(
@@ -355,6 +358,7 @@ namespace HEngine
 					ConfigManager::GetInstance().GetRootFolder(),
 					job.ScenePath);
 				ActiveJob active;
+				HE_CORE_INFO("Scene thumbnail starting: {}", job.ScenePath);
 				active.Job = std::move(job);
 				const std::stop_token stopToken = active.ParseStop.get_token();
 				active.ParseFuture = std::async(
@@ -481,6 +485,7 @@ namespace HEngine
 		if (!mActiveJob)
 			return;
 		const QueuedJob completed = mActiveJob->Job;
+		HE_CORE_INFO("Scene thumbnail completed: {}", completed.ScenePath);
 		mPreview.ClearScene();
 		mActiveJob.reset();
 		const auto record = mRecords.find(completed.ScenePath);

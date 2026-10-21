@@ -1,6 +1,7 @@
 #include "Hepch.h"
 
 #include "Runtime/UI/Rml/RmlRenderBackend.h"
+#include "Runtime/Core/RuntimeCpuBudget.h"
 #include "Runtime/Graphics/RHI/ShaderArtifactResolver.h"
 #include "Runtime/Utils/PathUtils/PathUtils.h"
 
@@ -13,16 +14,26 @@
 #include <stb_image.h>
 
 #include <algorithm>
+#include <atomic>
 #include <array>
+#include <chrono>
+#include <condition_variable>
 #include <cmath>
 #include <cstddef>
+#include <cstdlib>
+#include <deque>
 #include <cstring>
 #include <fstream>
+#include <future>
+#include <iterator>
 #include <limits>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -31,6 +42,21 @@ namespace HEngine
 {
     namespace
     {
+		[[nodiscard]] bool MeasureRmlGeometry() noexcept
+		{
+			static const bool enabled = [] {
+				const char* value = std::getenv("HE_RML_RECORD_TIMINGS");
+				return value && value[0] == '1' && value[1] == '\0';
+			}();
+			return enabled;
+		}
+
+		[[nodiscard]] uint64_t RmlElapsedNanoseconds(std::chrono::steady_clock::time_point start) noexcept
+		{
+			return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+				std::chrono::steady_clock::now() - start).count());
+		}
+
         struct RmlProjectionConstants
         {
             float Transform[16] = {};
@@ -106,6 +132,135 @@ namespace HEngine
             }
         }
 
+        struct DecodedRmlTexture
+        {
+            std::vector<Rml::byte> Pixels;
+            int Width = 0;
+            int Height = 0;
+        };
+
+        // Rml requires dimensions and a handle synchronously, but large PNG
+        // decompression can run after that handle has been allocated. This
+        // queue never touches Rml, NVRHI, or a backend-owned texture slot.
+        class RmlTextureDecodeQueue final
+        {
+        public:
+            RmlTextureDecodeQueue() : mWorker([this] { Run(); }) {}
+            ~RmlTextureDecodeQueue()
+            {
+                {
+                    std::lock_guard lock(mMutex);
+                    bStopping = true;
+                }
+                mWake.notify_one();
+                mWorker.join();
+            }
+
+            [[nodiscard]] bool Submit(std::vector<Rml::byte>& encoded,
+                std::shared_ptr<std::atomic_bool> cancelled,
+                std::future<DecodedRmlTexture>& result)
+            {
+                std::lock_guard lock(mMutex);
+                if (bStopping || mOutstandingCount >= 4 || mJobs.size() >= 4 ||
+                    encoded.size() > 16u * 1024u * 1024u - mOutstandingBytes)
+                    return false;
+                const size_t bytes = encoded.size();
+                std::packaged_task<DecodedRmlTexture()> task(
+                    [data = std::move(encoded), cancelled]() mutable
+                    {
+                        DecodedRmlTexture decoded;
+						if (const char* hold = std::getenv("HE_RML_ASYNC_DECODE_HOLD_MS"))
+						{
+							const int holdMs = std::clamp(std::atoi(hold), 0, 5000);
+							if (holdMs > 0)
+								std::this_thread::sleep_for(std::chrono::milliseconds(holdMs));
+						}
+                        if (cancelled->load(std::memory_order_acquire))
+                            return decoded;
+                        int channels = 0;
+                        stbi_set_flip_vertically_on_load_thread(0);
+                        std::unique_ptr<stbi_uc, decltype(&stbi_image_free)> pixels(
+                            stbi_load_from_memory(
+                            data.data(), static_cast<int>(data.size()),
+                            &decoded.Width, &decoded.Height, &channels,
+                            STBI_rgb_alpha), &stbi_image_free);
+                        if (!pixels || decoded.Width <= 0 || decoded.Height <= 0 ||
+                            static_cast<uint64_t>(decoded.Width) *
+                                static_cast<uint64_t>(decoded.Height) * 4u >
+                                64u * 1024u * 1024u)
+                        {
+                            return decoded;
+                        }
+                        const size_t count = static_cast<size_t>(decoded.Width) *
+                            static_cast<size_t>(decoded.Height) * 4u;
+                        decoded.Pixels.assign(pixels.get(), pixels.get() + count);
+                        PremultiplyAlpha(decoded.Pixels);
+                        return decoded;
+                    });
+                result = task.get_future();
+                mJobs.push_back(Job{bytes, std::move(task)});
+                mQueuedBytes += bytes;
+				mOutstandingBytes += bytes;
+				++mOutstandingCount;
+                mWake.notify_one();
+                return true;
+            }
+
+			void Complete(size_t encodedBytes)
+			{
+				std::lock_guard lock(mMutex);
+				if (mOutstandingCount == 0 || encodedBytes > mOutstandingBytes)
+					throw std::logic_error("RmlUi decode queue permit imbalance");
+				--mOutstandingCount;
+				mOutstandingBytes -= encodedBytes;
+			}
+
+        private:
+            struct Job
+            {
+                size_t Bytes = 0;
+                std::packaged_task<DecodedRmlTexture()> Task;
+            };
+            void Run()
+            {
+                for (;;)
+                {
+                    Job job;
+                    {
+                        std::unique_lock lock(mMutex);
+                        mWake.wait(lock, [this] { return bStopping || !mJobs.empty(); });
+                        if (bStopping && mJobs.empty()) return;
+                        job = std::move(mJobs.front());
+                        mJobs.pop_front();
+                        mQueuedBytes -= job.Bytes;
+                    }
+                    job.Task();
+                }
+            }
+            std::mutex mMutex;
+            std::condition_variable mWake;
+            std::deque<Job> mJobs;
+            size_t mQueuedBytes = 0;
+			size_t mOutstandingBytes = 0;
+			size_t mOutstandingCount = 0;
+            bool bStopping = false;
+            std::thread mWorker;
+        };
+
+        [[nodiscard]] RmlTextureDecodeQueue& GetRmlTextureDecodeQueue()
+        {
+            static RmlTextureDecodeQueue queue;
+            return queue;
+        }
+
+        void ConfigureFramebufferMultisampling(
+            nvrhi::GraphicsPipelineDesc& desc,
+            const nvrhi::FramebufferInfo& framebufferInfo)
+        {
+            if (framebufferInfo.sampleCount > 1)
+                desc.renderState.rasterState.enableMultisample();
+        }
+
         [[nodiscard]] std::vector<Rml::byte> LoadTextureFileBytes(const Rml::String& source)
         {
             if (Rml::FileInterface* fileInterface = Rml::GetFileInterface())
@@ -156,12 +311,18 @@ namespace HEngine
             enum class DecoratorType : uint8_t
             {
                 Invalid,
-                Sheen,
-                Halftone,
+                StarbloomSheen,
+                StarbloomHalftone,
             };
 
             static constexpr uint8_t MaxClipMaskReference = 254;
             static constexpr uint32_t MaxRenderLayers = 8;
+            static constexpr size_t MaxGeometryFitSearchSlots = 256;
+            static constexpr uint64_t MaxReusableGeometryBytes = 16ull * 1024ull * 1024ull;
+            static constexpr uint64_t MaxReusableGeometryBufferBytes = 256ull * 1024ull;
+			static constexpr uint64_t GeometryArenaPageBytes = 1024ull * 1024ull;
+			static constexpr uint32_t MaxGeometryArenaPages = 8;
+			static constexpr uint32_t NoGeometryArenaPage = std::numeric_limits<uint32_t>::max();
 
             enum class RetiredResourceType
             {
@@ -173,6 +334,11 @@ namespace HEngine
             {
                 nvrhi::BufferHandle VertexBuffer;
                 nvrhi::BufferHandle IndexBuffer;
+                uint64_t VertexCapacityBytes = 0;
+                uint64_t IndexCapacityBytes = 0;
+				uint32_t ArenaPageIndex = NoGeometryArenaPage;
+				uint64_t ArenaOffset = 0;
+				uint64_t ArenaReservedBytes = 0;
                 std::vector<Rml::Vertex> Vertices;
                 std::vector<uint32_t> Indices;
                 uint32_t IndexCount = 0;
@@ -186,6 +352,10 @@ namespace HEngine
                 nvrhi::TextureHandle Texture;
                 nvrhi::BindingSetHandle BindingSet;
                 std::vector<Rml::byte> Pixels;
+                std::future<DecodedRmlTexture> PendingDecode;
+                std::shared_ptr<std::atomic_bool> DecodeCancelled;
+                std::chrono::steady_clock::time_point DecodeRequestedAt;
+				size_t PendingEncodedBytes = 0;
                 uint32_t Width = 0;
                 uint32_t Height = 0;
                 uint32_t Generation = 1;
@@ -199,10 +369,32 @@ namespace HEngine
                 uint32_t Index = 0;
                 nvrhi::BufferHandle VertexBuffer;
                 nvrhi::BufferHandle IndexBuffer;
+                uint64_t VertexCapacityBytes = 0;
+                uint64_t IndexCapacityBytes = 0;
+				uint32_t ArenaPageIndex = NoGeometryArenaPage;
+				uint64_t ArenaOffset = 0;
+				uint64_t ArenaReservedBytes = 0;
+                std::vector<Rml::Vertex> Vertices;
+                std::vector<uint32_t> Indices;
                 nvrhi::TextureHandle Texture;
                 nvrhi::BindingSetHandle BindingSet;
+                std::vector<Rml::byte> Pixels;
                 std::vector<uint8_t> PendingFrameSlots;
             };
+
+			struct GeometryArenaRange
+			{
+				uint64_t Offset = 0;
+				uint64_t Bytes = 0;
+			};
+
+			struct GeometryArenaPage
+			{
+				nvrhi::BufferHandle VertexBuffer;
+				nvrhi::BufferHandle IndexBuffer;
+				uint64_t Cursor = 0;
+				std::vector<GeometryArenaRange> FreeRanges;
+			};
 
             struct PipelineEntry
             {
@@ -466,6 +658,7 @@ namespace HEngine
                 mLastCompletedSubmissions[frameSlot] = completedSubmission;
                 CollectRetiredResources(frameSlot);
                 CollectRetiredAuxiliaryResources(frameSlot);
+				PublishDecodedTextures();
                 mCommandList = commandList;
                 mBaseFramebuffer = framebuffer;
                 mFramebuffer = framebuffer;
@@ -502,6 +695,16 @@ namespace HEngine
                     MarkPendingUploadFrame();
                     ++mStats.TextureUploads;
                 }
+				if (!mTransparentTextureUploaded)
+				{
+					constexpr uint32_t transparentPixel = 0u;
+					mCommandList->writeTexture(mTransparentTexture, 0, 0,
+						&transparentPixel, sizeof(transparentPixel));
+					mTransparentTextureUploaded = true;
+					mTransparentTextureUploadedThisFrame = true;
+					MarkPendingUploadFrame();
+					++mStats.TextureUploads;
+				}
             }
 
             void EndFrame() override
@@ -554,6 +757,7 @@ namespace HEngine
                     texture->Pixels.shrink_to_fit();
                 }
                 mWhiteTextureUploadedThisFrame = false;
+				mTransparentTextureUploadedThisFrame = false;
                 ClearPendingUploads();
             }
 
@@ -605,6 +809,9 @@ namespace HEngine
                 if (mWhiteTextureUploadedThisFrame)
                     mWhiteTextureUploaded = false;
                 mWhiteTextureUploadedThisFrame = false;
+				if (mTransparentTextureUploadedThisFrame)
+					mTransparentTextureUploaded = false;
+				mTransparentTextureUploadedThisFrame = false;
                 ClearPendingUploads();
             }
 
@@ -632,12 +839,24 @@ namespace HEngine
                     return;
                 if (mCommandList)
                     throw std::logic_error("NVRHI RmlUi renderer cannot shut down inside a frame");
+				size_t cancelledDecodes = 0;
+                for (TextureSlot& slot : mTextureSlots)
+                    if (slot.DecodeCancelled)
+                    {
+                        slot.DecodeCancelled->store(true, std::memory_order_release);
+						GetRmlTextureDecodeQueue().Complete(slot.PendingEncodedBytes);
+						slot.PendingEncodedBytes = 0;
+                        ++cancelledDecodes;
+                    }
+				if (cancelledDecodes && MeasureRmlGeometry())
+					HE_CORE_INFO("[RmlTextureAsync] shutdownCanceled={}", cancelledDecodes);
 
                 mRetiredResources.clear();
                 mRetiredAuxiliaryResources.clear();
                 mFreeGeometrySlots.clear();
                 mFreeTextureSlots.clear();
                 mGeometrySlots.clear();
+				mGeometryArenaPages.clear();
                 mTextureSlots.clear();
                 mPipelines.clear();
                 mPostprocessPipelines.clear();
@@ -648,6 +867,8 @@ namespace HEngine
                 mPostprocessBindingLayout = nullptr;
                 mWhiteBindingSet = nullptr;
                 mWhiteTexture = nullptr;
+				mTransparentBindingSet = nullptr;
+				mTransparentTexture = nullptr;
                 mDefaultSampler = nullptr;
                 mInputLayout = nullptr;
                 mBindingLayout = nullptr;
@@ -668,6 +889,8 @@ namespace HEngine
                 Rml::Span<const Rml::Vertex> vertices,
                 Rml::Span<const int> indices) override
             {
+				const bool bMeasure = MeasureRmlGeometry();
+				const auto compileStart = bMeasure ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
                 if (mShutdown || vertices.empty() || indices.empty())
                     return 0;
                 if (vertices.size() > std::numeric_limits<uint32_t>::max()
@@ -684,32 +907,124 @@ namespace HEngine
                         return 0;
                     convertedIndices.push_back(static_cast<uint32_t>(index));
                 }
+                std::vector<Rml::Vertex> copiedVertices(vertices.begin(), vertices.end());
 
-                nvrhi::BufferDesc vertexDesc;
-                vertexDesc.setByteSize(static_cast<uint64_t>(vertices.size()) * sizeof(Rml::Vertex))
-                    .setIsVertexBuffer(true)
-                    .enableAutomaticStateTracking(nvrhi::ResourceStates::VertexBuffer)
-                    .setDebugName("RmlUi Geometry Vertices");
-                nvrhi::BufferHandle vertexBuffer = mDevice->createBuffer(vertexDesc);
+                const uint64_t vertexBytes = static_cast<uint64_t>(vertices.size()) * sizeof(Rml::Vertex);
+                const uint64_t indexBytes = static_cast<uint64_t>(convertedIndices.size()) * sizeof(uint32_t);
+                size_t bestFreePosition = mFreeGeometrySlots.size();
+                uint64_t bestUnusedBytes = std::numeric_limits<uint64_t>::max();
+                const size_t searchStart = mFreeGeometrySlots.size() > MaxGeometryFitSearchSlots
+                    ? mFreeGeometrySlots.size() - MaxGeometryFitSearchSlots : 0;
+                for (size_t position = searchStart; position < mFreeGeometrySlots.size(); ++position)
+                {
+                    const GeometrySlot& candidate = mGeometrySlots[mFreeGeometrySlots[position]];
+                    if (!candidate.VertexBuffer || !candidate.IndexBuffer ||
+                        candidate.VertexCapacityBytes < vertexBytes ||
+                        candidate.IndexCapacityBytes < indexBytes)
+                        continue;
+                    const uint64_t unusedBytes =
+                        candidate.VertexCapacityBytes - vertexBytes +
+                        candidate.IndexCapacityBytes - indexBytes;
+                    if (unusedBytes < bestUnusedBytes)
+                    {
+                        bestUnusedBytes = unusedBytes;
+                        bestFreePosition = position;
+                    }
+                }
+                if (bestFreePosition != mFreeGeometrySlots.size())
+                    std::swap(mFreeGeometrySlots[bestFreePosition], mFreeGeometrySlots.back());
+                const GeometrySlot* reusable = mFreeGeometrySlots.empty()
+                    ? nullptr : &mGeometrySlots[mFreeGeometrySlots.back()];
+                const bool bReuseVertex = reusable && reusable->VertexBuffer
+                    && reusable->VertexCapacityBytes >= vertexBytes;
+                const bool bReuseIndex = reusable && reusable->IndexBuffer
+                    && reusable->IndexCapacityBytes >= indexBytes;
 
-                nvrhi::BufferDesc indexDesc;
-                indexDesc.setByteSize(static_cast<uint64_t>(convertedIndices.size()) * sizeof(uint32_t))
-                    .setIsIndexBuffer(true)
-                    .enableAutomaticStateTracking(nvrhi::ResourceStates::IndexBuffer)
-                    .setDebugName("RmlUi Geometry Indices");
-                nvrhi::BufferHandle indexBuffer = mDevice->createBuffer(indexDesc);
-                if (!vertexBuffer || !indexBuffer)
-                    return 0;
+                const auto arena = (!bReuseVertex && !bReuseIndex)
+					? AllocateGeometryArena(vertexBytes, indexBytes) : std::nullopt;
+				nvrhi::BufferHandle vertexBuffer;
+				nvrhi::BufferHandle indexBuffer;
+				const auto createStart = bMeasure ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+                if (!arena && !bReuseVertex)
+                {
+                    nvrhi::BufferDesc vertexDesc;
+                    vertexDesc.setByteSize(vertexBytes)
+                        .setIsVertexBuffer(true)
+                        .enableAutomaticStateTracking(nvrhi::ResourceStates::VertexBuffer)
+                        .setDebugName("RmlUi Geometry Vertices");
+                    vertexBuffer = mDevice->createBuffer(vertexDesc);
+                    if (!vertexBuffer)
+                        return 0;
+					++mStats.GeometryBuffersCreated;
+					mStats.GeometryBufferBytesCreated += vertexBytes;
+					mStats.GeometryBuffersCreatedLe512 += vertexBytes <= 512;
+					mStats.GeometryBuffersCreatedLe4096 += vertexBytes <= 4096;
+                }
 
-                const uint32_t slotIndex = AllocateGeometrySlot();
+                if (!arena && !bReuseIndex)
+                {
+                    nvrhi::BufferDesc indexDesc;
+                    indexDesc.setByteSize(indexBytes)
+                        .setIsIndexBuffer(true)
+                        .enableAutomaticStateTracking(nvrhi::ResourceStates::IndexBuffer)
+                        .setDebugName("RmlUi Geometry Indices");
+                    indexBuffer = mDevice->createBuffer(indexDesc);
+                    if (!indexBuffer)
+                        return 0;
+					++mStats.GeometryBuffersCreated;
+					mStats.GeometryBufferBytesCreated += indexBytes;
+					mStats.GeometryBuffersCreatedLe512 += indexBytes <= 512;
+					mStats.GeometryBuffersCreatedLe4096 += indexBytes <= 4096;
+                }
+				if (bMeasure && !arena)
+					mStats.GeometryBufferCreateNanoseconds += RmlElapsedNanoseconds(createStart);
+
+                uint32_t slotIndex = 0;
+				try { slotIndex = AllocateGeometrySlot(); }
+				catch (...)
+				{
+					if (arena) FreeGeometryArenaRange(arena->PageIndex, arena->Offset, arena->ReservedBytes);
+					throw;
+				}
                 GeometrySlot& slot = mGeometrySlots[slotIndex];
-                slot.VertexBuffer = std::move(vertexBuffer);
-                slot.IndexBuffer = std::move(indexBuffer);
-                slot.Vertices.assign(vertices.begin(), vertices.end());
+				if (arena)
+				{
+					const auto& page = mGeometryArenaPages[arena->PageIndex];
+					slot.VertexBuffer = page.VertexBuffer;
+					slot.IndexBuffer = page.IndexBuffer;
+					slot.VertexCapacityBytes = vertexBytes;
+					slot.IndexCapacityBytes = indexBytes;
+					slot.ArenaPageIndex = arena->PageIndex;
+					slot.ArenaOffset = arena->Offset;
+					slot.ArenaReservedBytes = arena->ReservedBytes;
+				}
+				else
+				{
+					slot.ArenaPageIndex = NoGeometryArenaPage;
+					slot.ArenaOffset = 0;
+					slot.ArenaReservedBytes = 0;
+				}
+                if (!arena && bReuseVertex)
+                    ++mStats.GeometryBuffersReused;
+                else if (!arena)
+                {
+                    slot.VertexBuffer = std::move(vertexBuffer);
+                    slot.VertexCapacityBytes = vertexBytes;
+                }
+                if (!arena && bReuseIndex)
+                    ++mStats.GeometryBuffersReused;
+                else if (!arena)
+                {
+                    slot.IndexBuffer = std::move(indexBuffer);
+                    slot.IndexCapacityBytes = indexBytes;
+                }
+                slot.Vertices = std::move(copiedVertices);
                 slot.Indices = std::move(convertedIndices);
                 slot.IndexCount = static_cast<uint32_t>(slot.Indices.size());
                 slot.bUploaded = false;
                 ++mStats.LiveGeometries;
+				if (bMeasure)
+					mStats.GeometryCompileNanoseconds += RmlElapsedNanoseconds(compileStart);
                 return static_cast<Rml::CompiledGeometryHandle>(PackRmlHandle(slotIndex, slot.Generation));
             }
 
@@ -718,6 +1033,8 @@ namespace HEngine
                 Rml::Vector2f translation,
                 Rml::TextureHandle textureHandle) override
             {
+				const bool bMeasure = MeasureRmlGeometry();
+				const auto drawStart = bMeasure ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
                 RequireActiveFrame("RenderGeometry");
                 GeometrySlot* geometry = ResolveGeometry(geometryHandle);
                 if (!geometry)
@@ -738,7 +1055,8 @@ namespace HEngine
                     else
                     {
                         UploadTexture(*texture);
-                        bindingSet = texture->BindingSet;
+                        bindingSet = texture->bUploaded
+                            ? texture->BindingSet.Get() : mTransparentBindingSet.Get();
                     }
                 }
 
@@ -794,11 +1112,11 @@ namespace HEngine
                     .addVertexBuffer(nvrhi::VertexBufferBinding()
                         .setBuffer(geometry->VertexBuffer)
                         .setSlot(0)
-                        .setOffset(0))
+                        .setOffset(geometry->ArenaOffset))
                     .setIndexBuffer(nvrhi::IndexBufferBinding()
                         .setBuffer(geometry->IndexBuffer)
                         .setFormat(nvrhi::Format::R32_UINT)
-                        .setOffset(0));
+                        .setOffset(geometry->ArenaOffset));
                 if (mPipelineMode != PipelineMode::Normal)
                     state.setDynamicStencilRefValue(mPipelineStencilReference);
                 mCommandList->setGraphicsState(state);
@@ -807,6 +1125,8 @@ namespace HEngine
                     geometry->IndexCount));
                 ++mStats.DrawCalls;
                 mStats.RenderedTriangles += geometry->IndexCount / 3u;
+				if (bMeasure)
+					mStats.GeometryDrawNanoseconds += RmlElapsedNanoseconds(drawStart);
             }
 
             void ReleaseGeometry(Rml::CompiledGeometryHandle geometryHandle) override
@@ -824,11 +1144,22 @@ namespace HEngine
                 RetiredResource retired;
                 retired.Type = RetiredResourceType::Geometry;
                 retired.Index = index;
+                retired.PendingFrameSlots.assign(mFramesInFlight, 1);
+                mRetiredResources.reserve(mRetiredResources.size() + 1);
                 retired.VertexBuffer = std::move(slot->VertexBuffer);
                 retired.IndexBuffer = std::move(slot->IndexBuffer);
-                retired.PendingFrameSlots.assign(mFramesInFlight, 1);
-                slot->Vertices.clear();
-                slot->Indices.clear();
+                retired.VertexCapacityBytes = slot->VertexCapacityBytes;
+                retired.IndexCapacityBytes = slot->IndexCapacityBytes;
+				retired.ArenaPageIndex = slot->ArenaPageIndex;
+				retired.ArenaOffset = slot->ArenaOffset;
+				retired.ArenaReservedBytes = slot->ArenaReservedBytes;
+                retired.Vertices = std::move(slot->Vertices);
+                retired.Indices = std::move(slot->Indices);
+                slot->VertexCapacityBytes = 0;
+                slot->IndexCapacityBytes = 0;
+				slot->ArenaPageIndex = NoGeometryArenaPage;
+				slot->ArenaOffset = 0;
+				slot->ArenaReservedBytes = 0;
                 slot->IndexCount = 0;
                 slot->bUploaded = false;
                 slot->bOccupied = false;
@@ -841,13 +1172,69 @@ namespace HEngine
                 Rml::Vector2i& textureDimensions,
                 const Rml::String& source) override
             {
-                const std::vector<Rml::byte> encoded = LoadTextureFileBytes(source);
+				const bool bMeasure = MeasureRmlGeometry();
+				const auto loadStart = bMeasure ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+                std::vector<Rml::byte> encoded = LoadTextureFileBytes(source);
+                const auto loadEnd = bMeasure ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
                 if (encoded.empty() || encoded.size() > static_cast<size_t>(std::numeric_limits<int>::max()))
                     return 0;
 
                 int width = 0;
                 int height = 0;
                 int channels = 0;
+				// Rml needs dimensions immediately; only decoding and premultiplication
+				// move off the owner thread. Low-core and serial runs stay deterministic.
+                const char* serialSetting = std::getenv("HE_TASKS_SERIAL");
+                const char* asyncSetting = std::getenv("HE_RML_ASYNC_DECODE");
+                const bool bAsyncDecode = encoded.size() >= 512u * 1024u &&
+                    GetRuntimeCpuBudget().UiDecodeWorkers != 0 &&
+					!(asyncSetting && asyncSetting[0] == '0' && asyncSetting[1] == '\0') &&
+                    !(serialSetting && serialSetting[0] == '1' && serialSetting[1] == '\0');
+				if (bAsyncDecode && stbi_info_from_memory(encoded.data(),
+					static_cast<int>(encoded.size()), &width, &height, &channels) &&
+					width > 0 && height > 0 &&
+					static_cast<uint64_t>(width) * static_cast<uint64_t>(height) * 4u <=
+						64u * 1024u * 1024u)
+				{
+					auto cancelled = std::make_shared<std::atomic_bool>(false);
+					std::future<DecodedRmlTexture> decodedFuture;
+					const size_t encodedBytes = encoded.size();
+					if (GetRmlTextureDecodeQueue().Submit(encoded, cancelled, decodedFuture))
+					{
+						Rml::TextureHandle handle = 0;
+						try
+						{
+							handle = CreateTextureSlot({}, Rml::Vector2i(width, height));
+						}
+                        catch (...)
+                        {
+                            cancelled->store(true, std::memory_order_release);
+							GetRmlTextureDecodeQueue().Complete(encodedBytes);
+                            throw;
+                        }
+                        if (!handle)
+                        {
+                            cancelled->store(true, std::memory_order_release);
+							GetRmlTextureDecodeQueue().Complete(encodedBytes);
+                            return 0;
+                        }
+						TextureSlot* slot = ResolveTexture(handle);
+						slot->PendingDecode = std::move(decodedFuture);
+						slot->DecodeCancelled = std::move(cancelled);
+                        slot->DecodeRequestedAt = std::chrono::steady_clock::now();
+						slot->PendingEncodedBytes = encodedBytes;
+						textureDimensions = Rml::Vector2i(width, height);
+                        if (bMeasure)
+                            HE_CORE_INFO("[RmlTextureAsync] queued source={} encodedBytes={} dimensions={}x{} ownerMs={:.3f}",
+								source, encodedBytes, width, height,
+								std::chrono::duration<double, std::milli>(
+									std::chrono::steady_clock::now() - loadStart).count());
+                        return handle;
+                    }
+					if (bMeasure)
+						HE_CORE_INFO("[RmlTextureAsync] backpressure source={} encodedBytes={}; decoding on owner thread",
+							source, encodedBytes);
+                }
                 stbi_set_flip_vertically_on_load_thread(0);
                 stbi_uc* decoded = stbi_load_from_memory(
                     encoded.data(),
@@ -866,9 +1253,21 @@ namespace HEngine
                 std::vector<Rml::byte> pixels(decoded, decoded + byteCount);
                 stbi_image_free(decoded);
                 PremultiplyAlpha(pixels);
+				const auto decodeEnd = bMeasure ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
                 const Rml::TextureHandle handle = GenerateTexture(
                     Rml::Span<const Rml::byte>(pixels.data(), pixels.size()),
                     Rml::Vector2i(width, height));
+				if (bMeasure)
+				{
+					const auto uploadEnd = std::chrono::steady_clock::now();
+					const double totalMs = std::chrono::duration<double, std::milli>(uploadEnd - loadStart).count();
+					if (totalMs > 3.0)
+						HE_CORE_INFO("[RmlTextureLoadTiming] source={} bytes={} dimensions={}x{} readMs={:.3f} decodeMs={:.3f} allocateMs={:.3f} totalMs={:.3f}",
+							source, encoded.size(), width, height,
+							std::chrono::duration<double, std::milli>(loadEnd - loadStart).count(),
+							std::chrono::duration<double, std::milli>(decodeEnd - loadEnd).count(),
+							std::chrono::duration<double, std::milli>(uploadEnd - decodeEnd).count(), totalMs);
+				}
                 if (handle != 0)
                     textureDimensions = Rml::Vector2i(width, height);
                 return handle;
@@ -884,6 +1283,13 @@ namespace HEngine
                     * static_cast<uint64_t>(sourceDimensions.y) * 4ull;
                 if (byteCount != source.size() || byteCount > std::numeric_limits<size_t>::max())
                     return 0;
+				return CreateTextureSlot(source, sourceDimensions);
+			}
+
+			Rml::TextureHandle CreateTextureSlot(
+				Rml::Span<const Rml::byte> source,
+				Rml::Vector2i sourceDimensions)
+			{
 
                 nvrhi::TextureDesc textureDesc;
                 textureDesc.setWidth(static_cast<uint32_t>(sourceDimensions.x))
@@ -922,14 +1328,25 @@ namespace HEngine
                     ++mStats.InvalidTextureHandles;
                     return;
                 }
+                if (slot->DecodeCancelled)
+                {
+                    slot->DecodeCancelled->store(true, std::memory_order_release);
+					GetRmlTextureDecodeQueue().Complete(slot->PendingEncodedBytes);
+					slot->PendingEncodedBytes = 0;
+                    if (MeasureRmlGeometry())
+						HE_CORE_INFO("[RmlTextureAsync] releasedPending handle={}", textureHandle);
+				}
+				slot->PendingDecode = {};
+				slot->DecodeCancelled.reset();
 
                 RetiredResource retired;
                 retired.Type = RetiredResourceType::Texture;
                 retired.Index = index;
+                retired.PendingFrameSlots.assign(mFramesInFlight, 1);
+                mRetiredResources.reserve(mRetiredResources.size() + 1);
                 retired.Texture = std::move(slot->Texture);
                 retired.BindingSet = std::move(slot->BindingSet);
-                retired.PendingFrameSlots.assign(mFramesInFlight, 1);
-                slot->Pixels.clear();
+                retired.Pixels = std::move(slot->Pixels);
                 slot->Width = 0;
                 slot->Height = 0;
                 slot->bUploaded = false;
@@ -1324,10 +1741,10 @@ namespace HEngine
 
                 auto shader = std::make_unique<CompiledDecorator>();
                 const Rml::String value = Rml::Get(parameters, "value", Rml::String());
-                if (value == "he-sheen")
-                    shader->Type = DecoratorType::Sheen;
-                else if (value == "he-halftone")
-                    shader->Type = DecoratorType::Halftone;
+                if (value == "starbloom-sheen")
+                    shader->Type = DecoratorType::StarbloomSheen;
+                else if (value == "starbloom-halftone")
+                    shader->Type = DecoratorType::StarbloomHalftone;
                 else
                 {
                     ReportRejectedFeature(std::string("custom shader value '") + value.c_str() + "' is not whitelisted");
@@ -1614,6 +2031,7 @@ namespace HEngine
                     .setPixelShader(mPostprocessPixelShader)
                     .addBindingLayout(mPostprocessBindingLayout);
                 desc.renderState.rasterState.setCullNone().enableScissor().enableDepthClip();
+                ConfigureFramebufferMultisampling(desc, info);
                 nvrhi::DepthStencilState& depthStencil = desc.renderState.depthStencilState;
                 depthStencil.disableDepthTest().disableDepthWrite();
                 if (bBlend)
@@ -1855,6 +2273,7 @@ namespace HEngine
                 nvrhi::DepthStencilState& depthStencil = desc.renderState.depthStencilState;
                 depthStencil.disableDepthTest().disableDepthWrite();
                 desc.renderState.rasterState.setCullNone().enableScissor().enableDepthClip();
+                ConfigureFramebufferMultisampling(desc, info);
                 if (mode == PipelineMode::Normal || mode == PipelineMode::NormalClipped)
                 {
                     desc.renderState.blendState.targets[0]
@@ -1929,7 +2348,7 @@ namespace HEngine
                 std::memcpy(constants.Transform, transform.data(), sizeof(constants.Transform));
                 constants.Translation[0] = translation.x;
                 constants.Translation[1] = translation.y;
-                constants.Mode = decorator.Type == DecoratorType::Sheen ? 1u : 2u;
+                constants.Mode = decorator.Type == DecoratorType::StarbloomSheen ? 1u : 2u;
                 if (Rml::SystemInterface* system = Rml::GetSystemInterface())
                     constants.Time = static_cast<float>(system->GetElapsedTime());
                 constants.Dimensions[0] = decorator.Dimensions.x;
@@ -1945,15 +2364,17 @@ namespace HEngine
                             scissor.Right,
                             scissor.Top,
                             scissor.Bottom)))
-                    .addBindingSet(GetOrCreateDecoratorBindingSet(texture ? texture->Texture.Get() : nullptr))
+                    .addBindingSet(GetOrCreateDecoratorBindingSet(
+                        texture ? (texture->bUploaded
+                            ? texture->Texture.Get() : mTransparentTexture.Get()) : nullptr))
                     .addVertexBuffer(nvrhi::VertexBufferBinding()
                         .setBuffer(geometry->VertexBuffer)
                         .setSlot(0)
-                        .setOffset(0))
+                        .setOffset(geometry->ArenaOffset))
                     .setIndexBuffer(nvrhi::IndexBufferBinding()
                         .setBuffer(geometry->IndexBuffer)
                         .setFormat(nvrhi::Format::R32_UINT)
-                        .setOffset(0));
+                        .setOffset(geometry->ArenaOffset));
                 if (mPipelineMode != PipelineMode::Normal)
                     state.setDynamicStencilRefValue(mPipelineStencilReference);
                 mCommandList->setGraphicsState(state);
@@ -2094,6 +2515,7 @@ namespace HEngine
                 desc.setPrimType(nvrhi::PrimitiveType::TriangleList)
                     .setVertexShader(mPostprocessVertexShader);
                 desc.renderState.rasterState.setCullNone().enableScissor().enableDepthClip();
+                ConfigureFramebufferMultisampling(desc, info);
                 for (size_t targetIndex = 0; targetIndex < info.colorFormats.size(); ++targetIndex)
                 {
                     desc.renderState.blendState.targets[targetIndex]
@@ -2235,10 +2657,16 @@ namespace HEngine
                 mWhiteTexture = mDevice->createTexture(whiteDesc);
                 if (mWhiteTexture)
                     mWhiteBindingSet = CreateTextureBindingSet(mWhiteTexture);
+				auto transparentDesc = whiteDesc;
+				transparentDesc.setDebugName("RmlUi Pending Texture");
+				mTransparentTexture = mDevice->createTexture(transparentDesc);
+				if (mTransparentTexture)
+					mTransparentBindingSet = CreateTextureBindingSet(mTransparentTexture);
 
                 if (!mBindingLayout || !mPostprocessBindingLayout || !mDecoratorBindingLayout
                     || !mDefaultSampler || !mInputLayout
-                    || !mWhiteTexture || !mWhiteBindingSet)
+                    || !mWhiteTexture || !mWhiteBindingSet ||
+					!mTransparentTexture || !mTransparentBindingSet)
                 {
                     throw std::runtime_error("NVRHI failed to create immutable RmlUi renderer state");
                 }
@@ -2273,6 +2701,7 @@ namespace HEngine
                 nvrhi::DepthStencilState& depthStencil = desc.renderState.depthStencilState;
                 depthStencil.disableDepthTest().disableDepthWrite();
                 desc.renderState.rasterState.setCullNone().enableScissor().enableDepthClip();
+                ConfigureFramebufferMultisampling(desc, info);
                 if (mode == PipelineMode::Normal || mode == PipelineMode::NormalClipped)
                 {
                     desc.renderState.blendState.targets[0]
@@ -2328,6 +2757,102 @@ namespace HEngine
                 return pipeline;
             }
 
+			struct GeometryArenaAllocation
+			{
+				uint32_t PageIndex = 0;
+				uint64_t Offset = 0;
+				uint64_t ReservedBytes = 0;
+			};
+
+			[[nodiscard]] std::optional<GeometryArenaAllocation> AllocateGeometryArena(
+				uint64_t vertexBytes, uint64_t indexBytes)
+			{
+				const uint64_t largest = std::max(vertexBytes, indexBytes);
+				if (largest > MaxReusableGeometryBufferBytes)
+					return std::nullopt;
+				const uint64_t reserved = (largest + 15ull) & ~15ull;
+				for (uint32_t index = 0; index < mGeometryArenaPages.size(); ++index)
+				{
+					auto& page = mGeometryArenaPages[index];
+					for (auto it = page.FreeRanges.begin(); it != page.FreeRanges.end(); ++it)
+					{
+						if (it->Bytes < reserved)
+							continue;
+						const uint64_t offset = it->Offset;
+						it->Offset += reserved;
+						it->Bytes -= reserved;
+						if (it->Bytes == 0)
+							page.FreeRanges.erase(it);
+						++mStats.GeometryArenaAllocations;
+						return GeometryArenaAllocation{index, offset, reserved};
+					}
+					if (page.Cursor <= GeometryArenaPageBytes - reserved)
+					{
+						const uint64_t offset = page.Cursor;
+						page.Cursor += reserved;
+						++mStats.GeometryArenaAllocations;
+						return GeometryArenaAllocation{index, offset, reserved};
+					}
+				}
+				if (mGeometryArenaPages.size() >= MaxGeometryArenaPages)
+					return std::nullopt;
+
+				nvrhi::BufferDesc vertexDesc;
+				vertexDesc.setByteSize(GeometryArenaPageBytes)
+					.setIsVertexBuffer(true)
+					.enableAutomaticStateTracking(nvrhi::ResourceStates::VertexBuffer)
+					.setDebugName("RmlUi Geometry Arena Vertices");
+				nvrhi::BufferDesc indexDesc;
+				indexDesc.setByteSize(GeometryArenaPageBytes)
+					.setIsIndexBuffer(true)
+					.enableAutomaticStateTracking(nvrhi::ResourceStates::IndexBuffer)
+					.setDebugName("RmlUi Geometry Arena Indices");
+				const auto createStart = MeasureRmlGeometry()
+					? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+				GeometryArenaPage page;
+				page.VertexBuffer = mDevice->createBuffer(vertexDesc);
+				page.IndexBuffer = mDevice->createBuffer(indexDesc);
+				if (!page.VertexBuffer || !page.IndexBuffer)
+					return std::nullopt;
+				if (MeasureRmlGeometry())
+					mStats.GeometryBufferCreateNanoseconds += RmlElapsedNanoseconds(createStart);
+				mStats.GeometryBuffersCreated += 2;
+				mStats.GeometryBufferBytesCreated += GeometryArenaPageBytes * 2;
+				page.Cursor = reserved;
+				const auto index = static_cast<uint32_t>(mGeometryArenaPages.size());
+				mGeometryArenaPages.push_back(std::move(page));
+				++mStats.GeometryArenaAllocations;
+				return GeometryArenaAllocation{index, 0, reserved};
+			}
+
+			void FreeGeometryArenaRange(uint32_t pageIndex, uint64_t offset, uint64_t bytes)
+			{
+				if (bytes == 0 || bytes > GeometryArenaPageBytes || offset > GeometryArenaPageBytes - bytes)
+					throw std::logic_error("RmlUi geometry arena release is outside its page");
+				auto& freeRanges = mGeometryArenaPages.at(pageIndex).FreeRanges;
+				auto it = std::lower_bound(freeRanges.begin(), freeRanges.end(), offset,
+					[](const GeometryArenaRange& range, uint64_t value) { return range.Offset < value; });
+				if ((it != freeRanges.end() && offset + bytes > it->Offset) ||
+					(it != freeRanges.begin() && std::prev(it)->Offset + std::prev(it)->Bytes > offset))
+					throw std::logic_error("RmlUi geometry arena range was released twice");
+				it = freeRanges.insert(it, GeometryArenaRange{offset, bytes});
+				if (it != freeRanges.begin())
+				{
+					auto previous = std::prev(it);
+					if (previous->Offset + previous->Bytes == it->Offset)
+					{
+						previous->Bytes += it->Bytes;
+						it = freeRanges.erase(it);
+						it = previous;
+					}
+				}
+				while (std::next(it) != freeRanges.end() && it->Offset + it->Bytes == std::next(it)->Offset)
+				{
+					it->Bytes += std::next(it)->Bytes;
+					freeRanges.erase(std::next(it));
+				}
+			}
+
             uint32_t AllocateGeometrySlot()
             {
                 uint32_t index = 0;
@@ -2335,6 +2860,8 @@ namespace HEngine
                 {
                     index = mFreeGeometrySlots.back();
                     mFreeGeometrySlots.pop_back();
+                    const GeometrySlot& slot = mGeometrySlots[index];
+                    mReusableGeometryBytes -= slot.VertexCapacityBytes + slot.IndexCapacityBytes;
                     ++mStats.GeometrySlotsReused;
                 }
                 else
@@ -2394,14 +2921,20 @@ namespace HEngine
             {
                 if (geometry.bUploaded)
                     return;
+				const bool bMeasure = MeasureRmlGeometry();
+				const auto writeStart = bMeasure ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
                 mCommandList->writeBuffer(
                     geometry.VertexBuffer,
                     geometry.Vertices.data(),
-                    geometry.Vertices.size() * sizeof(Rml::Vertex));
+                    geometry.Vertices.size() * sizeof(Rml::Vertex),
+					geometry.ArenaOffset);
                 mCommandList->writeBuffer(
                     geometry.IndexBuffer,
                     geometry.Indices.data(),
-                    geometry.Indices.size() * sizeof(uint32_t));
+                    geometry.Indices.size() * sizeof(uint32_t),
+					geometry.ArenaOffset);
+				if (bMeasure)
+					mStats.GeometryBufferWriteNanoseconds += RmlElapsedNanoseconds(writeStart);
                 geometry.bUploaded = true;
                 const uint32_t index = static_cast<uint32_t>(&geometry - mGeometrySlots.data());
                 mPendingGeometryUploads.push_back(PendingUpload{ index, geometry.Generation });
@@ -2411,7 +2944,7 @@ namespace HEngine
 
             void UploadTexture(TextureSlot& texture)
             {
-                if (texture.bUploaded)
+                if (texture.bUploaded || texture.Pixels.empty())
                     return;
                 mCommandList->writeTexture(
                     texture.Texture,
@@ -2425,6 +2958,39 @@ namespace HEngine
                 MarkPendingUploadFrame();
                 ++mStats.TextureUploads;
             }
+
+			void PublishDecodedTextures()
+			{
+				for (TextureSlot& slot : mTextureSlots)
+				{
+					if (!slot.bOccupied || !slot.PendingDecode.valid() ||
+						slot.PendingDecode.wait_for(std::chrono::seconds(0)) !=
+							std::future_status::ready)
+						continue;
+					try
+					{
+						DecodedRmlTexture decoded = slot.PendingDecode.get();
+						if (decoded.Width != static_cast<int>(slot.Width) ||
+							decoded.Height != static_cast<int>(slot.Height) ||
+							decoded.Pixels.size() != static_cast<size_t>(slot.Width) *
+								static_cast<size_t>(slot.Height) * 4u)
+							throw std::runtime_error("RmlUi asynchronous texture decode failed");
+						slot.Pixels = std::move(decoded.Pixels);
+						if (MeasureRmlGeometry())
+							HE_CORE_INFO("[RmlTextureAsync] ready dimensions={}x{} bytes={} latencyMs={:.3f}",
+								slot.Width, slot.Height, slot.Pixels.size(),
+								std::chrono::duration<double, std::milli>(
+									std::chrono::steady_clock::now() - slot.DecodeRequestedAt).count());
+					}
+                    catch (const std::exception& error)
+                    {
+                        HE_CORE_WARN("RmlUi asynchronous texture decode failed: {}", error.what());
+                    }
+					GetRmlTextureDecodeQueue().Complete(slot.PendingEncodedBytes);
+					slot.PendingEncodedBytes = 0;
+                    slot.DecodeCancelled.reset();
+				}
+			}
 
             void CollectRetiredResources(uint32_t frameSlot)
             {
@@ -2444,6 +3010,25 @@ namespace HEngine
                     if (it->Type == RetiredResourceType::Geometry)
                     {
                         GeometrySlot& slot = mGeometrySlots[it->Index];
+                        if (it->ArenaPageIndex != NoGeometryArenaPage)
+					{
+						FreeGeometryArenaRange(it->ArenaPageIndex, it->ArenaOffset,
+							it->ArenaReservedBytes);
+					}
+					else if (it->VertexCapacityBytes <= MaxReusableGeometryBufferBytes
+                            && it->IndexCapacityBytes <= MaxReusableGeometryBufferBytes)
+                        {
+                            const uint64_t reusableBytes = it->VertexCapacityBytes
+                                + it->IndexCapacityBytes;
+                            if (reusableBytes <= MaxReusableGeometryBytes - mReusableGeometryBytes)
+                            {
+                                slot.VertexBuffer = std::move(it->VertexBuffer);
+                                slot.IndexBuffer = std::move(it->IndexBuffer);
+                                slot.VertexCapacityBytes = it->VertexCapacityBytes;
+                                slot.IndexCapacityBytes = it->IndexCapacityBytes;
+                                mReusableGeometryBytes += reusableBytes;
+                            }
+                        }
                         slot.Generation = NextGeneration(slot.Generation);
                         mFreeGeometrySlots.push_back(it->Index);
                     }
@@ -2482,9 +3067,13 @@ namespace HEngine
             nvrhi::SamplerHandle mDefaultSampler;
             nvrhi::TextureHandle mWhiteTexture;
             nvrhi::BindingSetHandle mWhiteBindingSet;
+			nvrhi::TextureHandle mTransparentTexture;
+			nvrhi::BindingSetHandle mTransparentBindingSet;
             std::vector<GeometrySlot> mGeometrySlots;
+			std::vector<GeometryArenaPage> mGeometryArenaPages;
             std::vector<TextureSlot> mTextureSlots;
             std::vector<uint32_t> mFreeGeometrySlots;
+            uint64_t mReusableGeometryBytes = 0;
             std::vector<uint32_t> mFreeTextureSlots;
             std::vector<RetiredResource> mRetiredResources;
             std::vector<RetiredAuxiliaryResource> mRetiredAuxiliaryResources;
@@ -2514,6 +3103,8 @@ namespace HEngine
             bool mScissorEnabled = false;
             bool mWhiteTextureUploaded = false;
             bool mWhiteTextureUploadedThisFrame = false;
+			bool mTransparentTextureUploaded = false;
+			bool mTransparentTextureUploadedThisFrame = false;
             bool mShutdown = false;
             bool mPendingUploadFrame = false;
             bool mClipMaskEnabled = false;

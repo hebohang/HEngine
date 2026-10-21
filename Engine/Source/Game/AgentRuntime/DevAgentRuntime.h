@@ -6,6 +6,7 @@
 #include "Game/AgentRuntime/AgentInputController.h"
 #include "Game/AgentRuntime/AgentTransport.h"
 #include "Runtime/Core/Base/Base.h"
+#include "Runtime/Platform/PlatformProcess.h"
 
 #include <chrono>
 #include <cstddef>
@@ -16,7 +17,10 @@
 namespace HEngine
 {
 	class Level;
+	class SceneEditingService;
 	struct RenderGraphDiagnosticSnapshot;
+	struct AgentRenderValidationState;
+	struct RenderWorld;
 
 	struct DevAgentRuntimeConfig
 	{
@@ -45,6 +49,7 @@ namespace HEngine
 		void PrepareSimulationFrame(bool bCanAdvance = true);
 		void CompleteSimulationFrame();
 		void ProcessPendingCapture();
+		[[nodiscard]] Ref<Level> GetAuthorPreview() const { return mAuthorPreview; }
 		[[nodiscard]] bool ConsumeStopRequested();
 
 		[[nodiscard]] bool IsRunning() const { return mRunning; }
@@ -59,6 +64,10 @@ namespace HEngine
 		};
 
 		void RegisterCommands();
+		void SubmitValidationView();
+		void DestroyValidationView();
+		[[nodiscard]] Json BuildValidationViewStatus() const;
+		[[nodiscard]] Json BuildAnimationStatus();
 		void AttachLogSinks();
 		void PublishStatus(std::string_view state);
 		[[nodiscard]] Json BuildStatus(std::string_view state) const;
@@ -78,9 +87,13 @@ namespace HEngine
 		AgentInputController mInputController;
 		DevAgentRuntimeConfig mConfig;
 		Ref<Level> mLevel;
+		Scope<SceneEditingService> mSceneEditing;
+		Ref<Level> mAuthorPreview;
 		std::string mToken;
 		std::string mSessionId;
 		Scope<RenderGraphDiagnosticSnapshot> mRenderGraphSnapshot;
+		Scope<AgentRenderValidationState> mRenderValidation;
+		Ref<const RenderWorld> mAnimationObservationWorld;
 		std::string mRenderGraphSnapshotId;
 		std::uint64_t mRenderGraphSnapshotFrame = 0;
 		std::uint64_t mNextRenderGraphSnapshotId = 1;
@@ -92,5 +105,9 @@ namespace HEngine
 		bool mStepInProgress = false;
 		bool mStopRequested = false;
 		bool mRunning = false;
+		PlatformProcessMemorySnapshot mMemoryBeforeMailbox;
+		PlatformProcessMemorySnapshot mMemoryAfterMailbox;
+		std::uint64_t mMemoryCompletedSequence = 0;
+		bool mMemorySamplePending = false;
 	};
 }

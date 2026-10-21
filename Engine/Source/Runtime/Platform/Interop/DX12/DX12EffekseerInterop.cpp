@@ -2,6 +2,8 @@
 
 #include "DX12EffekseerInterop.h"
 
+#include "Runtime/Platform/Interop/EffekseerFrameResources.h"
+
 #include <EffekseerRendererDX12.h>
 #include <nvrhi/d3d12.h>
 
@@ -124,8 +126,11 @@ namespace HEngine
 
         Effekseer::Backend::GraphicsDeviceRef GraphicsDevice;
         EffekseerRenderer::RendererRef Renderer;
+        EffekseerFrameResources FrameResources;
         Effekseer::RefPtr<EffekseerRenderer::SingleFrameMemoryPool> MemoryPool;
         Effekseer::RefPtr<EffekseerRenderer::CommandList> CommandList;
+        uint64_t RecordingStartDrawCount = 0;
+        uint64_t RecordingStartDispatchCount = 0;
         Effekseer::Backend::TextureRef DepthTexture;
         Effekseer::Backend::TextureRef BackgroundTexture;
 
@@ -198,15 +203,7 @@ namespace HEngine
             if (mImpl->Renderer == nullptr)
                 throw std::runtime_error("Effekseer DX12 renderer creation failed");
 
-            mImpl->MemoryPool = EffekseerRenderer::CreateSingleFrameMemoryPool(mImpl->GraphicsDevice);
-            if (mImpl->MemoryPool == nullptr)
-                throw std::runtime_error("Effekseer DX12 single-frame memory pool creation failed");
-
-            mImpl->CommandList = EffekseerRenderer::CreateCommandList(
-                mImpl->GraphicsDevice,
-                mImpl->MemoryPool);
-            if (mImpl->CommandList == nullptr)
-                throw std::runtime_error("Effekseer DX12 command-list adapter creation failed");
+            mImpl->FrameResources.Initialize(desc.FramesInFlight);
 
             mImpl->DepthFormat = desc.DepthFormat;
             mImpl->Status.bInitialized = true;
@@ -216,6 +213,40 @@ namespace HEngine
             Shutdown();
             throw;
         }
+    }
+
+    void DX12EffekseerInterop::BeginHostFrame(uint32_t slot, uint64_t completed)
+    {
+        mImpl->FrameResources.Begin(slot, completed);
+    }
+
+    void DX12EffekseerInterop::NotifyHostFrameSubmitted(uint32_t slot, uint64_t submission) noexcept
+    {
+        mImpl->FrameResources.Submitted(slot, submission);
+    }
+
+    void DX12EffekseerInterop::AbortHostFrame(uint32_t slot) noexcept
+    {
+        mImpl->FrameResources.Abort(slot);
+    }
+
+    void DX12EffekseerInterop::AbortRecording() noexcept
+    {
+        // Unwind native recording while the host command list is still open.
+        // Keep all banks and their in-flight references until GPU completion.
+        try
+        {
+            if (mImpl->Status.bRendering)
+                mImpl->Renderer->EndRendering();
+        }
+        catch (...) {}
+        mImpl->Status.bRendering = false;
+        try
+        {
+            if (mImpl->Status.bFrameActive)
+                EndFrame();
+        }
+        catch (...) {}
     }
 
     void DX12EffekseerInterop::Shutdown() noexcept
@@ -244,10 +275,53 @@ namespace HEngine
         mImpl->ActiveCommandList = nullptr;
         mImpl->CommandList.Reset();
         mImpl->MemoryPool.Reset();
+        if (mImpl->Renderer != nullptr)
+            mImpl->Renderer->GetImpl()->InternalVertexBuffer.reset();
+        mImpl->FrameResources.Clear();
         mImpl->Renderer.Reset();
         mImpl->GraphicsDevice.Reset();
         mImpl->Device = nullptr;
         mImpl->DepthFormat = nvrhi::Format::UNKNOWN;
+    }
+
+    void DX12EffekseerInterop::BeginComputeFrame(nvrhi::ICommandList* commandList)
+    {
+        if (!mImpl->Status.bInitialized || mImpl->Status.bFrameActive)
+            throw std::logic_error("DX12 Effekseer compute requires initialized, idle interop");
+        auto* nativeCommandList = GetNativeCommandList(commandList);
+        if (!nativeCommandList)
+            throw std::invalid_argument("DX12 Effekseer compute requires an open native command list");
+        bool bCommandListActive = false;
+        try
+        {
+            auto& record = mImpl->FrameResources.Acquire(*mImpl->Renderer.Get(), mImpl->GraphicsDevice);
+            mImpl->MemoryPool = record.MemoryPool;
+            mImpl->CommandList = record.CommandList;
+            mImpl->Renderer->GetImpl()->InternalVertexBuffer = record.VertexBuffer;
+            mImpl->MemoryPool->NewFrame();
+            commandList->commitBarriers();
+            EffekseerRendererDX12::BeginCommandList(mImpl->CommandList, nativeCommandList);
+            bCommandListActive = true;
+            const auto counts = EffekseerRenderer::GetRecordedCommandCounts(mImpl->CommandList);
+            mImpl->RecordingStartDrawCount = counts.Draw;
+            mImpl->RecordingStartDispatchCount = counts.Dispatch;
+            mImpl->Renderer->SetCommandList(mImpl->CommandList);
+            mImpl->Renderer->SetDepth(nullptr, {});
+            mImpl->Renderer->SetBackground(nullptr);
+            mImpl->ActiveCommandList = commandList;
+            mImpl->ActiveFramebuffer = nullptr;
+            mImpl->Status.bFrameActive = true;
+            mImpl->Status.bDepthSampleBound = false;
+            mImpl->Status.bBackgroundBound = false;
+        }
+        catch (...)
+        {
+            mImpl->Renderer->SetCommandList(nullptr);
+            if (bCommandListActive) EffekseerRendererDX12::EndCommandList(mImpl->CommandList);
+            mImpl->CommandList.Reset();
+            commandList->clearState();
+            throw;
+        }
     }
 
     void DX12EffekseerInterop::BeginFrame(const DX12EffekseerFrameDesc& frame)
@@ -345,10 +419,19 @@ namespace HEngine
         if (rtv.ptr == 0 || (framebufferDesc.depthAttachment.valid() && dsv.ptr == 0))
             throw std::runtime_error("NVRHI did not expose DX12 framebuffer descriptors to Effekseer");
 
+        bool bEffekseerCommandListActive = false;
         try
         {
+            auto& record = mImpl->FrameResources.Acquire(*mImpl->Renderer.Get(), mImpl->GraphicsDevice);
+            mImpl->MemoryPool = record.MemoryPool;
+            mImpl->CommandList = record.CommandList;
+            mImpl->Renderer->GetImpl()->InternalVertexBuffer = record.VertexBuffer;
             mImpl->MemoryPool->NewFrame();
             EffekseerRendererDX12::BeginCommandList(mImpl->CommandList, nativeCommandList);
+            const auto counts = EffekseerRenderer::GetRecordedCommandCounts(mImpl->CommandList);
+            mImpl->RecordingStartDrawCount = counts.Draw;
+            mImpl->RecordingStartDispatchCount = counts.Dispatch;
+            bEffekseerCommandListActive = true;
             mImpl->Renderer->SetCommandList(mImpl->CommandList);
 
             nativeCommandList->OMSetRenderTargets(
@@ -406,7 +489,8 @@ namespace HEngine
             mImpl->Renderer->SetDepth(nullptr, {});
             mImpl->Renderer->SetBackground(nullptr);
             mImpl->Renderer->SetCommandList(nullptr);
-            EffekseerRendererDX12::EndCommandList(mImpl->CommandList);
+            if (bEffekseerCommandListActive)
+                EffekseerRendererDX12::EndCommandList(mImpl->CommandList);
             frame.CommandList->clearState();
             mImpl->DepthTexture.Reset();
             mImpl->BackgroundTexture.Reset();
@@ -416,6 +500,8 @@ namespace HEngine
 
     void DX12EffekseerInterop::BeginRendering()
     {
+        if (!mImpl->ActiveFramebuffer)
+            throw std::logic_error("DX12 Effekseer compute-only recording cannot draw");
         if (!mImpl->Status.bFrameActive)
             throw std::logic_error("DX12 Effekseer rendering requires an active interop frame");
         if (mImpl->Status.bRendering)
@@ -445,6 +531,11 @@ namespace HEngine
         mImpl->Renderer->SetBackground(nullptr);
         mImpl->Renderer->SetCommandList(nullptr);
         EffekseerRendererDX12::EndCommandList(mImpl->CommandList);
+
+        const auto counts = EffekseerRenderer::GetRecordedCommandCounts(mImpl->CommandList);
+        mImpl->Status.RecordedDrawCount = counts.Draw - mImpl->RecordingStartDrawCount;
+        mImpl->Status.RecordedDispatchCount = counts.Dispatch - mImpl->RecordingStartDispatchCount;
+        ++mImpl->Status.RecordingSerial;
 
         mImpl->ActiveCommandList->clearState();
         mImpl->DepthTexture.Reset();

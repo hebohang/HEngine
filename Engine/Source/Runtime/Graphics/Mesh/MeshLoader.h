@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-#if !defined(HE_PACKAGED_GAME)
+#if HE_RUNTIME_ASSET_IMPORT
 class aiNode;
 class aiMesh;
 class aiScene;
@@ -33,7 +33,9 @@ namespace HEngine
 	{
 		std::vector<StaticVertex> StaticVertices;
 		std::vector<SkinnedVertex> SkinnedVertices;
-		std::vector<std::uint32_t> Indices;
+        std::vector<std::uint32_t> Indices;
+        std::vector<SubMeshLod> Lods;
+        std::vector<MorphTarget> MorphTargets;
 		std::uint32_t MaterialIndex = 0;
 
 		[[nodiscard]] bool IsSkinned() const noexcept { return !SkinnedVertices.empty(); }
@@ -77,7 +79,7 @@ namespace HEngine
 
 	private:
 		// assimp
-#if !defined(HE_PACKAGED_GAME)
+#if HE_RUNTIME_ASSET_IMPORT
 		static void LoadModelASSIMP(Mesh* mesh, const std::string& path);
 
 		static void ProcessNodeASSIMP(Mesh* mesh, aiNode* node, const aiScene* scene, uint32_t& subMeshIndex);

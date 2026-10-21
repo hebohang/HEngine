@@ -9,16 +9,24 @@ namespace LLGI
 class DescriptorPoolVulkan
 {
 private:
+	struct CachedSets
+	{
+		// Sets remain cached across recordings. Keep their allocation layouts
+		// alive even when the original GPU particle system is reconfigured.
+		std::shared_ptr<PipelineStateVulkan> LayoutOwner;
+		std::vector<vk::DescriptorSet> Sets;
+	};
+
 	std::shared_ptr<GraphicsVulkan> graphics_;
 	vk::DescriptorPool descriptorPool_ = nullptr;
 	int32_t offset = 0;
-	std::vector<std::vector<vk::DescriptorSet>> cache;
+	std::vector<CachedSets> cache;
 	int32_t slotSizeMax_;
 	std::vector<vk::DescriptorSet> dummySet_;
 
 	vk::DescriptorPool computeDescriptorPool_ = nullptr;
 	int32_t computeOffset = 0;
-	std::vector<std::vector<vk::DescriptorSet>> computeCache;
+	std::vector<CachedSets> computeCache;
 
 public:
 	DescriptorPoolVulkan(
@@ -46,6 +54,10 @@ private:
 	int32_t currentSwapBufferIndex_;
 	std::vector<vk::Fence> fences_;
 	vk::Sampler samplers_[3][2];
+	bool earlySamplerDiagnostics_ = false;
+	bool earlySamplerAssigned_ = false;
+	bool earlySamplerSubmitted_ = false;
+	unsigned earlySamplerDrawCount_ = 0;
 	TextureVulkan* fallbackSampledTexture_ = nullptr;
 
 	RenderPassVulkan* renderPass_ = nullptr;

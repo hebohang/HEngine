@@ -1,0 +1,4 @@
+{
+  "microsoft.net.workload.mono.toolchain.current": "10.0.110/10.0.100",
+  "microsoft.net.workload.emscripten.current": "10.0.110/10.0.100"
+}

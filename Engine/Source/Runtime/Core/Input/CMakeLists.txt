@@ -1,7 +1,5 @@
-RUNTIME_ADD_SOURCE(
-    GamepadCodes.h Input.h KeyCodes.h MouseCodes.h
-)
-
+set(InputSources InputActions.h InputActions.cpp GamepadCodes.h Input.h KeyCodes.h MouseCodes.h)
 if(HE_BUILD_DEV_GAME AND NOT PACK_GAME)
-    RUNTIME_ADD_SOURCE(SyntheticKeyboardState.cpp)
+    list(APPEND InputSources SyntheticKeyboardState.cpp)
 endif()
+RUNTIME_ADD_SOURCE(${InputSources})

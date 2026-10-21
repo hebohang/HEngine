@@ -1,22 +1,30 @@
 #pragma once
 
 #include "EditorHistory.h"
+#include "Automation/EditorSceneMailbox.h"
 #include "Preview/MaterialThumbnailService.h"
 #include "Preview/SceneThumbnailService.h"
 
 #include "HEngine.h"
 #include "Panels/SceneHierarchyPanel.h"
 #include "Panels/OutputLogPanel.h"
+#include "Panels/BuildPublishPanel.h"
 
 #include "Runtime/Camera/EditorCamera.h"
 #include "Runtime/Graphics/Gui/NvrhiImGuiRenderer.h"
 #include "Runtime/Graphics/Renderer/ViewportMode.h"
 #include "Runtime/Events/Delegate.h"
 #include "Runtime/Utils/JsonUtils/JsonUtils.h"
+#include "Runtime/EcsFramework/Serializer/SceneEditingService.h"
+#include "Runtime/Scripting/ScriptPlayState.h"
 
 #include <spdlog/sinks/base_sink.h>
+#include <chrono>
+#include <cstddef>
 #include <future>
 #include <string_view>
+#include <unordered_set>
+#include <vector>
 
 namespace HEngine
 {
@@ -66,6 +74,12 @@ namespace HEngine
         void SaveBaseEditorConfig();
         void NotifyUndoClientActivity(IEditorUndoClient* client, bool bFocused, bool bHovered);
         void MarkSceneDirty(const char* label = "Edit Scene", bool bInteractive = false);
+        void RequestOpenScene(const std::filesystem::path& path);
+        std::string ValidateAssetMove() const;
+        void RefreshAfterAssetMove(const std::filesystem::path& source, const std::filesystem::path& target);
+        Json QueueSceneEditingRequest(const std::string& method, const Json& request);
+        void QueueSceneOperations(Json operations);
+        const std::string& GetLastSceneEditError() const { return mLastSceneEditError; }
         [[nodiscard]] IEditorUndoClient* GetSceneUndoClient() { return this; }
         [[nodiscard]] IEditorUndoClient* GetActiveUndoClient() const { return mActiveUndoClient; }
     public:
@@ -89,6 +103,7 @@ namespace HEngine
     private:
         template<typename PanelType>
         void RegisterPanel(std::string panelName, bool* pPanelOpen);
+        bool mStartupReadyReported = false;
 		void FlushPendingMaterialPanels();
 		void FlushPendingAssetPreviewPanels();
 		void RefreshMaterialsForCompiledShader(
@@ -113,10 +128,11 @@ namespace HEngine
         void SaveSceneAs();
 
 		void SerializeScene(Ref<Level> scene, const std::filesystem::path& path);
-		void PackageProjectWindows();
+		void OpenBuildPublish();
 
 		void OnScenePlay(); 
 		void OnSceneStop();
+		void ProcessRuntimeSceneRequest();
 		void TryChangeSceneMode(bool bPlay) noexcept;
 
 		void OnDuplicateEntity();
@@ -129,6 +145,8 @@ namespace HEngine
 
 		// UI Panels
 		void UI_Toolbar();
+		void UI_ViewportMode();
+		void UI_ViewportTransformTools();
 		void UI_StatusBar();
 		void UI_GraphicsApiSettings();
 		void UI_GraphicsApiRestartPopup();
@@ -136,7 +154,6 @@ namespace HEngine
 		void ResetSceneHistory(const char* label);
 		void ResolveActiveUndoClient();
 		[[nodiscard]] bool IsUndoClientAvailable(IEditorUndoClient* client) const;
-		bool ApplySceneSnapshot(const Ref<Level>& snapshot, const Json& editorState, const std::string& selectedUuid, const SceneHierarchyPanel::MeshSelectionContext& meshSelectionContext);
 		bool UndoActiveDocument();
 		bool RedoActiveDocument();
 
@@ -166,6 +183,7 @@ namespace HEngine
 		ImGuiTextureHandle mMainViewportTexture;
 		uint64_t mMainViewportOutputGeneration = 0;
 		std::filesystem::path mEditorScenePath;
+		std::filesystem::path mRuntimeScenePath;
         Entity mSquareEntity;
         Entity mCameraEntity;
         Entity mSecondCamera;
@@ -191,9 +209,12 @@ namespace HEngine
 
         static Scope<class HIni> mTextIni;
 
-		std::future<std::pair<bool, std::string>> mPackageFuture;
+		Scope<class BuildPublishPanel> mBuildPublishPanel;
 		bool mRuntimeCursorCaptured = false;
-		bool mRuntimeAltDown = false;
+		bool mRuntimeInputEngaged = false;
+        ScriptPlaySession mScriptPlay;
+        Json mPrePlayEditorState;
+        std::filesystem::path mPendingScriptGeneration;
 		bool mToolbarGridSnap = false;
 		bool mToolbarUseLocalSpace = true;
 		bool mToolbarPerspectiveView = true;
@@ -202,20 +223,20 @@ namespace HEngine
 		std::string mViewportModeError;
 		bool bViewGizmoHovered = false;
 		bool bViewGizmoActive = false;
-		struct SceneHistoryEntry
-		{
-			Ref<Level> Scene;
-			Json EditorState;
-			std::string SelectedEntityUuid;
-			SceneHierarchyPanel::MeshSelectionContext MeshSelectionContext;
-			std::string Label;
-		};
-		std::vector<SceneHistoryEntry> mSceneHistoryEntries;
-		size_t mSceneHistoryCursor = 0;
-		size_t mSavedSceneHistoryCursor = 0;
+		Scope<SceneEditingService> mSceneEditing;
+        EditorSceneMailbox mSceneMailbox;
+		std::filesystem::path mPendingSceneOpenPath;
+        bool mInvalidateClosedAssetPanels = false;
+		struct PendingSceneEdit { std::string Ticket, Method; Json Request; bool LocalUi = false; };
+		std::vector<PendingSceneEdit> mPendingSceneEdits;
+		std::map<std::string, Json> mSceneEditResults;
+        std::string mLastSceneEditError;
 		bool mSceneHistoryInteractivePending = false;
 		std::string mPendingSceneHistoryLabel;
-		std::string mSavedSceneContentSnapshot;
+		std::chrono::steady_clock::time_point mNextSceneObservation{};
+		std::vector<EntityHandle> mSceneObservationHandles;
+		std::unordered_set<std::string> mSceneObservationSeen;
+		size_t mSceneObservationIndex = 0;
 		bool mSceneDirty = false;
 		uint64_t mEditorRenderRevision = 1;
 		uint64_t mLastRenderedEditorRevision = 0;

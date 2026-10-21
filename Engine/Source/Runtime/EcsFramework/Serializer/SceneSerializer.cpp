@@ -47,6 +47,14 @@ namespace HEngine
 		return json;
 	}
 
+	Json SceneSerializer::SerializeEntityToJson(Entity entity) const
+	{
+		HE_CORE_ASSERT(entity && entity.HasComponent<IDComponent>());
+		Json json;
+		SerializeEntity(json, entity);
+		return json;
+	}
+
 	template<Component... C>
 	static void SerializeEntity(Json& json, Entity entity)
 	{
@@ -54,7 +62,7 @@ namespace HEngine
 			{
 				if (entity.HasComponent<C>())
 				{
-					auto comp = entity.GetComponent<C>();
+					const auto& comp = entity.GetComponent<C>();
 					Json compJson;
 					Serializer::Serialize(compJson, comp);
 					json[C::GetTypeName()] = compJson;

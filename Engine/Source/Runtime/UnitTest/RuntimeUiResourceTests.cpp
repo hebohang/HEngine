@@ -188,6 +188,30 @@ namespace HEngine::Tests
 
 	void RuntimeUiResourceContract()
 	{
+        // Slot constraints must survive wide, portrait and nested parents.
+        UIAnchorRect bar;
+        bar.AnchorMax = {1.0f, 0.0f};
+        bar.Pivot = {0.0f, 0.0f};
+        bar.OffsetMin = {24.0f, 16.0f};
+        bar.OffsetMax = {-24.0f, 80.0f};
+        for (const glm::vec2 parent : {glm::vec2(1280, 720), glm::vec2(2400, 1080), glm::vec2(720, 1280)})
+        {
+            const auto rect = ResolveUILayoutRect(bar, parent);
+            Require(rect.Position == glm::vec2(24, 16), "Stretched bar must keep its near margins");
+            Require(rect.Size == glm::vec2(parent.x - 48, 80), "Horizontal stretch must preserve fixed height");
+        }
+        UIAnchorRect fixed;
+        fixed.AnchorMin = fixed.AnchorMax = {1, 1};
+        fixed.Pivot = {1, 1};
+        fixed.OffsetMin = {-20, -30};
+        fixed.OffsetMax = {200, 60};
+        Require(ResolveUILayoutRect(fixed, {2400, 1080}).Position == glm::vec2(2180, 990),
+            "Bottom-right slot must follow its parent and pivot");
+        UIAnchorRect fill;
+        fill.AnchorMax = {1, 1};
+        fill.OffsetMin = {10, 20};
+        fill.OffsetMax = {-30, -40};
+        Require(ResolveUILayoutRect(fill, {500, 300}).Size == glm::vec2(460, 240), "Fill slot must preserve four margins");
 		ScopedTempDirectory tempDirectory;
 		const std::filesystem::path projectRoot = tempDirectory.Get() / "Project";
 		const std::filesystem::path uiDirectory = projectRoot / "Assets" / "UI";
@@ -197,9 +221,21 @@ namespace HEngine::Tests
 		UIRes firstDefinition = MakeUiDefinition("First", "First generation");
 		firstDefinition.GeneratedRmlPath = "Assets/UI/Hud.rml";
 		firstDefinition.GeneratedRcssPath = "Assets/UI/Hud.rcss";
+        UINodeRes barNode;
+        barNode.Id = 2;
+        barNode.ParentId = 1;
+        barNode.ElementId = "responsive_bar";
+        barNode.Layout = bar;
+        firstDefinition.Nodes.push_back(barNode);
 		std::string error;
 		Require(SaveUIRes(firstDefinition, huiPath, &error),
 			"Failed to create the initial UI resource fixture.");
+        const auto exportedBytes = ReadFileBytes(uiDirectory / "Hud.rml");
+        const std::string exported(exportedBytes.begin(), exportedBytes.end());
+        Require(exported.find("left:0%;right:0%;margin-left:24dp;margin-right:24dp;width:auto;") != std::string::npos,
+            "Export must preserve parent-relative horizontal slot constraints");
+        Require(exported.find("top:0%;margin-top:16dp;height:80dp;") != std::string::npos,
+            "Export must preserve fixed height on the non-stretched axis");
 
 		const RuntimeUiPath firstPath = ResolveRuntimeUiPath(
 			projectRoot,

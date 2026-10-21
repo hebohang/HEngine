@@ -3,25 +3,30 @@
 #include "MeshLoader.h"
 #include "Mesh.h"
 #include "MeshResourceValidator.h"
+#include "MeshBindPose.h"
+#include "Runtime/Core/TaskScheduler.h"
 #include "SubMesh.h"
 #include "Runtime/Graphics/Material/Material.h"
 #include "Runtime/Graphics/Material/MaterialResourceCache.h"
 #include "Runtime/Resource/AssetManager/AssetManager.h"
+#include "Runtime/Resource/ConfigManager/ConfigManager.h"
 #include "Runtime/Resource/ResType/Mesh.h"
 #include "Runtime/Utils/JsonUtils/JsonUtils.h"
 #include "Runtime/Utils/PathUtils/PathUtils.h"
 #include "_generated/serializer/Mesh.gen.h"
 #include "_generated/serializer/Material.gen.h"
 
-#if !defined(HE_PACKAGED_GAME)
+#if HE_RUNTIME_ASSET_IMPORT
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 #endif
 
 #include <cmath>
+#include <atomic>
+#include <cstring>
 #include <cstdint>
-#if !defined(HE_PACKAGED_GAME)
+#if HE_RUNTIME_ASSET_IMPORT
 #include <regex>
 #endif
 #include <stdexcept>
@@ -163,9 +168,9 @@ namespace HEngine
 		auto fullPath = ConfigManager::GetFullPath(path);
 		if (Utils::PathToUtf8(fullPath.extension()) == ".hmesh")
 			LoadModelHMESH(mesh, fullPath);
-#if defined(HE_PACKAGED_GAME)
+#if !HE_RUNTIME_ASSET_IMPORT
 		else
-			throw std::runtime_error("Packaged games can only load cooked .hmesh resources: " + path);
+			throw std::runtime_error("Runtime raw model import is disabled; import this asset to .hmesh with HAssetImporter or the Editor: " + path);
 #else
 		else
 		{
@@ -267,9 +272,9 @@ namespace HEngine
 			DecodedSubMesh decodedSubMesh;
 			std::vector<uint32_t>& indices = decodedSubMesh.Indices;
 
-			// indices
+			const auto decodeIndices = [&](int indexAccessor, std::vector<uint32_t>& indices)
 			{
-				const Accessor& indiceAccessor = meshRes.accessorVec[primitive.indices];
+				const Accessor& indiceAccessor = meshRes.accessorVec[indexAccessor];
 				const MeshBufferView& bufferView = meshRes.bufferViewVec[indiceAccessor.bufferViewIndex];
 				const MeshBuffer& buffer = meshRes.bufferVec[bufferView.bufferIndex];
 				std::size_t byteOffset = bufferView.byteOffset + indiceAccessor.byteOffset;
@@ -280,6 +285,20 @@ namespace HEngine
 					std::size_t totalBytes = indiceAccessor.count * Utils::GetComponentSizeInBytes(indiceAccessor.componentType) * Utils::GetNumComponentsInType(indiceAccessor.type);
 					std::memcpy(dataVec.data(), buffer.data.data() + byteOffset, totalBytes);
 					indices.resize(dataVec.size());
+                    if (dataVec.size() >= 65536)
+                    {
+                        std::atomic_bool cancelled{false};
+                        (void)GetRuntimeTaskScheduler().ParallelFor(
+                            "Mesh index conversion", dataVec.size(), 16384,
+                            [&](size_t i)
+                            {
+                                if ((i & 0x0fff) == 0 && stopToken.stop_requested())
+                                    cancelled.store(true, std::memory_order_relaxed);
+                                if (!cancelled.load(std::memory_order_relaxed))
+                                    indices[i] = static_cast<uint32_t>(dataVec[i]);
+                            }, TaskPriority::Background);
+                        return !cancelled.load(std::memory_order_relaxed);
+                    }
 					for (size_t i = 0; i < dataVec.size(); ++i)
 					{
 						if ((i & 0x0fff) == 0 && stopToken.stop_requested())
@@ -305,8 +324,17 @@ namespace HEngine
 					std::vector<uint32_t> dataVec;
 					bCopied = CopyIndicesData(dataVec);
 				}
-				if (!bCopied)
-					return Failure(MeshDecodeError::Cancelled, "Mesh decode was cancelled.");
+				return bCopied;
+			};
+			if (!decodeIndices(primitive.indices, indices))
+				return Failure(MeshDecodeError::Cancelled, "Mesh decode was cancelled.");
+			for (const MeshLod& lod : primitive.lods)
+			{
+				SubMeshLod decodedLod;
+				decodedLod.ObjectSpaceError = lod.objectSpaceError;
+				if (!decodeIndices(lod.indices, decodedLod.Indices))
+					return Failure(MeshDecodeError::Cancelled, "Mesh LOD decode was cancelled.");
+				decodedSubMesh.Lods.push_back(std::move(decodedLod));
 			}
 
 			// vertices
@@ -351,6 +379,25 @@ namespace HEngine
 					};
 
 					const int numComp = Utils::GetNumComponentsInType(attrAccessor.type);
+                    if (attrName == "CLOTH_WEIGHT")
+                    {
+                        const size_t stride = bufferView.byteStride != 0 ? bufferView.byteStride : sizeof(float);
+                        for (size_t index = 0; index < vertices.size(); ++index)
+                            std::memcpy(&vertices[index].ClothWeight,
+                                buffer.data.data() + byteOffset + index * stride, sizeof(float));
+                        continue;
+                    }
+                    if (attrName == "TEXCOORD_1" || attrName == "COLOR_0")
+                    {
+                        for (size_t index = 0; index < vertices.size(); ++index)
+                        {
+                            const auto* source = buffer.data.data() + byteOffset + index * numComp * sizeof(float);
+                            if (attrName == "TEXCOORD_1") std::memcpy(&vertices[index].TexCoord1, source, 2 * sizeof(float));
+                            else { vertices[index].Color = glm::vec4(1.0f); std::memcpy(&vertices[index].Color, source, numComp * sizeof(float)); }
+                        }
+                        continue;
+                    }
+
 
 					if (numComp == 2)
 					{
@@ -428,25 +475,25 @@ namespace HEngine
 							bWithTangent = true;
 							bWithBitangent = true;
 						}
-						else if (attrName == "JOINTS_0")
+						else if (attrName.starts_with("JOINTS_"))
 						{
 							if (!Utils::ForEachCancellable(dataVec.size(), stopToken, [&](std::size_t i)
 							{
-								vertices[i].mBoneIDs[0] = static_cast<int>(dataVec[i].x);
-								vertices[i].mBoneIDs[1] = static_cast<int>(dataVec[i].y);
-								vertices[i].mBoneIDs[2] = static_cast<int>(dataVec[i].z);
-								vertices[i].mBoneIDs[3] = static_cast<int>(dataVec[i].w);
+								vertices[i].mBoneIDs[(attrName.back()-'0')*4+0] = static_cast<int>(dataVec[i].x);
+								vertices[i].mBoneIDs[(attrName.back()-'0')*4+1] = static_cast<int>(dataVec[i].y);
+								vertices[i].mBoneIDs[(attrName.back()-'0')*4+2] = static_cast<int>(dataVec[i].z);
+								vertices[i].mBoneIDs[(attrName.back()-'0')*4+3] = static_cast<int>(dataVec[i].w);
 							}))
 								return Failure(MeshDecodeError::Cancelled, "Mesh decode was cancelled.");
 						}
-						else if (attrName == "WEIGHTS_0")
+						else if (attrName.starts_with("WEIGHTS_"))
 						{
 							if (!Utils::ForEachCancellable(dataVec.size(), stopToken, [&](std::size_t i)
 							{
-								vertices[i].mWeights[0] = dataVec[i].x;
-								vertices[i].mWeights[1] = dataVec[i].y;
-								vertices[i].mWeights[2] = dataVec[i].z;
-								vertices[i].mWeights[3] = dataVec[i].w;
+								vertices[i].mWeights[(attrName.back()-'0')*4+0] = dataVec[i].x;
+								vertices[i].mWeights[(attrName.back()-'0')*4+1] = dataVec[i].y;
+								vertices[i].mWeights[(attrName.back()-'0')*4+2] = dataVec[i].z;
+								vertices[i].mWeights[(attrName.back()-'0')*4+3] = dataVec[i].w;
 							}))
 								return Failure(MeshDecodeError::Cancelled, "Mesh decode was cancelled.");
 						}
@@ -470,7 +517,14 @@ namespace HEngine
 				if (!Utils::NormalizeTangentFrame(vertices, stopToken))
 					return Failure(MeshDecodeError::Cancelled, "Mesh decode was cancelled.");
 
-				decodedSubMesh.SkinnedVertices = std::move(vertices);
+				for (auto& vertex : vertices)
+                {
+                    double total = 0;
+                    for (float weight : vertex.mWeights) total += weight;
+                    if (total > 0)
+                        for (float& weight : vertex.mWeights) weight = static_cast<float>(weight / total);
+                }
+                decodedSubMesh.SkinnedVertices = std::move(vertices);
 			}
 			else
 			{
@@ -505,6 +559,17 @@ namespace HEngine
 					};
 
 					const int numComp = Utils::GetNumComponentsInType(attrAccessor.type);
+                    if (attrName == "TEXCOORD_1" || attrName == "COLOR_0")
+                    {
+                        for (size_t index = 0; index < vertices.size(); ++index)
+                        {
+                            const auto* source = buffer.data.data() + byteOffset + index * numComp * sizeof(float);
+                            if (attrName == "TEXCOORD_1") std::memcpy(&vertices[index].TexCoord1, source, 2 * sizeof(float));
+                            else { vertices[index].Color = glm::vec4(1.0f); std::memcpy(&vertices[index].Color, source, numComp * sizeof(float)); }
+                        }
+                        continue;
+                    }
+
 
 					if (numComp == 2)
 					{
@@ -605,6 +670,47 @@ namespace HEngine
 				decodedSubMesh.StaticVertices = std::move(vertices);
 			}
 
+                // Decode validated dense FLOAT/VEC3 target streams with accessor stride.
+                const size_t vertexCount = decodedSubMesh.IsSkinned() ? decodedSubMesh.SkinnedVertices.size() : decodedSubMesh.StaticVertices.size();
+                if (primitive.targets.size() > 256)
+                    return Failure(MeshDecodeError::InvalidResource, "Morph target count exceeds 256.");
+                for (size_t targetIndex = 0; targetIndex < primitive.targets.size(); ++targetIndex)
+                {
+                    MorphTarget target;
+                    target.Name = targetIndex < primitive.targetNames.size() ? primitive.targetNames[targetIndex] : "Target_" + std::to_string(targetIndex);
+                    target.DefaultWeight = targetIndex < primitive.targetWeights.size() ? primitive.targetWeights[targetIndex] :
+                        (targetIndex < meshRes.weights.size() ? meshRes.weights[targetIndex] : 0.0f);
+                    if (target.Name.empty() || !std::isfinite(target.DefaultWeight))
+                        return Failure(MeshDecodeError::InvalidResource, "Invalid morph target name or weight.");
+                    for (const auto& [semantic, accessorIndex] : primitive.targets[targetIndex])
+                    {
+                        if (semantic != "POSITION" && semantic != "NORMAL" && semantic != "TANGENT")
+                            return Failure(MeshDecodeError::InvalidResource, "Unsupported morph target semantic.");
+                        if (accessorIndex < 0 || static_cast<size_t>(accessorIndex) >= meshRes.accessorVec.size())
+                            return Failure(MeshDecodeError::InvalidResource, "Invalid morph target accessor.");
+                        const Accessor& accessor = meshRes.accessorVec[accessorIndex];
+                        if (accessor.count != vertexCount || accessor.type != "VEC3" || accessor.componentType != HENGINE_COMPONENT_TYPE_FLOAT)
+                            return Failure(MeshDecodeError::InvalidResource, "Morph target requires matching FLOAT/VEC3 vertices.");
+                        const MeshBufferView& view = meshRes.bufferViewVec[accessor.bufferViewIndex];
+                        const MeshBuffer& buffer = meshRes.bufferVec[view.bufferIndex];
+                        auto& output = semantic == "POSITION" ? target.Positions : (semantic == "NORMAL" ? target.Normals : target.Tangents);
+                        if (vertexCount > (256u * 1024u * 1024u) / (sizeof(glm::vec3) * 3u * std::max(size_t{1}, primitive.targets.size())))
+                            return Failure(MeshDecodeError::InvalidResource, "Morph target section exceeds 256 MiB decoded limit.");
+                        output.resize(vertexCount);
+                        const size_t stride = view.byteStride ? view.byteStride : sizeof(float) * 3;
+                        for (size_t vertex = 0; vertex < vertexCount; ++vertex)
+                        {
+                            if ((vertex & 4095) == 0 && stopToken.stop_requested())
+                                return Failure(MeshDecodeError::Cancelled, "Morph decode was cancelled.");
+                            std::memcpy(&output[vertex], buffer.data.data() + view.byteOffset + accessor.byteOffset + vertex * stride, sizeof(float) * 3);
+                            const auto& delta = output[vertex];
+                            if (!std::isfinite(delta.x) || !std::isfinite(delta.y) || !std::isfinite(delta.z))
+                                return Failure(MeshDecodeError::InvalidResource, "Morph target contains non-finite deltas.");
+                        }
+                    }
+                    decodedSubMesh.MorphTargets.push_back(std::move(target));
+                }
+
 				// material
 				if (!primitive.materialResPath.empty())
 				{
@@ -668,6 +774,42 @@ namespace HEngine
 					MaterialResourceCache::GetInstance().Get(materialPath));
 		}
 
+        size_t requiredBones = 0;
+        for (const auto& section : decodedModel.SubMeshes)
+            for (const auto& vertex : section.SkinnedVertices)
+                for (int slot = 0; slot < MAX_BONE_INFLUENCE; ++slot)
+                    if (vertex.mWeights[slot] > 0)
+                    {
+                        if (vertex.mBoneIDs[slot] < 0) throw std::invalid_argument("Weighted vertex has negative joint index");
+                        requiredBones = std::max(requiredBones, static_cast<size_t>(vertex.mBoneIDs[slot]) + 1);
+                    }
+        std::vector<glm::mat4> bindPalette;
+        std::map<std::string, BoneInfo> bindBoneInfo;
+        if (requiredBones && !decodedModel.SkeletonPath.empty() && decodedModel.SkeletonPath != "None")
+        {
+            SkeletonRes skeleton;
+            std::string error;
+            if (!LoadSkeletonRes(ConfigManager::GetFullPath(decodedModel.SkeletonPath), skeleton, &error))
+                throw std::runtime_error("Mesh bind skeleton load failed: " + error);
+            bindPalette = BuildMeshBindPalette(skeleton);
+            if (requiredBones > bindPalette.size()) throw std::invalid_argument("Mesh joint index exceeds skeleton bind palette");
+            for (size_t index = 0; index < skeleton.bones.size(); ++index)
+            {
+                const auto& bone = skeleton.bones[index];
+                if (bone.name.empty() || bindBoneInfo.contains(bone.name))
+                    throw std::invalid_argument("Mesh bind skeleton has empty or duplicate bone name");
+                BoneInfo info;
+                info.id = bone.index;
+                info.offset = glm::make_mat4(skeleton.inverseBindMatrices[index].data());
+                bindBoneInfo.emplace(bone.name, info);
+            }
+        }
+        else if (requiredBones)
+        {
+            // Legacy skeleton-less meshes store bind-space vertices; retain identity skinning,
+            // with capacity derived from their actual weighted indices rather than 100.
+            bindPalette.assign(requiredBones, glm::mat4(1));
+        }
 		std::vector<Ref<SubMesh>> subMeshes;
 		subMeshes.reserve(decodedModel.SubMeshes.size());
 		for (DecodedSubMesh& decodedSubMesh : decodedModel.SubMeshes)
@@ -686,9 +828,20 @@ namespace HEngine
 					std::move(decodedSubMesh.Indices),
 					decodedSubMesh.MaterialIndex));
 			}
+			subMeshes.back()->SetLods(std::move(decodedSubMesh.Lods));
+            subMeshes.back()->SetMorphTargets(std::move(decodedSubMesh.MorphTargets));
+            if (subMeshes.back()->HasEffectiveMorphTargets())
+            {
+                subMeshes.back()->BeginDeformation();
+                subMeshes.back()->ApplyMorphWeights({});
+                subMeshes.back()->EndDeformation(true);
+            }
 		}
 
 		mesh->mSkeletonPath = std::move(decodedModel.SkeletonPath);
+        mesh->mBindBoneMatrices = std::move(bindPalette);
+        mesh->mBoneCounter = static_cast<int>(mesh->mBindBoneMatrices.size());
+        mesh->mBoneInfoMap = std::move(bindBoneInfo);
 		mesh->mMaterial = std::move(materials);
 		mesh->mSubMeshes = std::move(subMeshes);
 #if WITH_EDITOR
@@ -706,7 +859,7 @@ namespace HEngine
 		FinalizeModelHMESH(mesh, std::move(decoded.Model));
 	}
 
-#if !defined(HE_PACKAGED_GAME)
+#if HE_RUNTIME_ASSET_IMPORT
 	void MeshLoader::LoadModelASSIMP(Mesh* mesh, const std::string& path)
 	{
 		Assimp::Importer importer;
@@ -806,6 +959,8 @@ namespace HEngine
 			else
 				vertex.TexCoord = glm::vec2(0.0f, 0.0f);
 
+            if (assimpMesh->HasTextureCoords(1)) vertex.TexCoord1 = {assimpMesh->mTextureCoords[1][i].x, assimpMesh->mTextureCoords[1][i].y};
+            if (assimpMesh->HasVertexColors(0)) { const auto& color = assimpMesh->mColors[0][i]; vertex.Color = {color.r,color.g,color.b,color.a}; }
 			if (assimpMesh->HasTangentsAndBitangents())
 			{
 				// tangent
@@ -867,19 +1022,32 @@ namespace HEngine
 				{
 					int vertexId = weights[weightIndex].mVertexId;
 					float weight = weights[weightIndex].mWeight;
-					HE_CORE_ASSERT(vertexId <= vertices.size());
-					for (int i = 0; i < MAX_BONE_INFLUENCE; ++i)
-					{
-						if ((*reinterpret_cast<SkinnedVertex*>(&vertices[vertexId])).mBoneIDs[i] < 0)
-						{
-							(*reinterpret_cast<SkinnedVertex*>(&vertices[vertexId])).mWeights[i] = weight;
-							(*reinterpret_cast<SkinnedVertex*>(&vertices[vertexId])).mBoneIDs[i] = boneID;
-							break;
-						}
-					}
+                    if (vertexId < 0 || static_cast<size_t>(vertexId) >= vertices.size() || !std::isfinite(weight) || weight < 0)
+                        throw std::invalid_argument("Invalid direct-import skin influence");
+                    if (weight == 0) continue;
+                    auto& vertex = *reinterpret_cast<SkinnedVertex*>(&vertices[vertexId]);
+                    int slot = -1;
+                    for (int i = 0; i < MAX_BONE_INFLUENCE; ++i)
+                    {
+                        if (vertex.mBoneIDs[i] == boneID) { slot = i; break; }
+                        if (vertex.mBoneIDs[i] < 0 && slot < 0) slot = i;
+                    }
+                    if (slot < 0) throw std::invalid_argument("Direct-import vertex " + std::to_string(vertexId) + " exceeds 16 influences; no silent truncation");
+                    vertex.mBoneIDs[slot] = boneID;
+                    vertex.mWeights[slot] += weight;
 				}
 			}
 		}
+
+        if (mesh->bAnimated)
+            for (auto& source : vertices)
+            {
+                auto& vertex = *reinterpret_cast<SkinnedVertex*>(&source);
+                double total = 0;
+                for (float weight : vertex.mWeights) total += weight;
+                if (!std::isfinite(total)) throw std::invalid_argument("Invalid direct-import total skin weight");
+                if (total > 0) for (float& weight : vertex.mWeights) weight = static_cast<float>(weight / total);
+            }
 
 		// process materials
 		aiMaterial* material = scene->mMaterials[assimpMesh->mMaterialIndex];

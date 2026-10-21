@@ -37,6 +37,8 @@ namespace HEngine
         float SmaaCornerRounding = 0.25f;
         float TaaHistoryWeight = 0.92f;
         float TaaSharpness = 0.15f;
+        bool bTaaOptimizedHistoryGather = false;
+        bool bTaaSharedNeighborhood = false;
         uint32_t CaptureSupersampleScale = 1;
 
         [[nodiscard]] bool operator==(const AntiAliasingSettings&) const = default;

@@ -201,6 +201,34 @@ namespace nvrhi::vulkan
         return flags;
     }
 
+    // Component mappings are authored in D3D's channel layout, where a stencil SRV
+    // (X24G8_UINT) reads stencil from .g; a Vulkan stencil-aspect view puts it in .r.
+    // Remapping the source channel composes the two, so an identity mapping still
+    // yields D3D's stencil-in-.g and an app-supplied mapping stays backend-agnostic.
+    vk::ComponentMapping convertComponentMapping(const ComponentMapping& mapping, Texture::TextureSubresourceViewType viewType)
+    {
+        const bool stencilInRed = (viewType == Texture::TextureSubresourceViewType::StencilOnly);
+
+        auto convert = [stencilInRed](ComponentSwizzle s) {
+            switch (s)
+            {
+            case ComponentSwizzle::R:    return vk::ComponentSwizzle::eR;
+            case ComponentSwizzle::G:    return stencilInRed ? vk::ComponentSwizzle::eR : vk::ComponentSwizzle::eG;
+            case ComponentSwizzle::B:    return vk::ComponentSwizzle::eB;
+            case ComponentSwizzle::A:    return vk::ComponentSwizzle::eA;
+            case ComponentSwizzle::Zero: return vk::ComponentSwizzle::eZero;
+            case ComponentSwizzle::One:  return vk::ComponentSwizzle::eOne;
+            default:                     return vk::ComponentSwizzle::eIdentity;
+            }
+        };
+
+        return vk::ComponentMapping()
+            .setR(convert(mapping.r))
+            .setG(convert(mapping.g))
+            .setB(convert(mapping.b))
+            .setA(convert(mapping.a));
+    }
+
     vk::ImageCreateFlags pickImageFlags(const TextureDesc& d)
     {
         vk::ImageCreateFlags flags = vk::ImageCreateFlags(0);
@@ -257,7 +285,7 @@ namespace nvrhi::vulkan
     }
 
     TextureSubresourceView& Texture::getSubresourceView(const TextureSubresourceSet& subresource, TextureDimension dimension,
-        Format format, vk::ImageUsageFlags usage, TextureSubresourceViewType viewtype)
+        Format format, vk::ImageUsageFlags usage, TextureSubresourceViewType viewtype, ComponentMapping componentMapping)
     {
         // This function is called from createBindingSet etc. and therefore free-threaded.
         // It modifies the subresourceViews map associated with the texture.
@@ -274,7 +302,7 @@ namespace nvrhi::vulkan
         if (!desc.isTypeless)
             usage = vk::ImageUsageFlags(0);
 
-        auto cachekey = std::make_tuple(subresource, viewtype, dimension, format, usage);
+        auto cachekey = std::make_tuple(subresource, viewtype, dimension, format, usage, componentMapping.pack());
         auto iter = subresourceViews.find(cachekey);
         if (iter != subresourceViews.end())
         {
@@ -302,20 +330,14 @@ namespace nvrhi::vulkan
                         .setImage(image)
                         .setViewType(imageViewType)
                         .setFormat(vk::Format(vkFormat))
-                        .setSubresourceRange(view.subresourceRange);
+                        .setSubresourceRange(view.subresourceRange)
+                        .setComponents(convertComponentMapping(componentMapping, viewtype));
 
         auto usageInfo = vk::ImageViewUsageCreateInfo()
                         .setUsage(usage);
 
         if (uint32_t(usage) != 0)
             viewInfo.setPNext(&usageInfo);
-
-        if (viewtype == TextureSubresourceViewType::StencilOnly)
-        {
-            // D3D / HLSL puts stencil values in the second component to keep the illusion of combined depth/stencil.
-            // Set a component swizzle so we appear to do the same.
-            viewInfo.components.setG(vk::ComponentSwizzle::eR);
-        }
 
         const vk::Result res = m_Context.device.createImageView(&viewInfo, m_Context.allocationCallbacks, &view.view);
         ASSERT_VK_OK(res);
@@ -717,7 +739,8 @@ namespace nvrhi::vulkan
         }
     }
 
-    Object Texture::getNativeView(ObjectType objectType, Format format, TextureSubresourceSet subresources, TextureDimension dimension, bool /*isReadOnlyDSV*/)
+    Object Texture::getNativeView(ObjectType objectType, Format format, TextureSubresourceSet subresources, TextureDimension dimension, bool /*isReadOnlyDSV*/,
+        std::optional<ComponentMapping> overrideComponentMapping)
     {
         switch (objectType)
         {
@@ -735,7 +758,8 @@ namespace nvrhi::vulkan
                 viewType = TextureSubresourceViewType::StencilOnly;
 
             // Note: we don't have the intended usage information here, so VkImageViewUsageCreateInfo won't be added to the view.
-            return Object(getSubresourceView(subresources, dimension, format, vk::ImageUsageFlags(0), viewType).view);
+            return Object(getSubresourceView(subresources, dimension, format, vk::ImageUsageFlags(0), viewType,
+                resolveComponentMapping(overrideComponentMapping, desc.defaultComponentMapping)).view);
         }
         default:
             return nullptr;

@@ -59,7 +59,7 @@ ASSET_ID_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$")
 SEMANTIC_VERSION_PATTERN = re.compile(r"^\d+\.\d+(?:\.\d+)?$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 HISTORICAL_RENDERER_APIS = ("DX11", "DX12", "Vulkan", "OpenGL", "Metal")
-SUPPORTED_RENDERER_APIS = ("DX12",)
+SUPPORTED_RENDERER_APIS = ("DX12", "Vulkan")
 QUALITY_TIERS = ("Low", "Medium", "High")
 BUDGET_CATEGORIES = ("GameplayCritical", "Combat", "Ambient", "UI")
 
@@ -217,6 +217,39 @@ def merge_imported_files(existing: list[Any], import_paths: list[Path]) -> list[
     return sorted(records.values(), key=lambda item: item["path"].casefold())
 
 
+def validate_renderer_evidence(manifest: dict[str, Any], final_path: str | None = None) -> None:
+    baseline = manifest.get("profiler_baseline") or {}
+    evidence = baseline.get("renderer_evidence", [])
+    if not isinstance(evidence, list):
+        raise ValueError("profiler_baseline.renderer_evidence must be an array")
+    for api in manifest["supported_renderer_apis"]:
+        if api not in SUPPORTED_RENDERER_APIS:
+            raise ValueError("historical backend cannot be newly claimed or imported: " + api)
+        matches = [item for item in evidence if isinstance(item, dict) and item.get("backend") == api]
+        if len(matches) != 1 or matches[0].get("status") != "PASS":
+            raise ValueError("one actual PASS runtime evidence record required for " + api)
+        item = matches[0]
+        expected = "gpu" if manifest.get("uses_gpu_particles") is True else "cpu"
+        if manifest.get("uses_gpu_particles") is None or item.get("simulation") != expected:
+            raise ValueError("runtime evidence must match confirmed CPU/GPU effect usage")
+        if item.get("execution_scope") not in ("production", "development_probe"):
+            raise ValueError("runtime evidence requires an explicit execution scope")
+        if expected == "gpu" and (item.get("gpu_enabled") is not True or
+                not isinstance(item.get("gpu_validated"), bool) or
+                (item["execution_scope"] == "production" and item["gpu_validated"] is not True)):
+            raise ValueError("GPU probe evidence cannot claim validated production support")
+        for field in ("executable", "effect", "report"):
+            reference = item.get(field, {})
+            if not isinstance(reference, dict) or not isinstance(reference.get("path"), str):
+                raise ValueError("runtime evidence missing file reference: " + field)
+            path = Path(reference["path"])
+            claimed = reference.get("sha256", "")
+            if not isinstance(claimed, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", claimed) or not path.is_file() or sha256_file(path).lower() != claimed.lower():
+                raise ValueError("runtime evidence current file/hash mismatch: " + field)
+        if final_path and Path(item["effect"]["path"]).resolve() != Path(final_path).resolve():
+            raise ValueError("runtime evidence must cover the actual final package")
+
+
 def apply_updates(manifest: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     updated = copy.deepcopy(manifest)
     if args.inspection:
@@ -255,7 +288,7 @@ def apply_updates(manifest: dict[str, Any], args: argparse.Namespace) -> dict[st
         }[args.uses_gpu_particles]
     if args.supported_renderer_api:
         # Renderer evidence is replaced, not merged: once an asset is
-        # revalidated on the sole supported backend, retired API claims must
+        # revalidated on selected current backends, retired API claims must
         # not remain in an importable manifest.
         updated["supported_renderer_apis"] = sorted(set(args.supported_renderer_api), key=str.casefold)
     if args.has_cpu_fallback:
@@ -323,8 +356,8 @@ def apply_updates(manifest: dict[str, Any], args: argparse.Namespace) -> dict[st
             raise ValueError("cannot import until GPU-particle usage is confirmed")
         if not updated["supported_renderer_apis"]:
             raise ValueError("cannot import until renderer API support is confirmed")
-        if updated["supported_renderer_apis"] != ["DX12"]:
-            raise ValueError("HEngine imports currently require confirmed DX12 renderer support")
+        if any(api not in SUPPORTED_RENDERER_APIS for api in updated["supported_renderer_apis"]):
+            raise ValueError("imports require currently evidenced DX12 and/or Vulkan support")
         if updated["vfx_budget_category"] is None:
             raise ValueError("cannot import until the VFX budget category is assigned")
         if updated["estimated_peak_particles"] is None:
@@ -339,6 +372,8 @@ def apply_updates(manifest: dict[str, Any], args: argparse.Namespace) -> dict[st
         updated["final_import_path"] = args.final_import_path.replace("\\", "/")
         updated["intake_status"] = "IMPORTED"
 
+    if args.supported_renderer_api or args.final_import_path:
+        validate_renderer_evidence(updated, args.final_import_path or updated.get("final_import_path"))
     validate_manifest(updated)
     return updated
 

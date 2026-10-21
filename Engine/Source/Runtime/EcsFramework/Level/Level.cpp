@@ -1,6 +1,8 @@
 #include "Hepch.h"
 
 #include "Runtime/Audio/AudioEngine.h"
+#include "Runtime/Core/FrameStageGraph.h"
+#include "Runtime/Core/SimulationClock.h"
 #include "Runtime/Resource/ModeManager/ModeManager.h"
 #include "Runtime/Resource/ConfigManager/ConfigManager.h"
 #include "Runtime/EcsFramework/Entity/Entity.h"
@@ -11,19 +13,20 @@
 #include "Runtime/EcsFramework/System/AI/BehaviorTreeSystem.h"
 #include "Runtime/EcsFramework/System/Script/PythonScriptSystem.h"
 #include "Runtime/Graphics/Renderer2D.h"
+#include "Runtime/Graphics/VFX/EffekseerRuntime.h"
 #include "Runtime/Graphics/Mesh/MeshLoader.h"
 #include "Runtime/Graphics/Mesh/MeshRuntimeResource.h"
 #include "Runtime/EcsFramework/Serializer/PrefabSerializer.h"
 #include "Runtime/Utils/MathUtils/MathUtils.h"
 
 #include <glm/glm.hpp>
-#include <box2d/b2_world.h>
-#include <box2d/b2_body.h>
-#include <box2d/b2_fixture.h>
-#include <box2d/b2_polygon_shape.h>
-#include <box2d/b2_circle_shape.h>
 
 #include <exception>
+#include <array>
+#include <chrono>
+#include <cmath>
+#include <cstdlib>
+#include <sstream>
 #include <stdexcept>
 #include <unordered_set>
 
@@ -31,19 +34,39 @@ namespace HEngine
 {
 	Level::Level()
 	{
+        if (const char* configuredHz = std::getenv("HE_SIMULATION_TICK_HZ"))
+        {
+            char* end = nullptr;
+            const double hz = std::strtod(configuredHz, &end);
+            if (end != configuredHz && *end == '\0' && std::isfinite(hz) &&
+                hz >= 30.0 && hz <= 120.0)
+                mFixedSimulation = FixedSimulationStepper(hz);
+            else
+                HE_CORE_WARN("Ignoring invalid HE_SIMULATION_TICK_HZ; expected 30..120");
+        }
 		mRenderPrimitiveCollector = CreateScope<RenderPrimitiveCollector>();
 
 		if (ModeManager::b3DMode)
 		{
+#if HE_ENABLE_PHYSICS_3D
 			mSystems.emplace_back(CreateScope<PhysicSystem3D>(this));
+#endif
+#if HE_ENABLE_PHYSICS_3D
 			mSystems.emplace_back(CreateScope<CharacterMovementSystem>(this));
+#endif
+#if HE_ENABLE_NAVIGATION
 			mSystems.emplace_back(CreateScope<NavPathDebugSystem>(this));
+#endif
 			mSystems.emplace_back(CreateScope<BehaviorTreeSystem>(this));
+			mSystems.emplace_back(CreateScope<SequenceSystem>(this));
 			mSystems.emplace_back(CreateScope<AnimationSystem>(this));
 			mSystems.emplace_back(CreateScope<CameraFollowSystem>(this));
 			mSystems.emplace_back(CreateScope<CameraDebugDrawSystem>(this));
 			mSystems.emplace_back(CreateScope<RenderSystem3D>(this));
+			mSystems.emplace_back(CreateScope<NativeScriptSystem>(this));
+			mSystems.emplace_back(CreateScope<ScriptSystem>(this));
 			mSystems.emplace_back(CreateScope<PythonScriptSystem>(this));
+			mSystems.emplace_back(CreateScope<RenderSystem2D>(this));
 			mSystems.emplace_back(CreateScope<AudioScriptSystem>(this));
 #if WITH_EDITOR
 			mSystems.emplace_back(CreateScope<EmbreeSystem>(this));
@@ -51,8 +74,11 @@ namespace HEngine
 		}
 		else
 		{
+#if HE_ENABLE_PHYSICS_2D
 			mSystems.emplace_back(CreateScope<PhysicSystem2D>(this));
+#endif
 			mSystems.emplace_back(CreateScope<NativeScriptSystem>(this));
+			mSystems.emplace_back(CreateScope<ScriptSystem>(this));
 			mSystems.emplace_back(CreateScope<AudioScriptSystem>(this));
 			mSystems.emplace_back(CreateScope<RenderSystem2D>(this));
 		}
@@ -262,15 +288,24 @@ namespace HEngine
 		if (nowDimMode)
 		{
 			mSystems.clear();
+#if HE_ENABLE_PHYSICS_3D
 			mSystems.emplace_back(CreateScope<PhysicSystem3D>(this));
+#endif
+#if HE_ENABLE_PHYSICS_3D
 			mSystems.emplace_back(CreateScope<CharacterMovementSystem>(this));
+#endif
+#if HE_ENABLE_NAVIGATION
 			mSystems.emplace_back(CreateScope<NavPathDebugSystem>(this));
+#endif
 			mSystems.emplace_back(CreateScope<BehaviorTreeSystem>(this));
 			mSystems.emplace_back(CreateScope<AnimationSystem>(this));
 			mSystems.emplace_back(CreateScope<CameraFollowSystem>(this));
 			mSystems.emplace_back(CreateScope<CameraDebugDrawSystem>(this));
 			mSystems.emplace_back(CreateScope<RenderSystem3D>(this));
+			mSystems.emplace_back(CreateScope<NativeScriptSystem>(this));
+			mSystems.emplace_back(CreateScope<ScriptSystem>(this));
 			mSystems.emplace_back(CreateScope<PythonScriptSystem>(this));
+			mSystems.emplace_back(CreateScope<RenderSystem2D>(this));
 			mSystems.emplace_back(CreateScope<AudioScriptSystem>(this));
 #if WITH_EDITOR
 			mSystems.emplace_back(CreateScope<EmbreeSystem>(this));
@@ -279,8 +314,11 @@ namespace HEngine
 		else
 		{
 			mSystems.clear();
+#if HE_ENABLE_PHYSICS_2D
 			mSystems.emplace_back(CreateScope<PhysicSystem2D>(this));
+#endif
 			mSystems.emplace_back(CreateScope<NativeScriptSystem>(this));
+			mSystems.emplace_back(CreateScope<ScriptSystem>(this));
 			mSystems.emplace_back(CreateScope<AudioScriptSystem>(this));
 			mSystems.emplace_back(CreateScope<RenderSystem2D>(this));
 		}
@@ -344,9 +382,13 @@ namespace HEngine
 
 		if (entity.HasComponent<PythonScriptComponent>())
 			entity.RemoveComponent<PythonScriptComponent>();
+		if (entity && entity.HasComponent<NativeScriptComponent>())
+			entity.RemoveComponent<NativeScriptComponent>();
 
 		if (entity)
 		{
+			if (entity.HasComponent<IDComponent>())
+				mEntityByUuidLookup.erase(entity.GetComponent<IDComponent>().ID.str());
 			mRegistry.destroy(entity);
 #if WITH_EDITOR
 			InvalidateEditorEntityStateCache();
@@ -358,6 +400,7 @@ namespace HEngine
 	{
 		if (mRuntimeSystemCount != 0)
 			throw std::logic_error("Runtime systems are already active.");
+        mFixedSimulation.Reset();
 
 		SetRuntimePaused(false);
 
@@ -383,6 +426,7 @@ namespace HEngine
 
 	void Level::OnRuntimeStop()
 	{
+        mFixedSimulation.Reset();
 		SystemLifecycle::Stop(
 			mRuntimeSystemCount,
 			[this](size_t systemIndex)
@@ -405,26 +449,184 @@ namespace HEngine
 	void Level::OnUpdateRuntime(Timestep ts)
 	{
 		HE_PROFILE;
+		static const int timingMode = [] {
+			const char* setting = std::getenv("HE_RUNTIME_SYSTEM_TIMINGS");
+			return setting && (setting[0] == '1' || setting[0] == '2' ||
+				setting[0] == '3') &&
+				setting[1] == '\0' ? int(setting[0] - '0') : 0;
+		}();
+		const bool bTimeSystems = timingMode != 0;
+		std::array<std::pair<const char*, double>, 32> systemTimings{};
+		size_t timedSystemCount = 0;
+		double fixedAiMilliseconds = 0.0;
+		double fixedPhysicsMilliseconds = 0.0;
+		double fixedMovementMilliseconds = 0.0;
+		double fixedGameplayMilliseconds = 0.0;
+		uint32_t fixedTicksThisFrame = 0;
+		double fixedDroppedSeconds = 0.0;
+		const auto updateStart = bTimeSystems ? std::chrono::steady_clock::now()
+			: std::chrono::steady_clock::time_point{};
 		mRenderPrimitiveCollector->BeginFrame();
 		Renderer2D::CollectorScope collectorScope(*mRenderPrimitiveCollector);
-
-		// TODO: uniform data bug
-		//std::for_each(std::execution::par, mSystems.begin(), mSystems.end(), [&ts](auto& system) {
-		//	system->OnUpdateRuntime(ts);
-		//	});
 
 		try
 		{
 			const bool bPausedAtFrameStart = mRuntimePaused;
-			for (auto& system : mSystems)
-			{
-				if (bPausedAtFrameStart && !system->ShouldUpdateWhenRuntimePaused())
-					continue;
+#if HE_ENABLE_PHYSICS_3D
+            auto* physicsSystem = TryGetSystem<PhysicSystem3D>();
+            auto* movementSystem = TryGetSystem<CharacterMovementSystem>();
+            auto* behaviorSystem = TryGetSystem<BehaviorTreeSystem>();
+            auto* fixedPythonSystem = TryGetSystem<PythonScriptSystem>();
+            if (physicsSystem && movementSystem)
+            {
+                movementSystem->CaptureInputFrame(bPausedAtFrameStart);
+                const double droppedBefore = mFixedSimulation.GetDroppedSeconds();
+                const uint32_t ticks = mFixedSimulation.Advance(
+                    ts.GetSeconds(), bPausedAtFrameStart);
+                fixedTicksThisFrame = ticks;
+                const Timestep fixedDt(mFixedSimulation.GetTickSeconds());
+                for (uint32_t tick = 0; tick < ticks; ++tick)
+                {
+                    HE_PROFILE_SECTION("Fixed AI, Physics and Character");
+                    FrameStageGraph stages;
+                    const auto prePhysics = stages.Add("PrePhysics", [&]
+                    {
+                        HE_PROFILE_SECTION("PrePhysics");
+                        const auto start = bTimeSystems ? std::chrono::steady_clock::now()
+                            : std::chrono::steady_clock::time_point{};
+                        if (behaviorSystem)
+                            behaviorSystem->OnUpdateRuntime(fixedDt);
+                        if (bTimeSystems)
+                            fixedAiMilliseconds += std::chrono::duration<double, std::milli>(
+                                std::chrono::steady_clock::now() - start).count();
+                    });
+                    const auto physics = stages.Add("Physics", [&]
+                    {
+                        HE_PROFILE_SECTION("Physics");
+                        const auto start = bTimeSystems ? std::chrono::steady_clock::now()
+                            : std::chrono::steady_clock::time_point{};
+                        physicsSystem->OnUpdateRuntime(fixedDt);
+                        if (bTimeSystems)
+                            fixedPhysicsMilliseconds += std::chrono::duration<double, std::milli>(
+                                std::chrono::steady_clock::now() - start).count();
+                    });
+                    const auto postPhysics = stages.Add("PostPhysics", [&]
+                    {
+                        HE_PROFILE_SECTION("PostPhysics");
+                        const auto start = bTimeSystems ? std::chrono::steady_clock::now()
+                            : std::chrono::steady_clock::time_point{};
+                        movementSystem->OnUpdateRuntime(fixedDt);
+                        if (bTimeSystems)
+                            fixedMovementMilliseconds += std::chrono::duration<double, std::milli>(
+                                std::chrono::steady_clock::now() - start).count();
+                    });
+                    const auto fixedGameplay = stages.Add("FixedGameplay", [&]
+                    {
+                        HE_PROFILE_SECTION("FixedGameplay");
+                        const auto start = bTimeSystems ? std::chrono::steady_clock::now()
+                            : std::chrono::steady_clock::time_point{};
+                        // Optional gameplay callbacks observe the completed
+                        // Jolt state and character transform for this tick.
+                        if (fixedPythonSystem)
+                            fixedPythonSystem->OnFixedUpdate(fixedDt);
+                        if (bTimeSystems)
+                            fixedGameplayMilliseconds += std::chrono::duration<double, std::milli>(
+                                std::chrono::steady_clock::now() - start).count();
+                    });
+                    stages.After(physics, prePhysics);
+                    stages.After(postPhysics, physics);
+                    stages.After(fixedGameplay, postPhysics);
+                    stages.Execute();
+                }
+                fixedDroppedSeconds = mFixedSimulation.GetDroppedSeconds() - droppedBefore;
+                SimulationClock::GetInstance().RecordFixedTicks(
+                    ticks, fixedDt.GetSeconds(), fixedDroppedSeconds);
+            }
+            else if (!bPausedAtFrameStart && ts.GetSeconds() > 0.0f)
+                SimulationClock::GetInstance().RecordFixedTicks(1, ts.GetSeconds(), 0.0);
+#else
+            if (!bPausedAtFrameStart && ts.GetSeconds() > 0.0f)
+                SimulationClock::GetInstance().RecordFixedTicks(1, ts.GetSeconds(), 0.0);
+#endif
+			RenderSystem3D* renderPrepareSystem = TryGetSystem<RenderSystem3D>();
+            FrameStageGraph displayStages;
+            const auto displaySystems = displayStages.Add("DisplaySystems", [&]
+            {
+				for (auto& system : mSystems)
+				{
+#if HE_ENABLE_PHYSICS_3D
+                    if (physicsSystem && movementSystem &&
+                        (system.get() == physicsSystem || system.get() == movementSystem ||
+                            system.get() == behaviorSystem))
+                        continue;
+#endif
+					// Keep startup/shutdown order, but extract the render snapshot only
+					// after display-rate scripts and 2D scene work have committed.
+					if (system.get() == renderPrepareSystem)
+						continue;
+					if (bPausedAtFrameStart && !system->ShouldUpdateWhenRuntimePaused())
+						continue;
 
-				HE_PROFILE_TRANSIENT_SECTION(typeid(*system).name());
-				system->OnUpdateRuntime(ts);
-			}
+					HE_PROFILE_TRANSIENT_SECTION(typeid(*system).name());
+					const auto systemStart = bTimeSystems ? std::chrono::steady_clock::now()
+						: std::chrono::steady_clock::time_point{};
+					system->OnUpdateRuntime(ts);
+					if (bTimeSystems && timedSystemCount < systemTimings.size())
+					{
+						const double milliseconds = std::chrono::duration<double, std::milli>(
+							std::chrono::steady_clock::now() - systemStart).count();
+						systemTimings[timedSystemCount++] = { typeid(*system).name(), milliseconds };
+					}
+				}
+            });
+            const auto renderPrepare = displayStages.Add("RenderPrepare", [&]
+            {
+				if (renderPrepareSystem &&
+					(!bPausedAtFrameStart || renderPrepareSystem->ShouldUpdateWhenRuntimePaused()))
+				{
+					HE_PROFILE_SECTION("RenderPrepare");
+					HE_PROFILE_TRANSIENT_SECTION(typeid(*renderPrepareSystem).name());
+					const auto systemStart = bTimeSystems ? std::chrono::steady_clock::now()
+						: std::chrono::steady_clock::time_point{};
+					renderPrepareSystem->OnUpdateRuntime(ts);
+					if (bTimeSystems && timedSystemCount < systemTimings.size())
+					{
+						const double milliseconds = std::chrono::duration<double, std::milli>(
+							std::chrono::steady_clock::now() - systemStart).count();
+						systemTimings[timedSystemCount++] =
+							{ typeid(*renderPrepareSystem).name(), milliseconds };
+					}
+				}
+            });
+            displayStages.After(renderPrepare, displaySystems);
+            displayStages.Execute();
 			mRenderPrimitiveCollector->EndFrame();
+			if (bTimeSystems)
+			{
+				const double totalMilliseconds = std::chrono::duration<double, std::milli>(
+					std::chrono::steady_clock::now() - updateStart).count();
+				const uint64_t frame = SimulationClock::GetInstance().GetFrameNumber();
+				if (totalMilliseconds > 24.0 || timingMode == 3 ||
+					(timingMode == 2 && frame % 60 == 0))
+				{
+					std::ostringstream details;
+					#if HE_ENABLE_PHYSICS_3D
+					details << " FixedAI=" << fixedAiMilliseconds
+						<< " FixedPhysics=" << fixedPhysicsMilliseconds
+						<< " FixedMovement=" << fixedMovementMilliseconds;
+					details << " FixedGameplay=" << fixedGameplayMilliseconds;
+					details << " FixedTicks=" << fixedTicksThisFrame
+						<< " FixedDroppedSeconds=" << fixedDroppedSeconds;
+					#endif
+					for (size_t index = 0; index < timedSystemCount; ++index)
+						if (systemTimings[index].second > 0.25)
+							details << ' ' << systemTimings[index].first << '='
+								<< systemTimings[index].second;
+					HE_CORE_WARN("[RuntimeSystemTiming] frame={} totalMs={} systemsMs:{}",
+						frame, totalMilliseconds,
+						details.str());
+				}
+			}
 		}
 		catch (...)
 		{
@@ -472,6 +674,8 @@ namespace HEngine
 				deferredPhysicsSystem->OnUpdateEditor(ts, camera);
 			}
 
+			// Additional preview views only extract; the active level owns this tick.
+			EffekseerRuntime::Update(ts);
 			mRenderPrimitiveCollector->EndFrame();
 		}
 		catch (...)
@@ -1014,10 +1218,11 @@ namespace HEngine
 
 	Entity Level::TryGetEntityByUUID(const UUID& uuid)
 	{
+		const std::string key = uuid.str();
 #if WITH_EDITOR
 		if (mEditorEntityStateCacheBuilt)
 		{
-			const auto cached = mEditorEntityByUuid.find(uuid.str());
+			const auto cached = mEditorEntityByUuid.find(key);
 			if (cached != mEditorEntityByUuid.end() && mRegistry.valid(cached->second) &&
 				mRegistry.all_of<IDComponent>(cached->second) && mRegistry.get<IDComponent>(cached->second).ID == uuid)
 			{
@@ -1025,25 +1230,31 @@ namespace HEngine
 			}
 		}
 #endif
+		if (const auto cached = mEntityByUuidLookup.find(key); cached != mEntityByUuidLookup.end())
+		{
+			if (mRegistry.valid(cached->second) && mRegistry.all_of<IDComponent>(cached->second) &&
+				mRegistry.get<IDComponent>(cached->second).ID == uuid)
+				return Entity{ cached->second, this };
+			mEntityByUuidLookup.erase(cached);
+		}
 		auto view = mRegistry.view<IDComponent>();
 		for (auto e : view)
 		{
 			const auto& idComp = view.get<IDComponent>(e);
 			if (idComp.ID == uuid)
+			{
+				mEntityByUuidLookup.emplace(key, e);
 				return Entity{ e, this };
+			}
 		}
 
 		return {};
 	}
 
-	template<typename T>
-	void Level::OnComponentAdded(Entity entity, T& component)
-	{
-	}
-
 	template<>
 	void Level::OnComponentAdded<IDComponent>(Entity entity, IDComponent& component)
 	{
+		mEntityByUuidLookup.erase(component.ID.str());
 	}
 
 	template<>
@@ -1057,6 +1268,8 @@ namespace HEngine
 		if (!component.FixedAspectRatio &&
 			ConfigManager::mViewportSize.x > 0 && ConfigManager::mViewportSize.y > 0)
 			component.Camera.SetViewportSize(ConfigManager::mViewportSize.x, ConfigManager::mViewportSize.y);
+		else
+			component.Camera.SetAspectRatio(component.Camera.mAspectRatio);
 	}
 
 	template<>
@@ -1077,6 +1290,7 @@ namespace HEngine
 	{
 		component.RuntimeCharacter = nullptr;
 		component.RuntimeVelocity = glm::vec3(0.0f);
+		component.RuntimeResolvedVelocity = glm::vec3(0.0f);
 		component.RuntimeDesiredVelocity = glm::vec3(0.0f);
 		component.RuntimeHasExternalVelocity = false;
 		component.RuntimeAnimDirection = 0.0f;
@@ -1101,6 +1315,11 @@ namespace HEngine
 
 	template<>
 	void Level::OnComponentAdded<NativeScriptComponent>(Entity entity, NativeScriptComponent& component)
+	{
+	}
+
+	template<>
+	void Level::OnComponentAdded<ScriptComponent>(Entity entity, ScriptComponent& component)
 	{
 	}
 

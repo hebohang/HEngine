@@ -2,6 +2,9 @@ RUNTIME_ADD_SOURCE(
     PostProcessResolver.cpp
     PostProcessResolver.h
     RenderWorld.h
+    BakedIrradiance.h
     RenderWorldSubmission.cpp
     RenderWorldSubmission.h
+    SubmittedDeformationHistory.h
+    SubmittedSkyMotionHistory.h
 )

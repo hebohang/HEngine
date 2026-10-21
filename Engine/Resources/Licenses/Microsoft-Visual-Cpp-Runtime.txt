@@ -1,13 +1,13 @@
 Microsoft Visual C++ Runtime
 ================================
 
-The packaged vcruntime140.dll is copied from the x64 Microsoft.VC143.CRT
-redistributable directory installed with the licensed Visual Studio 2022 v143
+The packaged vcruntime140.dll is copied from the x64 Microsoft.VC145.CRT (or Microsoft.VC143.CRT for the VS2022 fallback)
+redistributable directory installed with the licensed Visual Studio
 toolchain used to build HEngine. It is not copied from Windows System32.
 
 Copyright (c) Microsoft Corporation. All rights reserved.
 
-Redistribution is governed by the Microsoft Visual Studio 2022 license terms
+Redistribution is governed by the Microsoft Visual Studio license terms
 applicable to the licensed Visual Studio installation used for the build:
 https://visualstudio.microsoft.com/license-terms/
 

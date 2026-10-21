@@ -13,7 +13,9 @@
 
 #include <HEngine/ProjectBuildConfig.h>
 
+#if HE_WITH_PYTHON_TESTS
 #include <pybind11/embed.h>
+#endif
 
 #include <chrono>
 #include <exception>
@@ -376,6 +378,7 @@ namespace HEngine::Tests
 
 		void VerifyDestroyedPythonOwnerIsUnregistered()
 		{
+#if HE_WITH_PYTHON_TESTS
 			const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();
 			const std::string moduleName = "he_lifecycle_fixture_" + std::to_string(suffix);
 			const std::string failureModuleName = moduleName + "_failure";
@@ -529,7 +532,7 @@ namespace HEngine::Tests
 							{
 								(void)scriptSystem->StartRuntimeOwner(failingEntity);
 							}
-							catch (const pybind11::error_already_set& error)
+							catch (const std::runtime_error& error)
 							{
 								bStartCallbackFailurePropagated =
 									std::string(error.what()).find("expected lifecycle failure") !=
@@ -597,6 +600,7 @@ namespace HEngine::Tests
 				throw;
 			}
 			cleanupFixture();
+#endif
 		}
 	}
 
@@ -607,7 +611,9 @@ namespace HEngine::Tests
 		VerifySuccessfulReverseStopAndRepeatedStop();
 		VerifyStopFailuresPreserveFirstAndClearAllSystems();
 		VerifyCleanupFailureBecomesPrimary();
+#if HE_ENABLE_PHYSICS_3D
 		VerifyPhysicSystem3DRuntimeCanRestart();
+#endif
 		VerifyPythonLifecycleStateWithoutOwners();
 		VerifyDestroyedPythonOwnerIsUnregistered();
 	}

@@ -16,3 +16,60 @@
 *.py text eol=crlf
 *.vert text eol=crlf
 CMakeLists.txt text eol=crlf
+
+# Player/managed ABI identities hash this contract's exact bytes across checkout.
+Tools/Scripting/Api.schema.json -text whitespace=cr-at-eol
+
+# Benchmark manifests verify source bytes; preserve them across checkout.
+Examples/RenderingTests/Assets/RenderingBenchmarks/** -text whitespace=cr-at-eol
+Examples/RenderingTests/SourceAssets/RenderingBenchmarks/** -text whitespace=cr-at-eol
+Examples/RenderingTests/Scripts/RenderingBenchmarkCamera.py -text whitespace=cr-at-eol
+# Unified patches use a single space to mark an empty context line.
+Tools/Patches/*.patch whitespace=-blank-at-eol
+
+# Content-addressed resources and import baselines must survive checkout byte-for-byte.
+Examples/RenderingTests/Assets/Imported/** -text whitespace=cr-at-eol
+# Preserve the pinned upstream header hash, including its original trailing space.
+Engine/Source/ThirdParty/cgltf/cgltf.h -text whitespace=-blank-at-eol
+# Preserve generator-produced shader disassembly and stub docstrings verbatim.
+Engine/Source/ThirdParty/Effekseer/src/EffekseerRendererDX12/EffekseerRendererDX12/ShaderHeader/gpu_particles_update_cs.h whitespace=-blank-at-eol
+Engine/Tools/HEngineStub/HEngine/__init__.pyi whitespace=-blank-at-eol
+Examples/RenderingTests/Assets/RenderingBenchmarks/**/*.bin binary
+Examples/RenderingTests/Assets/RenderingBenchmarks/**/*.dds binary
+Examples/RenderingTests/Assets/RenderingBenchmarks/**/*.png binary
+Examples/RenderingTests/Assets/RenderingBenchmarks/**/*.hdr binary
+Examples/RenderingTests/SourceAssets/RenderingBenchmarks/**/*.bin binary
+Examples/RenderingTests/SourceAssets/RenderingBenchmarks/**/*.dds binary
+Examples/RenderingTests/SourceAssets/RenderingBenchmarks/**/*.png binary
+# Preserve upstream notices verbatim, including original trailing spaces.
+Examples/RenderingTests/SourceAssets/RenderingBenchmarks/Bistro/CHANGELOG.txt whitespace=cr-at-eol,-blank-at-eol,-blank-at-eof
+Examples/RenderingTests/SourceAssets/RenderingBenchmarks/Bistro/LICENSE.txt whitespace=cr-at-eol,-blank-at-eol,-blank-at-eof
+Examples/RenderingTests/SourceAssets/RenderingBenchmarks/Bistro/README.txt whitespace=cr-at-eol,-blank-at-eol
+Examples/RenderingTests/SourceAssets/RenderingBenchmarks/IntelSponza/credits_license.txt whitespace=cr-at-eol,-blank-at-eol
+Engine/Source/ThirdParty/Effekseer/src/EffekseerRendererVulkan/EffekseerRendererVulkan/Shader/gpu_particles_update_cs.fx.comp whitespace=-blank-at-eof
+
+# The bundled libclang manifest verifies exact upstream bytes across checkout.
+Engine/Source/Programs/HEngineParser/3rd_party/LLVM/Win64/** -text whitespace=cr-at-eol,-blank-at-eol,-blank-at-eof
+
+# Preserve whitespace in the unmodified upstream compression snapshot.
+Engine/Source/ThirdParty/Compression/unzip/MiniZip64_info.txt whitespace=cr-at-eol,-blank-at-eol,-blank-at-eof
+Engine/Source/ThirdParty/Compression/zip/Doxyfile.in whitespace=cr-at-eol,-blank-at-eol,-blank-at-eof
+Engine/Source/ThirdParty/Compression/zip/cmake/cmake_uninstall.cmake.in whitespace=cr-at-eol,-blank-at-eol,-blank-at-eof
+Engine/Source/ThirdParty/Compression/zlib/contrib/amd64/amd64-match.S whitespace=cr-at-eol,-blank-at-eol,-blank-at-eof
+Engine/Source/ThirdParty/Compression/zlib/contrib/asm686/match.S whitespace=cr-at-eol,-blank-at-eol,-blank-at-eof
+Engine/Source/ThirdParty/Compression/zlib/contrib/delphi/zlibd32.mak whitespace=cr-at-eol,-blank-at-eol,-blank-at-eof
+Engine/Source/ThirdParty/Compression/zlib/contrib/dotzlib/DotZLib/DotZLib.csproj whitespace=cr-at-eol,-blank-at-eol,-blank-at-eof
+Engine/Source/ThirdParty/Compression/zlib/contrib/gcc_gvmat64/gvmat64.S whitespace=cr-at-eol,-blank-at-eol,-blank-at-eof
+Engine/Source/ThirdParty/Compression/zlib/contrib/inflate86/inffas86.c whitespace=cr-at-eol,-blank-at-eol,-blank-at-eof
+Engine/Source/ThirdParty/Compression/zlib/contrib/masmx86/readme.txt whitespace=cr-at-eol,-blank-at-eol,-blank-at-eof
+Engine/Source/ThirdParty/Compression/zlib/contrib/minizip/MiniZip64_Changes.txt whitespace=cr-at-eol,-blank-at-eol,-blank-at-eof
+Engine/Source/ThirdParty/Compression/zlib/contrib/minizip/MiniZip64_info.txt whitespace=cr-at-eol,-blank-at-eol,-blank-at-eof
+Engine/Source/ThirdParty/Compression/zlib/contrib/minizip/minizip.1 whitespace=cr-at-eol,-blank-at-eol,-blank-at-eof
+Engine/Source/ThirdParty/Compression/zlib/contrib/pascal/readme.txt whitespace=cr-at-eol,-blank-at-eol,-blank-at-eof
+Engine/Source/ThirdParty/Compression/zlib/contrib/pascal/zlibd32.mak whitespace=cr-at-eol,-blank-at-eol,-blank-at-eof
+Engine/Source/ThirdParty/Compression/zlib/gzlib.c whitespace=cr-at-eol,-blank-at-eol,-blank-at-eof
+Engine/Source/ThirdParty/Compression/zlib/trees.h whitespace=cr-at-eol,-blank-at-eol,-blank-at-eof
+
+# Native macOS entrypoints need Unix line endings for their interpreter shebangs.
+Tools/macOS/*.py text eol=lf
+Tools/macOS/*.sh text eol=lf

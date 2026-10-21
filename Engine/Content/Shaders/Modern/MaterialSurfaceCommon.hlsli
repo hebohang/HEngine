@@ -1,3 +1,4 @@
+#include "Shared/TextureSampling.hlsli"
 #ifndef HE_MATERIAL_SURFACE_COMMON_HLSLI
 #define HE_MATERIAL_SURFACE_COMMON_HLSLI
 
@@ -28,6 +29,9 @@ SamplerState HE_GetHeapMaterialSampler(uint index)
 #ifndef HE_MATERIAL_PASS_FORWARD
 #define HE_MATERIAL_PASS_FORWARD 1
 #endif
+#ifndef HE_MATERIAL_PASS_GBUFFER
+#define HE_MATERIAL_PASS_GBUFFER 0
+#endif
 #ifndef HE_MATERIAL_PASS_DEPTH
 #define HE_MATERIAL_PASS_DEPTH 0
 #endif
@@ -49,10 +53,14 @@ SamplerState HE_GetHeapMaterialSampler(uint index)
 #ifndef HE_MATERIAL_BLEND_TRANSPARENT
 #define HE_MATERIAL_BLEND_TRANSPARENT 0
 #endif
+#ifndef HE_MATERIAL_HAS_VERTEX_OFFSET
+#define HE_MATERIAL_HAS_VERTEX_OFFSET 0
+#endif
 
-// Surface Material ABI v1 follows the existing SceneRenderer register spaces:
+// Surface Material ABI v2 follows the existing SceneRenderer register spaces:
 // space0 view/frame, space1 material textures, space2 object/material data,
 // space3 pass/environment/shadow, and space4 material samplers.
+#include "BakedIrradianceTypes.hlsli"
 cbuffer HEMaterialFrameConstants : register(b0, space0)
 {
     float4x4 g_HEViewProjection;
@@ -70,16 +78,77 @@ cbuffer HEMaterialFrameConstants : register(b0, space0)
     float4 g_HEDirectionalShadowCascadeSplits;
     float4 g_HEDirectionalShadowCascadeSettings;
     float4 g_HEDirectionalShadowDebugSettings;
-    // x: monotonic presentation time in seconds; yzw reserved for ABI v1.
+    // x: current presentation time, y: previous presentation time (seconds).
     float4 g_HEMaterialTimeAndPadding;
+    float4x4 g_HEPreviousViewProjection;
+    float4x4 g_HEPreviousView;
+    float4 g_HEFogColorDensity;
+    float4 g_HEFogDistanceHeight;
+    float4 g_HEFogDirectionalColorIntensity;
+    float4 g_HEFogDirectionalParams;
+    float4 g_HESecondaryFogColorDensity;
+    float4 g_HESecondaryFogDistanceHeight;
+    uint4 g_BakedIrradianceCount;
+    HEBakedIrradianceVolume g_BakedIrradianceVolumes[16];
 };
 
+#if HE_MATERIAL_GPU_DRIVEN
+struct HEGpuObjectData
+{
+    float4x4 World;
+    float4x4 WorldInverseTranspose;
+    uint4 MaterialObjectMeshIndices;
+    float4x4 PreviousWorld;
+    float4 StaticLightmapUvScaleBias;
+    float4 StaticLightmapScale0;
+    float4 StaticLightmapAdd0;
+    float4 StaticLightmapScale1;
+    float4 StaticLightmapAdd1;
+    uint4 StaticLightmapDescriptor;
+};
+StructuredBuffer<HEGpuObjectData> g_HEGpuObjects : register(t0, space2);
+// Invocation-local state makes the existing material property ABI identical
+// for CPU and GPU instance paths, including pixel-stage property evaluation.
+static float4x4 g_HEWorld;
+static float4x4 g_HEWorldInverseTranspose;
+static uint4 g_HEMaterialObjectMeshIndices;
+static float4x4 g_HEPreviousWorld;
+static float4 g_HEStaticLightmapUvScaleBias;
+static float4 g_HEStaticLightmapScale0;
+static float4 g_HEStaticLightmapAdd0;
+static float4 g_HEStaticLightmapScale1;
+static float4 g_HEStaticLightmapAdd1;
+static uint4 g_HEStaticLightmapDescriptor;
+void HE_LoadGpuObject(uint objectIndex)
+{
+    const HEGpuObjectData objectData = g_HEGpuObjects[objectIndex];
+    g_HEWorld = objectData.World;
+    g_HEWorldInverseTranspose = objectData.WorldInverseTranspose;
+    g_HEMaterialObjectMeshIndices = objectData.MaterialObjectMeshIndices;
+    g_HEPreviousWorld = objectData.PreviousWorld;
+    g_HEStaticLightmapUvScaleBias = objectData.StaticLightmapUvScaleBias;
+    g_HEStaticLightmapScale0 = objectData.StaticLightmapScale0;
+    g_HEStaticLightmapAdd0 = objectData.StaticLightmapAdd0;
+    g_HEStaticLightmapScale1 = objectData.StaticLightmapScale1;
+    g_HEStaticLightmapAdd1 = objectData.StaticLightmapAdd1;
+    g_HEStaticLightmapDescriptor = objectData.StaticLightmapDescriptor;
+}
+#else
 cbuffer HEMaterialObjectConstants : register(b0, space2)
 {
     float4x4 g_HEWorld;
     float4x4 g_HEWorldInverseTranspose;
     uint4 g_HEMaterialObjectMeshIndices;
+    float4x4 g_HEPreviousWorld;
+    float4 g_HEStaticLightmapUvScaleBias;
+    float4 g_HEStaticLightmapScale0;
+    float4 g_HEStaticLightmapAdd0;
+    float4 g_HEStaticLightmapScale1;
+    float4 g_HEStaticLightmapAdd1;
+    uint4 g_HEStaticLightmapDescriptor;
 };
+
+#endif
 
 struct HEGpuMaterialData
 {
@@ -90,11 +159,15 @@ struct HEGpuMaterialData
     uint4 EmissiveSamplerFlags;
     // x: program generation, y: parameter row offset, z: row count, w: ABI version.
     uint4 ProgramParameterData;
+    HETextureSampling Sampling[5];
 };
 
 StructuredBuffer<HEGpuMaterialData> g_HEGpuMaterials : register(t2, space2);
 #if HE_MATERIAL_SKINNED
 StructuredBuffer<float4x4> g_HEBoneMatrices : register(t3, space2);
+#if HE_MATERIAL_PASS_GBUFFER
+StructuredBuffer<float4x4> g_HEPreviousBoneMatrices : register(t6, space2);
+#endif
 #endif
 StructuredBuffer<float4> g_HEMaterialParameters : register(t4, space2);
 
@@ -123,6 +196,8 @@ HE_DECLARE_PUSH_CONSTANTS(
 struct HEMaterialInput
 {
     float2 UV0;
+    float2 UV1;
+    float4 Color;
     float3 PositionWS;
     float3 NormalWS;
     float3 TangentWS;
@@ -133,16 +208,48 @@ struct HEMaterialInput
     float TimeSeconds;
 };
 
+float2 HE_SelectMaterialUV(uint textureUvSet, float2 uv0, float2 uv1)
+{
+    return textureUvSet == 1u ? uv1 : uv0;
+}
+
+// Standard custom-material texture semantics share the same persisted sampling
+// settings as the legacy PBR path. Keep their UV transform in the renderer's
+// per-material data so instances can change it without recompiling shaders.
+float2 HE_StandardMaterialTextureUV(uint slot, float2 uv0, float2 uv1)
+{
+    return HE_TextureUv(g_HEGpuMaterials[g_HEMaterialObjectMeshIndices.x].Sampling[slot],
+        uv0, uv1);
+}
+
+#include "Shared/NormalMapDecode.hlsli"
+
+// The compiler supplies per-property flags from the texture parameter row.
+// Token pasting intentionally precedes expansion of the texture property.
+#define HE_TEXTURE_NORMAL_FLAGS(name) HE_TEXTURE_NORMAL_FLAGS_##name
+#define HE_SAMPLE_NORMAL_MAP(name, samplerState, uv, scale, variance) \
+    HE_DecodeNormalMap(name.Sample(samplerState, uv), scale, variance, HE_TEXTURE_NORMAL_FLAGS_##name)
+
 struct HEMaterialSurface
 {
     float3 BaseColor;
     float Metallic;
+    // Dielectric specular level (0..1 maps to F0 0..0.08). Kept separate from
+    // metallic so authored eye gloss does not turn the iris into a conductor.
+    float SpecularLevel;
     float PerceptualRoughness;
     float AO;
     float3 NormalTS;
+    uint NormalUvSet;
+    float NormalMipVariance;
     float3 Emissive;
     float Opacity;
     float AlphaCutoff;
+    // 0 standard, 2 skin, 3 hair, 4 cloth, 6 eye, 7 thin foliage transmission.
+    uint CharacterModel;
+    float3 CharacterTint;
+    float CharacterStrength;
+    float3 StrandDirectionWS;
 };
 
 float4 HE_LoadMaterialFloat4(uint relativeRow)
@@ -201,12 +308,19 @@ HEMaterialSurface HE_DefaultMaterialSurface()
     HEMaterialSurface surface;
     surface.BaseColor = material.BaseColor.rgb;
     surface.Metallic = material.EmissiveAndMetallic.w;
+    surface.SpecularLevel = 0.5f;
     surface.PerceptualRoughness = material.RoughnessAoNormalAndPadding.x;
     surface.AO = material.RoughnessAoNormalAndPadding.y;
     surface.NormalTS = float3(0.0f, 0.0f, 1.0f);
+    surface.NormalUvSet = 0u;
+    surface.NormalMipVariance = 0.0f;
     surface.Emissive = material.EmissiveAndMetallic.rgb;
     surface.Opacity = material.BaseColor.a;
     surface.AlphaCutoff = asfloat(material.EmissiveSamplerFlags.w);
+    surface.CharacterModel = 0u;
+    surface.CharacterTint = 0.0f;
+    surface.CharacterStrength = 0.0f;
+    surface.StrandDirectionWS = float3(0, 1, 0);
     return surface;
 }
 
@@ -231,19 +345,55 @@ float3x3 HE_BuildWorldTbn(HEMaterialInput input)
     return float3x3(tangent, bitangent, normal);
 }
 
-float3 HE_ResolveMaterialNormal(HEMaterialInput input, float3 normalTS)
+float3x3 HE_BuildWorldTbn(HEMaterialInput input, uint uvSet)
+{
+    if (uvSet != 1u)
+        return HE_BuildWorldTbn(input);
+
+    const float2 uvDx = ddx(input.UV1);
+    const float2 uvDy = ddy(input.UV1);
+    const float determinant = uvDx.x * uvDy.y - uvDx.y * uvDy.x;
+    if (!isfinite(determinant) || abs(determinant) < 1e-8f)
+        return HE_BuildWorldTbn(input);
+
+    const float3 positionDx = ddx(input.PositionWS);
+    const float3 positionDy = ddy(input.PositionWS);
+    const float3 sourceNormal = HE_SafeNormalize(input.NormalWS);
+    const float3 tangentCandidate =
+        (positionDx * uvDy.y - positionDy * uvDx.y) / determinant;
+    const float3 bitangentCandidate =
+        (positionDy * uvDx.x - positionDx * uvDy.x) / determinant;
+    if (!all(isfinite(tangentCandidate)) ||
+        !all(isfinite(bitangentCandidate)))
+        return HE_BuildWorldTbn(input);
+    const float3 orthogonalTangent = tangentCandidate -
+        sourceNormal * dot(sourceNormal, tangentCandidate);
+    if (dot(orthogonalTangent, orthogonalTangent) < 1e-8f)
+        return HE_BuildWorldTbn(input);
+
+    const float3 tangent = HE_SafeNormalize(orthogonalTangent);
+    const float handedness = dot(cross(sourceNormal, tangent),
+        bitangentCandidate) < 0.0f ? -1.0f : 1.0f;
+    const float3 normal = sourceNormal * (input.bFrontFace ? 1.0f : -1.0f);
+    const float3 bitangent = HE_SafeNormalize(cross(normal, tangent)) * handedness;
+    return float3x3(tangent, bitangent, normal);
+}
+
+float3 HE_ResolveMaterialNormal(HEMaterialInput input, float3 normalTS,
+    uint normalUvSet = 0u)
 {
     normalTS = all(isfinite(normalTS))
         ? HE_SafeNormalize(normalTS)
         : float3(0.0f, 0.0f, 1.0f);
-    const float3x3 tangentBasis = HE_BuildWorldTbn(input);
+    const float3x3 tangentBasis = HE_BuildWorldTbn(input, normalUvSet);
     return HE_SafeNormalize(
         normalTS.x * tangentBasis[0] +
         normalTS.y * tangentBasis[1] +
         normalTS.z * tangentBasis[2]);
 }
 
-float HE_ApplySpecularAntiAliasing(float roughness, float3 normalWS)
+float HE_ApplySpecularAntiAliasing(float roughness, float3 normalWS,
+    float normalMipVariance = 0.0f)
 {
     const float3 dndx = ddx(normalWS);
     const float3 dndy = ddy(normalWS);
@@ -252,296 +402,91 @@ float HE_ApplySpecularAntiAliasing(float roughness, float3 normalWS)
         : 0.35f;
     const float minimumAlpha = 0.08f * 0.08f;
     const float materialAlpha = max(roughness * roughness, minimumAlpha);
-    return sqrt(saturate(materialAlpha + max(normalVariance, 0.0f)));
-}
-
-float HE_DistributionGGX(float3 normalWS, float3 halfwayWS, float roughness)
-{
-    const float alpha = roughness * roughness;
-    const float alphaSquared = alpha * alpha;
-    const float nDotH = saturate(dot(normalWS, halfwayWS));
-    const float denominator = nDotH * nDotH * (alphaSquared - 1.0f) + 1.0f;
-    return alphaSquared / max(3.14159265f * denominator * denominator, 1e-12f);
-}
-
-float HE_GeometrySchlickGGX(float nDotV, float roughness)
-{
-    const float r = roughness + 1.0f;
-    const float k = (r * r) / 8.0f;
-    return nDotV / max(nDotV * (1.0f - k) + k, 1e-5f);
-}
-
-float3 HE_FresnelSchlick(float cosTheta, float3 f0)
-{
-    return f0 + (1.0f - f0) * pow(1.0f - saturate(cosTheta), 5.0f);
-}
-
-float3 HE_FresnelSchlickRoughness(float cosTheta, float3 f0, float roughness)
-{
-    return f0 + (max((1.0f - roughness).xxx, f0) - f0) *
-        pow(1.0f - saturate(cosTheta), 5.0f);
-}
-
-float3 HE_EvaluateLight(
-    HEMaterialSurface surface,
-    float3 normalWS,
-    float3 viewWS,
-    float3 lightWS,
-    float3 radiance)
-{
-    const float nDotL = saturate(dot(normalWS, lightWS));
-    if (nDotL <= 0.0f)
-        return 0.0f;
-    const float3 halfwayWS = HE_SafeNormalize(viewWS + lightWS);
-    const float nDotV = saturate(dot(normalWS, viewWS));
-    const float3 f0 = lerp(0.04f.xxx, surface.BaseColor, surface.Metallic);
-    const float3 fresnel = HE_FresnelSchlick(saturate(dot(halfwayWS, viewWS)), f0);
-    const float geometry = HE_GeometrySchlickGGX(nDotV, surface.PerceptualRoughness) *
-        HE_GeometrySchlickGGX(nDotL, surface.PerceptualRoughness);
-    const float distribution = HE_DistributionGGX(
-        normalWS, halfwayWS, surface.PerceptualRoughness);
-    const float3 specular = (distribution * geometry * fresnel) /
-        max(4.0f * nDotV * nDotL, 1e-4f);
-    const float3 diffuseWeight = (1.0f - fresnel) * (1.0f - surface.Metallic);
-    return (diffuseWeight * surface.BaseColor / 3.14159265f + specular) *
-        radiance * nDotL;
-}
-
-float HE_ComputePointLightAttenuation(
-    float distanceToLight,
-    float radius,
-    float falloffExponent)
-{
-    const float safeRadius = max(radius, 1e-3f);
-    const float safeDistance = max(distanceToLight, 1e-2f);
-    const float safeExponent = clamp(falloffExponent, 0.0f, 8.0f);
-    const float normalizedDistance = distanceToLight / safeRadius;
-    const float falloff = saturate(
-        1.0f - normalizedDistance * normalizedDistance *
-        normalizedDistance * normalizedDistance);
-    return (falloff * falloff) / max(pow(safeDistance, safeExponent), 1e-4f);
+    const float mipVariance = isfinite(normalMipVariance)
+        ? clamp(normalMipVariance, 0.0f, HE_MAX_NORMAL_MIP_VARIANCE) : 0.0f;
+    return sqrt(saturate(materialAlpha + max(normalVariance, 0.0f) + mipVariance));
 }
 
 #if HE_MATERIAL_PASS_FORWARD
-float4x4 HE_GetDirectionalShadowMatrix(int cascadeIndex)
-{
-    return cascadeIndex == 0
-        ? g_HELightViewProjection
-        : g_HEAdditionalLightViewProjections[min(cascadeIndex - 1, 2)];
-}
-
-int HE_SelectDirectionalShadowCascade(float viewDepth)
-{
-    const int cascadeCount = clamp(
-        (int)round(g_HEDirectionalShadowCascadeSettings.x), 1, 4);
-    [unroll]
-    for (int cascade = 0; cascade < 4; ++cascade)
-    {
-        if (cascade >= cascadeCount)
-            break;
-        if (viewDepth <= g_HEDirectionalShadowCascadeSplits[cascade])
-            return cascade;
-    }
-    return -1;
-}
-
-float HE_SampleDirectionalShadowCascade(
-    float3 positionWS,
-    float3 geometricNormalWS,
-    float3 lightWS,
-    int cascadeIndex)
-{
-    const float normalBiasScale = 1.0f - saturate(dot(geometricNormalWS, lightWS));
-    const float3 biasedPositionWS = positionWS +
-        geometricNormalWS * g_HEShadowSettings.z * normalBiasScale;
-    const float4 shadowClip = mul(
-        HE_GetDirectionalShadowMatrix(cascadeIndex),
-        float4(biasedPositionWS, 1.0f));
-    if (shadowClip.w <= 0.0f)
-        return 1.0f;
-    const float3 shadowNdc = shadowClip.xyz / shadowClip.w;
-    const float2 shadowUv = float2(
-        shadowNdc.x * 0.5f + 0.5f,
-        0.5f - shadowNdc.y * 0.5f);
-    if (any(shadowUv < 0.0f) || any(shadowUv > 1.0f) ||
-        shadowNdc.z < 0.0f || shadowNdc.z > 1.0f)
-        return 1.0f;
-
-    uint shadowWidth = 0;
-    uint shadowHeight = 0;
-    uint shadowLayers = 0;
-    g_HEDirectionalShadow.GetDimensions(shadowWidth, shadowHeight, shadowLayers);
-    if ((uint)cascadeIndex >= shadowLayers)
-        return 1.0f;
-    const float compareDepth = saturate(shadowNdc.z - g_HEShadowSettings.y);
-    const int radius = clamp((int)round(g_HEShadowSettings.w), 0, 4);
-    const int2 maximumTexel = int2(
-        max((int)shadowWidth - 1, 0),
-        max((int)shadowHeight - 1, 0));
-    const int2 centerTexel = clamp(
-        int2(shadowUv * float2(shadowWidth, shadowHeight)),
-        int2(0, 0), maximumTexel);
-    float visibility = 0.0f;
-    float sampleCount = 0.0f;
-    [loop]
-    for (int y = -radius; y <= radius; ++y)
-    {
-        [loop]
-        for (int x = -radius; x <= radius; ++x)
-        {
-            const int2 sampleTexel = clamp(
-                centerTexel + int2(x, y), int2(0, 0), maximumTexel);
-            const float shadowDepth = g_HEDirectionalShadow.Load(
-                int4(sampleTexel, cascadeIndex, 0));
-            visibility += compareDepth <= shadowDepth ? 1.0f : 0.0f;
-            sampleCount += 1.0f;
-        }
-    }
-    return visibility / max(sampleCount, 1.0f);
-}
-
-float HE_EvaluateDirectionalShadow(
-    float3 positionWS,
-    float3 geometricNormalWS,
-    float3 lightWS)
-{
-    if (g_HEShadowSettings.x <= 0.0f)
-        return 1.0f;
-    const float viewDepth = abs(mul(
-        g_HEShadowCameraView, float4(positionWS, 1.0f)).z);
-    const int cascadeIndex = HE_SelectDirectionalShadowCascade(viewDepth);
-    if (cascadeIndex < 0)
-        return 1.0f;
-    const int cascadeCount = clamp(
-        (int)round(g_HEDirectionalShadowCascadeSettings.x), 1, 4);
-    float visibility = HE_SampleDirectionalShadowCascade(
-        positionWS, geometricNormalWS, lightWS, cascadeIndex);
-    const float previousSplit = cascadeIndex > 0
-        ? g_HEDirectionalShadowCascadeSplits[cascadeIndex - 1]
-        : g_HEDirectionalShadowDebugSettings.w;
-    const float cascadeSpan = max(
-        g_HEDirectionalShadowCascadeSplits[cascadeIndex] - previousSplit,
-        1e-3f);
-    if (cascadeIndex + 1 < cascadeCount)
-    {
-        const float blendRange = cascadeSpan *
-            saturate(g_HEDirectionalShadowCascadeSettings.z);
-        const float blendStart =
-            g_HEDirectionalShadowCascadeSplits[cascadeIndex] - blendRange;
-        if (blendRange > 0.0f && viewDepth > blendStart)
-        {
-            visibility = lerp(
-                visibility,
-                HE_SampleDirectionalShadowCascade(
-                    positionWS, geometricNormalWS, lightWS, cascadeIndex + 1),
-                smoothstep(
-                    blendStart,
-                    g_HEDirectionalShadowCascadeSplits[cascadeIndex],
-                    viewDepth));
-        }
-    }
-    else
-    {
-        const float fadeRange = cascadeSpan *
-            saturate(g_HEDirectionalShadowCascadeSettings.w);
-        const float fadeStart =
-            g_HEDirectionalShadowCascadeSplits[cascadeIndex] - fadeRange;
-        if (fadeRange > 0.0f && viewDepth > fadeStart)
-        {
-            visibility = lerp(
-                visibility,
-                1.0f,
-                smoothstep(
-                    fadeStart,
-                    g_HEDirectionalShadowCascadeSplits[cascadeIndex],
-                    viewDepth));
-        }
-    }
-    return lerp(1.0f, visibility, saturate(g_HEShadowSettings.x));
-}
-
-float3 HE_EvaluateIbl(
-    HEMaterialSurface surface,
-    float3 normalWS,
-    float3 viewWS)
-{
-    if (g_HEIblSettings.z <= 0.0f)
-        return 0.0f;
-    const float nDotV = max(saturate(dot(normalWS, viewWS)), 1e-4f);
-    const float3 f0 = lerp(0.04f.xxx, surface.BaseColor, surface.Metallic);
-    const float3 fresnel = HE_FresnelSchlickRoughness(
-        nDotV, f0, surface.PerceptualRoughness);
-    const float3 diffuseWeight = (1.0f - fresnel) * (1.0f - surface.Metallic);
-    const float3 irradiance = g_HEIrradianceMap.SampleLevel(
-        g_HEEnvironmentSampler, normalWS, 0.0f).rgb;
-    const float3 reflectionWS = reflect(-viewWS, normalWS);
-    const float3 prefiltered = g_HEPrefilterMap.SampleLevel(
-        g_HEEnvironmentSampler,
-        reflectionWS,
-        surface.PerceptualRoughness * g_HEIblSettings.y).rgb;
-    const float2 brdf = g_HEBrdfLut.SampleLevel(
-        g_HEEnvironmentSampler,
-        float2(nDotV, surface.PerceptualRoughness),
-        0.0f).rg;
-    const float exponent = exp2(-16.0f * surface.PerceptualRoughness - 1.0f);
-    const float specularOcclusion = saturate(
-        pow(max(nDotV + surface.AO, 1e-4f), exponent) - 1.0f + surface.AO);
-    const float3 diffuse = diffuseWeight * irradiance *
-        surface.BaseColor * surface.AO;
-    const float3 specular = prefiltered *
-        (f0 * brdf.x + brdf.y) * specularOcclusion;
-    return (diffuse + specular) * g_HEIblSettings.x;
-}
+#define g_CameraPositionAndExposure g_HECameraPositionAndExposure
+#define g_LightViewProjection g_HELightViewProjection
+#define g_AdditionalLightViewProjections g_HEAdditionalLightViewProjections
+#define g_ShadowCameraView g_HEShadowCameraView
+#define g_DirectionalShadowCascadeSettings g_HEDirectionalShadowCascadeSettings
+#define g_DirectionalShadowCascadeSplits g_HEDirectionalShadowCascadeSplits
+#define g_DirectionalShadowDebugSettings g_HEDirectionalShadowDebugSettings
+#define g_ShadowSettings g_HEShadowSettings
+#define g_DirectionalShadow g_HEDirectionalShadow
+#define g_ShadowSampler g_HEEnvironmentSampler
+#define g_IrradianceMap g_HEIrradianceMap
+#define g_PrefilterMap g_HEPrefilterMap
+#define g_BrdfLut g_HEBrdfLut
+#define g_IblSettings g_HEIblSettings
+#define g_DirectionalDirectionAndIntensity g_HEDirectionalDirectionAndIntensity
+#define g_DirectionalColor g_HEDirectionalColor
+#define g_PointPositionAndIntensity g_HEPointPositionAndIntensity
+#define g_PointColorAndRadius g_HEPointColorAndRadius
+#define g_ViewProjection g_HEViewProjection
+#define g_FogColorDensity g_HEFogColorDensity
+#define g_FogDistanceHeight g_HEFogDistanceHeight
+#define g_FogDirectionalColorIntensity g_HEFogDirectionalColorIntensity
+#define g_FogDirectionalParams g_HEFogDirectionalParams
+#define g_SecondaryFogColorDensity g_HESecondaryFogColorDensity
+#define g_SecondaryFogDistanceHeight g_HESecondaryFogDistanceHeight
+#include "RasterSurfaceLighting.hlsli"
+#undef g_FogColorDensity
+#undef g_FogDistanceHeight
+#undef g_FogDirectionalColorIntensity
+#undef g_FogDirectionalParams
+#undef g_SecondaryFogColorDensity
+#undef g_SecondaryFogDistanceHeight
+#undef g_ViewProjection
+#undef g_CameraPositionAndExposure
+#undef g_LightViewProjection
+#undef g_AdditionalLightViewProjections
+#undef g_ShadowCameraView
+#undef g_DirectionalShadowCascadeSettings
+#undef g_DirectionalShadowCascadeSplits
+#undef g_DirectionalShadowDebugSettings
+#undef g_ShadowSettings
+#undef g_DirectionalShadow
+#undef g_ShadowSampler
+#undef g_IrradianceMap
+#undef g_PrefilterMap
+#undef g_BrdfLut
+#undef g_IblSettings
+#undef g_DirectionalDirectionAndIntensity
+#undef g_DirectionalColor
+#undef g_PointPositionAndIntensity
+#undef g_PointColorAndRadius
 
 float3 HE_ShadeMaterial(HEMaterialInput input, HEMaterialSurface surface)
 {
     surface.BaseColor = saturate(surface.BaseColor);
     surface.Metallic = HE_SanitizeUnit(surface.Metallic, 0.0f);
     surface.PerceptualRoughness = isfinite(surface.PerceptualRoughness)
-        ? clamp(surface.PerceptualRoughness, 0.045f, 1.0f)
-        : 1.0f;
+        ? clamp(surface.PerceptualRoughness, 0.045f, 1.0f) : 1.0f;
     surface.AO = HE_SanitizeUnit(surface.AO, 1.0f);
     surface.Emissive = HE_SanitizeHdr(surface.Emissive);
 #if HE_MATERIAL_SHADING_UNLIT
     return HE_SanitizeHdr(surface.BaseColor + surface.Emissive);
 #else
-    const float3 normalWS = HE_ResolveMaterialNormal(input, surface.NormalTS);
+    const float3 normalWS = HE_ResolveMaterialNormal(input, surface.NormalTS,
+        surface.NormalUvSet);
     surface.PerceptualRoughness = HE_ApplySpecularAntiAliasing(
-        surface.PerceptualRoughness,
-        normalWS);
+        surface.PerceptualRoughness, normalWS, surface.NormalMipVariance);
+    if (surface.CharacterModel == 3u)
+        surface.PerceptualRoughness = HE_ApplySpecularAntiAliasing(
+            surface.PerceptualRoughness, HE_SafeNormalize(surface.StrandDirectionWS));
     const float3 geometricNormalWS = HE_SafeNormalize(input.NormalWS) *
         (input.bFrontFace ? 1.0f : -1.0f);
-    float3 color = HE_EvaluateIbl(surface, normalWS, input.ViewWS);
-    if (g_HEDirectionalDirectionAndIntensity.w > 0.0f)
-    {
-        const float3 lightWS = HE_SafeNormalize(
-            -g_HEDirectionalDirectionAndIntensity.xyz);
-        const float shadow = HE_EvaluateDirectionalShadow(
-            input.PositionWS, geometricNormalWS, lightWS);
-        color += shadow * HE_EvaluateLight(
-            surface,
-            normalWS,
-            input.ViewWS,
-            lightWS,
-            g_HEDirectionalColor.rgb * g_HEDirectionalDirectionAndIntensity.w);
-    }
-    if (g_HEPointPositionAndIntensity.w > 0.0f && g_HEPointColorAndRadius.w > 0.0f)
-    {
-        const float3 toLight = g_HEPointPositionAndIntensity.xyz - input.PositionWS;
-        const float distanceToLight = length(toLight);
-        const float attenuation = HE_ComputePointLightAttenuation(
-            distanceToLight,
-            g_HEPointColorAndRadius.w,
-            g_HEDirectionalShadowDebugSettings.z);
-        color += HE_EvaluateLight(
-            surface,
-            normalWS,
-            input.ViewWS,
-            HE_SafeNormalize(toLight),
-            g_HEPointColorAndRadius.rgb *
-                g_HEPointPositionAndIntensity.w * attenuation);
-    }
-    return HE_SanitizeHdr(color + surface.Emissive);
+    return ShadeSceneSurface(input.PositionWS, surface.BaseColor,
+        surface.Metallic, surface.PerceptualRoughness, surface.AO,
+        normalWS, geometricNormalWS, surface.Emissive,
+        !HE_MATERIAL_BLEND_TRANSPARENT, surface.CharacterModel,
+        surface.CharacterTint * saturate(surface.CharacterStrength),
+        HE_SafeNormalize(surface.StrandDirectionWS), saturate(surface.CharacterStrength),
+        HE_SanitizeUnit(surface.SpecularLevel, 0.5f));
 #endif
 }
 #endif

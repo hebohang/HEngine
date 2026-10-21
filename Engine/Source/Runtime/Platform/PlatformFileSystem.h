@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <memory>
 #include <span>
+#include <string>
 #include <system_error>
 
 namespace HEngine
@@ -34,6 +35,11 @@ namespace HEngine
     class PlatformFileSystem final
     {
     public:
+        // Bounded diagnostic read that does not block a producer from appending
+        // or replacing its log/receipt. Partial snapshots are allowed.
+        [[nodiscard]] static bool ReadSharedTextTail(const std::filesystem::path& path,
+            std::size_t maxBytes, std::string& outText) noexcept;
+
         [[nodiscard]] static std::filesystem::path MakeTemporarySiblingPath(
             const std::filesystem::path& targetPath);
 

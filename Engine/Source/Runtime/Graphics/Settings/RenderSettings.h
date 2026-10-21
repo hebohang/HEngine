@@ -3,6 +3,12 @@
 #include "Runtime/Core/Meta/Json.h"
 #include "Runtime/Graphics/GlobalIllumination/GlobalIllumination.h"
 #include "Runtime/Graphics/Renderer/AntiAliasing.h"
+#include "Runtime/Graphics/Renderer/Upscaling.h"
+#include "Runtime/Graphics/Renderer/VolumetricCloud.h"
+#include "Runtime/Graphics/Renderer/RenderingPath.h"
+#include "Runtime/Graphics/Renderer/SceneAmbientOcclusionPass.h"
+#include "Runtime/Graphics/Renderer/ScenePostProcessPass.h"
+#include "Runtime/Graphics/Renderer/SceneReflectionPass.h"
 #include "Runtime/Graphics/RHI/RenderBackend.h"
 
 #include <cstdint>
@@ -14,14 +20,62 @@
 
 namespace HEngine
 {
+    [[nodiscard]] Json DefaultRenderFeatureConfigurations();
     inline constexpr std::string_view RenderSettingsSchema =
         "hengine.render-settings";
     inline constexpr std::uint32_t RenderSettingsSchemaVersion = 2;
 
     namespace RenderSettingIds
     {
+        inline constexpr std::string_view RenderHeight = "Rendering.Resolution.RenderHeight";
+        inline constexpr std::string_view TextureStreamingBudget = "Rendering.TextureStreaming.BudgetMiB";
+        inline constexpr std::string_view UpscalingMode = "Rendering.Upscaling.Mode";
+        inline constexpr std::string_view UpscalingQuality = "Rendering.Upscaling.Quality";
+        inline constexpr std::string_view UpscalingSharpness = "Rendering.Upscaling.Sharpness";
+        inline constexpr std::string_view ViewOverrides = "Rendering.Views.Overrides";
+        inline constexpr std::string_view PipelineType = "Rendering.Pipeline.Type";
+        inline constexpr std::string_view PipelineFeatures = "Rendering.Pipeline.Features";
+        inline constexpr std::string_view PipelineProfile = "Rendering.Pipeline.Profile";
+        inline constexpr std::string_view CloudQuality = "Rendering.Clouds.Quality";
+        inline constexpr std::string_view CloudRenderScale = "Rendering.Clouds.RenderScale";
+        inline constexpr std::string_view CloudMaxSteps = "Rendering.Clouds.MaxSteps";
+        inline constexpr std::string_view CloudLightSteps = "Rendering.Clouds.LightSteps";
+        inline constexpr std::string_view CloudHistoryWeight = "Rendering.Clouds.HistoryWeight";
+        inline constexpr std::string_view CloudDetailDistance = "Rendering.Clouds.DetailDistance";
+        inline constexpr std::string_view CloudTemporal = "Rendering.Clouds.Temporal";
+        inline constexpr std::string_view CloudDebugView = "Rendering.Clouds.DebugView";
+
         inline constexpr std::string_view Backend = "Rendering.Backend";
+        inline constexpr std::string_view Path = "Rendering.Path";
+        inline constexpr std::string_view GpuOcclusionEnabled = "Rendering.Occlusion.Enabled";
+        inline constexpr std::string_view GpuBatchingEnabled = "Rendering.GpuBatching.Enabled";
+        inline constexpr std::string_view GpuTightFrustumEnabled = "Rendering.GpuTightFrustum.Enabled";
+        inline constexpr std::string_view GpuShadowBatchingEnabled = "Rendering.GpuBatching.ShadowsEnabled";
+        inline constexpr std::string_view LodEnabled = "Rendering.LOD.Enabled";
+        inline constexpr std::string_view LodMaxPixelError = "Rendering.LOD.MaxPixelError";
+        inline constexpr std::string_view AoEnabled = "Rendering.AO.Enabled";
+        inline constexpr std::string_view AoTechnique = "Rendering.AO.Technique";
+        inline constexpr std::string_view AoNormalBias = "Rendering.AO.NormalBias";
+        inline constexpr std::string_view AoSampleCount = "Rendering.AO.SampleCount";
+        inline constexpr std::string_view AoFastUpsample = "Rendering.AO.FastUpsample";
+        inline constexpr std::string_view AoRadius = "Rendering.AO.Radius";
+        inline constexpr std::string_view AoIntensity = "Rendering.AO.Intensity";
+        inline constexpr std::string_view AoSliceCount = "Rendering.AO.SliceCount";
+        inline constexpr std::string_view AoStepsPerSide = "Rendering.AO.StepsPerSide";
+        inline constexpr std::string_view SsrGuideCache = "Rendering.Reflections.SSR.GuideCacheEnabled";
+        inline constexpr std::string_view SsrEnabled = "Rendering.Reflections.SSR.Enabled";
+        inline constexpr std::string_view ReflectionProbesEnabled = "Rendering.Reflections.Probes.Enabled";
+        inline constexpr std::string_view SsrMaximumDistance = "Rendering.Reflections.SSR.MaximumDistance";
+        inline constexpr std::string_view SsrThickness = "Rendering.Reflections.SSR.Thickness";
+        inline constexpr std::string_view SsrRoughnessCutoff = "Rendering.Reflections.SSR.RoughnessCutoff";
+        inline constexpr std::string_view SsrEdgeFade = "Rendering.Reflections.SSR.EdgeFade";
+        inline constexpr std::string_view SsrNormalBias = "Rendering.Reflections.SSR.NormalBias";
+        inline constexpr std::string_view SsrStepCount = "Rendering.Reflections.SSR.StepCount";
+        inline constexpr std::string_view SsrBinaryRefinementSteps = "Rendering.Reflections.SSR.BinaryRefinementSteps";
         inline constexpr std::string_view VSync = "Rendering.Presentation.VSync";
+        inline constexpr std::string_view FramesInFlight = "Rendering.Presentation.FramesInFlight";
+        inline constexpr std::string_view TransientCacheBudgetMiB = "Rendering.Memory.TransientCacheBudgetMiB";
+        inline constexpr std::string_view TransientTextureReuse = "Rendering.Memory.TransientTextureReuse";
         inline constexpr std::string_view AntiAliasingMode =
             "Rendering.AntiAliasing.Mode";
         inline constexpr std::string_view MsaaSamples =
@@ -44,6 +98,10 @@ namespace HEngine
             "Rendering.AntiAliasing.TaaHistoryWeight";
         inline constexpr std::string_view TaaSharpness =
             "Rendering.AntiAliasing.TaaSharpness";
+        inline constexpr std::string_view TaaOptimizedHistoryGather =
+            "Rendering.AntiAliasing.TaaOptimizedHistoryGather";
+        inline constexpr std::string_view TaaSharedNeighborhood =
+            "Rendering.AntiAliasing.TaaSharedNeighborhood";
         inline constexpr std::string_view GiTechnique =
             "Rendering.GI.Technique";
         inline constexpr std::string_view GiDenoiser =
@@ -58,6 +116,13 @@ namespace HEngine
             "Rendering.GI.MaxBounces";
         inline constexpr std::string_view GiAtrousIterations =
             "Rendering.GI.AtrousIterations";
+        inline constexpr std::string_view GiSsgiEnvironmentMis = "Rendering.GI.SSGI.EnvironmentMIS";
+        inline constexpr std::string_view GiSvgfOptimizedKernels =
+            "Rendering.GI.SVGF.OptimizedKernels";
+        inline constexpr std::string_view GiSsgiLocalReactiveBudget =
+            "Rendering.GI.SSGI.LocalReactiveBudget";
+        inline constexpr std::string_view GiSvgfSharedUncertainty =
+            "Rendering.GI.SVGF.SharedUncertainty";
         inline constexpr std::string_view GiBilateralUpsample =
             "Rendering.GI.BilateralUpsample";
         inline constexpr std::string_view GiSsgiRayCount =
@@ -74,12 +139,33 @@ namespace HEngine
             "Rendering.GI.SSGI.Thickness";
         inline constexpr std::string_view GiSsgiEdgeFade =
             "Rendering.GI.SSGI.EdgeFade";
+        inline constexpr std::string_view GiSsgiDiffuseHitDistanceWeight =
+            "Rendering.GI.SSGI.DiffuseHitDistanceWeight";
         inline constexpr std::string_view GiSsgiTemporalWeight =
             "Rendering.GI.SSGI.TemporalWeight";
         inline constexpr std::string_view PostProcessExposure =
-            "Rendering.PostProcess.Exposure";
+            "Rendering.PostProcess.ExposureEV100";
+        inline constexpr std::string_view ExposureCompensationEV = "Rendering.PostProcess.ExposureCompensationEV";
+        inline constexpr std::string_view BloomIntensity = "Rendering.PostProcess.Bloom.Intensity";
+        inline constexpr std::string_view BloomThreshold = "Rendering.PostProcess.Bloom.Threshold";
+        inline constexpr std::string_view AutoExposure = "Rendering.PostProcess.AutoExposure.Enabled";
+        inline constexpr std::string_view ExposureKey = "Rendering.PostProcess.AutoExposure.Key";
+        inline constexpr std::string_view MinimumExposure = "Rendering.PostProcess.AutoExposure.MinimumEV100";
+        inline constexpr std::string_view MaximumExposure = "Rendering.PostProcess.AutoExposure.MaximumEV100";
+        inline constexpr std::string_view ExposureAdaptationSpeed = "Rendering.PostProcess.AutoExposure.AdaptationSpeed";
+        inline constexpr std::string_view ColorContrast = "Rendering.PostProcess.Color.Contrast";
+        inline constexpr std::string_view ColorSaturation = "Rendering.PostProcess.Color.Saturation";
+        inline constexpr std::string_view ColorTemperature = "Rendering.PostProcess.Color.Temperature";
+        inline constexpr std::string_view LocalExposureShadowStrength = "Rendering.PostProcess.LocalExposure.ShadowStrength";
+        inline constexpr std::string_view LocalExposureHighlightStrength = "Rendering.PostProcess.LocalExposure.HighlightStrength";
+        inline constexpr std::string_view LocalExposureMaxEV = "Rendering.PostProcess.LocalExposure.MaxEV";
+        inline constexpr std::string_view SkinSubsurfaceEnabled = "Rendering.SkinSubsurface.Enabled";
+        inline constexpr std::string_view SkinSubsurfaceRadiusMeters = "Rendering.SkinSubsurface.RadiusMeters";
+        inline constexpr std::string_view SkinSubsurfaceQuality = "Rendering.SkinSubsurface.Quality";
         inline constexpr std::string_view ShadowsEnabled =
             "Rendering.Shadows.Enabled";
+        inline constexpr std::string_view ContinuousPcfEnabled =
+            "Rendering.Shadows.ContinuousPcfEnabled";
 
         inline constexpr std::string_view GiDebugView =
             "Rendering.Debug.GI.View";
@@ -116,6 +202,7 @@ namespace HEngine
         Float,
         Enumeration,
         String,
+        Json,
     };
 
     enum class RenderSettingDiagnosticSeverity : std::uint8_t
@@ -144,16 +231,12 @@ namespace HEngine
         High,
     };
 
-    struct PostProcessSettings
-    {
-        float Exposure = 0.8f;
-
-        [[nodiscard]] bool operator==(const PostProcessSettings&) const = default;
-    };
+    using PostProcessSettings = ScenePostProcessSettings;
 
     struct ShadowSettings
     {
         bool bEnabled = true;
+        bool bContinuousPcfEnabled = true;
 
         [[nodiscard]] bool operator==(const ShadowSettings&) const = default;
     };
@@ -179,9 +262,28 @@ namespace HEngine
 
     struct RenderSettings
     {
+        std::string PipelineType = "realtime";
+        std::string PipelineProfile = "Default";
+        Json PipelineFeatures = DefaultRenderFeatureConfigurations();
+        Json ViewOverrides = Json::object();
         RenderBackend Backend = RenderBackend::DX12;
+        RenderingPath Path = RenderingPath::Deferred;
+        SceneAmbientOcclusionSettings AmbientOcclusion;
+        CloudSettings Clouds;
+        SceneReflectionSettings Reflections;
+        bool bGpuOcclusionEnabled = false;
+        bool bGpuBatchingEnabled = false;
+        bool bGpuTightFrustumEnabled = false;
+        bool bGpuShadowBatchingEnabled = false;
+        bool bTransientTextureReuse = false;
+        std::uint32_t TransientCacheBudgetMiB = 0;
+        std::uint32_t TextureStreamingBudgetMiB = 512;
+        bool bLodEnabled = false;
+        float LodMaxPixelError = 1.0f;
         bool bVSync = false;
+        uint32_t FramesInFlight = 3;
         AntiAliasingSettings AntiAliasing;
+        UpscalingSettings Upscaling;
         GlobalIlluminationSettings GlobalIllumination;
         PostProcessSettings PostProcess;
         ShadowSettings Shadows;
@@ -360,11 +462,14 @@ namespace HEngine
     [[nodiscard]] RenderSettingAvailability GetRenderBackendAvailability(
         RenderBackend backend,
         const RenderSettingsCapabilities& capabilities);
+    [[nodiscard]] ResolvedRenderSettings ResolveRenderViewSettings(
+        const ResolvedRenderSettings& base, const Json& worldOverrides, const Json& cameraOverrides);
     [[nodiscard]] RenderSettingsChangePlan BuildRenderSettingsChangePlan(
         const ResolvedRenderSettings& before,
         const ResolvedRenderSettings& after);
     [[nodiscard]] Json GetGlobalIlluminationQualityPresetPatch(
-        GlobalIlluminationQualityPreset preset);
+        GlobalIlluminationQualityPreset preset,
+        std::optional<GlobalIlluminationTechniqueKind> technique = std::nullopt);
     [[nodiscard]] GlobalIlluminationQualityPreset
         DetectGlobalIlluminationQualityPreset(const RenderSettings& settings);
     [[nodiscard]] std::string HashResolvedRenderSettings(

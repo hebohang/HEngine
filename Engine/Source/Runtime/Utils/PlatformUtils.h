@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <span>
+#include <string_view>
 
 namespace HEngine
 {
@@ -20,6 +21,7 @@ namespace HEngine
         static std::filesystem::path SaveFile(const char* filter, std::string initialDir = "");
         static std::filesystem::path SelectFolder(std::string initialDir = "");
         static void OpenInExplorer(std::string filePath);
+        [[nodiscard]] static bool OpenWebUrl(std::string_view url);
         [[nodiscard]] static bool OpenFileWithApplication(const std::filesystem::path& applicationPath,
                                                           const std::filesystem::path& filePath);
         [[nodiscard]] static bool OpenFileWithApplicationAndStateCache(

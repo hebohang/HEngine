@@ -3,11 +3,13 @@
 #include "Runtime/Graphics/GlobalIllumination/SvgfDenoiser.h"
 
 #include "Runtime/Graphics/RHI/ShaderManager.h"
+#include "Runtime/Graphics/GlobalIllumination/GiDiagnosticReadback.h"
 #include "Runtime/Utils/PathUtils/PathUtils.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <fstream>
 #include <stdexcept>
 #include <string>
@@ -25,6 +27,7 @@ namespace HEngine
             Temporal,
             HistoryFix,
             Variance,
+            Uncertainty,
             Atrous,
             Upsample,
             Remodulate,
@@ -35,7 +38,8 @@ namespace HEngine
             glm::uvec2 TraceDimensions{ 0u };
             glm::uvec2 FullDimensions{ 0u };
             float AlbedoEpsilon = 1e-4f;
-            glm::vec3 Padding{ 0.0f };
+            uint32_t RasterSurface = 0;
+            glm::vec2 Padding{ 0.0f };
         };
 
         struct alignas(16) TemporalConstants
@@ -50,7 +54,15 @@ namespace HEngine
             // the former min/max clamp biased positive Monte-Carlo histories.
             float NeighborhoodClampSigma = 8.0f;
             float ViewDepthRelativeThreshold = 0.01f;
-            glm::vec2 Padding{ 0.0f };
+            uint32_t OptimizedKernels = 0;
+            uint32_t ScreenSpaceSignal = 0;
+            float MaximumHistoryLength = 128.0f;
+            uint32_t CountDiagnostics = 0;
+            uint32_t Padding[2]{};
+            glm::uvec4 ReactivePixels{0u};
+            uint32_t LocalReactiveBudget = 0;
+            float StaticMinimumBlend = 0.01f;
+            uint32_t ReactivePadding[2]{};
         };
 
         struct alignas(16) HistoryFixConstants
@@ -61,12 +73,21 @@ namespace HEngine
             float NormalPower = 32.0f;
             float AlbedoSigma = 0.1f;
             float RoughnessSigma = 0.1f;
+            uint32_t OptimizedKernels = 0;
+            uint32_t Padding[3]{};
         };
 
         struct alignas(16) VarianceConstants
         {
             glm::uvec2 Dimensions{ 0u };
             glm::vec2 Padding{ 0.0f };
+        };
+
+        struct alignas(16) UncertaintyConstants
+        {
+            glm::uvec2 Dimensions{ 0u };
+            float PhiDepth = 0.01f;
+            float PhiNormal = 64.0f;
         };
 
         struct alignas(16) AtrousConstants
@@ -81,7 +102,11 @@ namespace HEngine
             float PhiLuminance = 1.0f;
             float PhiAlbedo = 0.1f;
             float PhiRoughness = 0.1f;
-            glm::vec2 Padding{ 0.0f };
+            uint32_t OptimizedKernels = 0;
+            uint32_t ScreenSpaceSignal = 0;
+            float DiffuseHitDistanceWeight = 1.0f;
+            uint32_t UseSharedUncertainty = 0;
+            uint32_t Padding[2]{};
         };
 
         struct alignas(16) UpsampleConstants
@@ -98,14 +123,21 @@ namespace HEngine
         {
             glm::uvec2 Dimensions{ 0u };
             float AlbedoEpsilon = 1e-4f;
-            float Padding = 0.0f;
+            uint32_t RasterSurface = 0;
         };
 
         static_assert(sizeof(DemodulateConstants) == 32);
-        static_assert(sizeof(TemporalConstants) == 48);
-        static_assert(sizeof(HistoryFixConstants) == 32);
+        static_assert(sizeof(TemporalConstants) == 96);
+        static_assert(offsetof(TemporalConstants, ReactivePixels) == 64);
+        static_assert(offsetof(TemporalConstants, LocalReactiveBudget) == 80);
+        static_assert(offsetof(TemporalConstants, StaticMinimumBlend) == 84);
+        static_assert(sizeof(HistoryFixConstants) == 48);
         static_assert(sizeof(VarianceConstants) == 16);
-        static_assert(sizeof(AtrousConstants) == 48);
+        static_assert(sizeof(AtrousConstants) == 64);
+        static_assert(offsetof(AtrousConstants, DiffuseHitDistanceWeight) == 48);
+        static_assert(offsetof(AtrousConstants, UseSharedUncertainty) == 52);
+        static_assert(offsetof(AtrousConstants, Padding) == 56);
+        static_assert(sizeof(UncertaintyConstants) == 16);
         static_assert(sizeof(UpsampleConstants) == 32);
         static_assert(sizeof(RemodulateConstants) == 16);
 
@@ -124,6 +156,7 @@ namespace HEngine
 
         struct TemporalPassData
         {
+            BufferHandle DiagnosticCounters;
             TextureHandle NoisyDiffuse;
             TextureHandle HitDistance;
             SceneSurfaceData Surface;
@@ -132,6 +165,8 @@ namespace HEngine
             SvgfHistoryHandles Previous;
             SvgfHistoryHandles Current;
             TextureHandle Confidence;
+            uint32_t OptimizedKernels = 0;
+            uint32_t ScreenSpaceSignal = 0;
         };
 
         struct DemodulatePassData
@@ -140,6 +175,7 @@ namespace HEngine
             TextureHandle BaseColorMetalness;
             TextureHandle Emissive;
             TextureHandle Illumination;
+            uint32_t RasterSurface = 0;
         };
 
         struct HistoryFixPassData
@@ -151,7 +187,9 @@ namespace HEngine
             TextureHandle Material;
             TextureHandle BaseColorMetalness;
             TextureHandle NormalRoughness;
+            TextureHandle EmissionModel;
             TextureHandle Output;
+            uint32_t OptimizedKernels = 0;
         };
 
         struct VariancePassData
@@ -159,6 +197,16 @@ namespace HEngine
             TextureHandle Moments;
             TextureHandle HistoryLength;
             TextureHandle Variance;
+        };
+
+        struct UncertaintyPassData
+        {
+            TextureHandle Variance;
+            TextureHandle HistoryLength;
+            TextureHandle Depth;
+            TextureHandle Normal;
+            TextureHandle Material;
+            TextureHandle Output;
         };
 
         struct AtrousPassData
@@ -173,8 +221,13 @@ namespace HEngine
             TextureHandle NormalRoughness;
             TextureHandle Confidence;
             TextureHandle HistoryLength;
+            TextureHandle EmissionModel;
             TextureHandle Output;
             uint32_t Iteration = 0;
+            uint32_t OptimizedKernels = 0;
+            uint32_t ScreenSpaceSignal = 0;
+            uint32_t UseSharedUncertainty = 0;
+            float DiffuseHitDistanceWeight = 1.0f;
         };
 
         struct UpsamplePassData
@@ -190,6 +243,7 @@ namespace HEngine
             TextureHandle LowHitDistance;
             TextureHandle LowConfidence;
             TextureHandle LowCoverage;
+            TextureHandle EmissionModel;
             TextureHandle FullDiffuse;
             TextureHandle FullHitDistance;
             TextureHandle FullConfidence;
@@ -202,6 +256,7 @@ namespace HEngine
             TextureHandle BaseColorMetalness;
             TextureHandle Emissive;
             TextureHandle DiffuseRadiance;
+            uint32_t RasterSurface = 0;
         };
 
         [[nodiscard]] std::string ReadShaderContentHash(
@@ -268,6 +323,7 @@ namespace HEngine
             nvrhi::TextureHandle HitDistance;
             nvrhi::TextureHandle ViewDepth;
             nvrhi::TextureHandle SurfaceId;
+            bool bHasSubmittedState = false;
         };
 
         struct RetiredHistory
@@ -278,6 +334,7 @@ namespace HEngine
 
         explicit Impl(const SvgfDenoiserDesc& desc)
             : Device(desc.Device)
+            , Diagnostics(desc.Device, "SVGF")
             , OwnedShaderManager(desc.SharedShaderManager
                 ? nullptr
                 : CreateScope<ShaderManager>(desc.Device))
@@ -332,6 +389,8 @@ namespace HEngine
                 desc.addItem(nvrhi::BindingLayoutItem::Texture_SRV(slot));
             for (uint32_t slot = 0; slot < uavCount; ++slot)
                 desc.addItem(nvrhi::BindingLayoutItem::Texture_UAV(slot));
+            if (uavCount == 10)
+                desc.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(10));
             nvrhi::BindingLayoutHandle layout = Device->createBindingLayout(desc);
             if (!layout)
                 throw std::runtime_error("NVRHI failed to create an SVGF binding layout");
@@ -356,21 +415,26 @@ namespace HEngine
             TemporalShader = LoadVariant("TEMPORAL");
             HistoryFixShader = LoadVariant("HISTORY_FIX");
             VarianceShader = LoadVariant("VARIANCE");
+            UncertaintyShader = LoadVariant("UNCERTAINTY");
             AtrousShader = LoadVariant("ATROUS");
+            AtrousCachedShader = LoadVariant("ATROUS_CACHED");
             UpsampleShader = LoadVariant("UPSAMPLE");
             RemodulateShader = LoadVariant("REMODULATE");
             DemodulateLayout = CreateLayout(sizeof(DemodulateConstants), 3, 1);
             TemporalLayout = CreateLayout(sizeof(TemporalConstants), 20, 10);
-            HistoryFixLayout = CreateLayout(sizeof(HistoryFixConstants), 7, 1);
+            HistoryFixLayout = CreateLayout(sizeof(HistoryFixConstants), 8, 1);
             VarianceLayout = CreateLayout(sizeof(VarianceConstants), 2, 1);
-            AtrousLayout = CreateLayout(sizeof(AtrousConstants), 10, 1);
-            UpsampleLayout = CreateLayout(sizeof(UpsampleConstants), 11, 4);
+            UncertaintyLayout = CreateLayout(sizeof(UncertaintyConstants), 5, 1);
+            AtrousLayout = CreateLayout(sizeof(AtrousConstants), 11, 1);
+            UpsampleLayout = CreateLayout(sizeof(UpsampleConstants), 12, 4);
             RemodulateLayout = CreateLayout(sizeof(RemodulateConstants), 3, 1);
             DemodulatePipeline = CreatePipeline(DemodulateShader, DemodulateLayout);
             TemporalPipeline = CreatePipeline(TemporalShader, TemporalLayout);
             HistoryFixPipeline = CreatePipeline(HistoryFixShader, HistoryFixLayout);
             VariancePipeline = CreatePipeline(VarianceShader, VarianceLayout);
+            UncertaintyPipeline = CreatePipeline(UncertaintyShader, UncertaintyLayout);
             AtrousPipeline = CreatePipeline(AtrousShader, AtrousLayout);
+            AtrousCachedPipeline = CreatePipeline(AtrousCachedShader, AtrousLayout);
             UpsamplePipeline = CreatePipeline(UpsampleShader, UpsampleLayout);
             RemodulatePipeline = CreatePipeline(RemodulateShader, RemodulateLayout);
         }
@@ -384,7 +448,7 @@ namespace HEngine
                 .setHeight(TraceHeight)
                 .setFormat(format)
                 .setIsUAV(true)
-                .setInitialState(nvrhi::ResourceStates::ShaderResource)
+                .setInitialState(nvrhi::ResourceStates::Common)
                 .setDebugName(debugName);
             nvrhi::TextureHandle texture = Device->createTexture(desc);
             if (!texture)
@@ -400,7 +464,8 @@ namespace HEngine
                     nvrhi::Format::RGBA16_FLOAT,
                     "SVGF Diffuse History" + suffix),
                 .Moments = CreateHistoryTexture(
-                    nvrhi::Format::RG16_FLOAT,
+                    // Squared photometric luminance exceeds half precision in daylight.
+                    nvrhi::Format::RG32_FLOAT,
                     "SVGF Moments History" + suffix),
                 .Length = CreateHistoryTexture(
                     nvrhi::Format::R32_FLOAT,
@@ -447,7 +512,7 @@ namespace HEngine
 
         [[nodiscard]] TextureHandle ImportHistoryTexture(
             RenderGraph& graph,
-            const nvrhi::TextureHandle& texture)
+            const nvrhi::TextureHandle& texture, bool bHasSubmittedState)
         {
             const nvrhi::TextureDesc& desc = texture->getDesc();
             return graph.ImportTexture(
@@ -458,7 +523,7 @@ namespace HEngine
                     .Format = desc.format,
                 },
                 texture,
-                nvrhi::ResourceStates::ShaderResource,
+                bHasSubmittedState ? nvrhi::ResourceStates::ShaderResource : nvrhi::ResourceStates::Common,
                 nvrhi::ResourceStates::ShaderResource);
         }
 
@@ -467,15 +532,15 @@ namespace HEngine
             const HistorySet& set)
         {
             return {
-                .Diffuse = ImportHistoryTexture(graph, set.Diffuse),
-                .Moments = ImportHistoryTexture(graph, set.Moments),
-                .Length = ImportHistoryTexture(graph, set.Length),
-                .Depth = ImportHistoryTexture(graph, set.Depth),
-                .Normal = ImportHistoryTexture(graph, set.Normal),
-                .Material = ImportHistoryTexture(graph, set.Material),
-                .HitDistance = ImportHistoryTexture(graph, set.HitDistance),
-                .ViewDepth = ImportHistoryTexture(graph, set.ViewDepth),
-                .SurfaceId = ImportHistoryTexture(graph, set.SurfaceId),
+                .Diffuse = ImportHistoryTexture(graph, set.Diffuse, set.bHasSubmittedState),
+                .Moments = ImportHistoryTexture(graph, set.Moments, set.bHasSubmittedState),
+                .Length = ImportHistoryTexture(graph, set.Length, set.bHasSubmittedState),
+                .Depth = ImportHistoryTexture(graph, set.Depth, set.bHasSubmittedState),
+                .Normal = ImportHistoryTexture(graph, set.Normal, set.bHasSubmittedState),
+                .Material = ImportHistoryTexture(graph, set.Material, set.bHasSubmittedState),
+                .HitDistance = ImportHistoryTexture(graph, set.HitDistance, set.bHasSubmittedState),
+                .ViewDepth = ImportHistoryTexture(graph, set.ViewDepth, set.bHasSubmittedState),
+                .SurfaceId = ImportHistoryTexture(graph, set.SurfaceId, set.bHasSubmittedState),
             };
         }
 
@@ -484,15 +549,24 @@ namespace HEngine
             const SvgfHistoryHandles& handles,
             const HistorySet& set)
         {
-            graph.SetTextureResource(handles.Diffuse, set.Diffuse);
-            graph.SetTextureResource(handles.Moments, set.Moments);
-            graph.SetTextureResource(handles.Length, set.Length);
-            graph.SetTextureResource(handles.Depth, set.Depth);
-            graph.SetTextureResource(handles.Normal, set.Normal);
-            graph.SetTextureResource(handles.Material, set.Material);
-            graph.SetTextureResource(handles.HitDistance, set.HitDistance);
-            graph.SetTextureResource(handles.ViewDepth, set.ViewDepth);
-            graph.SetTextureResource(handles.SurfaceId, set.SurfaceId);
+            graph.SetTextureResource(handles.Diffuse, set.Diffuse,
+                set.bHasSubmittedState ? nvrhi::ResourceStates::ShaderResource : nvrhi::ResourceStates::Common);
+            graph.SetTextureResource(handles.Moments, set.Moments,
+                set.bHasSubmittedState ? nvrhi::ResourceStates::ShaderResource : nvrhi::ResourceStates::Common);
+            graph.SetTextureResource(handles.Length, set.Length,
+                set.bHasSubmittedState ? nvrhi::ResourceStates::ShaderResource : nvrhi::ResourceStates::Common);
+            graph.SetTextureResource(handles.Depth, set.Depth,
+                set.bHasSubmittedState ? nvrhi::ResourceStates::ShaderResource : nvrhi::ResourceStates::Common);
+            graph.SetTextureResource(handles.Normal, set.Normal,
+                set.bHasSubmittedState ? nvrhi::ResourceStates::ShaderResource : nvrhi::ResourceStates::Common);
+            graph.SetTextureResource(handles.Material, set.Material,
+                set.bHasSubmittedState ? nvrhi::ResourceStates::ShaderResource : nvrhi::ResourceStates::Common);
+            graph.SetTextureResource(handles.HitDistance, set.HitDistance,
+                set.bHasSubmittedState ? nvrhi::ResourceStates::ShaderResource : nvrhi::ResourceStates::Common);
+            graph.SetTextureResource(handles.ViewDepth, set.ViewDepth,
+                set.bHasSubmittedState ? nvrhi::ResourceStates::ShaderResource : nvrhi::ResourceStates::Common);
+            graph.SetTextureResource(handles.SurfaceId, set.SurfaceId,
+                set.bHasSubmittedState ? nvrhi::ResourceStates::ShaderResource : nvrhi::ResourceStates::Common);
         }
 
         [[nodiscard]] nvrhi::IBindingSet* GetBindingSet(
@@ -515,6 +589,8 @@ namespace HEngine
                     slot,
                     key.Textures[srvCount + slot]));
             }
+            if (key.Kind == SvgfShaderKind::Temporal)
+                desc.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(10, Diagnostics.GetBuffer()));
             nvrhi::BindingSetHandle bindingSet = Device->createBindingSet(desc, layout);
             if (!bindingSet)
                 throw std::runtime_error("NVRHI failed to create an SVGF binding set");
@@ -538,6 +614,7 @@ namespace HEngine
         }
 
         nvrhi::DeviceHandle Device;
+        GiDiagnosticReadback Diagnostics;
         Scope<ShaderManager> OwnedShaderManager;
         ShaderManager& ShaderManagerInstance;
         std::filesystem::path ShaderArtifactCacheRoot;
@@ -547,13 +624,16 @@ namespace HEngine
         nvrhi::ShaderHandle TemporalShader;
         nvrhi::ShaderHandle HistoryFixShader;
         nvrhi::ShaderHandle VarianceShader;
+        nvrhi::ShaderHandle UncertaintyShader;
         nvrhi::ShaderHandle AtrousShader;
+        nvrhi::ShaderHandle AtrousCachedShader;
         nvrhi::ShaderHandle UpsampleShader;
         nvrhi::ShaderHandle RemodulateShader;
         nvrhi::BindingLayoutHandle DemodulateLayout;
         nvrhi::BindingLayoutHandle TemporalLayout;
         nvrhi::BindingLayoutHandle HistoryFixLayout;
         nvrhi::BindingLayoutHandle VarianceLayout;
+        nvrhi::BindingLayoutHandle UncertaintyLayout;
         nvrhi::BindingLayoutHandle AtrousLayout;
         nvrhi::BindingLayoutHandle UpsampleLayout;
         nvrhi::BindingLayoutHandle RemodulateLayout;
@@ -561,7 +641,9 @@ namespace HEngine
         nvrhi::ComputePipelineHandle TemporalPipeline;
         nvrhi::ComputePipelineHandle HistoryFixPipeline;
         nvrhi::ComputePipelineHandle VariancePipeline;
+        nvrhi::ComputePipelineHandle UncertaintyPipeline;
         nvrhi::ComputePipelineHandle AtrousPipeline;
+        nvrhi::ComputePipelineHandle AtrousCachedPipeline;
         nvrhi::ComputePipelineHandle UpsamplePipeline;
         nvrhi::ComputePipelineHandle RemodulatePipeline;
         std::unordered_map<BindingKey, nvrhi::BindingSetHandle, BindingKeyHash> Bindings;
@@ -583,6 +665,10 @@ namespace HEngine
         bool bGraphHandlesValid = false;
         bool bGraphRebuildRequested = true;
         float TemporalMinimumBlend = 0.01f;
+        uint32_t ReactiveHistoryFrames = 0;
+        uint32_t GlobalReactiveHistoryFrames = 0;
+        SsgiReactiveRegion ReactiveRegion;
+        uint32_t BudgetResponseReasons = 0;
     };
 
     SvgfDenoiser::SvgfDenoiser(const SvgfDenoiserDesc& desc)
@@ -592,11 +678,29 @@ namespace HEngine
 
     SvgfDenoiser::~SvgfDenoiser() = default;
 
+    std::function<void()> SvgfDenoiser::CaptureGraphState()
+    {
+        return [impl = mImpl.get(), bindings = mImpl->Bindings,
+            previous = mImpl->PreviousGraphHandles, current = mImpl->CurrentGraphHandles,
+            bValid = mImpl->bGraphHandlesValid, bRebuild = mImpl->bGraphRebuildRequested,
+            region = mImpl->ReactiveRegion, globalFrames = mImpl->GlobalReactiveHistoryFrames]() mutable noexcept
+        {
+            using std::swap;
+            swap(impl->Bindings, bindings);
+            swap(impl->ReactiveRegion, region); swap(impl->GlobalReactiveHistoryFrames, globalFrames);
+            swap(impl->PreviousGraphHandles, previous); swap(impl->CurrentGraphHandles, current);
+            swap(impl->bGraphHandlesValid, bValid); swap(impl->bGraphRebuildRequested, bRebuild);
+        };
+    }
+
+    void SvgfDenoiser::ClearGraphResourceCaches() noexcept { mImpl->Bindings.clear(); }
+
     void SvgfDenoiser::PrepareFrame(
         const GlobalIlluminationHistorySignature& signature,
         uint64_t completedSubmission)
     {
         Collect(completedSubmission);
+        mImpl->Diagnostics.Prepare(completedSubmission);
         const uint32_t traceWidth = std::max(
             static_cast<uint32_t>(std::ceil(
                 static_cast<float>(signature.Width) * signature.RenderScale)),
@@ -614,9 +718,69 @@ namespace HEngine
         }
         mImpl->FullWidth = signature.Width;
         mImpl->FullHeight = signature.Height;
+        mImpl->BudgetResponseReasons = 0;
+        if (mImpl->bResetPending) mImpl->GlobalReactiveHistoryFrames = 16;
+        if (signature.Technique == GlobalIlluminationTechniqueKind::ScreenSpace)
+        {
+            if (mImpl->Signature.GeometryTransformGeneration != 0 &&
+                mImpl->Signature.GeometryTransformGeneration != signature.GeometryTransformGeneration)
+                mImpl->BudgetResponseReasons |= 1u;
+            if (mImpl->bResetPending) mImpl->BudgetResponseReasons |= 2u;
+            if (mImpl->BudgetResponseReasons == 0 && mImpl->ReactiveHistoryFrames > 0)
+                mImpl->BudgetResponseReasons = 4u;
+        }
+        if (signature.Technique == GlobalIlluminationTechniqueKind::ScreenSpace &&
+            ((mImpl->Signature.GeometryTransformGeneration != 0 &&
+                mImpl->Signature.GeometryTransformGeneration != signature.GeometryTransformGeneration) ||
+                mImpl->bResetPending))
+        {
+            // Primary reprojection cannot detect a moving secondary reflector or
+            // occluder. Bound obsolete transport to 0.75^16 (<1.1%) without
+            // discarding sparse positive samples or resetting every moving frame.
+            // Also bootstrap freshly invalidated history with the same bounded
+            // ray budget: a light/camera reset must not begin with a noisy 2-ray
+            // estimate. This never revives invalidated radiance or moments.
+            mImpl->ReactiveHistoryFrames = 16;
+        }
+        if (mImpl->ReactiveRegion.bEnabled)
+        {
+            if (mImpl->GlobalReactiveHistoryFrames > 0)
+            {
+                mImpl->ReactiveRegion.Pixels = {0u, 0u, traceWidth, traceHeight};
+                mImpl->ReactiveRegion.RemainingFrames = std::max(
+                    mImpl->ReactiveRegion.RemainingFrames, mImpl->GlobalReactiveHistoryFrames);
+                mImpl->ReactiveRegion.Reasons |= 2u;
+            }
+            mImpl->ReactiveHistoryFrames = std::max(
+                mImpl->ReactiveHistoryFrames, mImpl->ReactiveRegion.RemainingFrames);
+        }
         mImpl->Signature = signature;
         mImpl->bResetThisFrame = mImpl->bResetPending || mImpl->bResetThisFrame;
         mImpl->bResetPending = false;
+    }
+
+    DenoiserBudgetDiagnostics SvgfDenoiser::GetBudgetDiagnostics() const noexcept
+    {
+        return { mImpl->ReactiveHistoryFrames, mImpl->BudgetResponseReasons,
+            mImpl->Signature.Technique == GlobalIlluminationTechniqueKind::ScreenSpace };
+    }
+
+    void SvgfDenoiser::SetReactiveRegion(SsgiReactiveRegion region)
+    {
+        mImpl->ReactiveRegion = region;
+    }
+
+    SsgiReactiveRegion SvgfDenoiser::GetReactiveRegion() const noexcept
+    {
+        return mImpl->ReactiveRegion;
+    }
+
+    uint32_t SvgfDenoiser::GetMinimumRayCount() const noexcept
+    {
+        // Short or freshly reset history needs more observations to stay stable.
+        // Spend rays only during that bounded window; retain the configured static budget.
+        return mImpl->Signature.Technique == GlobalIlluminationTechniqueKind::ScreenSpace &&
+            mImpl->ReactiveHistoryFrames > 0 ? 8u : 1u;
     }
 
     GlobalIlluminationOutputs SvgfDenoiser::AddPasses(
@@ -634,6 +798,9 @@ namespace HEngine
         }
         if (settings.Denoiser != GlobalIlluminationDenoiserKind::Svgf)
             throw std::invalid_argument("SVGF received a non-SVGF denoiser setting");
+        const uint32_t optimizedKernels = settings.bSvgfOptimizedKernels ? 1u : 0u;
+        const uint32_t screenSpaceSignal = settings.Technique ==
+            GlobalIlluminationTechniqueKind::ScreenSpace ? 1u : 0u;
         mImpl->TemporalMinimumBlend = settings.Technique ==
                 GlobalIlluminationTechniqueKind::ScreenSpace
             ? std::clamp(
@@ -659,6 +826,7 @@ namespace HEngine
                 RenderGraphBuilder& builder,
                 DemodulatePassData& data)
             {
+                data.RasterSurface = guides.Surface.bMaterialIdIsRayTracingIndex ? 0u : 1u;
                 data.RawDiffuse = builder.ShaderResource(
                     noisySignals.DiffuseIndirect);
                 data.BaseColorMetalness = builder.ShaderResource(
@@ -692,6 +860,7 @@ namespace HEngine
                 const DemodulateConstants constants{
                     .TraceDimensions = { impl->TraceWidth, impl->TraceHeight },
                     .FullDimensions = { impl->FullWidth, impl->FullHeight },
+                    .RasterSurface = data.RasterSurface,
                 };
                 impl->Dispatch(
                     context.GetCommandList(),
@@ -708,14 +877,19 @@ namespace HEngine
             });
 
         TextureHandle temporalConfidence;
+        const auto diagnosticCounters = mImpl->Diagnostics.AddReset(renderGraph, "SVGF");
         renderGraph.AddPass<TemporalPassData>(
             "TemporalReprojection",
             RenderGraphQueue::Compute,
             [impl = mImpl.get(), noisySignals, guides,
-                demodulatedIllumination, &temporalConfidence](
+                demodulatedIllumination, &temporalConfidence, optimizedKernels,
+                screenSpaceSignal, diagnosticCounters](
                 RenderGraphBuilder& builder,
                 TemporalPassData& data)
             {
+                data.DiagnosticCounters = builder.UnorderedAccess(diagnosticCounters);
+                data.OptimizedKernels = optimizedKernels;
+                data.ScreenSpaceSignal = screenSpaceSignal;
                 data.NoisyDiffuse = builder.ShaderResource(
                     demodulatedIllumination);
                 data.HitDistance = builder.ShaderResource(noisySignals.HitDistance);
@@ -852,11 +1026,22 @@ namespace HEngine
                     .Textures = textures,
                     .TextureCount = 30,
                 };
+                (void)context.GetBuffer(data.DiagnosticCounters, RenderGraphAccess::ReadWrite);
                 const TemporalConstants constants{
                     .TraceDimensions = { impl->TraceWidth, impl->TraceHeight },
                     .FullDimensions = { impl->FullWidth, impl->FullHeight },
                     .ResetHistory = impl->bResetThisFrame ? 1u : 0u,
-                    .MinimumBlend = impl->TemporalMinimumBlend,
+                    .MinimumBlend = impl->ReactiveHistoryFrames > 0 && data.ScreenSpaceSignal != 0
+                        ? std::max(impl->TemporalMinimumBlend, 0.25f)
+                        : impl->TemporalMinimumBlend,
+                    .OptimizedKernels = data.OptimizedKernels,
+                    .ScreenSpaceSignal = data.ScreenSpaceSignal,
+                    .MaximumHistoryLength = impl->ReactiveHistoryFrames > 0 && data.ScreenSpaceSignal != 0
+                        ? 4.0f : 128.0f,
+                    .CountDiagnostics = impl->Diagnostics.IsRecording() ? 1u : 0u,
+                    .ReactivePixels = impl->ReactiveRegion.Pixels,
+                    .LocalReactiveBudget = impl->ReactiveRegion.bEnabled ? 1u : 0u,
+                    .StaticMinimumBlend = impl->TemporalMinimumBlend,
                 };
                 impl->Dispatch(
                     context.GetCommandList(),
@@ -873,14 +1058,18 @@ namespace HEngine
                 impl->bFrameRecorded = true;
             });
 
+        mImpl->Diagnostics.AddReadback(renderGraph, diagnosticCounters, "SVGF");
+
         TextureHandle historyFixed;
         renderGraph.AddPass<HistoryFixPassData>(
             "HistoryFix",
             RenderGraphQueue::Compute,
-            [impl = mImpl.get(), guides, &historyFixed](
+            [impl = mImpl.get(), guides, &historyFixed, optimizedKernels](
                 RenderGraphBuilder& builder,
                 HistoryFixPassData& data)
             {
+                data.OptimizedKernels = optimizedKernels;
+                data.EmissionModel = builder.ShaderResource(guides.Surface.Emissive);
                 data.Input = builder.ShaderResource(impl->CurrentGraphHandles.Diffuse);
                 data.HistoryLength = builder.ShaderResource(
                     impl->CurrentGraphHandles.Length);
@@ -919,13 +1108,15 @@ namespace HEngine
                         context.GetTexture(
                             data.NormalRoughness,
                             RenderGraphAccess::Read),
+                        context.GetTexture(data.EmissionModel, RenderGraphAccess::Read),
                         context.GetTexture(data.Output, RenderGraphAccess::Write),
                     },
-                    .TextureCount = 8,
+                    .TextureCount = 9,
                 };
                 const HistoryFixConstants constants{
                     .Dimensions = { impl->TraceWidth, impl->TraceHeight },
                     .FullDimensions = { impl->FullWidth, impl->FullHeight },
+                    .OptimizedKernels = data.OptimizedKernels,
                 };
                 impl->Dispatch(
                     context.GetCommandList(),
@@ -934,7 +1125,7 @@ namespace HEngine
                         key,
                         impl->HistoryFixLayout,
                         sizeof(constants),
-                        7,
+                        8,
                         1),
                     constants,
                     impl->TraceWidth,
@@ -991,6 +1182,69 @@ namespace HEngine
                     impl->TraceHeight);
             });
 
+        // Optional, graph-local R32 uncertainty. Preserve the original variance
+        // resource/output for debug and all external consumers. Only SSGI uses
+        // the 3x3 prefilter, and one iteration has nothing to amortize.
+        const bool bSharedUncertainty = settings.bSvgfSharedUncertainty &&
+            screenSpaceSignal != 0u && settings.AtrousIterations > 1u;
+        TextureHandle atrousVariance = variance;
+        if (bSharedUncertainty)
+        {
+            renderGraph.AddPass<UncertaintyPassData>(
+                "PreFilterUncertainty",
+                RenderGraphQueue::Compute,
+                [impl = mImpl.get(), variance, &atrousVariance](
+                    RenderGraphBuilder& builder, UncertaintyPassData& data)
+                {
+                    data.Variance = builder.ShaderResource(variance);
+                    data.HistoryLength = builder.ShaderResource(impl->CurrentGraphHandles.Length);
+                    data.Depth = builder.ShaderResource(impl->CurrentGraphHandles.Depth);
+                    data.Normal = builder.ShaderResource(impl->CurrentGraphHandles.Normal);
+                    data.Material = builder.ShaderResource(impl->CurrentGraphHandles.Material);
+                    data.Output = builder.Write(builder.CreateTexture(RenderGraphTextureDesc{
+                        .DebugName = "SVGF Prefiltered Uncertainty",
+                        .Width = impl->TraceWidth,
+                        .Height = impl->TraceHeight,
+                        .Format = nvrhi::Format::R32_FLOAT,
+                    }), RenderGraphUsage::UnorderedAccess);
+                    atrousVariance = data.Output;
+                },
+                [impl = mImpl.get()](RenderGraphContext& context, const UncertaintyPassData& data)
+                {
+                    const BindingKey key{
+                        .Kind = SvgfShaderKind::Uncertainty,
+                        .Textures = {
+                            context.GetTexture(data.Variance, RenderGraphAccess::Read),
+                            context.GetTexture(data.HistoryLength, RenderGraphAccess::Read),
+                            context.GetTexture(data.Depth, RenderGraphAccess::Read),
+                            context.GetTexture(data.Normal, RenderGraphAccess::Read),
+                            context.GetTexture(data.Material, RenderGraphAccess::Read),
+                            context.GetTexture(data.Output, RenderGraphAccess::Write),
+                        },
+                        .TextureCount = 6,
+                    };
+                    // Keep edge-stopping parameters identical to every iteration.
+                    const AtrousConstants filterConstants{};
+                    const UncertaintyConstants constants{
+                        .Dimensions = { impl->TraceWidth, impl->TraceHeight },
+                        .PhiDepth = filterConstants.PhiDepth,
+                        .PhiNormal = filterConstants.PhiNormal,
+                    };
+                    impl->Dispatch(context.GetCommandList(), impl->UncertaintyPipeline,
+                        impl->GetBindingSet(key, impl->UncertaintyLayout, sizeof(constants), 5, 1),
+                        constants, impl->TraceWidth, impl->TraceHeight);
+                });
+        }
+
+        // Only this denoiser's SSGI diffuse signal opts into the new guide.
+        // Other GI techniques keep the original distance gate unconditionally.
+        if (screenSpaceSignal != 0u &&
+            (!std::isfinite(settings.ScreenSpaceDiffuseHitDistanceWeight) ||
+                settings.ScreenSpaceDiffuseHitDistanceWeight < 0.0f ||
+                settings.ScreenSpaceDiffuseHitDistanceWeight > 1.0f))
+            throw std::invalid_argument("SSGI diffuse hit-distance weight must be in [0, 1]");
+        const float diffuseHitDistanceWeight = screenSpaceSignal != 0u
+            ? settings.ScreenSpaceDiffuseHitDistanceWeight : 1.0f;
         TextureHandle filtered = historyFixed;
         const uint32_t iterationCount = std::clamp(settings.AtrousIterations, 1u, 5u);
         for (uint32_t iteration = 0; iteration < iterationCount; ++iteration)
@@ -999,14 +1253,19 @@ namespace HEngine
             renderGraph.AddPass<AtrousPassData>(
                 "ATrousFilter[" + std::to_string(iteration) + "]",
                 RenderGraphQueue::Compute,
-                [impl = mImpl.get(), input = filtered, variance,
+                [impl = mImpl.get(), input = filtered, atrousVariance,
                     temporalConfidence,
-                    guides, iteration, &output](
+                    guides, iteration, &output, optimizedKernels, screenSpaceSignal, bSharedUncertainty, diffuseHitDistanceWeight](
                     RenderGraphBuilder& builder,
                     AtrousPassData& data)
                 {
+                    data.OptimizedKernels = optimizedKernels;
+                    data.ScreenSpaceSignal = screenSpaceSignal;
+                    data.DiffuseHitDistanceWeight = diffuseHitDistanceWeight;
+                    data.UseSharedUncertainty = bSharedUncertainty ? 1u : 0u;
+                    data.EmissionModel = builder.ShaderResource(guides.Surface.Emissive);
                     data.Input = builder.ShaderResource(input);
-                    data.Variance = builder.ShaderResource(variance);
+                    data.Variance = builder.ShaderResource(atrousVariance);
                     data.Depth = builder.ShaderResource(impl->CurrentGraphHandles.Depth);
                     data.Normal = builder.ShaderResource(impl->CurrentGraphHandles.Normal);
                     data.HitDistance = builder.ShaderResource(
@@ -1053,27 +1312,42 @@ namespace HEngine
                             context.GetTexture(
                                 data.HistoryLength,
                                 RenderGraphAccess::Read),
+                            context.GetTexture(data.EmissionModel, RenderGraphAccess::Read),
                             context.GetTexture(data.Output, RenderGraphAccess::Write),
                         },
-                        .TextureCount = 11,
+                        .TextureCount = 12,
                     };
                     const AtrousConstants constants{
                         .Dimensions = { impl->TraceWidth, impl->TraceHeight },
                         .FullDimensions = { impl->FullWidth, impl->FullHeight },
                         .StepWidth = 1u << data.Iteration,
+                        .OptimizedKernels = data.OptimizedKernels,
+                        .ScreenSpaceSignal = data.ScreenSpaceSignal,
+                        .DiffuseHitDistanceWeight = data.DiffuseHitDistanceWeight,
+                        .UseSharedUncertainty = data.UseSharedUncertainty,
                     };
+                    // Step 8 strided caching regressed measured GPU time on the
+                    // target laptop. Keep that iteration on the reference path.
+                    const bool bCached = data.OptimizedKernels && data.Iteration < 3u;
+                    const bool bStrided = bCached && data.Iteration >= 2u;
+                    const uint32_t tileSpan = 8u * constants.StepWidth;
+                    const uint32_t dispatchWidth = bStrided
+                        ? ((impl->TraceWidth + tileSpan - 1u) / tileSpan) * tileSpan : impl->TraceWidth;
+                    const uint32_t dispatchHeight = bStrided
+                        ? ((impl->TraceHeight + tileSpan - 1u) / tileSpan) * tileSpan : impl->TraceHeight;
                     impl->Dispatch(
                         context.GetCommandList(),
-                        impl->AtrousPipeline,
+                        bCached
+                            ? impl->AtrousCachedPipeline : impl->AtrousPipeline,
                         impl->GetBindingSet(
                             key,
                             impl->AtrousLayout,
                             sizeof(constants),
-                            10,
+                            11,
                             1),
                         constants,
-                        impl->TraceWidth,
-                        impl->TraceHeight);
+                        dispatchWidth,
+                        dispatchHeight);
                 });
             filtered = output;
         }
@@ -1100,6 +1374,7 @@ namespace HEngine
                     RenderGraphBuilder& builder,
                     UpsamplePassData& data)
                 {
+                    data.EmissionModel = builder.ShaderResource(guides.Surface.Emissive);
                     data.LowDiffuse = builder.ShaderResource(filtered);
                     data.FullDepth = builder.DepthRead(guides.Surface.Depth);
                     data.FullNormal = builder.ShaderResource(
@@ -1182,6 +1457,7 @@ namespace HEngine
                             context.GetTexture(
                                 data.LowCoverage,
                                 RenderGraphAccess::Read),
+                            context.GetTexture(data.EmissionModel, RenderGraphAccess::Read),
                             context.GetTexture(data.FullDiffuse, RenderGraphAccess::Write),
                             context.GetTexture(
                                 data.FullHitDistance,
@@ -1193,7 +1469,7 @@ namespace HEngine
                                 data.FullCoverage,
                                 RenderGraphAccess::Write),
                         },
-                        .TextureCount = 15,
+                        .TextureCount = 16,
                     };
                     const UpsampleConstants constants{
                         .LowDimensions = { impl->TraceWidth, impl->TraceHeight },
@@ -1206,7 +1482,7 @@ namespace HEngine
                             key,
                             impl->UpsampleLayout,
                             sizeof(constants),
-                            11,
+                            12,
                             4),
                         constants,
                         impl->FullWidth,
@@ -1223,6 +1499,7 @@ namespace HEngine
                 RenderGraphBuilder& builder,
                 RemodulatePassData& data)
             {
+                data.RasterSurface = guides.Surface.bMaterialIdIsRayTracingIndex ? 0u : 1u;
                 data.Illumination = builder.ShaderResource(finalDiffuse);
                 data.BaseColorMetalness = builder.ShaderResource(
                     guides.Surface.BaseColorMetalness);
@@ -1256,6 +1533,7 @@ namespace HEngine
                 };
                 const RemodulateConstants constants{
                     .Dimensions = { impl->FullWidth, impl->FullHeight },
+                    .RasterSurface = data.RasterSurface,
                 };
                 impl->Dispatch(
                     context.GetCommandList(),
@@ -1275,6 +1553,7 @@ namespace HEngine
             .DiffuseIndirect = remodulatedDiffuse,
             .DemodulatedDiffuseIllumination = demodulatedIllumination,
             .FilteredDiffuseIllumination = finalDiffuse,
+            .TemporalDiffuseIllumination = mImpl->CurrentGraphHandles.Diffuse,
             .HitDistance = finalHitDistance,
             .Confidence = finalConfidence,
             .CoverageMask = finalCoverage,
@@ -1305,11 +1584,19 @@ namespace HEngine
 
     void SvgfDenoiser::NotifyFrameSubmitted(uint64_t submission) noexcept
     {
+        mImpl->Diagnostics.NotifySubmitted(submission);
         mImpl->LastSubmittedSubmission = std::max(
             mImpl->LastSubmittedSubmission,
             submission);
+        // Count submitted renderer frames even when a raw/property debug view
+        // culls temporal filtering; otherwise that view gets stuck at 8 rays.
+        // History ping-pong/state still advances only after recording temporal.
+        if (mImpl->ReactiveHistoryFrames > 0)
+            --mImpl->ReactiveHistoryFrames;
+        if (mImpl->GlobalReactiveHistoryFrames > 0) --mImpl->GlobalReactiveHistoryFrames;
         if (!mImpl->bFrameRecorded)
             return;
+        for (auto& set : mImpl->History) set.bHasSubmittedState = true;
         mImpl->PreviousIndex = mImpl->CurrentIndex;
         mImpl->CurrentIndex = 1u - mImpl->PreviousIndex;
         mImpl->bFrameRecorded = false;
@@ -1318,6 +1605,7 @@ namespace HEngine
 
     void SvgfDenoiser::AbortFrame() noexcept
     {
+        mImpl->Diagnostics.Abort();
         mImpl->bFrameRecorded = false;
     }
 
@@ -1328,6 +1616,7 @@ namespace HEngine
 
     void SvgfDenoiser::Collect(uint64_t completedSubmission)
     {
+        mImpl->Diagnostics.Collect(completedSubmission);
         std::erase_if(mImpl->RetiredHistories,
             [completedSubmission](const Impl::RetiredHistory& retired)
             {

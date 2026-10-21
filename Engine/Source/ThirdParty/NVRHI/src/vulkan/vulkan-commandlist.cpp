@@ -41,6 +41,25 @@ namespace nvrhi::vulkan
 
     CommandList::~CommandList()
     {
+        // An unsubmitted recording owns no GPU work. Return only its volatile
+        // versions while referencedResources still keeps those buffers alive.
+        // Submitted recordings are retired by the queue, never cancelled here.
+        if (m_CurrentCmdBuf && m_CurrentCmdBuf->submissionID == 0)
+        {
+            const uint64_t pendingVersion = MakeVersion(
+                m_CurrentCmdBuf->recordingID, m_CommandListParameters.queueType, false);
+            for (auto& entry : m_VolatileBufferStates)
+            {
+                const auto& state = entry.second;
+                if (!state.initialized)
+                    continue;
+                for (int version = state.minVersion; version <= state.maxVersion; ++version)
+                {
+                    uint64_t expected = pendingVersion;
+                    entry.first->versionTracking[version].compare_exchange_strong(expected, uint64_t(0));
+                }
+            }
+        }
 #if NVRHI_WITH_AFTERMATH
         if (m_Device->isAftermathEnabled())
             m_Device->getAftermathCrashDumpHelper().unRegisterAftermathMarkerTracker(&m_AftermathTracker);
@@ -66,7 +85,8 @@ namespace nvrhi::vulkan
             .setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
 
         (void)m_CurrentCmdBuf->cmdBuf.begin(&beginInfo);
-        m_CurrentCmdBuf->referencedResources.push_back(this); // prevent deletion of e.g. UploadManager
+        // Queue::submit retains this list for GPU execution. Retaining it here
+        // would create a cycle for recordings discarded without submission.
 
         clearState();
     }

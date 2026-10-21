@@ -274,6 +274,7 @@ void CommandList::SetScissor(int32_t x, int32_t y, int32_t width, int32_t height
 
 void CommandList::Draw(int32_t primitiveCount, int32_t instanceCount)
 {
+	++recordedDrawCount_;
 	isVertexBufferDirtied = false;
 	isCurrentIndexBufferDirtied = false;
 	isPipelineDirtied = false;
@@ -403,6 +404,7 @@ bool CommandList::BeginRenderPassWithPlatformPtr(void* platformPtr)
 
 void CommandList::Dispatch(int32_t groupX, int32_t groupY, int32_t groupZ, int32_t threadX, int32_t threadY, int32_t threadZ)
 {
+	++recordedDispatchCount_;
 	isPipelineDirtied = false;
 }
 

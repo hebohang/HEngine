@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RuntimeFrameworkVersion>10.0.10</RuntimeFrameworkVersion>
+    <OutputType>Exe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <WasmMainJSPath>main.js</WasmMainJSPath>
+    <WasmEnableThreads>false</WasmEnableThreads>
+    <WasmEnableSIMD>false</WasmEnableSIMD>
+    <BlazorWebAssemblyJiterpreter>false</BlazorWebAssemblyJiterpreter>
+    <WasmBuildNative>true</WasmBuildNative>
+    <WasmStripILAfterAOT>false</WasmStripILAfterAOT>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Content Include="index.html;main.js" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" TargetPath="wwwroot/%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

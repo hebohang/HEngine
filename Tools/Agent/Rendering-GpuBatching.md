@@ -1,0 +1,33 @@
+# GPU geometry residency and command batching
+
+`Rendering.GpuBatching.Enabled` is a Boolean stable render-setting ID. Its default is `false` until paired HGame measurements establish a benefit. A settings JSON patch can contain `{"Rendering.GpuBatching.Enabled":true}` and be supplied through `hectl game check -RenderSettingsPath <absolute-file>` or `--render-settings=<absolute-file>`.
+
+The switch changes GPU argument compaction and CPU command grouping. Both settings use the same scene, resolution, materials, geometry arena, visibility rules, LOD policy and per-instance object-index stream. It does not lower resolution or change shading quality. The exact requested/effective settings are preserved in the render-statistics sidecar.
+
+## Geometry ownership
+
+`SceneGeometryArena` stores each static submesh vertex/index allocation once. The initial page budgets are 48 MiB of vertices and 16 MiB of indices; an individual larger allocation receives a sufficiently large page. Allocations never move or reuse offsets within a scene generation. Page slack and all resident LOD indices count against the reported reserved/used bytes. Skinned meshes retain their existing dedicated geometry buffers. This module does not replace the separate existing RT scene representation or its current coverage restrictions.
+
+Every native arena page is imported into RenderGraph once and its graph handles are reused by submeshes. CPU fallback, custom materials, transparent draws, outlines and GPU shadow draws bind the submesh byte offset. Main GPU draws bind page offset zero and use relocated `startIndexLocation` and `baseVertexLocation`. Scene reload clears the generation and retires pages against the last submitted GPU fence. An aborted unsubmitted upload resets the mesh upload flag so the next attempt uploads again.
+
+## Visible commands
+
+The existing authoritative GPU Scene object/material rows remain unchanged. `VisibleObjectIndicesBuffer` is a UAV and an instanced vertex stream (`INPUT_OBJECT_ID`, `R32_UINT`, stride 4). IA fetches the selected object index using `StartInstanceLocation`; the shader does not assume that `SV_InstanceID` includes the base instance.
+
+Compatible static opaque/Mask batches group by geometry page, material descriptor page (or the existing DX12 heap-direct tier), culling mode and Alpha Mask state. Each group reserves a disjoint range in a raw indirect buffer. A compute pass resets group counts and atomically copies only nonempty 20-byte indexed arguments into that range, preserving the vertex/index/instance offsets. One `drawIndexedIndirectCount` call records each group. Vulkan initialization checks the actual `drawIndirectFirstInstance`, `multiDrawIndirect` and `drawIndirectCount` support; the backend reports missing required features explicitly.
+
+Depth and main geometry use separate compaction instances and buffers. The depth instance consumes the frustum-visible arguments before the depth prepass. The main instance consumes the final arguments after optional same-frame Hi-Z occlusion. Their measurable graph pass names begin with `DepthIndirect` and `MainIndirect`. Both instances prepare mapping/capacity while batching is disabled so a runtime enabling transaction can prepare its candidate graph immediately. Binding caches and graph handles participate in the graph transaction and GPU-fence retirement.
+
+Shadow command compaction has a separate `Rendering.GpuBatching.ShadowsEnabled` Boolean switch, also defaulting to `false`. Both settings use the existing per-view GPU visibility lists, the per-instance object stream and arena-relative indexed arguments. Eligible static opaque casters group by geometry page and culling mode. Mask, custom and skinned shadow casters retain their CPU path and material evaluation.
+
+All 24 budgeted views share one group mapping. Two graph passes, `ShadowGpuAllViewGroupCountReset` and `ShadowGpuAllViewCommandCompaction`, issue compute work only for enabled or dirty views; each view has a separate compact argument/count buffer. Original per-view arguments remain available for the disabled baseline. Extra compact capacity is `24 * pow2(batchCount) * 24` bytes, plus `pow2(batchCount) * 8` bytes for the shared mapping (minimum capacity 64). The 24-byte term comprises one 20-byte indexed argument and a worst-case 4-byte count slot per batch. Capacity remains allocated when the switch is off to allow candidate graph preparation at a frame boundary. Existing fence retirement and graph-cache capsules include these buffers and bindings.
+
+## Counters and comparison
+
+- `GeometryArenaReservedBytes` includes active and retired page capacity; `GeometryArenaUsedBytes` is occupied active allocation bytes.
+- `IndirectCompactionResidentBytes` includes both instances and their retired buffers; `IndirectCompactionUploadedBytes` is the current-frame mapping upload, also included in scene-table uploaded bytes.
+- `GpuMultiDrawGroupCount` is the number of compatible CPU recording groups when enabled. `GpuIndirectDrawCount` and `DepthPrepassIndirectDrawCount` count CPU indirect calls in this mode; they are not the GPU nonempty-command count. Final asynchronous visibility readback still samples the original final arguments after occlusion, so visible section/triangle counts keep their existing meaning.
+- `GpuShadowIndirectDrawCount` counts actual CPU indirect calls across recorded shadow views; `GpuShadowMultiDrawGroupCount` is the compatible group count per view; `GpuShadowRecordedViews` counts views with GPU shadow commands. `GpuShadowCompactedViews` counts views dispatched by the compaction pass. `GpuShadowResidentBytes` includes the full active/retired submission buffers, and `GpuShadowUploadedBytes` includes candidate/template/group mapping uploads. CSM's `DirectionalShadowDrawCount` now records the actual GPU calls plus submitted CPU fallback draws.
+- Bounds now prefer each submesh's own bounds. Absolute transformed AABB columns produce a conservative world-space sphere under nonuniform scale and shear. Missing bounds retain the object-bound fallback. Frustum tests multiply the sphere radius by each unnormalized plane normal length. This can change visibility counts relative to the former whole-mesh sphere repeated for each submesh; compare batching enabled/disabled using the same new bounds implementation.
+
+Build success alone does not establish a performance improvement. Compare warmed native 3840×2160 runs with the same scene, camera, settings, power state and asset hashes; retain CPU recording time, whole-graph GPU span, individual compaction pass times, P95/P99, over-budget counts, draw/group counts and memory peaks. The default remains disabled until that evidence is recorded.

@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0": {
+      "gamescripts": {
+        "type": "Project",
+        "dependencies": {
+          "HEngine.ScriptCore": "[1.0.0, )"
+        }
+      },
+      "hengine.scriptcore": {
+        "type": "Project"
+      }
+    }
+  }
+}

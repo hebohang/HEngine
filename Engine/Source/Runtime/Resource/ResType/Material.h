@@ -1,6 +1,7 @@
 #pragma once
 #include "Runtime/Core/Meta/Reflection/Reflection.h"
 #include "Texture.h"
+#include "TextureSampling.h"
 #include <glm/glm.hpp>
 
 #include <vector>
@@ -21,6 +22,7 @@ namespace HEngine
     public:
         //std::string textureResPath; // required
         TextureRes textureRes;
+        TextureSampling sampling;
         int texCoord = 0;           // The set index of texture's TEXCOORD attribute used for
                                     // texture coordinate mapping.
     };
@@ -36,6 +38,7 @@ namespace HEngine
     public:
         //std::string textureResPath; // required
         TextureRes textureRes;
+        TextureSampling sampling;
         int texCoord = 0;           // The set index of texture's TEXCOORD attribute used for
                                     // texture coordinate mapping.
         float scale = 1.0f;         // scaledNormal = normalize((<sampled normal texture value>
@@ -53,6 +56,7 @@ namespace HEngine
     public:
         //std::string textureResPath;  // required
         TextureRes textureRes;
+        TextureSampling sampling;
         int texCoord = 0;            // The set index of texture's TEXCOORD attribute used for
                                      // texture coordinate mapping.
         float strength = 1.0f;       // occludedColor = lerp(color, color * <sampled occlusion

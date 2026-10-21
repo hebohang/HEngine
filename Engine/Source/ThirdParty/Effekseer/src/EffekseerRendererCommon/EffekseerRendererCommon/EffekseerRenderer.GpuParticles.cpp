@@ -386,6 +386,7 @@ void GpuParticleSystem::ComputeFrame(const Context& context)
 		command.GroupCount = {(int32_t)emitter.Data.ParticleSize / 256, 1, 1};
 		command.ThreadCount = {256, 1, 1};
 		graphicsDevice_->Dispatch(command);
+		++dispatchRequestCount_;
 	}
 	newEmitterIds_.clear();
 
@@ -464,7 +465,15 @@ void GpuParticleSystem::ComputeFrame(const Context& context)
 				}
 			}
 
-			graphicsDevice_->UpdateUniformBuffer(emitter.Buffer, sizeof(GpuParticles::EmitterData), 0, &emitter.Data);
+			// CPU phase names the next write slot; the shared draw uniform names
+			// the last slot written by this dispatch. Zero-time updates do not write
+			// history, so keep drawing the previous slot, independently per emitter.
+			auto emitterData = emitter.Data;
+			if (emitterData.DeltaTime == 0.0f && emitterData.TrailSize > 0)
+			{
+				emitterData.TrailPhase = (emitterData.TrailPhase + paramSet.RenderShape.Data - 1) % paramSet.RenderShape.Data;
+			}
+			graphicsDevice_->UpdateUniformBuffer(emitter.Buffer, sizeof(GpuParticles::EmitterData), 0, &emitterData);
 
 			if (emitter.Data.NextEmitCount > 0)
 			{
@@ -486,6 +495,7 @@ void GpuParticleSystem::ComputeFrame(const Context& context)
 				command.GroupCount = {(int32_t)emitter.Data.NextEmitCount, 1, 1};
 				command.ThreadCount = {1, 1, 1};
 				graphicsDevice_->Dispatch(command);
+				++dispatchRequestCount_;
 			}
 			else if (emitter.Data.DeltaTime > 0.0f &&
 					 emitter.Data.TimeCount >= paramSet.Basic.EmitOffset &&
@@ -507,6 +517,15 @@ void GpuParticleSystem::ComputeFrame(const Context& context)
 			GpuParticles::ComputeCommand command;
 			command.PipelineStatePtr = pipelineParticleUpdate_;
 
+			// Publish lazy render-model uploads before entering an external
+			// graphics pass. Dispatch flushes the backend's queued uploads.
+			if (paramSet.RenderShape.Type == RenderShapeT::Model)
+			{
+				auto model = emitter.Resource->Effect->GetModel(paramSet.RenderShape.Data);
+				if (model && !model->GetIsBufferStoredOnGPU())
+					model->StoreBufferToGPU(graphicsDevice_.Get());
+			}
+
 			command.UniformBufferPtrs[0] = computeConstantsUniformBuffer_;
 			command.UniformBufferPtrs[1] = emitter.Resource->ParamBuffer;
 			command.UniformBufferPtrs[2] = emitter.Buffer;
@@ -520,8 +539,9 @@ void GpuParticleSystem::ComputeFrame(const Context& context)
 			command.GroupCount = {(int32_t)emitter.Data.ParticleSize / 256, 1, 1};
 			command.ThreadCount = {256, 1, 1};
 			graphicsDevice_->Dispatch(command);
+			++dispatchRequestCount_;
 
-			if (emitter.Data.TrailSize > 0)
+			if (emitter.Data.DeltaTime > 0.0f && emitter.Data.TrailSize > 0)
 			{
 				emitter.Data.TrailPhase = (emitter.Data.TrailPhase + 1) % paramSet.RenderShape.Data;
 			}
@@ -667,6 +687,11 @@ void GpuParticleSystem::RenderFrame(const Context& context)
 					drawParams.InstanceCount = emitter.Data.ParticleSize;
 
 					graphicsDevice_->Draw(drawParams);
+					++drawRequestCount_;
+					const auto vertices = static_cast<uint64_t>(model->GetVertexCount(i)) * drawParams.InstanceCount;
+					vertexRequestCount_ += vertices;
+					renderer->GetImpl()->drawcallCount++;
+					renderer->GetImpl()->drawvertexCount += static_cast<int32_t>(vertices);
 				}
 			}
 		}
@@ -681,6 +706,8 @@ GpuParticleSystem::EmitterID GpuParticleSystem::NewEmitter(Effekseer::GpuParticl
 
 	if (emitterFreeList_.size() == 0)
 	{
+		std::lock_guard<std::mutex> statsLock(allocationStatsMutex_);
+		++allocationStats_.EmitterSlotFailureCount;
 		return InvalidID;
 	}
 
@@ -694,6 +721,8 @@ GpuParticleSystem::EmitterID GpuParticleSystem::NewEmitter(Effekseer::GpuParticl
 	Block particleBlock = particleAllocator_.Allocate(particlesMaxCount);
 	if (particleBlock.Size == 0)
 	{
+		std::lock_guard<std::mutex> statsLock(allocationStatsMutex_);
+		++allocationStats_.ParticleBlockFailureCount;
 		return InvalidID;
 	}
 
@@ -704,6 +733,8 @@ GpuParticleSystem::EmitterID GpuParticleSystem::NewEmitter(Effekseer::GpuParticl
 		if (trailBlock.Size == 0)
 		{
 			particleAllocator_.Deallocate(particleBlock);
+			std::lock_guard<std::mutex> statsLock(allocationStatsMutex_);
+			++allocationStats_.TrailBlockFailureCount;
 			return InvalidID;
 		}
 	}
@@ -725,6 +756,12 @@ GpuParticleSystem::EmitterID GpuParticleSystem::NewEmitter(Effekseer::GpuParticl
 
 	newEmitterIds_.push_back(emitterID);
 	emitterFreeList_.pop_front();
+	{
+		std::lock_guard<std::mutex> statsLock(allocationStatsMutex_);
+		++allocationStats_.AllocatedEmitterCount;
+		allocationStats_.ReservedParticleCount += particleBlock.Size;
+		allocationStats_.ReservedTrailCount += trailBlock.Size;
+	}
 
 	return emitterID;
 }
@@ -741,6 +778,12 @@ void GpuParticleSystem::FreeEmitter(EmitterID emitterID)
 	particleAllocator_.Deallocate({emitter.Data.ParticleHead, emitter.Data.ParticleSize});
 	trailAllocator_.Deallocate({emitter.Data.TrailHead, emitter.Data.TrailSize});
 	emitterFreeList_.push_front(emitterID);
+	{
+		std::lock_guard<std::mutex> statsLock(allocationStatsMutex_);
+		--allocationStats_.AllocatedEmitterCount;
+		allocationStats_.ReservedParticleCount -= emitter.Data.ParticleSize;
+		allocationStats_.ReservedTrailCount -= emitter.Data.TrailSize;
+	}
 }
 
 void GpuParticleSystem::StartEmit(EmitterID emitterID)

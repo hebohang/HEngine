@@ -1,0 +1,28 @@
+<rml>
+<head>
+  <title>Loading</title>
+  <link type="text/rcss" href="CopperNoir.rcss" />
+</head>
+<body id="loading-screen">
+  <div id="loading-ribbon" />
+  <div id="loading-edge" />
+  <div id="loading-brand" />
+  <div id="loading-rule" />
+  <div id="loading-copy">
+    <div id="loading-kicker">旅程 / 正在准备</div>
+    <div id="loading-title">即将启程</div>
+    <div id="loading-caption">片刻之后，步入光影之间。</div>
+  </div>
+  <div id="loading-emblem">
+    <div class="orbit orbit-a" />
+    <div class="orbit orbit-b" />
+    <div class="orbit orbit-c" />
+    <div id="loading-diamond" />
+  </div>
+  <div id="loading-stage">开启旅程</div>
+  <div id="loading-percent">0%</div>
+  <div id="loading-track"><div id="loading-progress" /></div>
+  <div id="loading-footer">场景 · 人物 · 光影</div>
+  <div id="loading-hint">正在准备，请稍候</div>
+</body>
+</rml>

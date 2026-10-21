@@ -1,0 +1,11 @@
+'use strict';
+const assert=require('node:assert/strict'),vm=require('node:vm');
+const {compileWeChatJavaScript,validateWeChatJavaScript}=require('./WeChatJavaScript.cjs');
+const source='module.exports=(value)=>value?.clock?.now?.() ?? 42;';
+assert.throws(()=>validateWeChatJavaScript(source,'copied-helper.js'),/upload syntax incompatible/);
+const output=compileWeChatJavaScript(source,'copied-helper.js');
+validateWeChatJavaScript(output,'exported-helper.js');
+const context={module:{exports:{}}};vm.runInNewContext(output,context);
+assert.equal(context.module.exports(null),42);assert.equal(context.module.exports({clock:{now:()=>7}}),7);
+validateWeChatJavaScript('const message="optional?.syntax inside a string";','string.js');
+console.log('unit-test PASS: copied modern helper rejected, transformed helper accepted and behavior preserved; strings are not mistaken for syntax');

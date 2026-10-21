@@ -5,7 +5,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
+#include <vector>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -42,7 +42,9 @@ namespace HEngine
 		std::size_t mCapacity;
 		std::uint64_t mNextCursor = 1;
 		std::chrono::steady_clock::time_point mStartTime = std::chrono::steady_clock::now();
-		std::deque<Entry> mEntries;
+		std::vector<Entry> mEntries;
+		std::size_t mHead = 0;
+		std::size_t mCount = 0;
 		mutable std::mutex mMutex;
 	};
 }

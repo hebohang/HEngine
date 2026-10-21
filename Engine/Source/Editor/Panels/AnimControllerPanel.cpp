@@ -4,6 +4,7 @@
 #include "Editor/EditorTheme.h"
 #include "Editor/ImGuiWrapper/ImGuiWrapper.h"
 #include "_generated/serializer/AnimController.gen.h"
+#include "Runtime/Core/AppFramework/Application.h"
 #include "Runtime/Resource/ConfigManager/ConfigManager.h"
 #include "Runtime/Utils/PlatformUtils.h"
 #include "Runtime/Utils/PathUtils/PathUtils.h"
@@ -12,6 +13,7 @@
 #include <imgui_node_editor.h>
 
 #include <algorithm>
+#include <cstdio>
 
 #include <nlohmann/json.hpp>
 
@@ -19,6 +21,25 @@ namespace ed = ax::NodeEditor;
 
 namespace HEngine
 {
+    void AnimControllerPanel::RequestGraphFocus()
+    {
+        mInitialGraphFitActive = false; // Explicit user/automation focus owns navigation now.
+        ++mGraphFocusRequests;
+        mPendingNavigateToContent = true;
+    }
+
+    Json AnimControllerPanel::AutomationGraph(const Json& params)
+    {
+        const std::string action = params.at("action");
+        if (action == "focus") RequestGraphFocus();
+        else if (action != "state") throw std::invalid_argument("Controller supports state/focus only.");
+        Json result = mAutomationCanvasState;
+        result["applicationFrame"] = Application::GetInstance().GetFrameNumber();
+        result["focusPending"] = mPendingNavigateToContent;
+        result["focusRequests"] = mGraphFocusRequests;
+        return result;
+    }
+
 	const char* AnimControllerPanel::GetUndoContextName() const
 	{
 		return EditorLayer::GetText("Anim Controller");
@@ -134,7 +155,8 @@ namespace HEngine
 
         const std::string title = std::string(EditorLayer::GetText("Anim Controller")) + " - " +
             std::filesystem::path(mControllerPath).filename().string() + "###AnimControllerPanel:" + mControllerPath;
-        ImGuiWrapper::SetNextWindowSizeConstraints(ImVec2(780.0f, 520.0f), ImVec2(FLT_MAX, FLT_MAX));
+        ImGuiWrapper::ConstrainNextWindowToWorkArea(title.c_str(),
+            ImVec2(1080.0f, 720.0f), ImVec2(780.0f, 520.0f));
         if (!ImGui::Begin(title.c_str(), pOpen))
         {
             ImGui::End();
@@ -251,7 +273,7 @@ namespace HEngine
 		if (ImGui::Button(LocalizedLabel("Add Output", "AddOutput").c_str(), ImGuiWrapper::S(96.0f, 0.0f))) AddNode("Output", ImVec2(520.0f, 140.0f));
 		ImGui::SameLine();
 		if (ImGui::Button(LocalizedLabel("Focus Graph", "FocusGraph").c_str(), ImGuiWrapper::S(106.0f, 0.0f)))
-            mPendingNavigateToContent = true;
+            RequestGraphFocus();
 		ImGui::SameLine();
 
 		if (ImGui::Button(LocalizedLabel("Save", "Save").c_str(), ImGuiWrapper::S(84.0f, 0.0f)))
@@ -291,6 +313,7 @@ namespace HEngine
 		style.FlowMarkerDistance = ImGuiWrapper::S(28.0f);
 
         const ImVec2 avail = ImGui::GetContentRegionAvail();
+        const ImVec2 canvasScreenMin = ImGui::GetCursorScreenPos();
         ed::Begin("AnimControllerNodeEditor", ImVec2(avail.x, avail.y));
 
         for (auto& node : mController.nodes)
@@ -333,6 +356,7 @@ namespace HEngine
             }
         }
 
+        const bool bAppliedPositionsThisFrame = mApplySavedNodePositions;
         mApplySavedNodePositions = false;
 
         for (const auto& link : mGraphLinks)
@@ -345,11 +369,7 @@ namespace HEngine
             ed::Link(ed::LinkId(link.LinkId), ed::PinId(fromNodeUi->OutputPinId), ed::PinId(toNodeUi->InputPinId), ImColor(170, 190, 240, 220), 2.0f);
         }
 
-        if (mPendingNavigateToContent)
-        {
-            ed::NavigateToContent();
-            mPendingNavigateToContent = false;
-        }
+
 
         if (ed::ShowBackgroundContextMenu())
         {
@@ -486,6 +506,74 @@ namespace HEngine
 			CaptureHistory("Move Node", true);
 
         ed::End();
+        const ImVec2 canvasSize = ImFloor(avail);
+        const bool bCanvasSizeChanged = canvasSize.x != mPreviousCanvasSize.x || canvasSize.y != mPreviousCanvasSize.y;
+        if (bCanvasSizeChanged)
+        {
+            ++mGraphCanvasSizeChanges;
+            mGraphStableSizeFrames = 0;
+        }
+        else mGraphStableSizeFrames = std::min(mGraphStableSizeFrames + 1u, 2u);
+        mPreviousCanvasSize = canvasSize;
+        const ImVec2 visibleMin = ed::ScreenToCanvas(canvasScreenMin);
+        const ImVec2 visibleMax = ed::ScreenToCanvas(ImVec2(canvasScreenMin.x + canvasSize.x, canvasScreenMin.y + canvasSize.y));
+        ImVec2 boundsMin(FLT_MAX, FLT_MAX), boundsMax(-FLT_MAX, -FLT_MAX);
+        for (const auto& node : mController.nodes)
+        {
+            const ImVec2 position = ed::GetNodePosition(ed::NodeId(node.id));
+            const ImVec2 size = ed::GetNodeSize(ed::NodeId(node.id));
+            boundsMin = ImMin(boundsMin, position);
+            boundsMax = ImMax(boundsMax, ImVec2(position.x + size.x, position.y + size.y));
+        }
+        const bool bNodesFullyVisible = !mController.nodes.empty() && boundsMin.x >= visibleMin.x &&
+            boundsMin.y >= visibleMin.y && boundsMax.x <= visibleMax.x && boundsMax.y <= visibleMax.y;
+        // Initial window/table layout changes can overwrite a previously requested view.
+        // Observe actual dimensions, then confirm the resulting rendered view. This
+        // bounded startup state ends permanently; normal user resizing never refits.
+        if (mInitialGraphFitActive)
+        {
+            ++mInitialGraphFitFrames;
+            if (mInitialGraphFitAttempts > 0 && mGraphStableSizeFrames >= 2 && bNodesFullyVisible)
+            {
+                mInitialGraphFitActive = false;
+                mPendingNavigateToContent = false;
+            }
+            else if (mInitialGraphFitFrames >= 32 ||
+                (mInitialGraphFitAttempts >= 3 && mGraphStableSizeFrames >= 2))
+            {
+                mInitialGraphFitActive = false;
+                mInitialGraphFitExhausted = true;
+                mPendingNavigateToContent = false;
+            }
+            else if (bCanvasSizeChanged || (mGraphStableSizeFrames >= 2 && !bNodesFullyVisible))
+                mPendingNavigateToContent = true;
+        }
+        const auto pair = [](ImVec2 value) { return Json::array({value.x, value.y}); };
+        mAutomationCanvasState = {{"lastUiFrame", Application::GetInstance().GetFrameNumber()},
+            {"canvasScreenMin", pair(canvasScreenMin)}, {"canvasSize", pair(canvasSize)},
+            {"visibleMin", pair(visibleMin)}, {"visibleMax", pair(visibleMax)},
+            {"nodeCount", mController.nodes.size()}, {"boundsMin", pair(boundsMin)}, {"boundsMax", pair(boundsMax)},
+            {"inverseZoom", ed::GetCurrentZoom()}, {"canvasSizeChanges", mGraphCanvasSizeChanges},
+            {"nodesFullyVisible", bNodesFullyVisible},
+            {"initialFitActive", mInitialGraphFitActive}, {"initialFitExhausted", mInitialGraphFitExhausted},
+            {"initialFitFrames", mInitialGraphFitFrames}, {"initialFitAttempts", mInitialGraphFitAttempts},
+            {"stableCanvasFrames", mGraphStableSizeFrames},
+            {"visibilityToleranceCanvasUnits", 0.0f}, {"focusExecutions", mGraphFocusExecutions}, {"lastFocusFrame", mGraphFocusFrame}};
+        // Navigate after End has finalized the canvas, as in the node-editor
+        // example. The public API fits all content with a margin; positions stay authored.
+        if (mPendingNavigateToContent && !bAppliedPositionsThisFrame &&
+            (!mInitialGraphFitActive || (mGraphStableSizeFrames >= 2 && canvasSize.x > 0 && canvasSize.y > 0)))
+        {
+            ed::NavigateToContent(0.0f);
+            if (mInitialGraphFitActive)
+            {
+                ++mInitialGraphFitAttempts;
+                mGraphStableSizeFrames = 0;
+            }
+            ++mGraphFocusExecutions;
+            mGraphFocusFrame = Application::GetInstance().GetFrameNumber();
+            mPendingNavigateToContent = false;
+        }
         ed::SetCurrentEditor(nullptr);
     }
 
@@ -513,7 +601,7 @@ namespace HEngine
         }
 
         char nameBuffer[128] = {};
-        strcpy_s(nameBuffer, sizeof(nameBuffer), nodeIter->name.c_str());
+        std::snprintf(nameBuffer, sizeof(nameBuffer), "%s", nodeIter->name.c_str());
 		if (ImGui::InputText(LocalizedLabel("Name", "NodeName").c_str(), nameBuffer, sizeof(nameBuffer)))
 		{
 			nodeIter->name = nameBuffer;
@@ -525,7 +613,7 @@ namespace HEngine
         if (nodeIter->type == "State")
         {
             char clipBuffer[260] = {};
-            strcpy_s(clipBuffer, sizeof(clipBuffer), nodeIter->clipPath.c_str());
+            std::snprintf(clipBuffer, sizeof(clipBuffer), "%s", nodeIter->clipPath.c_str());
 			if (ImGui::InputText(LocalizedLabel("Clip Path", "clipPath").c_str(), clipBuffer, sizeof(clipBuffer)))
 			{
 				nodeIter->clipPath = Utils::NormalizeAssetPath(clipBuffer);
@@ -558,6 +646,7 @@ namespace HEngine
 			}
         }
 
+        if (nodeIter->type == "State") DrawMotionSettings(*nodeIter);
         int outgoingCount = 0;
         for (const auto& transition : mController.transitions)
         {
@@ -565,6 +654,81 @@ namespace HEngine
                 ++outgoingCount;
         }
         ImGui::Text("%s: %d", EditorLayer::GetText("Outgoing transitions"), outgoingCount);
+    }
+
+    void AnimControllerPanel::DrawMotionSettings(AnimControllerNodeRes& node)
+    {
+        const auto text = [&](const char* label, std::string& value) {
+            char buffer[512]{};
+            std::copy_n(value.data(), std::min(value.size(), sizeof(buffer) - 1), buffer);
+            if (ImGui::InputText(label, buffer, sizeof(buffer))) { value = buffer; CaptureHistory("Edit Motion Settings", true); }
+        };
+        const auto state = [&](int& id) {
+            const auto selected = std::find_if(mController.nodes.begin(), mController.nodes.end(), [id](const auto& item) { return item.id == id; });
+            const char* preview = selected == mController.nodes.end() ? "Select State" : selected->name.c_str();
+            if (ImGui::BeginCombo("Source State", preview))
+            {
+                for (const auto& candidate : mController.nodes)
+                    if (candidate.type == "State")
+                    {
+                        ImGui::PushID(candidate.id);
+                        if (ImGui::Selectable(candidate.name.c_str(), id == candidate.id)) { id = candidate.id; CaptureHistory("Select Motion Source"); }
+                        ImGui::PopID();
+                    }
+                ImGui::EndCombo();
+            }
+        };
+        if (ImGui::TreeNode("Motion Blend"))
+        {
+            text("X Parameter", node.blendParameter);
+            text("Y Parameter (optional)", node.blendParameterY);
+            ImGui::TextWrapped("Empty X uses the state clip. X alone uses ordered 1D thresholds; X/Y use inverse-square distance weights. The state clip owns timing and events.");
+            for (size_t i = 0; i < node.blendSamples.size(); ++i)
+            {
+                ImGui::PushID(static_cast<int>(i));
+                auto& sample = node.blendSamples[i];
+                state(sample.nodeId);
+                if (ImGui::DragFloat("X", &sample.threshold, .05f)) CaptureHistory("Edit Blend Coordinate", true);
+                if (!node.blendParameterY.empty() && ImGui::DragFloat("Y", &sample.thresholdY, .05f)) CaptureHistory("Edit Blend Coordinate", true);
+                if (ImGui::Button("Remove Sample"))
+                {
+                    node.blendSamples.erase(node.blendSamples.begin() + i); CaptureHistory("Remove Blend Sample");
+                    ImGui::PopID(); break;
+                }
+                ImGui::Separator(); ImGui::PopID();
+            }
+            if (node.blendSamples.size() < 32 && ImGui::Button("Add Sample"))
+            {
+                AnimBlendSampleRes sample; sample.nodeId = node.id;
+                sample.threshold = node.blendSamples.empty() ? 0 : node.blendSamples.back().threshold + 1;
+                node.blendSamples.push_back(sample); CaptureHistory("Add Blend Sample");
+            }
+            ImGui::TreePop();
+        }
+        if (ImGui::TreeNode("Animation Layers"))
+        {
+            for (size_t i = 0; i < node.layers.size(); ++i)
+            {
+                ImGui::PushID(static_cast<int>(i));
+                auto& layer = node.layers[i]; state(layer.nodeId);
+                if (ImGui::SliderFloat("Weight", &layer.weight, 0, 1)) CaptureHistory("Edit Layer Weight", true);
+                text("Weight Parameter", layer.weightParameter);
+                if (ImGui::Checkbox("Additive (bind pose)", &layer.additive)) CaptureHistory("Edit Layer Mode");
+                ImGui::TextWrapped("Mask roots include descendants. Empty mask affects all bones. Layer events are not dispatched.");
+                for (size_t j = 0; j < layer.maskRoots.size(); ++j)
+                {
+                    ImGui::PushID(static_cast<int>(j)); text("Bone Root", layer.maskRoots[j]);
+                    if (ImGui::Button("Remove Root")) { layer.maskRoots.erase(layer.maskRoots.begin() + j); CaptureHistory("Remove Mask Root"); ImGui::PopID(); break; }
+                    ImGui::PopID();
+                }
+                if (layer.maskRoots.size() < 4096 && ImGui::Button("Add Mask Root")) { layer.maskRoots.emplace_back(); CaptureHistory("Add Mask Root"); }
+                if (ImGui::Button("Remove Layer")) { node.layers.erase(node.layers.begin() + i); CaptureHistory("Remove Animation Layer"); ImGui::PopID(); break; }
+                ImGui::Separator(); ImGui::PopID();
+            }
+            if (node.layers.size() < 16 && ImGui::Button("Add Layer"))
+            { AnimLayerRes layer; layer.nodeId = node.id; node.layers.push_back(layer); CaptureHistory("Add Animation Layer"); }
+            ImGui::TreePop();
+        }
     }
 
     void AnimControllerPanel::DrawStateNodeInlineClipUI(AnimControllerNodeRes& node)
@@ -731,7 +895,7 @@ namespace HEngine
             ImGui::PushID(i);
 
             char name[128] = {};
-            strcpy_s(name, sizeof(name), p.name.c_str());
+            std::snprintf(name, sizeof(name), "%s", p.name.c_str());
 			if (ImGui::InputText("##ParamName", name, sizeof(name)))
 			{
 				p.name = name;
@@ -801,7 +965,7 @@ namespace HEngine
         ImGui::Separator();
 
         char nameBuffer[128] = {};
-        strcpy_s(nameBuffer, sizeof(nameBuffer), mController.name.c_str());
+        std::snprintf(nameBuffer, sizeof(nameBuffer), "%s", mController.name.c_str());
 		if (ImGui::InputText(LocalizedLabel("Name", "ControllerName").c_str(), nameBuffer, sizeof(nameBuffer)))
 		{
 			mController.name = nameBuffer;
@@ -809,7 +973,7 @@ namespace HEngine
 		}
 
         char skeletonBuffer[260] = {};
-        strcpy_s(skeletonBuffer, sizeof(skeletonBuffer), mController.targetSkeletonPath.c_str());
+        std::snprintf(skeletonBuffer, sizeof(skeletonBuffer), "%s", mController.targetSkeletonPath.c_str());
 		if (ImGui::InputText(LocalizedLabel("Target Skeleton Path", "targetSkeletonPath").c_str(), skeletonBuffer, sizeof(skeletonBuffer)))
 		{
 			mController.targetSkeletonPath = Utils::NormalizeAssetPath(skeletonBuffer);
@@ -848,6 +1012,11 @@ namespace HEngine
 
 	void AnimControllerPanel::RemoveNode(int nodeId)
 	{
+        for (auto& node : mController.nodes)
+        {
+            std::erase_if(node.blendSamples, [nodeId](const auto& sample) { return sample.nodeId == nodeId; });
+            std::erase_if(node.layers, [nodeId](const auto& layer) { return layer.nodeId == nodeId; });
+        }
         mController.nodes.erase(std::remove_if(mController.nodes.begin(), mController.nodes.end(),
             [&](const AnimControllerNodeRes& n) { return n.id == nodeId; }), mController.nodes.end());
 

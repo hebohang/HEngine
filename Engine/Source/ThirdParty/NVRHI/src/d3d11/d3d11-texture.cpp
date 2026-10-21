@@ -43,7 +43,8 @@ namespace nvrhi::d3d11
         }
     }
 
-    Object Texture::getNativeView(ObjectType objectType, Format format, TextureSubresourceSet subresources, TextureDimension dimension, bool isReadOnlyDSV)
+    Object Texture::getNativeView(ObjectType objectType, Format format, TextureSubresourceSet subresources, TextureDimension dimension, bool isReadOnlyDSV,
+        std::optional<ComponentMapping> overrideComponentMapping)
     {
         switch (objectType)
         {
@@ -52,6 +53,9 @@ namespace nvrhi::d3d11
         case ObjectTypes::D3D11_DepthStencilView:
             return getDSV(subresources, isReadOnlyDSV);
         case ObjectTypes::D3D11_ShaderResourceView:
+            // D3D11_SHADER_RESOURCE_VIEW_DESC has no component-mapping field.
+            if (!resolveComponentMapping(overrideComponentMapping, desc.defaultComponentMapping).isIdentity())
+                utils::NotSupported();
             return getSRV(format, subresources, dimension);
         case ObjectTypes::D3D11_UnorderedAccessView:
             return getUAV(format, subresources, dimension);

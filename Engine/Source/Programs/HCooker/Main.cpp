@@ -13,6 +13,9 @@ namespace
 			"Usage: HCooker --project <project-root> --output <output-directory> "
 			"[--config <config-path>] [--report <report-path>] "
 			"[--engine-config <engine-cook-config>] "
+			"[--python-plugin enabled|disabled] "
+			"[--csharp-plugin enabled|disabled] "
+			"[--csharp-metadata <generated-metadata-json>] "
 			"[--forbid-root <absolute-directory>]... [--run-id <identifier>]\n"
 			"       HCooker --self-test\n");
 	}
@@ -73,9 +76,23 @@ int main(int argc, char** argv)
 		{
 			options.EngineConfigPath = value;
 		}
+		else if (argument == "--python-plugin" || argument == "--csharp-plugin")
+		{
+			if (rawValue != "enabled" && rawValue != "disabled")
+			{
+				std::fprintf(stderr, "HCooker: script plugin mode must be enabled or disabled.\n");
+				return 2;
+			}
+			if (argument == "--python-plugin") options.PythonPluginEnabled = rawValue == "enabled";
+			else options.CSharpPluginEnabled = rawValue == "enabled";
+		}
 		else if (argument == "--report")
 		{
 			options.ReportPath = value;
+		}
+		else if (argument == "--csharp-metadata")
+		{
+			options.CSharpMetadataPath = value;
 		}
 		else if (argument == "--forbid-root")
 		{

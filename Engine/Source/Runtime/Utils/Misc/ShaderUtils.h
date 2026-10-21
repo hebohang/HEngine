@@ -2,6 +2,7 @@
 #include "Runtime/Core/Base/Base.h"
 #include "Runtime/Core/Log/Log.h"
 #include "Runtime/Platform/PlatformPaths.h"
+#include "Runtime/Platform/PlatformProcess.h"
 #include "Runtime/Resource/ConfigManager/ConfigManager.h"
 
 #include <cstdlib>
@@ -20,9 +21,6 @@
 #include <utility>
 #include <vector>
 
-#ifdef _WIN32
-#include <Windows.h>
-#endif
 
 namespace HEngine
 {
@@ -453,125 +451,33 @@ namespace HEngine
 		}
 
 		inline bool RunShaderCompiler(
-			const std::string& args,
-			std::string* diagnostics = nullptr)
-		{
-			const auto shaderCompilerPath = PlatformPaths::GetExecutableDirectory() /
-				"Programs" / "HShaderCompiler" / "HShaderCompiler.exe";
-			if (!std::filesystem::exists(shaderCompilerPath))
-			{
-				if (diagnostics)
-					*diagnostics = "HShaderCompiler not found: " + shaderCompilerPath.string();
-				HE_CORE_ERROR("HShaderCompiler not found: {0}", shaderCompilerPath.string());
-				return false;
-			}
-
+            const std::vector<std::string>& arguments,
+            std::string* diagnostics = nullptr)
+        {
+            const auto shaderCompilerPath = PlatformPaths::GetExecutableDirectory() /
+                "Programs" / "HShaderCompiler" /
 #ifdef _WIN32
-			STARTUPINFOA startupInfo = {};
-			startupInfo.cb = sizeof(STARTUPINFOA);
-			PROCESS_INFORMATION processInfo = {};
-
-			std::string compilerArgs = args;
-			std::filesystem::path diagnosticsPath;
-			if (diagnostics)
-			{
-				diagnostics->clear();
-				const std::size_t identity = std::hash<std::string>{}(args);
-				diagnosticsPath = ConfigManager::GetSavedPath(
-					"Editor/ShaderDiagnostics/HShaderCompiler-" +
-					std::to_string(identity) + ".log");
-				std::error_code removeError;
-				std::filesystem::remove(diagnosticsPath, removeError);
-				compilerArgs += " --diagnosticsOutput \"" + diagnosticsPath.string() + "\"";
-			}
-			std::string commandLine = "\"" + shaderCompilerPath.string() + "\" " + compilerArgs;
-			auto compilerDir = shaderCompilerPath.parent_path().string();
-			if (!CreateProcessA(nullptr, commandLine.data(), nullptr, nullptr, FALSE, 0, nullptr, compilerDir.c_str(), &startupInfo, &processInfo))
-			{
-				if (diagnostics)
-					*diagnostics = "Failed to launch HShaderCompiler, error=" +
-						std::to_string((int)GetLastError());
-				HE_CORE_ERROR("Failed to launch HShaderCompiler, error={0}, cmd={1}", (int)GetLastError(), commandLine);
-				return false;
-			}
-
-			const DWORD waitResult = WaitForSingleObject(processInfo.hProcess, INFINITE);
-			DWORD exitCode = 1;
-			const BOOL gotExitCode = waitResult == WAIT_OBJECT_0
-				? GetExitCodeProcess(processInfo.hProcess, &exitCode)
-				: FALSE;
-			const DWORD processError = gotExitCode ? ERROR_SUCCESS : GetLastError();
-			CloseHandle(processInfo.hThread);
-			CloseHandle(processInfo.hProcess);
-			if (diagnostics && std::filesystem::is_regular_file(diagnosticsPath))
-			{
-				std::ifstream stream(diagnosticsPath, std::ios::binary);
-				std::ostringstream contents;
-				contents << stream.rdbuf();
-				*diagnostics = contents.str();
-			}
-
-			if (waitResult != WAIT_OBJECT_0)
-			{
-				if (diagnostics)
-					*diagnostics = "Failed while waiting for HShaderCompiler, result=" +
-						std::to_string((int)waitResult) + ", error=" +
-						std::to_string((int)processError);
-				HE_CORE_ERROR("Failed while waiting for HShaderCompiler, result={0}, error={1}, cmd={2}", (int)waitResult, (int)processError, commandLine);
-				return false;
-			}
-			if (!gotExitCode)
-			{
-				if (diagnostics)
-					*diagnostics = "Failed to read HShaderCompiler exit code, error=" +
-						std::to_string((int)processError);
-				HE_CORE_ERROR("Failed to read HShaderCompiler exit code, error={0}, cmd={1}", (int)processError, commandLine);
-				return false;
-			}
-			if (exitCode != 0)
-			{
-				if (diagnostics && diagnostics->empty())
-					*diagnostics = "HShaderCompiler exited with code " +
-						std::to_string((int)exitCode) + ".";
-				HE_CORE_ERROR("HShaderCompiler exited with code {0}, cmd={1}", (int)exitCode, commandLine);
-				return false;
-			}
-
-			return true;
+                "HShaderCompiler.exe";
 #else
-			std::string compilerArgs = args;
-			std::filesystem::path diagnosticsPath;
-			if (diagnostics)
-			{
-				diagnostics->clear();
-				const std::size_t identity = std::hash<std::string>{}(args);
-				diagnosticsPath = ConfigManager::GetSavedPath(
-					"Editor/ShaderDiagnostics/HShaderCompiler-" +
-					std::to_string(identity) + ".log");
-				std::error_code removeError;
-				std::filesystem::remove(diagnosticsPath, removeError);
-				compilerArgs += " --diagnosticsOutput \"" + diagnosticsPath.string() + "\"";
-			}
-			std::string commandLine = "\"" + shaderCompilerPath.string() + "\" " + compilerArgs;
-			const int exitCode = std::system(commandLine.c_str());
-			if (diagnostics && std::filesystem::is_regular_file(diagnosticsPath))
-			{
-				std::ifstream stream(diagnosticsPath, std::ios::binary);
-				std::ostringstream contents;
-				contents << stream.rdbuf();
-				*diagnostics = contents.str();
-			}
-			if (exitCode != 0)
-			{
-				if (diagnostics && diagnostics->empty())
-					*diagnostics = "HShaderCompiler exited with code " +
-						std::to_string(exitCode) + ".";
-				HE_CORE_ERROR("HShaderCompiler exited with code {0}, cmd={1}", exitCode, commandLine);
-				return false;
-			}
-			return true;
+                "HShaderCompiler";
 #endif
-		}
+            if (!std::filesystem::is_regular_file(shaderCompilerPath))
+            {
+                if (diagnostics) *diagnostics = "HShaderCompiler not found: " + shaderCompilerPath.string();
+                HE_CORE_ERROR("HShaderCompiler not found: {0}", shaderCompilerPath.string());
+                return false;
+            }
+            const auto result = PlatformProcess::RunCaptured(shaderCompilerPath, arguments, {}, 300);
+            if (diagnostics) *diagnostics = result.Output;
+            if (result.ExitCode != 0 || result.Cancelled)
+            {
+                if (diagnostics && diagnostics->empty())
+                    *diagnostics = "HShaderCompiler exited with code " + std::to_string(result.ExitCode) + ".";
+                HE_CORE_ERROR("HShaderCompiler failed with code {0}: {1}", result.ExitCode, result.Output);
+                return false;
+            }
+            return true;
+        }
 
 		inline bool CompileShader(
 			const std::filesystem::path& shaderPath,
@@ -590,10 +496,13 @@ namespace HEngine
 			const auto shaderRoot = GetShaderRootPath(shaderPath);
 			const auto engineShaderRoot = GetEngineShaderRootPath();
 			const auto outputRoot = GetShaderOutputRootPath(shaderRoot);
-			std::string args = "-s \"" + shaderPath.string() + "\" -r \"" +
-				shaderRoot.string() + "\" -o \"" + outputRoot.string() + "\"";
-			if (shaderRoot != engineShaderRoot)
-				args += " --includePath \"" + engineShaderRoot.string() + "\"";
+            std::vector<std::string> args{ "-s", shaderPath.string(), "-r", shaderRoot.string(),
+                "-o", outputRoot.string() };
+            if (shaderRoot != engineShaderRoot)
+            {
+                args.push_back("--includePath");
+                args.push_back(engineShaderRoot.string());
+            }
 			return RunShaderCompiler(args, diagnostics);
 		}
 
@@ -601,8 +510,8 @@ namespace HEngine
 		{
 			const auto engineShaderRoot = GetEngineShaderRootPath();
 			const auto engineOutputRoot = GetShaderOutputRootPath(engineShaderRoot);
-			std::string engineArgs = "-p \"" + engineShaderRoot.string() + "\" -r \"" +
-				engineShaderRoot.string() + "\" -o \"" + engineOutputRoot.string() + "\"";
+            const std::vector<std::string> engineArgs{ "-p", engineShaderRoot.string(),
+                "-r", engineShaderRoot.string(), "-o", engineOutputRoot.string() };
 			if (!RunShaderCompiler(engineArgs))
 				return false;
 
@@ -611,9 +520,9 @@ namespace HEngine
 				return true;
 
 			const auto projectOutputRoot = GetShaderOutputRootPath(projectShaderRoot);
-			std::string projectArgs = "-p \"" + projectShaderRoot.string() + "\" -r \"" + projectShaderRoot.string() +
-				"\" -o \"" + projectOutputRoot.string() + "\" --includePath \"" +
-				engineShaderRoot.string() + "\"";
+            const std::vector<std::string> projectArgs{ "-p", projectShaderRoot.string(),
+                "-r", projectShaderRoot.string(), "-o", projectOutputRoot.string(),
+                "--includePath", engineShaderRoot.string() };
 			return RunShaderCompiler(projectArgs);
 		}
 #endif

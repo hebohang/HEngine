@@ -6,6 +6,8 @@
 #include <exception>
 #include <optional>
 #include <vector>
+#include <unordered_set>
+#include "Runtime/Scripting/ScriptEngine.h"
 
 namespace HEngine
 {
@@ -27,6 +29,7 @@ namespace HEngine
 
 		void OnRuntiemStart() override;
 		void OnUpdateRuntime(Timestep ts) override;
+		void OnFixedUpdate(Timestep ts);
 		void OnRuntimeStop() override;
 		void OnImGuiRender() override;
 		[[nodiscard]] bool ShouldUpdateWhenRuntimePaused() const override { return true; }
@@ -44,16 +47,13 @@ namespace HEngine
 			const UUID& owner) noexcept;
 		void ReleaseRuntimeOwner(const UUID& owner) noexcept;
 
-		template<typename... Args>
-		void CallPyFuncAll(const char* funcName, Args... args);		
-
-		template<typename... Args>
-		void CallPyClassFuncAll(const char* funcName, Args... args);		
+		void CallAll(LegacyScriptCallback callback, float seconds = 0);
 
 		static Level* sActiveLevel;
 		static PythonScriptSystem* sActiveSystem;
 		static std::optional<UUID> sCurrentScriptOwner;
 		std::vector<UUID> mStartedScriptOwners;
+		std::unordered_set<UUID> mFaultedOwners;
 		bool mRuntimeActive = false;
 
 		friend class Level;

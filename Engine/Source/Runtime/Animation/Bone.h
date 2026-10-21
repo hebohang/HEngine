@@ -2,8 +2,11 @@
 
 /* Container for bone data */
 
+#include "Runtime/Animation/LocalPose.h"
+
 #include <vector>
-#if !defined(HE_PACKAGED_GAME)
+#include <string>
+#if HE_RUNTIME_ASSET_IMPORT
 #include <assimp/scene.h>
 #endif
 #include <list>
@@ -15,7 +18,7 @@ namespace HEngine
 {
 	namespace Utils
 	{
-#if !defined(HE_PACKAGED_GAME)
+#if HE_RUNTIME_ASSET_IMPORT
 		static glm::vec3 GetGLMVec(const aiVector3D& vec)
 		{
 			return glm::vec3(vec.x, vec.y, vec.z);
@@ -61,7 +64,7 @@ namespace HEngine
 			  mNumScalings((int)scales.size())
 		{}
 
-#if !defined(HE_PACKAGED_GAME)
+#if HE_RUNTIME_ASSET_IMPORT
 		Bone(const std::string& name, int ID, const aiNodeAnim* channel)
 			:
 			mName(name),
@@ -104,107 +107,56 @@ namespace HEngine
 		}
 #endif
 
-		void Update(float animationTime)
-		{
-			glm::mat4 translation = InterpolatePosition(animationTime);
-			glm::mat4 rotation = InterpolateRotation(animationTime);
-			glm::mat4 scale = InterpolateScaling(animationTime);
-			mLocalTransform = translation * rotation * scale;
-		}
-		glm::mat4 GetLocalTransform() { return mLocalTransform; }
-		std::string GetBoneName() const { return mName; }
-		int GetBoneID() { return mID; }
+        LocalPose Sample(float time, const LocalPose& bindPose) const
+        {
+            LocalPose result = bindPose;
+            result.Translation = SampleKeys(mPositions, time, bindPose.Translation,
+                [](const KeyPosition& key) { return key.position; },
+                [](auto a, auto b, float t) { return glm::mix(a, b, t); });
+            result.Rotation = SampleKeys(mRotations, time, bindPose.Rotation,
+                [](const KeyRotation& key) { return key.orientation; },
+                [](auto a, auto b, float t) { return glm::normalize(glm::slerp(glm::normalize(a), glm::normalize(b), t)); });
+            result.Scale = SampleKeys(mScales, time, bindPose.Scale,
+                [](const KeyScale& key) { return key.scale; },
+                [](auto a, auto b, float t) { return glm::mix(a, b, t); });
+            const float rotationLength = glm::length(result.Rotation);
+            if (!std::isfinite(rotationLength) || rotationLength < 1e-6f)
+                throw std::invalid_argument("Animation key has an invalid quaternion.");
+            result.Rotation = glm::normalize(result.Rotation);
+            return result;
+        }
 
+        void Update(float animationTime) { mLocalTransform = Sample(animationTime, {}).Matrix(); }
+        glm::mat4 GetLocalTransform() const { return mLocalTransform; }
+        std::string GetBoneName() const { return mName; }
+        int GetBoneID() const { return mID; }
+        int GetPositionIndex(float time) const { return KeyIndex(mPositions, time); }
+        int GetRotationIndex(float time) const { return KeyIndex(mRotations, time); }
+        int GetScaleIndex(float time) const { return KeyIndex(mScales, time); }
 
+    private:
+        template<class Key>
+        static int KeyIndex(const std::vector<Key>& keys, float time)
+        {
+            if (keys.size() < 2) return 0;
+            const auto next = std::upper_bound(keys.begin(), keys.end(), time,
+                [](float value, const Key& key) { return value < key.timeStamp; });
+            return std::clamp(static_cast<int>(next - keys.begin()) - 1, 0, static_cast<int>(keys.size()) - 2);
+        }
 
-		int GetPositionIndex(float animationTime)
-		{
-			for (int index = 0; index < mNumPositions - 1; ++index)
-			{
-				if (animationTime < mPositions[index + 1].timeStamp)
-					return index;
-			}
-			assert(0);
-		}
-
-		int GetRotationIndex(float animationTime)
-		{
-			for (int index = 0; index < mNumRotations - 1; ++index)
-			{
-				if (animationTime < mRotations[index + 1].timeStamp)
-					return index;
-			}
-			assert(0);
-		}
-
-		int GetScaleIndex(float animationTime)
-		{
-			for (int index = 0; index < mNumScalings - 1; ++index)
-			{
-				if (animationTime < mScales[index + 1].timeStamp)
-					return index;
-			}
-			assert(0);
-		}
-
-
-	private:
-
-		float GetScaleFactor(float lastTimeStamp, float nextTimeStamp, float animationTime)
-		{
-			float scaleFactor = 0.0f;
-			float midWayLength = animationTime - lastTimeStamp;
-			float framesDiff = nextTimeStamp - lastTimeStamp;
-			scaleFactor = midWayLength / framesDiff;
-			return scaleFactor;
-		}
-
-		glm::mat4 InterpolatePosition(float animationTime)
-		{
-			if (1 == mNumPositions)
-				return glm::translate(glm::mat4(1.0f), mPositions[0].position);
-
-			int p0Index = GetPositionIndex(animationTime);
-			int p1Index = p0Index + 1;
-			float scaleFactor = GetScaleFactor(mPositions[p0Index].timeStamp,
-				mPositions[p1Index].timeStamp, animationTime);
-			glm::vec3 finalPosition = glm::mix(mPositions[p0Index].position, mPositions[p1Index].position
-				, scaleFactor);
-			return glm::translate(glm::mat4(1.0f), finalPosition);
-		}
-
-		glm::mat4 InterpolateRotation(float animationTime)
-		{
-			if (1 == mNumRotations)
-			{
-				auto rotation = glm::normalize(mRotations[0].orientation);
-				return glm::toMat4(rotation);
-			}
-
-			int p0Index = GetRotationIndex(animationTime);
-			int p1Index = p0Index + 1;
-			float scaleFactor = GetScaleFactor(mRotations[p0Index].timeStamp,
-				mRotations[p1Index].timeStamp, animationTime);
-			glm::quat finalRotation = glm::slerp(mRotations[p0Index].orientation, mRotations[p1Index].orientation
-				, scaleFactor);
-			finalRotation = glm::normalize(finalRotation);
-			return glm::toMat4(finalRotation);
-
-		}
-
-		glm::mat4 InterpolateScaling(float animationTime)
-		{
-			if (1 == mNumScalings)
-				return glm::scale(glm::mat4(1.0f), mScales[0].scale);
-
-			int p0Index = GetScaleIndex(animationTime);
-			int p1Index = p0Index + 1;
-			float scaleFactor = GetScaleFactor(mScales[p0Index].timeStamp,
-				mScales[p1Index].timeStamp, animationTime);
-			glm::vec3 finalScale = glm::mix(mScales[p0Index].scale, mScales[p1Index].scale
-				, scaleFactor);
-			return glm::scale(glm::mat4(1.0f), finalScale);
-		}
+        template<class Key, class Value, class Read, class Blend>
+        static Value SampleKeys(const std::vector<Key>& keys, float time, Value fallback, Read read, Blend blend)
+        {
+            if (keys.empty()) return fallback;
+            if (keys.size() == 1 || time <= keys.front().timeStamp) return read(keys.front());
+            if (time >= keys.back().timeStamp) return read(keys.back());
+            const int index = KeyIndex(keys, time);
+            const auto& a = keys[index];
+            const auto& b = keys[index + 1];
+            const float duration = b.timeStamp - a.timeStamp;
+            const float alpha = duration > 0.0f ? std::clamp((time - a.timeStamp) / duration, 0.0f, 1.0f) : 1.0f;
+            return blend(read(a), read(b), alpha);
+        }
 
 		std::vector<KeyPosition> mPositions;
 		std::vector<KeyRotation> mRotations;

@@ -1,0 +1,24 @@
+{
+  "emscripten": {
+    "commit": "7a5d93b50f6a3a35e85a0d2fc9e667b8498e6aed",
+    "version": "4.0.23-git",
+    "sha256": "c2e1b9a2eed20f9d5903780b559ce2b384132713f07936512e6d962dd5a5dae6",
+    "url": "https://storage.googleapis.com/webassembly/emscripten-releases-builds/win/aaa43392544d695232b70eda706d751f18980c2a/wasm-binaries.zip"
+  },
+  "sokol": {
+    "commit": "c24221dc065f34b26c6abd7b9194182120dba140",
+    "sha256": "fbf2640302b1b180be98ab8b0fe645a978260f7ab1509d78b2dcab3bc98f829e"
+  },
+  "dxc": {
+    "version": "1.7.2212.12 (8c9d92be7)",
+    "dllSha256": "120fb99ac1be379741e550b7b14721518dfd3afeef8f4721e8446536b0e178c5",
+    "exeSha256": "cb1193c1fd1e3f9ee139afaa83a870cf24cfdcae39e32cafd963ce2690aaec44"
+  },
+  "spirvCross": {
+    "source": "Vulkan SDK 1.3.211.0 Windows Bin/spirv-cross.exe",
+    "exeSha256": "b18c0e10bdc55137669aec82602ae4a5f23f3e30dc94231ae49679a0e772800b"
+  },
+  "wechatApiTypes": {
+    "commit": "4cae82af7f3c4339d1f11aea8e672fb16051d24a"
+  }
+}

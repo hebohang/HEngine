@@ -1,6 +1,7 @@
 #include "Hepch.h"
 
 #include "Runtime/EcsFramework/Serializer/PrefabSerializer.h"
+#include "Runtime/EcsFramework/Serializer/PrefabDocument.h"
 #include "Runtime/EcsFramework/Entity/Entity.h"
 #include "Runtime/EcsFramework/Component/ComponentGroup.h"
 #include "Runtime/EcsFramework/System/Script/PythonScriptSystem.h"
@@ -14,9 +15,23 @@
 #include <exception>
 #include <filesystem>
 #include <stdexcept>
+#include <set>
 
 namespace HEngine
 {
+    Entity PrefabSerializer::FindInstanceEntity(Entity member, const std::string& localId)
+    {
+        if (!member || !member.HasComponent<PrefabInstanceComponent>()) return {};
+        Level* level = member.GetLevel();
+        const auto root = member.GetComponent<PrefabInstanceComponent>().InstanceRootUuid;
+        for (auto handle : level->GetAllEntitiesWith<PrefabInstanceComponent>())
+        {
+            Entity candidate(handle, level);
+            const auto& identity = candidate.GetComponent<PrefabInstanceComponent>();
+            if (identity.InstanceRootUuid == root && identity.LocalId == localId) return candidate;
+        }
+        return {};
+    }
     template<Component... C>
     static void SerializePrefabEntity(Json& json, Entity entity)
     {
@@ -54,8 +69,16 @@ namespace HEngine
             HE_CORE_ERROR("[PrefabSerializer] Invalid prefab save path '{0}': {1}", filepath, ex.what());
             return;
         }
-        Json json;
-        SerializePrefabEntity(ComponentsSerialized{}, json, entity);
+        Json scene = Json::object();
+        Level* level = entity.GetLevel();
+        for (auto handle : level->GetAllEntitiesWith<IDComponent>())
+        {
+            Entity item(handle, level);
+            Json value = Json::object();
+            SerializePrefabEntity(ComponentsSerialized{}, value, item);
+            scene[item.GetComponent<IDComponent>().ID.str()] = std::move(value);
+        }
+        const Json json = CapturePrefabDocument(scene, entity.GetComponent<IDComponent>().ID.str(), path.Key.Path);
         Utils::SaveJsonToFile(json, path.FullPath);
 
         RuntimeResourceRegistry& registry = RuntimeResourceRegistry::GetInstance();
@@ -84,35 +107,74 @@ namespace HEngine
         DeserializePrefabEntity<C...>(prefabJson, entity);
     }
 
-    Entity PrefabSerializer::InstantiateFromJson(Level* level, const Json& prefabJson)
+    template<Component... C>
+    static Json CanonicalPrefabEntity(ComponentGroup<C...>, const Json& value)
     {
-        std::string tagName = "Entity";
-        if (prefabJson.contains("TagComponent") && prefabJson["TagComponent"].contains("Tag"))
-        {
-            tagName = prefabJson["TagComponent"]["Tag"].get<std::string>();
-        }
+        Json result = Json::object();
+        const std::set<std::string> names{ C::GetTypeName()... };
+        for (auto& [name, fields] : value.items())
+            if ((!names.contains(name) && name != "EditorEntityStateComponent" && name != "SceneFolderComponent") || !fields.is_object())
+                throw std::invalid_argument("Unknown or malformed prefab component: " + name);
+        ([&] {
+            if (!value.contains(C::GetTypeName())) return;
+            C component; Json defaults; Serializer::Serialize(defaults, component);
+            for (auto& [field, unused] : value.at(C::GetTypeName()).items())
+                if (!defaults.contains(field)) throw std::invalid_argument("Unknown prefab field: " + std::string(C::GetTypeName()) + "." + field);
+            Serializer::Deserialize(value.at(C::GetTypeName()), component);
+            Serializer::Serialize(result[C::GetTypeName()], component);
+        }(), ...);
+        if (result.contains("FollowCameraComponent") && !result.at("FollowCameraComponent").value("bHasTarget",false))
+            result["FollowCameraComponent"]["TargetUUID"] = "00000000-0000-0000-0000-000000000000";
+        return result;
+    }
 
-        Entity entity = level->CreateEntityWithoutTrans(UUID(), tagName);
+    Entity PrefabSerializer::InstantiateFromJson(Level* level, const Json& prefabJson, const std::string& path)
+    {
+        auto loader = [&](const std::string& dependency) {
+            const auto resolved = ResolveRuntimePrefabPath(ConfigManager::GetInstance().GetRootFolder(), dependency);
+            auto& registry = RuntimeResourceRegistry::GetInstance();
+            if (!registry.IsInitialized()) return Utils::LoadJsonFile(resolved.FullPath);
+            if (!level->mRuntimeResources) level->mRuntimeResources = registry.CreateGroup();
+            auto handle = AcquireRuntimePrefabJson(registry, resolved);
+            if (!level->mRuntimeResources.Pin(handle)) throw std::runtime_error("Failed to pin nested prefab: " + dependency);
+            return handle->GetDocument();
+        };
+        auto expanded = ExpandPrefabDocument(prefabJson, loader, path);
+        for (auto& [id, value] : expanded.Entities.items()) value = CanonicalPrefabEntity(ComponentsSerialized{}, value);
+        return InstantiatePrepared(level, expanded, path);
+    }
+
+    Entity PrefabSerializer::InstantiatePrepared(Level* level, const PrefabDocument& prefab, const std::string& path)
+    {
+        const auto prepared = InstantiatePrefabDocument(prefab, path, [] { return UUID().str(); });
+        std::vector<Entity> created;
         try
         {
-            DeserializePrefabEntity(ComponentsDeserialized{}, prefabJson, entity);
-
-			if (entity.HasComponent<PythonScriptComponent>())
-			{
-				if (PythonScriptSystem* scriptSystem =
-					PythonScriptSystem::GetActiveSystem(level))
-				{
-					(void)scriptSystem->StartRuntimeOwner(entity);
-				}
-			}
+            // Allocate every identity before components resolve internal refs.
+            for (auto& [id, value] : prepared.Values.items())
+                created.push_back(level->CreateEntityWithoutTrans(UUID(id), value.at("TagComponent").at("Tag")));
+            for (Entity entity : created)
+                DeserializePrefabEntity(ComponentsDeserialized{}, prepared.Values.at(entity.GetComponent<IDComponent>().ID.str()), entity);
+            // Scripts observe a fully assembled subtree, never a partial graph.
+            if (PythonScriptSystem* scripts = PythonScriptSystem::GetActiveSystem(level))
+                for (Entity entity : created)
+                    if (entity.HasComponent<PythonScriptComponent>())
+                    {
+                        const auto& scriptPath = entity.GetComponent<PythonScriptComponent>().Path;
+                        if (!scriptPath.empty() && scriptPath != "None" && !scripts->StartRuntimeOwner(entity))
+                            throw std::runtime_error("Prefab script initialization failed");
+                    }
+            for (Entity entity : created)
+                if (!entity) throw std::runtime_error("Prefab entity was destroyed while initializing scripts");
         }
         catch (...)
         {
             const std::exception_ptr failure = std::current_exception();
             try
             {
-                if (entity)
-                    level->DestroyEntity(entity);
+                for (Entity entity : created)
+                    if (entity && entity.HasComponent<TransformComponent>()) entity.GetComponent<TransformComponent>().ParentUuid.clear();
+                for (Entity entity : created) if (entity) level->DestroyEntity(entity);
             }
             catch (const std::exception& cleanupFailure)
             {
@@ -129,7 +191,7 @@ namespace HEngine
             std::rethrow_exception(failure);
         }
 
-        return entity;
+        return level->TryGetEntityByUUID(UUID(prepared.Root));
     }
 
     Entity PrefabSerializer::InstantiatePrefab(Level* level, const std::string& prefabPath)
@@ -161,14 +223,30 @@ namespace HEngine
 
         RuntimeResourceRegistry& registry = RuntimeResourceRegistry::GetInstance();
         if (!registry.IsInitialized())
-            return InstantiateFromJson(level, Utils::LoadJsonFile(path.FullPath));
+            return InstantiateFromJson(level, Utils::LoadJsonFile(path.FullPath), path.Key.Path);
 
         if (!level->mRuntimeResources)
             level->mRuntimeResources = registry.CreateGroup();
         RuntimeResourceHandle<RuntimePrefabJson> handle = AcquireRuntimePrefabJson(registry, path);
         if (!level->mRuntimeResources.Pin(handle))
             throw std::logic_error("Failed to pin prefab runtime resource: " + path.Key.Path);
-        return InstantiateFromJson(level, handle->GetDocument());
+		const Json& document = handle->GetDocument();
+		// A nested prefab can change independently of its parent generation.
+		// Keep its dependency expansion on the uncached path.
+		if (!document.contains("schemaVersion") ||
+			(document.contains("nested") && document.at("nested").is_array() && document.at("nested").empty()))
+		{
+			auto& cached = level->mPreparedPrefabs[path.FullPath.generic_string()];
+			if (!cached.second || cached.first != handle.GetGeneration())
+			{
+				auto expanded = ExpandPrefabDocument(document, {}, path.Key.Path);
+				for (auto& [id, value] : expanded.Entities.items())
+					value = CanonicalPrefabEntity(ComponentsSerialized{}, value);
+				cached = {handle.GetGeneration(), std::make_shared<const PrefabDocument>(std::move(expanded))};
+			}
+			return InstantiatePrepared(level, *cached.second, path.Key.Path);
+		}
+        return InstantiateFromJson(level, handle->GetDocument(), path.Key.Path);
     }
 
     Entity PrefabSerializer::InstantiatePrefab(Level* level, const std::string& prefabPath, const glm::vec3& position)

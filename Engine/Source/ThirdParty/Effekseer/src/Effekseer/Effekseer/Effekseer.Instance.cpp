@@ -426,6 +426,18 @@ void Instance::Update(float deltaFrame, bool shown)
 
 	if (m_GlobalMatrix43Calculated && (m_ParentMatrix43Calculated || m_pParent == nullptr) && !isUpdateRequired && !isParentRemoving && !isParentSequenceChanged)
 	{
+		// A zero delta (paused or speed zero) can reuse the transform, but
+		// SetAllColor may have changed the root color since the previous update.
+		// Publish it for the existing zero-delta GPU update without advancing time
+		// or changing the inheritance behavior of other binding modes.
+		if (gpuEmitterID_ >= 0 && m_pEffectNode->GpuParticlesResource &&
+			m_pEffectNode->GpuParticlesResource->GetParamSet().RenderColor.ColorInherit == BindType::NotBind_Root)
+		{
+			if (auto gpuParticleSystem = m_pManager->GetGpuParticleSystem())
+			{
+				gpuParticleSystem->SetColor(gpuEmitterID_, m_pContainer->GetRootInstance()->GlobalColor);
+			}
+		}
 		return;
 	}
 

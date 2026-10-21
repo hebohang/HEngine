@@ -1,0 +1,7 @@
+{
+  "name": "he-scripting-tools",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Pinned build-time transforms for HEngine managed runtime probes",
+  "devDependencies": { "esbuild": "0.25.12" }
+}

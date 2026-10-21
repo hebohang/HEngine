@@ -34,14 +34,14 @@ namespace HEngine
             0.0f,
             255.0f));
 
-        std::uint32_t opaquePixelCount = 0;
+        std::uint32_t survivorCount = 0;
         for (std::size_t pixelIndex = 0; pixelIndex < pixelCount; ++pixelIndex)
         {
             const std::uint8_t alpha = std::to_integer<std::uint8_t>(
                 rgbaPixels[pixelIndex * 4u + 3u]);
-            opaquePixelCount += alpha >= cutoff ? 1u : 0u;
+            survivorCount += alpha >= cutoff ? 1u : 0u;
         }
-        if (opaquePixelCount == 0u || opaquePixelCount == pixelCount)
+        if (survivorCount == 0u || survivorCount == pixelCount)
             return {};
 
         TextureAlphaDilationResult result{

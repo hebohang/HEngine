@@ -1,0 +1,22 @@
+<Project>
+  <!-- Export identity is explicit; the build machine OS is not the target. -->
+  <PropertyGroup>
+    <HEPlatform Condition="'$(HEPlatform)' == ''">Windows</HEPlatform>
+    <HEQuality Condition="'$(HEQuality)' == '' and ('$(HEPlatform)' == 'Windows' or '$(HEPlatform)' == 'macOS')">Desktop</HEQuality>
+    <HEQuality Condition="'$(HEQuality)' == ''">Portable</HEQuality>
+    <DefineConstants Condition="'$(HEPlatform)' == 'Windows'">$(DefineConstants);HE_WINDOWS</DefineConstants>
+    <DefineConstants Condition="'$(HEPlatform)' == 'macOS'">$(DefineConstants);HE_MACOS</DefineConstants>
+    <DefineConstants Condition="'$(HEPlatform)' == 'Web'">$(DefineConstants);HE_WEB</DefineConstants>
+    <DefineConstants Condition="'$(HEPlatform)' == 'Android'">$(DefineConstants);HE_ANDROID</DefineConstants>
+    <DefineConstants Condition="'$(HEPlatform)' == 'WeChat'">$(DefineConstants);HE_WECHAT</DefineConstants>
+    <DefineConstants Condition="'$(HEQuality)' == 'Desktop'">$(DefineConstants);HE_QUALITY_DESKTOP</DefineConstants>
+    <DefineConstants Condition="'$(HEQuality)' == 'Portable'">$(DefineConstants);HE_QUALITY_PORTABLE</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)Shared/*.cs" Link="HEngine/%(Filename)%(Extension)" />
+  </ItemGroup>
+  <Target Name="ValidateHEPlatform" BeforeTargets="BeforeCompile">
+    <Error Condition="'$(HEPlatform)' != 'Windows' and '$(HEPlatform)' != 'Web' and '$(HEPlatform)' != 'WeChat' and '$(HEPlatform)' != 'Android' and '$(HEPlatform)' != 'macOS'" Text="HEPlatform must be Windows, macOS, Web, WeChat or Android." />
+    <Error Condition="'$(HEQuality)' != 'Desktop' and '$(HEQuality)' != 'Portable'" Text="HEQuality must be Desktop or Portable." />
+  </Target>
+</Project>

@@ -54,7 +54,8 @@ Effekseer::Backend::VertexBufferRef VertexBufferMultiSize::Upload()
 	{
 		if (offset_ <= current_size)
 		{
-			vertexBuffers_[i]->UpdateData(buffer_.data(), offset_, 0);
+			if (offset_ > 0)
+				vertexBuffers_[i]->UpdateData(buffer_.data(), offset_, 0);
 			offset_ = 0;
 			return vertexBuffers_[i];
 		}
@@ -125,7 +126,10 @@ bool VertexBufferRing::Allocate(int32_t size, int32_t alignment, std::tuple<void
 
 Effekseer::Backend::VertexBufferRef VertexBufferRing::Upload()
 {
-	vertexBuffers_[currentIndex_]->UpdateData(buffer_.data() + previous_offset_, offset_ - previous_offset_, previous_offset_);
+	// Repeated flushes can have no new bytes, especially during exception cleanup.
+	// Vulkan does not permit a zero-sized memory mapping.
+	if (offset_ > previous_offset_)
+		vertexBuffers_[currentIndex_]->UpdateData(buffer_.data() + previous_offset_, offset_ - previous_offset_, previous_offset_);
 	previous_offset_ = offset_;
 
 	return vertexBuffers_[currentIndex_];

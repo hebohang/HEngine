@@ -1,0 +1,277 @@
+{
+  "Version": 1,
+  "Name": "PortableGame",
+  "GeneratedRmlPath": "Assets/UI/Game.rml",
+  "GeneratedRcssPath": "Assets/UI/Game.rcss",
+  "Nodes": [
+    {
+      "Id": 1,
+      "ParentId": -1,
+      "Type": "Canvas",
+      "Name": "Game",
+      "ElementId": "portable_hud",
+      "bVisible": true,
+      "bInteractable": false,
+      "Layout": {
+        "AnchorMin": [
+          0,
+          0
+        ],
+        "AnchorMax": [
+          1,
+          1
+        ],
+        "Pivot": [
+          0,
+          0
+        ],
+        "OffsetMin": [
+          0,
+          0
+        ],
+        "OffsetMax": [
+          0,
+          0
+        ]
+      },
+      "Style": {
+        "BackgroundColor": "#00000000",
+        "FontPath": ""
+      }
+    },
+    {
+      "Id": 2,
+      "ParentId": 1,
+      "Type": "Text",
+      "Name": "portable_title",
+      "ElementId": "portable_title",
+      "Text": "星核守护",
+      "bVisible": true,
+      "bInteractable": false,
+      "Layout": {
+        "AnchorMin": [
+          0.5,
+          0
+        ],
+        "AnchorMax": [
+          0.5,
+          0
+        ],
+        "Pivot": [
+          0.5,
+          0
+        ],
+        "OffsetMin": [
+          0,
+          12
+        ],
+        "OffsetMax": [
+          580,
+          32
+        ]
+      },
+      "Style": {
+        "BackgroundColor": "#122230cc",
+        "TextColor": "#e8f6ff",
+        "FontSize": 18,
+        "BorderRadius": 6,
+        "FontPath": ""
+      }
+    },
+    {
+      "Id": 3,
+      "ParentId": 1,
+      "Type": "Text",
+      "Name": "portable_status",
+      "ElementId": "portable_status",
+      "Text": "WASD / 触摸移动，靠近敌人自动攻击",
+      "bVisible": true,
+      "bInteractable": false,
+      "Layout": {
+        "AnchorMin": [
+          0.5,
+          0
+        ],
+        "AnchorMax": [
+          0.5,
+          0
+        ],
+        "Pivot": [
+          0.5,
+          0
+        ],
+        "OffsetMin": [
+          0,
+          48
+        ],
+        "OffsetMax": [
+          660,
+          32
+        ]
+      },
+      "Style": {
+        "BackgroundColor": "#122230cc",
+        "TextColor": "#e8f6ff",
+        "FontSize": 18,
+        "BorderRadius": 6,
+        "FontPath": ""
+      }
+    },
+    {
+      "Id": 4,
+      "ParentId": 1,
+      "Type": "Button",
+      "Name": "portable_action_0",
+      "ElementId": "portable_action_0",
+      "Text": "开始守护",
+      "bVisible": true,
+      "bInteractable": true,
+      "Layout": {
+        "AnchorMin": [
+          0.5,
+          1
+        ],
+        "AnchorMax": [
+          0.5,
+          1
+        ],
+        "Pivot": [
+          0.5,
+          0
+        ],
+        "OffsetMin": [
+          -225,
+          -58
+        ],
+        "OffsetMax": [
+          140,
+          40
+        ]
+      },
+      "Style": {
+        "BackgroundColor": "#80ed99",
+        "TextColor": "#122230",
+        "FontSize": 18,
+        "BorderRadius": 6,
+        "FontPath": ""
+      }
+    },
+    {
+      "Id": 5,
+      "ParentId": 1,
+      "Type": "Button",
+      "Name": "portable_action_1",
+      "ElementId": "portable_action_1",
+      "Text": "开始守护",
+      "bVisible": true,
+      "bInteractable": true,
+      "Layout": {
+        "AnchorMin": [
+          0.5,
+          1
+        ],
+        "AnchorMax": [
+          0.5,
+          1
+        ],
+        "Pivot": [
+          0.5,
+          0
+        ],
+        "OffsetMin": [
+          -75,
+          -58
+        ],
+        "OffsetMax": [
+          140,
+          40
+        ]
+      },
+      "Style": {
+        "BackgroundColor": "#80ed99",
+        "TextColor": "#122230",
+        "FontSize": 18,
+        "BorderRadius": 6,
+        "FontPath": ""
+      }
+    },
+    {
+      "Id": 6,
+      "ParentId": 1,
+      "Type": "Button",
+      "Name": "portable_action_2",
+      "ElementId": "portable_action_2",
+      "Text": "开始守护",
+      "bVisible": true,
+      "bInteractable": true,
+      "Layout": {
+        "AnchorMin": [
+          0.5,
+          1
+        ],
+        "AnchorMax": [
+          0.5,
+          1
+        ],
+        "Pivot": [
+          0.5,
+          0
+        ],
+        "OffsetMin": [
+          75,
+          -58
+        ],
+        "OffsetMax": [
+          140,
+          40
+        ]
+      },
+      "Style": {
+        "BackgroundColor": "#80ed99",
+        "TextColor": "#122230",
+        "FontSize": 18,
+        "BorderRadius": 6,
+        "FontPath": ""
+      }
+    },
+    {
+      "Id": 7,
+      "ParentId": 1,
+      "Type": "Button",
+      "Name": "portable_action_3",
+      "ElementId": "portable_action_3",
+      "Text": "开始守护",
+      "bVisible": true,
+      "bInteractable": true,
+      "Layout": {
+        "AnchorMin": [
+          0.5,
+          1
+        ],
+        "AnchorMax": [
+          0.5,
+          1
+        ],
+        "Pivot": [
+          0.5,
+          0
+        ],
+        "OffsetMin": [
+          225,
+          -58
+        ],
+        "OffsetMax": [
+          140,
+          40
+        ]
+      },
+      "Style": {
+        "BackgroundColor": "#80ed99",
+        "TextColor": "#122230",
+        "FontSize": 18,
+        "BorderRadius": 6,
+        "FontPath": ""
+      }
+    }
+  ]
+}

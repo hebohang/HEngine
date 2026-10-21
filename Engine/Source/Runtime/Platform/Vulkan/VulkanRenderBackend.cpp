@@ -9,16 +9,24 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 #include "VulkanNativeContext.h"
 
 #include "Runtime/Core/Meta/Json.h"
-#include "Runtime/Platform/GLFW/CommonWindow.h"
+#include "VulkanSurface.h"
+#include "Runtime/Profile/RenderFrameTiming.h"
 #include "Runtime/Utils/JsonUtils/JsonUtils.h"
 
 #include <nvrhi/validation.h>
 #include <nvrhi/vulkan.h>
 
-#include <GLFW/glfw3.h>
-
+#if defined(__ANDROID__)
+#include <dlfcn.h>
+#include <sys/utsname.h>
+#elif defined(__APPLE__)
+#include <sys/sysctl.h>
+#include <sys/utsname.h>
+#include <vulkan/vulkan_beta.h>
+#else
 #include <Windows.h>
 #include <winternl.h>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -82,6 +90,17 @@ namespace HEngine
         public:
             VulkanLoader()
             {
+#if defined(__ANDROID__)
+                mModule = dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL);
+                if (!mModule)
+                    throw std::runtime_error("Android Vulkan loader is unavailable");
+                GetInstanceProcAddr = reinterpret_cast<PFN_vkGetInstanceProcAddr>(dlsym(mModule, "vkGetInstanceProcAddr"));
+#elif defined(__APPLE__)
+                // macOS links the app-local MoltenVK library directly. GLFW and
+                // native Vulkan interop use this same implementation; no system
+                // Vulkan loader or externally installed ICD is required.
+                GetInstanceProcAddr = &::vkGetInstanceProcAddr;
+#else
                 mModule = LoadLibraryExW(
                     L"vulkan-1.dll",
                     nullptr,
@@ -96,8 +115,12 @@ namespace HEngine
 
                 GetInstanceProcAddr = reinterpret_cast<PFN_vkGetInstanceProcAddr>(
                     GetProcAddress(mModule, "vkGetInstanceProcAddr"));
+#endif
                 if (GetInstanceProcAddr == nullptr)
-                    throw std::runtime_error("System32 vulkan-1.dll does not export vkGetInstanceProcAddr");
+                {
+                    Unload();
+                    throw std::runtime_error("Vulkan loader does not export vkGetInstanceProcAddr");
+                }
 
                 EnumerateInstanceVersion = reinterpret_cast<PFN_vkEnumerateInstanceVersion>(
                     GetInstanceProcAddr(VK_NULL_HANDLE, "vkEnumerateInstanceVersion"));
@@ -111,8 +134,7 @@ namespace HEngine
 
             ~VulkanLoader()
             {
-                if (mModule != nullptr)
-                    FreeLibrary(mModule);
+                Unload();
             }
 
             VulkanLoader(const VulkanLoader&) = delete;
@@ -204,7 +226,23 @@ namespace HEngine
                 return function;
             }
 
+            void Unload() noexcept
+            {
+#if !defined(__APPLE__)
+                if (!mModule) return;
+#if defined(__ANDROID__)
+                dlclose(mModule);
+#else
+                FreeLibrary(mModule);
+#endif
+                mModule = nullptr;
+#endif
+            }
+#if defined(__ANDROID__)
+            void* mModule = nullptr;
+#elif !defined(__APPLE__)
             HMODULE mModule = nullptr;
+#endif
         };
 
         VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugCallback(
@@ -273,6 +311,11 @@ namespace HEngine
             VkPhysicalDeviceFeatures2 Features{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
             VkPhysicalDeviceVulkan12Features Features12{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
             VkPhysicalDeviceVulkan13Features Features13{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
+#if defined(__APPLE__)
+            VkPhysicalDevicePortabilitySubsetFeaturesKHR PortabilityFeatures{
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_FEATURES_KHR };
+            bool bSupportsPortabilitySubset = false;
+#endif
             VkPhysicalDeviceMemoryProperties Memory{};
             uint32_t GraphicsQueueFamily = std::numeric_limits<uint32_t>::max();
             uint64_t DedicatedVideoMemory = 0;
@@ -306,11 +349,33 @@ namespace HEngine
             return stream.str();
         }
 
-        [[nodiscard]] Json QueryWindowsOsInformation()
+        [[nodiscard]] Json QueryPlatformOsInformation()
         {
+#if defined(__ANDROID__) || defined(__APPLE__)
+            utsname info{};
+#if defined(__APPLE__)
+            Json result{{"name", "macOS"}};
+            std::array<char, 64> productVersion{};
+            size_t versionSize = productVersion.size();
+            if (sysctlbyname("kern.osproductversion", productVersion.data(), &versionSize, nullptr, 0) == 0)
+                result["version"] = productVersion.data();
+#else
+            Json result{{"name", "Android"}};
+#endif
+            if (uname(&info) == 0)
+            {
+                result["architecture"] = info.machine;
+                result["kernel"] = info.release;
+            }
+            return result;
+#else
             Json result{
                 { "name", "Windows" },
+#if defined(_M_ARM64)
+                { "architecture", "arm64" },
+#else
                 { "architecture", "x64" },
+#endif
             };
             using RtlGetVersionFunction = LONG(WINAPI*)(PRTL_OSVERSIONINFOW);
             const HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
@@ -350,11 +415,12 @@ namespace HEngine
                 result["revision"] = revision;
             }
             return result;
+#endif
         }
 
         [[nodiscard]] std::vector<const char*> CreateInstanceExtensions(
             VulkanLoader& loader,
-            bool bNeedsSurface,
+            const VulkanSurface* surface,
             bool bEnableValidation,
             bool& bDebugUtilsEnabled)
         {
@@ -367,24 +433,13 @@ namespace HEngine
                     "vkEnumerateInstanceExtensionProperties");
 
             std::vector<const char*> result;
-            if (bNeedsSurface)
+            if (surface != nullptr)
             {
-                uint32_t requiredCount = 0;
-                const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&requiredCount);
-                if (glfwExtensions == nullptr || requiredCount == 0)
+                for (const char* extension : surface->GetVulkanInstanceExtensions())
                 {
-                    throw std::runtime_error(
-                        "GLFW could not enumerate the Vulkan surface extensions. Verify the system Vulkan loader and graphics driver.");
-                }
-                for (uint32_t index = 0; index < requiredCount; ++index)
-                {
-                    if (!ContainsName(available, glfwExtensions[index]))
-                    {
-                        throw std::runtime_error(
-                            std::string("The Vulkan loader is missing the GLFW-required instance extension ") +
-                            glfwExtensions[index]);
-                    }
-                    result.push_back(glfwExtensions[index]);
+                    if (!ContainsName(available, extension))
+                        throw std::runtime_error(std::string("Missing Vulkan surface extension: ") + extension);
+                    result.push_back(extension);
                 }
             }
 
@@ -392,6 +447,12 @@ namespace HEngine
                 ContainsName(available, VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
             if (bDebugUtilsEnabled)
                 result.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+#if defined(__APPLE__)
+            // The extension is optional when linking MoltenVK directly, and
+            // mandatory for enumerating portability devices through a loader.
+            if (ContainsName(available, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME))
+                result.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+#endif
             return result;
         }
 
@@ -443,7 +504,7 @@ namespace HEngine
 
         void CreateVulkanInstance(
             VulkanDeviceState& state,
-            bool bNeedsSurface,
+            const VulkanSurface* surface,
             bool bEnableValidation)
         {
             state.Loader = CreateScope<VulkanLoader>();
@@ -460,7 +521,7 @@ namespace HEngine
             bool bDebugUtilsEnabled = false;
             state.InstanceExtensions = CreateInstanceExtensions(
                 *state.Loader,
-                bNeedsSurface,
+                surface,
                 bEnableValidation,
                 bDebugUtilsEnabled);
 
@@ -504,6 +565,14 @@ namespace HEngine
             debugInfo.pfnUserCallback = VulkanDebugCallback;
 
             VkInstanceCreateInfo createInfo{ VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
+#if defined(__APPLE__)
+            if (std::any_of(state.InstanceExtensions.begin(), state.InstanceExtensions.end(),
+                    [](const char* extension)
+                    {
+                        return std::strcmp(extension, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME) == 0;
+                    }))
+                createInfo.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+#endif
             createInfo.pApplicationInfo = &applicationInfo;
             createInfo.enabledExtensionCount = static_cast<uint32_t>(state.InstanceExtensions.size());
             createInfo.ppEnabledExtensionNames = state.InstanceExtensions.data();
@@ -588,6 +657,16 @@ namespace HEngine
                     },
                     "vkEnumerateDeviceExtensionProperties");
             adapter.bSupportsSwapchain = ContainsName(extensions, VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+#if defined(__APPLE__)
+            adapter.bSupportsPortabilitySubset = ContainsName(
+                extensions, VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);
+            if (adapter.bSupportsPortabilitySubset)
+            {
+                VkPhysicalDeviceFeatures2 portabilityQuery{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+                portabilityQuery.pNext = &adapter.PortabilityFeatures;
+                state.Loader->GetPhysicalDeviceFeatures2(physicalDevice, &portabilityQuery);
+            }
+#endif
             return adapter;
         }
 
@@ -599,6 +678,8 @@ namespace HEngine
                 reason = "no queue family supports graphics, compute, and presentation";
             else if (!adapter.bSupportsSwapchain)
                 reason = "VK_KHR_swapchain is unavailable";
+            else if (adapter.Features.features.drawIndirectFirstInstance != VK_TRUE)
+                reason = "drawIndirectFirstInstance is unavailable for GPU Scene instance addressing";
             else if (adapter.Features12.timelineSemaphore != VK_TRUE)
                 reason = "timelineSemaphore is unavailable";
             else if (adapter.Features12.scalarBlockLayout != VK_TRUE)
@@ -726,6 +807,9 @@ namespace HEngine
             capabilities.VulkanApiVersion = adapter.Properties.properties.apiVersion;
             capabilities.VulkanDriverVersion = adapter.Properties.properties.driverVersion;
             capabilities.bVulkanTimelineSemaphore = adapter.Features12.timelineSemaphore == VK_TRUE;
+            capabilities.bDrawIndirectFirstInstance = adapter.Features.features.drawIndirectFirstInstance == VK_TRUE;
+            capabilities.bMultiDrawIndirect = adapter.Features.features.multiDrawIndirect == VK_TRUE;
+            capabilities.bDrawIndirectCount = adapter.Features12.drawIndirectCount == VK_TRUE;
             capabilities.bVulkanDynamicRendering = adapter.Features13.dynamicRendering == VK_TRUE;
             capabilities.bVulkanSynchronization2 = adapter.Features13.synchronization2 == VK_TRUE;
             capabilities.bVulkanScalarBlockLayout = adapter.Features12.scalarBlockLayout == VK_TRUE;
@@ -831,6 +915,17 @@ namespace HEngine
             enabledFeatures.pNext = &enabled12;
             enabled12.pNext = &enabled13;
             enabled13.pNext = nullptr;
+#if defined(__APPLE__)
+            VkPhysicalDevicePortabilitySubsetFeaturesKHR enabledPortability = state.Adapter.PortabilityFeatures;
+            if (state.Adapter.bSupportsPortabilitySubset)
+            {
+                state.DeviceExtensions.push_back(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);
+                // Enable only the optional portability features the device
+                // reports. They are otherwise disabled even when supported.
+                enabledPortability.pNext = nullptr;
+                enabled13.pNext = &enabledPortability;
+            }
+#endif
 
             VkDeviceCreateInfo createInfo{ VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
             createInfo.pNext = &enabledFeatures;
@@ -909,35 +1004,34 @@ namespace HEngine
         public:
             VulkanSwapChain(
                 VulkanDeviceState& state,
-                GLFWwindow* window,
-                bool bInitialVSync)
+                const VulkanSurface& surface,
+                bool bInitialVSync,
+                uint32_t framesInFlight)
                 : mState(state)
-                , mWindow(window)
+                , mSurface(surface)
+                , mFramesInFlight(framesInFlight)
                 , mRequestedVSync(bInitialVSync)
             {
-                for (uint32_t index = 0; index < cFramesInFlight; ++index)
+                try
                 {
-                    VkSemaphoreCreateInfo info{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-                    CheckVulkan("vkCreateSemaphore(image available)", mState.Loader->CreateSemaphore(
-                        mState.Device, &info, nullptr, &mImageAvailable[index]));
-                    CheckVulkan("vkCreateSemaphore(render finished)", mState.Loader->CreateSemaphore(
-                        mState.Device, &info, nullptr, &mRenderFinished[index]));
+                    for (uint32_t index = 0; index < mFramesInFlight; ++index)
+                    {
+                        VkSemaphoreCreateInfo info{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+                        CheckVulkan("vkCreateSemaphore(image available)", mState.Loader->CreateSemaphore(
+                            mState.Device, &info, nullptr, &mImageAvailable[index]));
+                    }
+                    Recreate();
                 }
-                Recreate();
+                catch (...)
+                {
+                    ReleaseResources();
+                    throw;
+                }
             }
 
             ~VulkanSwapChain() override
             {
-                ReleaseImages();
-                if (mSwapchain != VK_NULL_HANDLE)
-                    mState.Loader->DestroySwapchain(mState.Device, mSwapchain, nullptr);
-                for (uint32_t index = 0; index < cFramesInFlight; ++index)
-                {
-                    if (mImageAvailable[index] != VK_NULL_HANDLE)
-                        mState.Loader->DestroySemaphore(mState.Device, mImageAvailable[index], nullptr);
-                    if (mRenderFinished[index] != VK_NULL_HANDLE)
-                        mState.Loader->DestroySemaphore(mState.Device, mRenderFinished[index], nullptr);
-                }
+                ReleaseResources();
             }
 
             void Resize(uint32_t width, uint32_t height) override
@@ -957,7 +1051,7 @@ namespace HEngine
 
             [[nodiscard]] uint32_t AcquireNextImageForFrame(uint32_t frameSlot)
             {
-                if (frameSlot >= cFramesInFlight)
+                if (frameSlot >= mFramesInFlight)
                     throw std::out_of_range("Vulkan frame slot is outside the semaphore ring");
                 if (mRecreatePending)
                 {
@@ -984,9 +1078,9 @@ namespace HEngine
                         VK_NULL_HANDLE,
                         &mCurrentImage);
                 }
-                if (result == VK_SUBOPTIMAL_KHR)
+                if (result == VK_SUBOPTIMAL_KHR && !bPresentationRotates)
                     mRecreatePending = true;
-                else
+                else if (result != VK_SUBOPTIMAL_KHR)
                     CheckVulkan("vkAcquireNextImageKHR", result);
                 if (mCurrentImage >= mBackBuffers.size())
                     throw std::runtime_error("Vulkan returned an invalid swap-chain image index");
@@ -1004,13 +1098,26 @@ namespace HEngine
                     0);
                 device->queueSignalSemaphore(
                     nvrhi::CommandQueue::Graphics,
-                    mRenderFinished[frameSlot],
+                    mRenderFinished.at(mCurrentImage),
                     0);
+            }
+
+            void PrepareAbortedSubmission(nvrhi::vulkan::IDevice* device, uint32_t frameSlot)
+            {
+                if (frameSlot != mActiveFrameSlot)
+                    throw std::logic_error("Vulkan aborted frame does not own the acquired image");
+                // Consume the binary acquire signal even though none of the
+                // abandoned rendering commands will execute. The next acquire
+                // waits for device idle and recreates the swap chain, releasing
+                // this acquired image without presenting undefined contents.
+                device->queueWaitForSemaphore(nvrhi::CommandQueue::Graphics,
+                    mImageAvailable[frameSlot], 0);
+                mRecreatePending = true;
             }
 
             void Present(bool bVSync) override
             {
-                VkSemaphore waitSemaphore = mRenderFinished[mActiveFrameSlot];
+                VkSemaphore waitSemaphore = mRenderFinished.at(mCurrentImage);
                 VkPresentInfoKHR info{ VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
                 info.waitSemaphoreCount = 1;
                 info.pWaitSemaphores = &waitSemaphore;
@@ -1018,9 +1125,10 @@ namespace HEngine
                 info.pSwapchains = &mSwapchain;
                 info.pImageIndices = &mCurrentImage;
                 const VkResult result = mState.Loader->QueuePresent(mState.GraphicsQueue, &info);
-                if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
+                if (result == VK_ERROR_OUT_OF_DATE_KHR ||
+                    (result == VK_SUBOPTIMAL_KHR && !bPresentationRotates))
                     mRecreatePending = true;
-                else
+                else if (result != VK_SUBOPTIMAL_KHR)
                     CheckVulkan("vkQueuePresentKHR", result);
                 if (result != VK_ERROR_OUT_OF_DATE_KHR)
                     mImageInitialized.at(mCurrentImage) = true;
@@ -1047,6 +1155,20 @@ namespace HEngine
             [[nodiscard]] nvrhi::IFramebuffer* GetCurrentFramebuffer() const override { return mFramebuffers.at(mCurrentImage); }
 
         private:
+            void ReleaseResources() noexcept
+            {
+                ReleaseImages();
+                if (mSwapchain != VK_NULL_HANDLE)
+                    mState.Loader->DestroySwapchain(mState.Device, mSwapchain, nullptr);
+                mSwapchain = VK_NULL_HANDLE;
+                for (VkSemaphore& semaphore : mImageAvailable)
+                {
+                    if (semaphore != VK_NULL_HANDLE)
+                        mState.Loader->DestroySemaphore(mState.Device, semaphore, nullptr);
+                    semaphore = VK_NULL_HANDLE;
+                }
+            }
+
             void Recreate()
             {
                 VkSurfaceCapabilitiesKHR capabilities{};
@@ -1112,15 +1234,15 @@ namespace HEngine
                 VkExtent2D extent = capabilities.currentExtent;
                 if (extent.width == std::numeric_limits<uint32_t>::max())
                 {
-                    int framebufferWidth = 0;
-                    int framebufferHeight = 0;
-                    glfwGetFramebufferSize(mWindow, &framebufferWidth, &framebufferHeight);
+                    uint32_t framebufferWidth = 0;
+                    uint32_t framebufferHeight = 0;
+                    mSurface.GetFramebufferExtent(framebufferWidth, framebufferHeight);
                     const uint32_t requestedWidth = mRequestedWidth != 0
                         ? mRequestedWidth
-                        : static_cast<uint32_t>(std::max(framebufferWidth, 1));
+                        : static_cast<uint32_t>(std::max(framebufferWidth, 1u));
                     const uint32_t requestedHeight = mRequestedHeight != 0
                         ? mRequestedHeight
-                        : static_cast<uint32_t>(std::max(framebufferHeight, 1));
+                        : static_cast<uint32_t>(std::max(framebufferHeight, 1u));
                     extent.width = std::clamp(
                         requestedWidth,
                         capabilities.minImageExtent.width,
@@ -1170,7 +1292,15 @@ namespace HEngine
                 createInfo.imageArrayLayers = 1;
                 createInfo.imageUsage = usage;
                 createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-                createInfo.preTransform = capabilities.currentTransform;
+                // Rendering and input use window coordinates. Advertising the
+                // current display rotation would require pre-rotating every
+                // render pass (including UI); let presentation transform it.
+                createInfo.preTransform = (capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR)
+                    ? VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR : capabilities.currentTransform;
+                // Android reports SUBOPTIMAL continuously when the compositor
+                // rotates. Recreating cannot improve this deliberate choice;
+                // resize/surface events and OUT_OF_DATE still recreate normally.
+                bPresentationRotates = createInfo.preTransform != capabilities.currentTransform;
                 createInfo.compositeAlpha = compositeAlpha;
                 createInfo.presentMode = nativePresentMode;
                 createInfo.clipped = VK_TRUE;
@@ -1196,8 +1326,16 @@ namespace HEngine
                 mBackBuffers.resize(actualImageCount);
                 mFramebuffers.resize(actualImageCount);
                 mImageInitialized.assign(actualImageCount, false);
+                // Acquiring this image again guarantees consumption of its
+                // preceding Present wait. A frame-slot fence does not.
+                // Keep image-indexed presentation semaphores independent of
+                // the frame-slot-indexed acquire semaphores.
+                mRenderFinished.assign(actualImageCount, VK_NULL_HANDLE);
                 for (uint32_t index = 0; index < actualImageCount; ++index)
                 {
+                    VkSemaphoreCreateInfo semaphoreInfo{ VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+                    CheckVulkan("vkCreateSemaphore(render finished)", mState.Loader->CreateSemaphore(
+                        mState.Device, &semaphoreInfo, nullptr, &mRenderFinished[index]));
                     nvrhi::TextureDesc textureDesc;
                     textureDesc.width = mWidth;
                     textureDesc.height = mHeight;
@@ -1232,20 +1370,25 @@ namespace HEngine
 
             void ReleaseImages()
             {
+                for (VkSemaphore semaphore : mRenderFinished)
+                    if (semaphore != VK_NULL_HANDLE)
+                        mState.Loader->DestroySemaphore(mState.Device, semaphore, nullptr);
+                mRenderFinished.clear();
                 mFramebuffers.clear();
                 mBackBuffers.clear();
                 mNativeImages.clear();
             }
 
             VulkanDeviceState& mState;
-            GLFWwindow* mWindow = nullptr;
+            const VulkanSurface& mSurface;
             VkSwapchainKHR mSwapchain = VK_NULL_HANDLE;
             std::array<VkSemaphore, cFramesInFlight> mImageAvailable{};
-            std::array<VkSemaphore, cFramesInFlight> mRenderFinished{};
+            std::vector<VkSemaphore> mRenderFinished;
             std::vector<VkImage> mNativeImages;
             std::vector<nvrhi::TextureHandle> mBackBuffers;
             std::vector<nvrhi::FramebufferHandle> mFramebuffers;
             std::vector<bool> mImageInitialized;
+            uint32_t mFramesInFlight = 3;
             uint32_t mWidth = 0;
             uint32_t mHeight = 0;
             uint32_t mRequestedWidth = 0;
@@ -1256,6 +1399,7 @@ namespace HEngine
             PresentMode mPresentMode = PresentMode::VSync;
             bool mRequestedVSync = true;
             bool mRecreatePending = false;
+            bool bPresentationRotates = false;
         };
 
         class ProbeMessageCallback final : public nvrhi::IMessageCallback
@@ -1314,7 +1458,7 @@ namespace HEngine
                 };
             };
             return Json{
-                { "OS", QueryWindowsOsInformation() },
+                { "OS", QueryPlatformOsInformation() },
                 { "Backend", "Vulkan" },
                 { "Adapter", {
                     { "Name", capabilities.AdapterName },
@@ -1331,6 +1475,9 @@ namespace HEngine
                     { "ApiVersionRaw", capabilities.VulkanApiVersion },
                     { "DriverVersionRaw", capabilities.VulkanDriverVersion },
                     { "TimelineSemaphore", capabilities.bVulkanTimelineSemaphore },
+                    { "DrawIndirectFirstInstance", capabilities.bDrawIndirectFirstInstance },
+                    { "MultiDrawIndirect", capabilities.bMultiDrawIndirect },
+                    { "DrawIndirectCount", capabilities.bDrawIndirectCount },
                     { "DynamicRendering", capabilities.bVulkanDynamicRendering },
                     { "Synchronization2", capabilities.bVulkanSynchronization2 },
                     { "ScalarBlockLayout", capabilities.bVulkanScalarBlockLayout },
@@ -1380,6 +1527,7 @@ namespace HEngine
 
     struct VulkanRenderBackend::Impl
     {
+        VulkanSurface* Surface = nullptr;
         VulkanDeviceState State;
         Scope<VulkanSwapChain> SwapChain;
         std::array<FrameContext, cFramesInFlight> Frames;
@@ -1410,30 +1558,34 @@ namespace HEngine
     void VulkanRenderBackend::Initialize(
         RenderSurface& surface,
         bool bEnableValidation,
-        const RenderAdapterSelectionOptions& selection)
+        const RenderAdapterSelectionOptions& selection,
+        uint32_t framesInFlight)
     {
         if (mImpl->bInitialized)
             throw std::logic_error("VulkanRenderBackend is already initialized");
-        const auto* commonWindow = dynamic_cast<const CommonWindow*>(&surface);
-        if (commonWindow == nullptr || commonWindow->GetGlfwWindow() == nullptr)
-            throw std::invalid_argument("VulkanRenderBackend requires a GLFW CommonWindow render surface");
+        auto* nativeSurface = dynamic_cast<VulkanSurface*>(&surface);
+        if (nativeSurface == nullptr)
+            throw std::invalid_argument("Render surface does not implement VulkanSurface");
+
+        if (framesInFlight < 2 || framesInFlight > 3)
+            throw std::invalid_argument("Frames in flight must be 2 or 3.");
 
         try
         {
-            CreateVulkanInstance(mImpl->State, true, bEnableValidation);
+            CreateVulkanInstance(mImpl->State, nativeSurface, bEnableValidation);
             CheckVulkan(
-                "glfwCreateWindowSurface",
-                glfwCreateWindowSurface(
+                "CreateVulkanSurface",
+                nativeSurface->CreateVulkanSurface(
                     mImpl->State.Instance,
-                    commonWindow->GetGlfwWindow(),
-                    nullptr,
+                    mImpl->State.Loader->GetInstanceProcAddr,
                     &mImpl->State.Surface));
             CreateVulkanDevice(mImpl->State, selection, bEnableValidation, this, mCapabilities);
             mImpl->SwapChain = CreateScope<VulkanSwapChain>(
                 mImpl->State,
-                commonWindow->GetGlfwWindow(),
-                commonWindow->IsVSync());
-            for (uint32_t frameIndex = 0; frameIndex < cFramesInFlight; ++frameIndex)
+                *nativeSurface,
+                nativeSurface->GetSurfaceVSync(),
+                framesInFlight);
+            for (uint32_t frameIndex = 0; frameIndex < framesInFlight; ++frameIndex)
             {
                 FrameContext& frame = mImpl->Frames[frameIndex];
                 frame.FrameIndex = frameIndex;
@@ -1445,12 +1597,15 @@ namespace HEngine
                 if (!frame.GraphicsCommandList || !frame.CompletionQuery)
                     throw std::runtime_error("NVRHI failed to create a Vulkan frame command list or completion query");
             }
+            mCapabilities.FramesInFlight = framesInFlight;
             mImpl->bInitialized = true;
+            mImpl->Surface = nativeSurface;
+            nativeSurface->SetSurfaceReleaseCallback([this] { ReleaseSurface(); });
             LogVulkanCapabilities(mCapabilities);
             HE_CORE_INFO(
                 "Initialized Vulkan/NVRHI on {0}, {1} frame slot(s), validation layer: {2}",
                 mCapabilities.AdapterName,
-                cFramesInFlight,
+                framesInFlight,
                 mImpl->State.bValidationEnabled ? "enabled" : "unavailable/disabled");
         }
         catch (...)
@@ -1466,6 +1621,9 @@ namespace HEngine
 
     void VulkanRenderBackend::Shutdown()
     {
+        if (mImpl->Surface)
+            mImpl->Surface->SetSurfaceReleaseCallback({});
+        mImpl->Surface = nullptr;
         if (!mImpl->bInitialized && mImpl->State.Instance == VK_NULL_HANDLE)
             return;
         std::exception_ptr waitError;
@@ -1497,30 +1655,47 @@ namespace HEngine
     {
         if (!mImpl->bInitialized)
             throw std::logic_error("VulkanRenderBackend is not initialized");
+        RestoreSurface();
         if (!mImpl->TerminalFrameError.empty())
             throw std::runtime_error("Vulkan backend is terminal: " + mImpl->TerminalFrameError);
         if (mImpl->ActiveFrame != nullptr)
             throw std::logic_error("BeginFrame called before the previous Vulkan frame was submitted");
 
         const uint32_t frameSlot = mImpl->NextFrameSlot;
-        mImpl->NextFrameSlot = (mImpl->NextFrameSlot + 1u) % cFramesInFlight;
+        mImpl->NextFrameSlot = (mImpl->NextFrameSlot + 1u) % mCapabilities.FramesInFlight;
         FrameContext& frame = mImpl->Frames[frameSlot];
         if (frame.bInFlight)
         {
             if (!mImpl->CompletionQueryArmed[frameSlot])
                 throw std::logic_error("Vulkan frame is in flight without an armed completion query");
-            mImpl->State.DeviceHandle->waitEventQuery(frame.CompletionQuery);
+            {
+                HE_PROFILE_SECTION("Vulkan::FrameSlotWait");
+                ScopedRenderFrameCpuTiming timing(RenderFrameCpuPhase::FrameSlotWait);
+                mImpl->State.DeviceHandle->waitEventQuery(frame.CompletionQuery);
+            }
             mImpl->State.DeviceHandle->resetEventQuery(frame.CompletionQuery);
             mImpl->CompletionQueryArmed[frameSlot] = false;
             frame.bInFlight = false;
             frame.CompletedSubmissionInstance = frame.SubmissionInstance;
         }
-        mImpl->State.DeviceHandle->runGarbageCollection();
-        frame.SwapChainImageIndex = mImpl->SwapChain->AcquireNextImageForFrame(frameSlot);
+        {
+            HE_PROFILE_SECTION("Vulkan::GarbageCollect");
+            ScopedRenderFrameCpuTiming timing(RenderFrameCpuPhase::GarbageCollect);
+            mImpl->State.DeviceHandle->runGarbageCollection();
+        }
+        {
+            HE_PROFILE_SECTION("Vulkan::AcquireImage");
+            ScopedRenderFrameCpuTiming timing(RenderFrameCpuPhase::AcquireImage);
+            frame.SwapChainImageIndex = mImpl->SwapChain->AcquireNextImageForFrame(frameSlot);
+        }
         frame.bSubmissionIssued = false;
         try
         {
-            frame.GraphicsCommandList->open();
+            {
+                HE_PROFILE_SECTION("Vulkan::CommandListOpen");
+                ScopedRenderFrameCpuTiming timing(RenderFrameCpuPhase::CommandListSetup);
+                frame.GraphicsCommandList->open();
+            }
             mImpl->ActiveFrame = &frame;
         }
         catch (const std::exception& exception)
@@ -1544,6 +1719,17 @@ namespace HEngine
                     .setQueueType(nvrhi::CommandQueue::Graphics));
             if (!frame.GraphicsCommandList)
                 throw std::runtime_error("NVRHI failed to replace an aborted Vulkan command list");
+            frame.GraphicsCommandList->open();
+            frame.GraphicsCommandList->close();
+            mImpl->SwapChain->PrepareAbortedSubmission(
+                mImpl->State.NativeNvrhiDevice.Get(), frame.FrameIndex);
+            frame.SubmissionInstance = mImpl->State.DeviceHandle->executeCommandList(
+                frame.GraphicsCommandList, nvrhi::CommandQueue::Graphics);
+            frame.bSubmissionIssued = true;
+            frame.bInFlight = true;
+            frame.bFullFrameTimerEnded = false;
+            mImpl->State.DeviceHandle->setEventQuery(frame.CompletionQuery, nvrhi::CommandQueue::Graphics);
+            mImpl->CompletionQueryArmed[frame.FrameIndex] = true;
         }
         catch (const std::exception& exception)
         {
@@ -1563,22 +1749,41 @@ namespace HEngine
             nvrhi::ResourceStates::Present);
         try
         {
-            frame.GraphicsCommandList->close();
+            {
+                HE_PROFILE_SECTION("Vulkan::CommandListClose");
+                ScopedRenderFrameCpuTiming timing(RenderFrameCpuPhase::CommandListSetup);
+                if (frame.FullFrameTimer)
+                {
+                    // Include the final Present transition before writing end.
+                    frame.GraphicsCommandList->commitBarriers();
+                    frame.GraphicsCommandList->endTimerQuery(frame.FullFrameTimer);
+                    frame.bFullFrameTimerEnded = true;
+                }
+                frame.GraphicsCommandList->close();
+            }
             mImpl->ActiveFrame = nullptr;
-            mImpl->SwapChain->PrepareSubmission(
-                mImpl->State.NativeNvrhiDevice.Get(),
-                frame.FrameIndex);
-            frame.SubmissionInstance = mImpl->State.DeviceHandle->executeCommandList(
-                frame.GraphicsCommandList,
-                nvrhi::CommandQueue::Graphics);
-            frame.bSubmissionIssued = true;
-            frame.bInFlight = true;
-            mImpl->State.DeviceHandle->setEventQuery(
-                frame.CompletionQuery,
-                nvrhi::CommandQueue::Graphics);
-            mImpl->CompletionQueryArmed[frame.FrameIndex] = true;
-            mImpl->SwapChain->Present(bVSync);
-            mImpl->State.DeviceHandle->runGarbageCollection();
+            {
+                HE_PROFILE_SECTION("Vulkan::GraphicsSubmit");
+                ScopedRenderFrameCpuTiming timing(RenderFrameCpuPhase::Submit);
+                mImpl->SwapChain->PrepareSubmission(
+                    mImpl->State.NativeNvrhiDevice.Get(), frame.FrameIndex);
+                frame.SubmissionInstance = mImpl->State.DeviceHandle->executeCommandList(
+                    frame.GraphicsCommandList, nvrhi::CommandQueue::Graphics);
+                frame.bSubmissionIssued = true;
+                frame.bInFlight = true;
+                mImpl->State.DeviceHandle->setEventQuery(frame.CompletionQuery, nvrhi::CommandQueue::Graphics);
+                mImpl->CompletionQueryArmed[frame.FrameIndex] = true;
+            }
+            {
+                HE_PROFILE_SECTION("Vulkan::Present");
+                ScopedRenderFrameCpuTiming timing(RenderFrameCpuPhase::Present);
+                mImpl->SwapChain->Present(bVSync);
+            }
+            {
+                HE_PROFILE_SECTION("Vulkan::GarbageCollect");
+                ScopedRenderFrameCpuTiming timing(RenderFrameCpuPhase::GarbageCollect);
+                mImpl->State.DeviceHandle->runGarbageCollection();
+            }
         }
         catch (const std::exception& exception)
         {
@@ -1598,8 +1803,33 @@ namespace HEngine
         if (mImpl->ActiveFrame != nullptr)
             throw std::logic_error("Cannot resize the Vulkan swap chain while a frame is recording");
         WaitForIdle();
+        RestoreSurface();
         mImpl->SwapChain->Resize(width, height);
         mImpl->State.DeviceHandle->runGarbageCollection();
+    }
+
+    void VulkanRenderBackend::ReleaseSurface()
+    {
+        WaitForIdle();
+        mImpl->SwapChain.reset();
+        // Retire NVRHI references before destroying the surface's native window.
+        mImpl->State.DeviceHandle->runGarbageCollection();
+        if (mImpl->State.Surface != VK_NULL_HANDLE)
+        {
+            mImpl->State.Loader->DestroySurface(mImpl->State.Instance, mImpl->State.Surface, nullptr);
+            mImpl->State.Surface = VK_NULL_HANDLE;
+        }
+    }
+
+    void VulkanRenderBackend::RestoreSurface()
+    {
+        if (mImpl->SwapChain) return;
+        if (!mImpl->Surface) throw std::logic_error("Vulkan surface is unavailable");
+        if (mImpl->State.Surface == VK_NULL_HANDLE)
+            CheckVulkan("Restore Vulkan surface", mImpl->Surface->CreateVulkanSurface(
+                mImpl->State.Instance, mImpl->State.Loader->GetInstanceProcAddr, &mImpl->State.Surface));
+        mImpl->SwapChain = CreateScope<VulkanSwapChain>(mImpl->State,
+            *mImpl->Surface, mImpl->Surface->GetSurfaceVSync(), mCapabilities.FramesInFlight);
     }
 
     void VulkanRenderBackend::WaitForIdle()
@@ -1633,6 +1863,7 @@ namespace HEngine
 
     SwapChain& VulkanRenderBackend::GetSwapChain()
     {
+        if (mImpl->bInitialized) RestoreSurface();
         if (!mImpl->SwapChain)
             throw std::logic_error("Vulkan swap chain is not initialized");
         return *mImpl->SwapChain;
@@ -1646,7 +1877,10 @@ namespace HEngine
         else if (severity == nvrhi::MessageSeverity::Warning)
             HE_CORE_WARN("NVRHI Vulkan: {0}", text);
         else
+        {
             HE_CORE_ERROR("NVRHI Vulkan: {0}", text);
+            Log::WriteFallbackError("NVRHI validation error", text);
+        }
     }
 
     void RunVulkanCapabilityProbe(
@@ -1660,7 +1894,7 @@ namespace HEngine
         RenderCapabilities capabilities;
         try
         {
-            CreateVulkanInstance(state, false, false);
+            CreateVulkanInstance(state, nullptr, false);
             CreateVulkanDevice(state, selection, false, &callback, capabilities);
             LogVulkanCapabilities(capabilities);
             HE_CORE_INFO("Vulkan capability probe: waiting for the NVRHI device to become idle");

@@ -43,7 +43,7 @@ namespace HEngine
     [[nodiscard]] const char* ToString(RayTracingGeometrySupport support) noexcept;
     [[nodiscard]] RayTracingGeometrySupport ClassifyRayTracingGeometry(
         const RenderObject& object,
-        const RenderMeshSection& section) noexcept;
+        const RenderMeshSection& section, bool bBasePbrMaterials = false) noexcept;
 
     struct RayTracingGeometryCacheKey
     {

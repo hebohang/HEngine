@@ -1,6 +1,12 @@
 #include "Runtime/Core/Log/Log.h"
 #include "Runtime/Core/Modules/ModuleManager.h"
 #include "Runtime/Core/Plugins/Services/MeshImporterService.h"
+#include "Runtime/Core/Plugins/Services/SceneImporterService.h"
+#include "Runtime/EcsFramework/Serializer/SceneDocument.h"
+#include "Runtime/Graphics/Mesh/MeshResourceValidator.h"
+#include "Runtime/Resource/AssetManager/AssetManager.h"
+#include "Runtime/Utils/JsonUtils/JsonUtils.h"
+#include "_generated/serializer/all_serializer.h"
 #include "Runtime/Resource/ConfigManager/ConfigManager.h"
 
 #include <HEngine/ProjectBuildConfig.h>
@@ -8,6 +14,7 @@
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
+#include <unordered_set>
 
 namespace HEngine
 {
@@ -52,13 +59,68 @@ namespace
         }
         return true;
     }
+
+    // The legacy mesh importer writes files as it goes. Keep failed imports from
+    // leaving partial native resources in an otherwise valid Assets directory.
+    // Existing files are never touched by this rollback.
+    class NewOutputFilesRollback
+    {
+    public:
+        explicit NewOutputFilesRollback(const std::filesystem::path& directory)
+            : mDirectory(directory)
+        {
+            for (const auto& entry : std::filesystem::directory_iterator(mDirectory))
+                mExistingNames.insert(entry.path().filename());
+        }
+
+        ~NewOutputFilesRollback()
+        {
+            if (mCommitted)
+                return;
+            std::error_code scanError;
+            std::filesystem::directory_iterator it(mDirectory, scanError);
+            if (scanError)
+                return;
+            const std::filesystem::directory_iterator end;
+            while (it != end)
+            {
+                const auto& entry = *it;
+                if (mExistingNames.contains(entry.path().filename()))
+                {
+                    it.increment(scanError);
+                    if (scanError) break;
+                    continue;
+                }
+                std::error_code statusError;
+                if (entry.is_regular_file(statusError) && !statusError)
+                {
+                    std::error_code removeError;
+                    std::filesystem::remove(entry.path(), removeError);
+                    if (removeError)
+                        HE_CORE_WARN("HAssetImporter: could not roll back '{0}': {1}",
+                                     entry.path().string(), removeError.message());
+                }
+                it.increment(scanError);
+                if (scanError) break;
+            }
+        }
+
+        void Commit() { mCommitted = true; }
+
+    private:
+        std::filesystem::path mDirectory;
+        std::unordered_set<std::filesystem::path> mExistingNames;
+        bool mCommitted = false;
+    };
 }
 
 int main(int argc, char* argv[])
 {
     HEngine::Log::Init();
 
-    if (argc != 4)
+    const bool sceneMode = argc == 5 && std::string(argv[4]) == "--scene";
+    const bool validateMode = argc == 5 && std::string(argv[4]) == "--validate-scene";
+    if (argc != 4 && !sceneMode && !validateMode)
     {
         LogUsage();
         return kInvalidArgumentsExitCode;
@@ -117,7 +179,8 @@ int main(int argc, char* argv[])
         }
 
         const std::filesystem::path canonicalAssetsRoot = std::filesystem::canonical(assetsRoot);
-        if (!IsPathWithin(canonicalOutputDir, canonicalAssetsRoot) &&
+        if (!(sceneMode && IsPathWithin(canonicalOutputDir, canonicalProjectRoot / ".he-content")) &&
+            !IsPathWithin(canonicalOutputDir, canonicalAssetsRoot) &&
             !IsPathWithin(canonicalOutputDir, engineAssetsRoot))
         {
             HE_CORE_ERROR(
@@ -135,10 +198,24 @@ int main(int argc, char* argv[])
             std::filesystem::path{},
             HE_PROJECT_GAME_CONFIG);
 
+        if (validateMode)
+        {
+            const auto document = HEngine::ParseSceneDocument(HEngine::ResolveSceneDocumentPath(
+                canonicalProjectRoot, std::filesystem::relative(canonicalSourceModel, canonicalProjectRoot).generic_string()));
+            for (const auto& path : document.GetMeshPaths())
+            {
+                HEngine::MeshRes mesh;
+                HEngine::Serializer::Deserialize(HEngine::Utils::LoadJsonFile(canonicalProjectRoot / path), mesh);
+                const auto validation = HEngine::MeshResourceValidator::LoadAndValidateBuffers(mesh, canonicalProjectRoot);
+                if (!validation) throw std::runtime_error(validation.Message);
+            }
+            return EXIT_SUCCESS;
+        }
+
         moduleManager.ConfigurePluginHost(HEngine::PluginHostEnvironment{
             .Host = HEngine::PluginHost::Tools,
             .BuildDistribution = HEngine::PluginBuildDistribution::Development,
-            .Platform = HEngine::PluginPlatform::Windows,
+            .Platform = HEngine::GetCurrentPluginPlatform(),
             .Configuration = GetPluginConfiguration(),
         });
         bPluginHostConfigured = true;
@@ -147,6 +224,17 @@ int main(int argc, char* argv[])
         moduleManager.StartPluginsThroughPhase(HEngine::PluginLoadPhase::PostDevice);
         moduleManager.StartPluginsThroughPhase(HEngine::PluginLoadPhase::PostEngine);
 
+        if (sceneMode)
+        {
+            const auto importer = moduleManager.GetPluginManager().GetServices()
+                .TryGet<HEngine::ISceneImporterService>(HEngine::c_SceneImporterServiceId);
+            if (!importer) throw std::runtime_error("Scene importer service is unavailable.");
+            const auto converted = importer->Convert(canonicalSourceModel, canonicalOutputDir);
+            HEngine::Utils::SaveJsonToFile(converted, canonicalOutputDir / "conversion.json");
+            result = converted.value("ok", false) ? EXIT_SUCCESS : kImportFailedExitCode;
+        }
+        else
+        {
         const HEngine::Ref<HEngine::IMeshImporterService> importer =
             moduleManager.GetPluginManager().GetServices()
                 .TryGet<HEngine::IMeshImporterService>(
@@ -157,18 +245,24 @@ int main(int argc, char* argv[])
                 "HAssetImporter: no mesh importer service is available for the Tools host");
             result = kImportFailedExitCode;
         }
-        else if (!importer->Import(canonicalSourceModel, canonicalOutputDir))
-        {
-            HE_CORE_ERROR("HAssetImporter: import failed for '{0}'", canonicalSourceModel.string());
-            result = kImportFailedExitCode;
-        }
         else
         {
-            HE_CORE_INFO(
-                "HAssetImporter: imported '{0}' into '{1}'",
-                canonicalSourceModel.string(),
-                canonicalOutputDir.string());
-            result = EXIT_SUCCESS;
+            NewOutputFilesRollback rollback(canonicalOutputDir);
+            if (!importer->Import(canonicalSourceModel, canonicalOutputDir))
+            {
+                HE_CORE_ERROR("HAssetImporter: import failed for '{0}'", canonicalSourceModel.string());
+                result = kImportFailedExitCode;
+            }
+            else
+            {
+                rollback.Commit();
+                HE_CORE_INFO(
+                    "HAssetImporter: imported '{0}' into '{1}'",
+                    canonicalSourceModel.string(),
+                    canonicalOutputDir.string());
+                result = EXIT_SUCCESS;
+            }
+        }
         }
     }
     catch (const std::exception& exception)

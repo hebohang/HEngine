@@ -127,6 +127,7 @@ namespace Generator
             Mustache::data fieldDefinition;
             const std::string fieldType = field->getCodegenTypeName();
             fieldDefinition.set("class_field_name", field->m_name);
+            fieldDefinition.set("class_field_python_enabled", !field->getMetaData().getFlag("NoPython"));
             fieldDefinition.set("class_field_type", fieldType);
             fieldDefinition.set("class_field_legacy_type", field->m_type);
             fieldDefinition.set("class_field_registry_type",

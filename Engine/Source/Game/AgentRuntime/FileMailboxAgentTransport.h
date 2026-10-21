@@ -2,6 +2,8 @@
 
 #include "Game/AgentRuntime/AgentTransport.h"
 
+#include "Runtime/Core/Base/Base.h"
+
 #include <cstdint>
 #include <filesystem>
 #include <string>
@@ -13,6 +15,8 @@ namespace HEngine
 	class FileMailboxAgentTransport final : public IAgentTransport
 	{
 	public:
+		FileMailboxAgentTransport();
+		~FileMailboxAgentTransport() override;
 		[[nodiscard]] std::string_view GetName() const override { return "file-mailbox"; }
 		[[nodiscard]] bool Start(const AgentTransportConfig& config, const Json& sessionDescriptor) override;
 		void Stop(const Json& finalStatus) override;
@@ -30,6 +34,8 @@ namespace HEngine
 		[[nodiscard]] static std::string GetHandle(std::string_view filename);
 		void ArchiveRequest(std::string_view handle);
 
+		struct ResponseWriter;
+		Scope<ResponseWriter> mResponseWriter;
 		AgentTransportConfig mConfig;
 		std::filesystem::path mRequestsDirectory;
 		std::filesystem::path mResponsesDirectory;

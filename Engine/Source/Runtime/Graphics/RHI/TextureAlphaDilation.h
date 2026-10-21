@@ -20,7 +20,7 @@ namespace HEngine
         }
     };
 
-    // Copies RGB from the nearest alpha-tested texel into rejected RGBA8
+    // Copies RGB from the nearest alpha-test survivor into rejected RGBA8
     // texels while preserving every original alpha value. This prevents black
     // transparent padding from bleeding into mask edges and generated mips.
     [[nodiscard]] TextureAlphaDilationResult DilateMaskedTextureRgb(

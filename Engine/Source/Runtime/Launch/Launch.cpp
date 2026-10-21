@@ -1,8 +1,10 @@
 #include "Hepch.h"
 #include "DevelopmentLaunchPaths.h"
 #include "PackagedProject.h"
+#include "ProjectIdentity.h"
 
 #include "Runtime/Core/AppFramework/Application.h"
+#include "Runtime/Core/Log/LogSession.h"
 #include "Runtime/Graphics/RHI/RenderBackend.h"
 #include "Runtime/Platform/PlatformPaths.h"
 #include "Runtime/Platform/PlatformProcess.h"
@@ -101,9 +103,12 @@ namespace
 			argument == "--agent-start-paused" ||
 			argument.starts_with("--graphics-api=") ||
 			argument.starts_with("--renderer=") ||
+			argument.starts_with("--render-path=") ||
+			argument.starts_with("--render-settings=") ||
 			argument.starts_with("--exit-after-frames=") ||
 			argument.starts_with("--capture-frame=") ||
 			argument.starts_with("--capture-path=") ||
+			argument.starts_with("--render-stats-path=") ||
 			argument.starts_with("--package-check-id=") ||
 			argument.starts_with("--agent-session=") ||
 			argument.starts_with("--agent-token=");
@@ -241,7 +246,7 @@ namespace
 		return value;
 	}
 
-#ifdef WITH_EDITOR
+#if defined(WITH_EDITOR) || defined(HE_DEV_AGENT_RUNTIME)
 	[[nodiscard]] std::string ParseStartupScene(std::string_view text)
 	{
 		std::string normalized;
@@ -273,7 +278,7 @@ namespace
 	}
 
 	[[nodiscard]] DevelopmentProjectSelection ResolveDevelopmentProject(
-		const std::filesystem::path& projectSelection)
+		const std::filesystem::path& projectSelection, const std::string& gameConfigOverride)
 	{
 		const std::filesystem::path absoluteSelection = projectSelection.is_absolute()
 			? projectSelection
@@ -319,13 +324,29 @@ namespace
 			throw std::runtime_error("Project.heproject SchemaVersion must be 1: " + descriptorPath.string());
 		}
 
+		RequireMatchingBuildValue(descriptor, "EngineVersion", HE_PROJECT_ENGINE_VERSION);
+#if !HE_PORTABLE_EDITOR && !HE_PORTABLE_PLAYER
 		RequireMatchingBuildValue(descriptor, "ProjectId", HE_PROJECT_ID);
 		RequireMatchingBuildValue(descriptor, "DisplayName", HE_PROJECT_DISPLAY_NAME);
-		RequireMatchingBuildValue(descriptor, "EngineVersion", HE_PROJECT_ENGINE_VERSION);
 		RequireMatchingBuildValue(descriptor, "ExecutableName", HE_PROJECT_EXECUTABLE_NAME);
+#endif
+#if HE_PORTABLE_PLAYER
+        (void)HEngine::ReadProjectIdentity(descriptor, HE_PROJECT_ENGINE_VERSION);
+#endif
 
-		const std::filesystem::path gameConfig =
-			std::filesystem::path(ReadRequiredProjectString(descriptor, "GameConfig")).lexically_normal();
+		std::string normalizedGameConfig;
+		if (!HEngine::Utils::TryNormalizeProjectRelativePath(
+			gameConfigOverride.empty() ? ReadRequiredProjectString(descriptor, "GameConfig") : gameConfigOverride,
+			normalizedGameConfig) ||
+			std::filesystem::path(normalizedGameConfig).extension() != ".json")
+			throw std::runtime_error("Project GameConfig must be a safe project-relative JSON path.");
+		const std::filesystem::path gameConfig(normalizedGameConfig);
+		const auto resolvedGameConfig = std::filesystem::weakly_canonical(canonicalRoot / gameConfig);
+		const auto relativeGameConfig = resolvedGameConfig.lexically_relative(canonicalRoot);
+		if (relativeGameConfig.empty() || *relativeGameConfig.begin() == ".." ||
+			!std::filesystem::is_regular_file(resolvedGameConfig))
+			throw std::runtime_error("Project GameConfig is missing or escapes the project root.");
+#if !HE_PORTABLE_EDITOR && !HE_PORTABLE_PLAYER
 		const std::filesystem::path buildGameConfig =
 			std::filesystem::path(HE_PROJECT_GAME_CONFIG).lexically_normal();
 		if (gameConfig.generic_string() != buildGameConfig.generic_string())
@@ -335,6 +356,7 @@ namespace
 				"') does not match this build ('" + buildGameConfig.generic_string() +
 				"'). Rebuild with hectl -Project for the selected project.");
 		}
+#endif
 
 		return { canonicalRoot, gameConfig };
 	}
@@ -403,6 +425,39 @@ namespace
 			{
 				options.bRenderStats = true;
 			}
+			else if (argument.starts_with("--render-path="))
+			{
+				const std::string_view path = GetOptionValue(argument, "--render-path=");
+				if (path == "forward" || path == "Forward")
+					options.RenderingPathOverride = "Forward";
+				else if (path == "deferred" || path == "Deferred")
+					options.RenderingPathOverride = "Deferred";
+				else
+					throw std::invalid_argument("--render-path requires forward or deferred.");
+			}
+			else if (argument.starts_with("--render-settings="))
+			{
+				options.RenderSettingsPath = std::filesystem::path(std::string(
+					GetOptionValue(argument, "--render-settings=")));
+				if (!options.RenderSettingsPath.is_absolute())
+					throw std::invalid_argument("--render-settings requires an absolute JSON path.");
+			}
+			else if (argument.starts_with("--render-stats-path="))
+			{
+				options.RenderStatsPath = std::filesystem::path(std::string(
+					GetOptionValue(argument, "--render-stats-path=")));
+				if (!options.RenderStatsPath.is_absolute())
+					throw std::invalid_argument("--render-stats-path requires an absolute CSV path.");
+				options.bRenderStats = true;
+			}
+			else if (argument.starts_with("--performance-warmup-frames="))
+			{
+				const std::string_view value = GetOptionValue(argument, "--performance-warmup-frames=");
+				options.PerformanceWarmupFrames = value == "0" ? 0 :
+					ParsePositiveFrameNumber(value, "--performance-warmup-frames");
+				if (options.PerformanceWarmupFrames > 10000000)
+					throw std::invalid_argument("--performance-warmup-frames exceeds 10000000.");
+			}
 			else if (argument.starts_with("--exit-after-frames="))
 			{
 				options.ExitAfterFrames = ParsePositiveFrameNumber(
@@ -414,6 +469,14 @@ namespace
 				options.FixedDeltaSeconds = ParseFixedDelta(
 					GetOptionValue(argument, "--fixed-delta="));
 			}
+            else if (argument == "--windowed")
+            {
+                options.FullscreenOverride = false;
+            }
+            else if (argument == "--borderless-fullscreen")
+            {
+                options.FullscreenOverride = true;
+            }
 			else if (argument.starts_with("--resolution="))
 			{
 				const ParsedWindowSize size = ParseWindowSize(
@@ -444,13 +507,18 @@ namespace
 				if (!options.SavedRoot.is_absolute())
 					throw std::invalid_argument("--saved-root requires an absolute path.");
 			}
-			else if (argument.starts_with("--startup-scene="))
+            else if (argument.starts_with("--viewport-mode="))
+            {
+                options.StartupViewportMode = std::string(GetOptionValue(argument, "--viewport-mode="));
+            }
+            else if (argument.starts_with("--startup-scene="))
 			{
-#ifdef WITH_EDITOR
+#if defined(WITH_EDITOR) || defined(HE_DEV_AGENT_RUNTIME)
 				options.StartupScene = ParseStartupScene(
 					GetOptionValue(argument, "--startup-scene="));
 #else
-				throw std::invalid_argument("--startup-scene is only supported by HEngineEditor.");
+				throw std::invalid_argument(
+					"--startup-scene is only supported by HEngineEditor or Dev Agent HGame.");
 #endif
 			}
 			else if (argument.starts_with("--project="))
@@ -458,7 +526,24 @@ namespace
 				options.ProjectRoot = std::filesystem::path(std::string(
 					GetOptionValue(argument, "--project=")));
 			}
+#if HE_PORTABLE_EDITOR || HE_PORTABLE_PLAYER
+			else if (argument.starts_with("--game-config="))
+			{
+				if (!options.ProjectGameConfig.empty())
+					throw std::invalid_argument("--game-config may only be specified once.");
+				options.ProjectGameConfig = std::string(GetOptionValue(argument, "--game-config="));
+			}
+#endif
 #if defined(HE_DEV_AGENT_RUNTIME)
+			else if (argument.starts_with("--input-replay="))
+			{
+				if (!options.InputReplayPath.empty())
+					throw std::invalid_argument("--input-replay may only be specified once.");
+				options.InputReplayPath = std::filesystem::path(std::string(
+					GetOptionValue(argument, "--input-replay=")));
+				if (!options.InputReplayPath.is_absolute())
+					throw std::invalid_argument("--input-replay requires an absolute JSON path.");
+			}
 			else if (argument.starts_with("--agent-session="))
 			{
 				options.AgentSessionDirectory = std::filesystem::path(std::string(
@@ -508,6 +593,10 @@ namespace
 			throw std::invalid_argument("--capture-frame cannot be greater than --exit-after-frames.");
 		}
 #if defined(HE_DEV_AGENT_RUNTIME)
+		if (!options.InputReplayPath.empty() && options.HasAgentSession())
+			throw std::invalid_argument("--input-replay cannot be combined with --agent-session.");
+		if (!options.InputReplayPath.empty() && options.ExitAfterFrames == 0)
+			throw std::invalid_argument("--input-replay requires --exit-after-frames.");
 		if (!options.AgentToken.empty() && !options.HasAgentSession())
 			throw std::invalid_argument("--agent-token requires --agent-session.");
 		if (options.bAgentStartPaused && !options.HasAgentSession())
@@ -619,6 +708,7 @@ namespace
 
 int main(int argc, char** argv)
 {
+	HEngine::LogSession logSession;
 	bool bScriptInitialized = false;
 	const bool bPackageCheckRequested =
 		HasExactLaunchOption(argc, argv, "--package-check");
@@ -626,7 +716,7 @@ int main(int argc, char** argv)
 	try
 	{
 		HEngine::Log::Init();
-#if defined(HE_PACKAGED_GAME)
+#if defined(HE_PACKAGED_GAME) && !HE_PORTABLE_PLAYER
 		if (!bPackageCheckRequested)
 		{
 			try
@@ -682,7 +772,7 @@ int main(int argc, char** argv)
 #if defined(HE_PACKAGED_GAME)
 		const HEngine::PackagedProjectPaths paths =
 			HEngine::PackagedProject::Prepare(runOptions.PackageCheckId);
-		if (bPackageCheckRequested)
+		if (bPackageCheckRequested || HE_PORTABLE_PLAYER)
 		{
 			diagnosticLogPath = paths.savedRoot / "Logs" / "HEngine.log";
 			if (!HEngine::Log::InstallFileSink(diagnosticLogPath))
@@ -693,18 +783,18 @@ int main(int argc, char** argv)
 			paths.contentRoot,
 			paths.savedRoot,
 			paths.contentRoot,
-			HE_PROJECT_GAME_CONFIG);
+			paths.gameConfig);
 		HEngine::RuntimeResourceCatalog::GetInstance().Install(paths.resourceCatalog);
 #else
 		const HEngine::DevelopmentLaunchPaths launchPaths =
 			HEngine::ResolveDevelopmentLaunchPaths(
 				runOptions.ProjectRoot,
-				HEngine::PlatformPaths::GetExecutableDirectory(),
+				HEngine::PlatformPaths::GetApplicationContentDirectory(),
 				HE_DEFAULT_PROJECT_DIR,
 				HE_ENGINE_CONTENT_DIR,
 				HE_ENGINE_GENERATED_CONTENT_DIR);
 		const DevelopmentProjectSelection project = ResolveDevelopmentProject(
-			launchPaths.ProjectSelection);
+			launchPaths.ProjectSelection, runOptions.ProjectGameConfig);
 		HEngine::ConfigManager::GetInstance().Init(
 			project.Root,
 			launchPaths.EngineContentRoot,

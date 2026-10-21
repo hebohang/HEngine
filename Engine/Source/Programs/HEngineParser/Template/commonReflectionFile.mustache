@@ -7,18 +7,25 @@
 {{#class_defines}}
 {{#pyComponentName}}
 #line {{class_line}} "{{class_source}}"
-void {{{class_qualified_name}}}::PyBinding(pybind11::module_& HEngineModule)
+#if defined(HE_PYTHON_BINDINGS_ONLY)
+namespace HEngine {
+void BindPythonComponent({{{class_qualified_name}}}*, pybind11::module_& HEngineModule)
 {
     pybind11::class_<{{{class_qualified_name}}}>(HEngineModule, "{{class_legacy_name}}")
         .def(pybind11::init<>())
 {{#class_field_defines}}
+{{#class_field_python_enabled}}
         .def_readwrite("{{class_field_name}}", &{{{class_qualified_name}}}::{{class_field_name}})
+{{/class_field_python_enabled}}
 {{/class_field_defines}}
         ;
 }
+}
+#endif
 {{/pyComponentName}}
 {{/class_defines}}
 
+#if !defined(HE_PYTHON_BINDINGS_ONLY)
 namespace HEngine::Reflection
 {
 {{#class_defines}}
@@ -149,3 +156,5 @@ namespace TypeWrappersRegister
     }
 } // namespace TypeWrappersRegister
 } // namespace HEngine::Reflection
+
+#endif

@@ -23,6 +23,7 @@ namespace HEngine
             bool Boolean = false;
             std::int32_t Integer = 0;
             std::string TexturePath;
+            int TextureUvSet = 0;
             std::string Fallback;
         };
 
@@ -374,6 +375,10 @@ namespace HEngine
                 }
                 else if (property.Type == MaterialShaderPropertyType::Texture2D)
                 {
+                    parameter.TextureUvSet = value ? value->TextureUvSet : 0;
+                    if (parameter.TextureUvSet < 0 || parameter.TextureUvSet > 1)
+                        AddError(result, manifest, "Packing.TextureUvSet",
+                            "Property '" + property.Name + "' requires UV0 or UV1.");
                     const std::string_view texturePath = value
                         ? std::string_view(value->TexturePath)
                         : std::string_view(property.Default.Texture);
@@ -502,6 +507,10 @@ namespace HEngine
             else if (property.Type == MaterialShaderPropertyType::Texture2D)
             {
                 WriteUint32LittleEndian(result.PackedBytes, offset, 0u);
+                // Descriptor and normal encoding occupy x/y; z carries the
+                // authored UV set through the same per-instance parameter row.
+                WriteUint32LittleEndian(result.PackedBytes, offset + 8,
+                    static_cast<std::uint32_t>(parameter.TextureUvSet));
                 result.TextureFixups.push_back({
                     .StableId = property.StableId,
                     .Name = property.Name,

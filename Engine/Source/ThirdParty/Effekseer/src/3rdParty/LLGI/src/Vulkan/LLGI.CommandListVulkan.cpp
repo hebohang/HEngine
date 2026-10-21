@@ -5,6 +5,10 @@
 #include "LLGI.TextureVulkan.h"
 #include "LLGI.QueryVulkan.h"
 #include <algorithm>
+#include <atomic>
+#include <cstddef>
+#include <cstdio>
+#include <cstdlib>
 
 namespace LLGI
 {
@@ -63,6 +67,10 @@ DescriptorPoolVulkan ::~DescriptorPoolVulkan()
 		graphics_->GetDevice().destroyDescriptorPool(computeDescriptorPool_);
 		computeDescriptorPool_ = nullptr;
 	}
+	// Destroy all cached sets before releasing the pipelines owning the layouts
+	// used to allocate them. Owners are bounded by the existing pool slot count.
+	cache.clear();
+	computeCache.clear();
 }
 
 const std::vector<vk::DescriptorSet>& DescriptorPoolVulkan::Get(PipelineStateVulkan* pip)
@@ -70,7 +78,7 @@ const std::vector<vk::DescriptorSet>& DescriptorPoolVulkan::Get(PipelineStateVul
 	if (cache.size() > static_cast<size_t>(offset))
 	{
 		offset++;
-		return cache[offset - 1];
+		return cache[offset - 1].Sets;
 	}
 
 	if (offset >= slotSizeMax_)
@@ -87,9 +95,12 @@ const std::vector<vk::DescriptorSet>& DescriptorPoolVulkan::Get(PipelineStateVul
 	allocateInfo.pSetLayouts = layout.data();
 
 	std::vector<vk::DescriptorSet> descriptorSets = graphics_->GetDevice().allocateDescriptorSets(allocateInfo);
-	cache.push_back(descriptorSets);
+	// Graphics layouts have a fixed binding schema in PipelineStateVulkan;
+	// compatible later pipelines may reuse these sets, but their original layout
+	// owner must survive every subsequent descriptor write.
+	cache.push_back({CreateSharedPtr(pip, true), std::move(descriptorSets)});
 	offset++;
-	return cache[offset - 1];
+	return cache[offset - 1].Sets;
 }
 
 const std::vector<vk::DescriptorSet>& DescriptorPoolVulkan::GetCompute(PipelineStateVulkan* pip)
@@ -97,7 +108,7 @@ const std::vector<vk::DescriptorSet>& DescriptorPoolVulkan::GetCompute(PipelineS
 	if (computeCache.size() > static_cast<size_t>(computeOffset))
 	{
 		computeOffset++;
-		return computeCache[computeOffset - 1];
+		return computeCache[computeOffset - 1].Sets;
 	}
 
 	if (computeOffset >= slotSizeMax_)
@@ -114,9 +125,10 @@ const std::vector<vk::DescriptorSet>& DescriptorPoolVulkan::GetCompute(PipelineS
 	allocateInfo.pSetLayouts = layout.data();
 
 	std::vector<vk::DescriptorSet> descriptorSets = graphics_->GetDevice().allocateDescriptorSets(allocateInfo);
-	computeCache.push_back(descriptorSets);
+	// Compute layouts likewise use a fixed schema, separate from graphics.
+	computeCache.push_back({CreateSharedPtr(pip, true), std::move(descriptorSets)});
 	computeOffset++;
-	return computeCache[computeOffset - 1];
+	return computeCache[computeOffset - 1].Sets;
 }
 
 void DescriptorPoolVulkan::Reset()
@@ -236,6 +248,16 @@ void CommandListVulkan::AssignTexturesToCommandList(const vk::DescriptorSet& des
 
 		imageInfo.imageView = texture->GetView();
 		imageInfo.sampler = samplers_[wm][mm];
+		if (earlySamplerDiagnostics_ && !earlySamplerAssigned_)
+		{
+			earlySamplerAssigned_ = true;
+			std::fprintf(stderr, "EARLY_LLGI_SAMPLER_ASSIGN this=%p slot=%d wrap=%d filter=%d sampler=%p table00=%p texture=%p swap=%d textures=%zu\n",
+				static_cast<void*>(this), unit_ind, wm, mm,
+				reinterpret_cast<void*>(static_cast<VkSampler>(imageInfo.sampler)),
+				reinterpret_cast<void*>(static_cast<VkSampler>(samplers_[0][0])),
+				static_cast<void*>(texture), currentSwapBufferIndex_, currentTextures_.size());
+			std::fflush(stderr);
+		}
 		descImages[descImageOffset] = imageInfo;
 
 		vk::WriteDescriptorSet desc;
@@ -329,6 +351,14 @@ bool CommandListVulkan::CreateFallbackSampledTexture()
 
 bool CommandListVulkan::Initialize(GraphicsVulkan* graphics, int32_t drawingCount)
 {
+	#if defined(HE_EFFEKSEER_DEV_TEST_HOOKS) && HE_EFFEKSEER_DEV_TEST_HOOKS
+	const char* diagnostic = std::getenv("HE_VFX_EARLY_SMOKE");
+#else
+	const char* diagnostic = nullptr; // No environment-controlled SDK diagnostics in shipping.
+#endif
+	static std::atomic<unsigned> diagnosticLists{0};
+	earlySamplerDiagnostics_ = diagnostic && diagnostic[0] == '1' && diagnostic[1] == '\0' &&
+		diagnosticLists.fetch_add(1) < 32;
 	SafeAddRef(graphics);
 	graphics_ = CreateSharedPtr(graphics);
 
@@ -378,6 +408,12 @@ bool CommandListVulkan::Initialize(GraphicsVulkan* graphics, int32_t drawingCoun
 			samplerInfo.maxLod = 8.0f;
 
 			samplers_[w][f] = graphics_->GetDevice().createSampler(samplerInfo);
+			if (earlySamplerDiagnostics_)
+			{
+				std::fprintf(stderr, "EARLY_LLGI_SAMPLER_CREATE this=%p wrap=%d filter=%d sampler=%p\n",
+					static_cast<void*>(this), w, f, reinterpret_cast<void*>(static_cast<VkSampler>(samplers_[w][f])));
+				std::fflush(stderr);
+			}
 		}
 	}
 
@@ -558,12 +594,48 @@ void CommandListVulkan::Draw(int32_t primitiveCount, int32_t instanceCount)
 								descriptorImageIndex,
 								[](TextureUsageType t) -> bool { return true; });
 
+	const unsigned diagnosticDraw = earlySamplerDiagnostics_ ? ++earlySamplerDrawCount_ : 0;
+	const auto diagnoseDrawDescriptors = [&](const char* phase) {
+		if (!earlySamplerDiagnostics_ || diagnosticDraw > 16) return;
+		if (diagnosticDraw == 1)
+			std::fprintf(stderr, "EARLY_LLGI_DRAW_ABI phase=%s writeSize=%zu/%zu imageSize=%zu/%zu imagePtrOffset=%zu/%zu samplerOffset=%zu/%zu\n",
+				phase, sizeof(vk::WriteDescriptorSet), sizeof(VkWriteDescriptorSet),
+				sizeof(vk::DescriptorImageInfo), sizeof(VkDescriptorImageInfo),
+				offsetof(vk::WriteDescriptorSet, pImageInfo), offsetof(VkWriteDescriptorSet, pImageInfo),
+				offsetof(vk::DescriptorImageInfo, sampler), offsetof(VkDescriptorImageInfo, sampler));
+		for (int i = 0; i < writeDescriptorIndex; ++i)
+		{
+			const auto& write = writeDescriptorSets[i];
+			if (write.descriptorType != vk::DescriptorType::eCombinedImageSampler) continue;
+			const auto& textureBinding = currentTextures_[write.dstBinding];
+			std::fprintf(stderr, "EARLY_LLGI_DRAW_WRITE phase=%s this=%p ordinal=%u pipeline=%p dstSet=%p write=%d binding=%u wrap=%d filter=%d sampler=%p nativeSampler=%p imageInfo=%p imageBase=%p baseSampler=%p writes=%d buffers=%d images=%d\n",
+				phase, static_cast<void*>(this), diagnosticDraw, static_cast<void*>(pip),
+				reinterpret_cast<void*>(static_cast<VkDescriptorSet>(write.dstSet)), i, write.dstBinding,
+				static_cast<int>(textureBinding.wrapMode), static_cast<int>(textureBinding.minMagFilter),
+				reinterpret_cast<void*>(static_cast<VkSampler>(write.pImageInfo->sampler)),
+				reinterpret_cast<void*>(reinterpret_cast<const VkDescriptorImageInfo*>(write.pImageInfo)->sampler),
+				static_cast<const void*>(write.pImageInfo), static_cast<const void*>(descriptorImageInfos.data()),
+				reinterpret_cast<void*>(static_cast<VkSampler>(descriptorImageInfos[0].sampler)),
+				writeDescriptorIndex, descriptorBufferIndex, descriptorImageIndex);
+		}
+		std::fflush(stderr);
+	};
+	diagnoseDrawDescriptors("after-textures");
+
 	AssignStorageBuffersToCommandList(
 		descriptorSets[2], writeDescriptorSets.data(), writeDescriptorIndex, descriptorBufferInfos.data(), descriptorBufferIndex);
 
 	if (writeDescriptorIndex > 0)
 	{
+		diagnoseDrawDescriptors("before-vkUpdateDescriptorSets");
 		graphics_->GetDevice().updateDescriptorSets(writeDescriptorIndex, writeDescriptorSets.data(), 0, nullptr);
+		if (earlySamplerDiagnostics_ && diagnosticDraw <= 16)
+		{
+			std::fprintf(stderr, "EARLY_LLGI_DRAW_API_RETURN this=%p ordinal=%u dstSet=%p\n",
+				static_cast<void*>(this), diagnosticDraw,
+				reinterpret_cast<void*>(static_cast<VkDescriptorSet>(descriptorSets[1])));
+			std::fflush(stderr);
+		}
 	}
 
 	std::array<uint32_t, 12> offsets;
@@ -660,7 +732,13 @@ void CommandListVulkan::GenerateMipMap(Texture* src)
 		return;
 	}
 
-	srcTex->RecordMipmapGenerationCommands(currentCommandBuffer_);
+	if (srcTex->RecordMipmapGenerationCommands(currentCommandBuffer_))
+	{
+		// Flushing queued mipmaps releases the queue's texture reference. A
+		// rejected/unloaded effect may have no other owner, so retain the image
+		// with this recording until command-list reuse after host retirement.
+		RegisterReferencedObject(src);
+	}
 }
 
 void CommandListVulkan::CopyBuffer(Buffer* src, Buffer* dst)
@@ -950,6 +1028,21 @@ void CommandListVulkan::Dispatch(int32_t groupX, int32_t groupY, int32_t groupZ,
 
 	if (writeDescriptorIndex > 0)
 	{
+		if (earlySamplerDiagnostics_ && !earlySamplerSubmitted_)
+		{
+			earlySamplerSubmitted_ = true;
+			for (int i = 0; i < writeDescriptorIndex; ++i)
+			{
+				const auto& write = writeDescriptorSets[i];
+				if (write.descriptorType != vk::DescriptorType::eCombinedImageSampler) continue;
+				std::fprintf(stderr, "EARLY_LLGI_SAMPLER_WRITE this=%p write=%d binding=%u sampler=%p imageInfo=%p count=%d groups=%d,%d,%d\n",
+					static_cast<void*>(this), i, write.dstBinding,
+					reinterpret_cast<void*>(static_cast<VkSampler>(write.pImageInfo->sampler)),
+					static_cast<const void*>(write.pImageInfo), writeDescriptorIndex, groupX, groupY, groupZ);
+				break;
+			}
+			std::fflush(stderr);
+		}
 		graphics_->GetDevice().updateDescriptorSets(writeDescriptorIndex, writeDescriptorSets.data(), 0, nullptr);
 	}
 
@@ -966,6 +1059,10 @@ void CommandListVulkan::Dispatch(int32_t groupX, int32_t groupY, int32_t groupZ,
 	}
 
 	currentCommandBuffer_.dispatch(groupX, groupY, groupZ);
+
+	// External render passes cannot contain compute-to-vertex dependencies.
+	// Finish each compute write while still outside the host render pass.
+	PrepareStorageBuffersForGraphics();
 
 	CommandList::Dispatch(groupX, groupY, groupZ, threadX, threadY, threadZ);
 }

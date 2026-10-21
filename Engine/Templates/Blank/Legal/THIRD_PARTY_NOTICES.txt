@@ -1,0 +1,2 @@
+This blank project contains no third-party project assets.
+Engine dependencies are listed separately by the packaging workflow.

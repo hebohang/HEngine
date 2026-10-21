@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "version": "10.0.10",
+  "rid": "osx-arm64",
+  "metadataSource": "https://builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json",
+  "url": "https://builds.dotnet.microsoft.com/dotnet/Runtime/10.0.10/dotnet-runtime-10.0.10-osx-arm64.tar.gz",
+  "sha512": "79cbc64bfeb806d5f2a9e0a2a2ed336c7aa275b0438bbd88d36236a1b6203950546b49ff307cc5067c89434ffe22c021a594b2f8adad71146a5ece825652bd85"
+}

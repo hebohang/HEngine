@@ -1,0 +1,5 @@
+{
+  "source": "Project/SourceAssets/BlenderAcceptance/Playable.blend",
+  "verify": "runtime",
+  "timeoutSeconds": 240
+}

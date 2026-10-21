@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "version": "10.0.10",
+  "rid": "win-x64",
+  "metadataSource": "https://builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json",
+  "url": "https://builds.dotnet.microsoft.com/dotnet/Runtime/10.0.10/dotnet-runtime-10.0.10-win-x64.zip",
+  "sha512": "2161dfa1cf027cdc074de7195b5f206b17ebd829ae415b9e7c9ee5f06d3952b6583030022dbe0d6e9221b5c577c411d7cd5322241f6d2299d9c886641215699b"
+}

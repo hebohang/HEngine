@@ -14,11 +14,13 @@ namespace HEngine
     {
     public:
         static void SavePrefab(Entity entity, const std::string& filepath);
+        static Entity FindInstanceEntity(Entity instanceMember, const std::string& localId);
         static Entity InstantiatePrefab(Level* level, const std::string& prefabPath);
         static Entity InstantiatePrefab(Level* level, const std::string& prefabPath, const glm::vec3& position);
         static Entity InstantiatePrefab(Level* level, const std::string& prefabPath, const glm::vec3& position, const glm::vec3& rotation);
 
     private:
-        static Entity InstantiateFromJson(Level* level, const Json& prefabJson);
+        static Entity InstantiateFromJson(Level* level, const Json& prefabJson, const std::string& path);
+		static Entity InstantiatePrepared(Level* level, const PrefabDocument& prefab, const std::string& path);
     };
 }

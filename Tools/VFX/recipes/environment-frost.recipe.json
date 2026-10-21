@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "id": "environment-frost",
+  "template": "environment",
+  "semantic": {
+    "purpose": "environment presentation",
+    "style": "frost broad"
+  },
+  "compile": {
+    "color": [
+      80,
+      205,
+      255,
+      230
+    ],
+    "radius_m": 1.3,
+    "attack_s": 0.3,
+    "sustain_s": 2.4,
+    "decay_s": 0.7,
+    "particles": 384,
+    "direction": [
+      0,
+      1,
+      0
+    ],
+    "seed": 1806,
+    "simulation": "gpu",
+    "quality": "High"
+  },
+  "playback": {
+    "scale": 1,
+    "speed": 1,
+    "intensity": 1
+  },
+  "budget": {
+    "max_particles": 384
+  },
+  "requirements": {
+    "backends": [
+      "DX12",
+      "Vulkan"
+    ],
+    "fallback_recipe": "environment-frost-low"
+  },
+  "dependencies": []
+}

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <WasmMainJSPath>main.js</WasmMainJSPath>
+    <WasmEnableThreads>false</WasmEnableThreads>
+    <WasmEnableExceptionHandling>false</WasmEnableExceptionHandling>
+    <WasmEnableSIMD>false</WasmEnableSIMD>
+    <BlazorWebAssemblyJiterpreter>false</BlazorWebAssemblyJiterpreter>
+    <WasmBuildNative>true</WasmBuildNative>
+    <WasmStripILAfterAOT>false</WasmStripILAfterAOT>
+    <GameScriptsProject Condition="'$(GameScriptsProject)' == ''">$(MSBuildThisFileDirectory)../../../Project/Scripts/CSharp/GameScripts.csproj</GameScriptsProject>
+    <ScriptRegistryDir Condition="'$(ScriptRegistryDir)' == ''">$(MSBuildThisFileDirectory)../../../out/agent/scripting/registry</ScriptRegistryDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../HEngine.ScriptCore/HEngine.ScriptCore.csproj" />
+    <ProjectReference Include="$(GameScriptsProject)" />
+    <Compile Include="../HEngine.ScriptRuntime/ScriptRuntime.cs" Link="ScriptRuntime.cs" />
+    <Compile Include="../HEngine.ScriptRuntime/ScriptDiagnostic.cs" Link="ScriptDiagnostic.cs" />
+    <Compile Include="$(ScriptRegistryDir)/*.Registry.g.cs" />
+  </ItemGroup>
+  <Import Project="$(ModuleReferencesFile)" Condition="'$(ModuleReferencesFile)' != ''" />
+  <Target Name="RequireScriptRegistry" BeforeTargets="BeforeCompile">
+    <Error Condition="!Exists('$(ScriptRegistryDir)/GameScripts.Registry.g.cs')" Text="Generate the HEngine script registry before publishing Wasm." />
+  </Target>
+</Project>

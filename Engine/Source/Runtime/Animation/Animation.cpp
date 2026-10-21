@@ -3,7 +3,12 @@
 #include "Runtime/Animation/Animation.h"
 #include "Runtime/Graphics/Mesh/Mesh.h"
 
-#if !defined(HE_PACKAGED_GAME)
+#include <algorithm>
+#include <cmath>
+#include <set>
+#include <stdexcept>
+
+#if HE_RUNTIME_ASSET_IMPORT
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
@@ -13,7 +18,7 @@
 
 namespace HEngine
 {
-#if !defined(HE_PACKAGED_GAME)
+#if HE_RUNTIME_ASSET_IMPORT
 	Animation::Animation(const std::string& animationPath, Mesh* model)
 	{
 		Assimp::Importer importer;
@@ -80,6 +85,7 @@ namespace HEngine
 
 		dest.name = src->mName.data;
 		dest.transformation = Utils::ConvertMatrixToGLMFormat(src->mTransformation);
+		dest.bindPose = LocalPose::FromMatrix(dest.transformation);
 		dest.childrenCount = src->mNumChildren;
 
 		for (int i = 0; i < src->mNumChildren; i++)
@@ -107,6 +113,7 @@ namespace HEngine
 			dest.transformation = glm::make_mat4(src.localTransform.data());
 		else
 			dest.transformation = glm::mat4(1.0f);
+		dest.bindPose = LocalPose::FromMatrix(dest.transformation);
 
 		dest.childrenCount = (int)src.children.size();
 		for (const auto& childRes : src.children)
@@ -123,7 +130,16 @@ namespace HEngine
 
 		const AnimClipRes& clip = animRes.clips[clipIndex];
 		mDuration       = clip.duration;
-		mTicksPerSecond = (int)(clip.ticksPerSecond > 0.0f ? clip.ticksPerSecond : 24.0f);
+		mTicksPerSecond = clip.ticksPerSecond > 0.0f ? clip.ticksPerSecond : 24.0f;
+        mEvents = clip.events;
+        std::set<std::string> eventIds;
+        for (const auto& event : mEvents)
+        {
+            if (event.id.empty() || event.name.empty() || !eventIds.insert(event.id).second ||
+                !std::isfinite(event.timeStamp) || event.timeStamp < 0.0f || event.timeStamp >= mDuration)
+                throw std::invalid_argument("Animation events require unique IDs, names and timestamps in [0,duration).");
+        }
+        std::stable_sort(mEvents.begin(), mEvents.end(), [](const auto& a, const auto& b) { return a.timeStamp < b.timeStamp; });
 
 		ReadHierarchyDataFromRes(mRootNode, animRes.rootNode);
 

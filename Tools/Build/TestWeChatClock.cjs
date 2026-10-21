@@ -1,0 +1,13 @@
+'use strict';
+const assert=require('node:assert/strict');
+const {createClock}=require('../../Engine/Source/Runtime/Platform/WeChat/Clock.js');
+let wall=1000;
+const host={},clock=createClock(host,()=>wall);
+assert.equal(clock.now(),0);wall=1025;assert.equal(clock.now(),25);
+wall=900;assert.equal(clock.now(),25);wall=1050;assert.equal(clock.now(),50);
+assert.equal(clock.timeOrigin,1000);assert.equal(host.performance,undefined);
+const native={value:2,timeOrigin:100,now(){return this.value;}};
+const nativeClock=createClock({performance:native});
+assert.equal(nativeClock.now(),2);native.value=7;assert.equal(nativeClock.now(),7);
+native.value=NaN;assert.equal(nativeClock.now(),7);assert.equal(nativeClock.timeOrigin,100);
+console.log('unit-test PASS: absent performance, milliseconds, backward clock, native receiver and non-finite values; host globals preserved');

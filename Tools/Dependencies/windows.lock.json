@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "pillow": {
+    "version": "11.3.0",
+    "url": "https://files.pythonhosted.org/packages/f1/cc/29c0f5d64ab8eae20f3232da8f8571660aa0ab4b8f1331da5c2f5f9a938e/pillow-11.3.0-cp311-cp311-win_amd64.whl",
+    "sha256": "1a992e86b0dd7aeb1f053cd506508c0999d710a8f07b4c791c63843fc6a807ac"
+  },
+  "cmake": {
+    "version": "4.2.0",
+    "url": "https://github.com/Kitware/CMake/releases/download/v4.2.0/cmake-4.2.0-windows-x86_64.zip",
+    "sha256": "cf35a516c4f5f4646b301e51c8e24b168cc012c3b1453b8f675303b54eb0ef45",
+    "archiveRoot": "cmake-4.2.0-windows-x86_64"
+  },
+  "node": {
+    "version": "22.14.0",
+    "url": "https://nodejs.org/dist/v22.14.0/node-v22.14.0-win-x64.zip",
+    "sha256": "55b639295920b219bb2acbcfa00f90393a2789095b7323f79475c9f34795f217",
+    "archiveRoot": "node-v22.14.0-win-x64"
+  },
+  "nodeArm64": {
+    "version": "22.14.0",
+    "url": "https://nodejs.org/dist/v22.14.0/node-v22.14.0-win-arm64.zip",
+    "sha256": "2d71f5f9b2fffa33baa108c07d74b0d24e0c3dd8f441d567772ae0e3dd4b1a22",
+    "archiveRoot": "node-v22.14.0-win-arm64"
+  },
+  "python": {
+    "version": "3.11.9",
+    "url": "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe"
+  },
+  "visualStudio": {
+    "url": "https://aka.ms/vs/18/release/vs_BuildTools.exe",
+    "components": [
+      "Microsoft.VisualStudio.Workload.VCTools",
+      "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+      "Microsoft.VisualStudio.Component.VC.CMake.Project",
+      "Microsoft.VisualStudio.Component.Windows11SDK.26100"
+    ]
+  },
+  "oidn": {
+    "version": "2.5.1",
+    "url": "https://github.com/RenderKit/oidn/releases/download/v2.5.1/oidn-2.5.1.x64.windows.zip",
+    "sha256": "f11f91bc072a5e3a564515724cb72ab8fcfbc445c84a84c197ff9b16cc01396f",
+    "archiveRoot": "oidn-2.5.1.x64.windows"
+  }
+}

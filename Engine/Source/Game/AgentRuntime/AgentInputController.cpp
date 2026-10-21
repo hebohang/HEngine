@@ -132,6 +132,9 @@ namespace HEngine
         if (mActive)
             Input::EndSyntheticKeyboardSession();
         mHeldKeyNames.clear();
+        mPendingKeys.reset();
+        mPendingPointer.reset();
+        mPointerStepsRemaining = 0;
         mActive = false;
     }
 
@@ -151,7 +154,7 @@ namespace HEngine
         for (const auto& [name, value] : params.items())
         {
             (void)value;
-            if (name != "held")
+            if (name != "held" && name != "onStep")
                 throw std::invalid_argument("input.set contains an unknown parameter.");
         }
         if (!mActive)
@@ -183,7 +186,10 @@ namespace HEngine
             replacementCodes.push_back(binding->Code);
         }
 
-        if (!Input::SetSyntheticKeys(replacementCodes))
+        if (params.contains("onStep") && !params["onStep"].is_boolean())
+            throw std::invalid_argument("input.set onStep must be boolean");
+        if (params.value("onStep", false)) mPendingKeys = replacementCodes;
+        else if (!Input::SetSyntheticKeys(replacementCodes))
             throw std::runtime_error("Failed to replace synthetic keyboard state.");
         mHeldKeyNames = std::move(replacementNames);
         return BuildStatus();
@@ -194,7 +200,11 @@ namespace HEngine
         RequireNoParams(params, "input.clear");
         if (!mActive)
             throw std::runtime_error("Synthetic keyboard session is not active.");
+        mPendingKeys.reset();
+        mPendingPointer.reset();
+        mPointerStepsRemaining = 0;
         Input::ClearSyntheticKeys();
+        Input::ClearSyntheticPointerPosition();
         mHeldKeyNames.clear();
         return BuildStatus();
     }
@@ -261,6 +271,68 @@ namespace HEngine
             { "button", buttonName },
             { "clickCount", mVirtualClickCount }
         };
+    }
+
+    Json AgentInputController::Pointer(const Json& params, uint32_t width, uint32_t height)
+    {
+        for (const auto& [name, value] : params.items())
+            if (name != "x" && name != "y" && name != "rightHeld" &&
+                name != "steps" && name != "stepX" && name != "stepY")
+                throw std::invalid_argument("input.pointer contains an unknown parameter");
+        if (!mActive || !params.contains("x") || !params["x"].is_number() ||
+            !params.contains("y") || !params["y"].is_number() ||
+            !params.contains("rightHeld") || !params["rightHeld"].is_boolean())
+            throw std::invalid_argument("input.pointer requires x, y and rightHeld in an active session");
+        const float x = params["x"].get<float>(), y = params["y"].get<float>();
+        if (!std::isfinite(x) || !std::isfinite(y) || x < 0 || y < 0 || x >= width || y >= height)
+            throw std::invalid_argument("input.pointer must stay inside the framebuffer");
+        const bool bTrajectory = params.contains("steps") || params.contains("stepX") || params.contains("stepY");
+        std::uint32_t steps = 1;
+        glm::vec2 step(0.0f);
+        if (bTrajectory)
+        {
+            if (!params.contains("steps") || !params["steps"].is_number_integer() ||
+                !params.contains("stepX") || !params["stepX"].is_number() ||
+                !params.contains("stepY") || !params["stepY"].is_number())
+                throw std::invalid_argument("input.pointer trajectory requires steps, stepX and stepY");
+            const auto count = params["steps"].get<std::int64_t>();
+            if (count < 1 || count > 600)
+                throw std::invalid_argument("input.pointer steps must be in 1..600");
+            steps = static_cast<std::uint32_t>(count);
+            step = glm::vec2(params["stepX"].get<float>(), params["stepY"].get<float>());
+            const glm::vec2 end = glm::vec2(x, y) + step * static_cast<float>(steps - 1);
+            if (!std::isfinite(step.x) || !std::isfinite(step.y) ||
+                !std::isfinite(end.x) || !std::isfinite(end.y) ||
+                end.x < 0 || end.y < 0 || end.x >= width || end.y >= height)
+                throw std::invalid_argument("input.pointer trajectory must stay inside the framebuffer");
+        }
+        // Validate the complete path before replacing any queued input.
+        mPendingPointer = glm::vec2(x,y);
+        mPointerStep = step;
+        mPointerStepsRemaining = steps;
+        mPendingRightHeld = params["rightHeld"].get<bool>();
+        return Json{{"queuedForSimulation",true},{"x",x},{"y",y},{"rightHeld",params["rightHeld"]},
+            {"steps",steps},{"stepX",step.x},{"stepY",step.y}};
+    }
+
+    void AgentInputController::PublishPendingSimulationInput()
+    {
+        if (mPendingKeys)
+        {
+            (void)Input::SetSyntheticKeys(*mPendingKeys);
+            mPendingKeys.reset();
+        }
+        if (mPendingPointer)
+        {
+            Input::SetSyntheticPointerPosition(*mPendingPointer);
+            Input::SetSyntheticRightMouseButton(mPendingRightHeld);
+            MouseMovedEvent moved(mPendingPointer->x, mPendingPointer->y);
+            Application::GetInstance().OnEvent(moved);
+            if (--mPointerStepsRemaining > 0)
+                *mPendingPointer += mPointerStep;
+            else
+                mPendingPointer.reset();
+        }
     }
 
     Json AgentInputController::BuildStatus() const

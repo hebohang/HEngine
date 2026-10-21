@@ -20,7 +20,13 @@ namespace HEngine
         void Initialize(nvrhi::IDevice* device, const EffekseerRenderInteropDesc& desc) override;
         void Shutdown() noexcept override;
 
+        void BeginHostFrame(uint32_t slot, uint64_t completed) override;
+        void NotifyHostFrameSubmitted(uint32_t slot, uint64_t submission) noexcept override;
+        void AbortHostFrame(uint32_t slot) noexcept override;
+        void AbortRecording() noexcept override;
+
         void BeginFrame(const EffekseerRenderFrameDesc& frame) override;
+        void BeginComputeFrame(nvrhi::ICommandList* commandList) override;
         void BeginRendering() override;
         void EndRendering() override;
         void EndFrame() override;

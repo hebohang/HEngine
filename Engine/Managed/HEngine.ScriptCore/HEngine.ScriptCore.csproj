@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>HEngine.ScriptCore</AssemblyName>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <WarningsAsErrors>$(WarningsAsErrors);CS1591</WarningsAsErrors>
+    <GeneratedApiDir Condition="'$(GeneratedApiDir)' == ''">$(MSBuildThisFileDirectory)obj/Api</GeneratedApiDir>
+    <CMakeExecutable Condition="'$(CMakeExecutable)' == ''">cmake</CMakeExecutable>
+  </PropertyGroup>
+  <ItemGroup><Compile Include="$(GeneratedApiDir)/ScriptApi.cs" /></ItemGroup>
+  <Target Name="GenerateEngineApi" BeforeTargets="BeforeCompile" Inputs="$(MSBuildThisFileDirectory)../../../Tools/Scripting/Api.schema.json;$(MSBuildThisFileDirectory)../../../Tools/Scripting/GenerateApi.cmake" Outputs="$(GeneratedApiDir)/ScriptApi.cs">
+    <Exec Command="&quot;$(CMakeExecutable)&quot; -DOUTPUT_DIR=&quot;$(GeneratedApiDir)&quot; -P &quot;$(MSBuildThisFileDirectory)../../../Tools/Scripting/GenerateApi.cmake&quot;" />
+  </Target>
+</Project>

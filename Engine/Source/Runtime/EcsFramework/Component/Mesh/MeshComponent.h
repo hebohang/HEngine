@@ -35,6 +35,20 @@ namespace HEngine
 		// Empty entries retain the material authored by the shared .hmesh.
 		std::vector<std::string> MaterialOverrides;
 
+        // Optional per-instance static lighting. UV1 addresses a texture atlas;
+        // coefficient rows decode the imported directional irradiance basis.
+        // An empty path keeps the ordinary dynamic/IBL lighting path.
+        std::string StaticLightmapPath;
+        glm::vec2 StaticLightmapUvScale{ 1.0f };
+        glm::vec2 StaticLightmapUvBias{ 0.0f };
+        glm::vec4 StaticLightmapScale0{ 1.0f };
+        glm::vec4 StaticLightmapAdd0{ 0.0f };
+        glm::vec4 StaticLightmapScale1{ 1.0f };
+        glm::vec4 StaticLightmapAdd1{ 0.0f };
+        float StaticLightmapBlend = 1.0f;
+        // 0: imported UE directional atlas; 1: native linear E/pi RGB lightmap.
+        int StaticLightmapEncoding = 0;
+
 		void ApplyMaterialOverrides();
 
 		// Runtime-only presentation override. This is intentionally excluded from

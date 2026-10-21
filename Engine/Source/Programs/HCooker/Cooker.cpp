@@ -3,12 +3,21 @@
 #include "Runtime/Graphics/Material/MaterialShaderManifest.h"
 #include "Runtime/Resource/RuntimeResourceCatalog/RuntimeResourceCatalog.h"
 #include "Runtime/Resource/RuntimeResourceCatalog/RuntimeResourceWarmupSchema.h"
+#include "Runtime/Scripting/ScriptFieldsJson.h"
 #include "Runtime/Utils/JsonUtils/CookedJsonFormat.h"
 #include "Runtime/Utils/PathUtils/PathUtils.h"
+#if HE_ENABLE_PHYSICS_3D
+#include "Runtime/Platform/PhysicsMeshCooker.h"
+#include "Runtime/Platform/PhysicsCollisionFormat.h"
+#endif
 
 #include "Effekseer/Effekseer/Material/Effekseer.CompiledMaterial.h"
+#if HE_RENDER_DX12
 #include "EffekseerMaterialCompiler/DirectX12/EffekseerMaterialCompilerDX12.h"
+#endif
+#if HE_RENDER_VULKAN
 #include "EffekseerRendererVulkan/EffekseerMaterialCompilerVulkan.h"
+#endif
 #include <nlohmann/json.hpp>
 #include <zip.h>
 
@@ -44,6 +53,12 @@ namespace HEngine::Cooker
 	namespace
 	{
 		using Json = nlohmann::json;
+
+		std::string PathToUtf8(const std::filesystem::path& path)
+		{
+			const auto value = path.generic_u8string();
+			return std::string(value.begin(), value.end());
+		}
 
 		constexpr std::uint64_t FnvOffsetBasis = 14695981039346656037ull;
 		constexpr std::uint64_t FnvPrime = 1099511628211ull;
@@ -234,7 +249,7 @@ namespace HEngine::Cooker
 			if (value.size() >= 3 && std::isalpha(static_cast<unsigned char>(value[0])) &&
 				value[1] == ':' && (value[2] == '/' || value[2] == '\\'))
 				return true;
-			return std::filesystem::path(value).is_absolute();
+			return std::filesystem::u8path(value).is_absolute();
 		}
 
 		std::string NormalizeLogicalPath(
@@ -345,7 +360,8 @@ namespace HEngine::Cooker
 		std::optional<std::string> NormalizeDependencyCandidate(std::string value, const std::string& context)
 		{
 			std::replace(value.begin(), value.end(), '\\', '/');
-			const std::filesystem::path path = std::filesystem::path(value).lexically_normal();
+			// JSON strings and logical resource paths are UTF-8, independent of the host code page.
+			const std::filesystem::path path = std::filesystem::u8path(value).lexically_normal();
 			if (path.is_absolute() || path.has_root_name())
 				Fail(context + ": absolute paths are forbidden: " + value);
 			for (const auto& component : path)
@@ -353,7 +369,8 @@ namespace HEngine::Cooker
 				if (component == "..")
 					return std::nullopt;
 			}
-			const std::string normalized = path.generic_string();
+			const auto normalizedUtf8 = path.generic_u8string();
+			const std::string normalized(normalizedUtf8.begin(), normalizedUtf8.end());
 			if (normalized.empty() || normalized == ".")
 				return std::nullopt;
 			return NormalizeLogicalPath(normalized, context, false);
@@ -392,7 +409,7 @@ namespace HEngine::Cooker
 		{
 			std::ifstream stream(path, std::ios::binary);
 			if (!stream)
-				Fail("Cannot open JSON file: " + path.generic_string());
+				Fail("Cannot open JSON file: " + PathToUtf8(path));
 			try
 			{
 				Json json;
@@ -401,7 +418,7 @@ namespace HEngine::Cooker
 			}
 			catch (const std::exception& exception)
 			{
-				Fail("Invalid JSON file '" + path.generic_string() + "': " + exception.what());
+				Fail("Invalid JSON file '" + PathToUtf8(path) + "': " + exception.what());
 			}
 		}
 
@@ -605,7 +622,7 @@ namespace HEngine::Cooker
 
 				const auto& entry = *iterator;
 				const std::filesystem::path relativePath = entry.path().lexically_relative(projectRoot);
-				const std::string logicalPath = relativePath.generic_string();
+				const std::string logicalPath = PathToUtf8(relativePath);
 				if (entry.is_symlink(error))
 				{
 					if (entry.is_directory(error))
@@ -774,8 +791,9 @@ namespace HEngine::Cooker
 					return found->second.LogicalPath;
 			}
 
-			const std::filesystem::path referencePath(normalized);
-			const std::string extension = ToLowerAscii(referencePath.extension().string());
+			const std::filesystem::path referencePath = std::filesystem::u8path(normalized);
+			const auto extensionUtf8 = referencePath.extension().u8string();
+			const std::string extension = ToLowerAscii(std::string(extensionUtf8.begin(), extensionUtf8.end()));
 			const bool bLooksLikeKnownFile = !referencePath.stem().empty() && index.KnownExtensions.contains(extension);
 			if (bRootedReference || bLooksLikeKnownFile)
 				Fail(ownerPath + ": referenced file does not exist or is excluded: " + rawReference);
@@ -1231,6 +1249,69 @@ namespace HEngine::Cooker
 			}
 		}
 
+		void ValidateSceneScripts(const Json& value, const CookOptions& options,
+			const std::string& owner, const std::string& location = {},
+			const Json* catalog = nullptr, const ProjectIndex* index = nullptr, DependencyMap* dependencies = nullptr)
+		{
+			if (!value.is_structured()) return;
+			for (const auto& [key, child] : value.items())
+			{
+				const auto path = location + "/" + key;
+				if (key == "ScriptComponent")
+				{
+					const auto backend = child.value("Backend", std::string{});
+					const auto type = child.value("Type", std::string{});
+					const bool available = (backend == "he.script.csharp" && options.CSharpPluginEnabled) ||
+						(backend == "he.script.python" && options.PythonPluginEnabled);
+					if (!available || type.empty())
+						Fail("Script export rejected: missing/disabled backend or empty type; scene=" + owner +
+							"; entity/component=" + path + "; backend=" + backend + "; script=" + type);
+					if (backend == "he.script.csharp")
+					{
+						const auto context = "scene=" + owner + "; entity/component=" + path + "; script=" + type;
+						if (!catalog || !catalog->contains("types")) Fail("Missing generated C# registry; " + context);
+						const auto& types = catalog->at("types");
+						const auto entry = std::find_if(types.begin(), types.end(), [&](const Json& item) { return item.value("id", std::string{}) == type; });
+						if (entry == types.end()) Fail("Unregistered C# script type; " + context);
+						try
+						{
+							const auto savedJson = child.value("Fields", std::string{});
+							const auto saved = savedJson.empty() ? ScriptFields{} : DecodeScriptFields(savedJson);
+							for (const auto& field : entry->at("fields"))
+							{
+								const auto id = field.at("id").get<std::string>();
+								const auto defaults = DecodeScriptFields(Json{{"schema", 2}, {"fields", {{id, field.at("defaultValue")}}}}.dump());
+								auto restored = saved.find(id);
+								if (restored == saved.end())
+									for (const auto& formerId : field.at("formerIds"))
+									{
+										restored = saved.find(formerId.get<std::string>());
+										if (restored != saved.end()) break;
+									}
+								// Missing/new and unknown/removed fields remain recoverable.
+								if (restored == saved.end()) continue;
+								const auto& expected = defaults.at(id);
+								if (restored->second.index() != expected.index() ||
+									(std::holds_alternative<ScriptEnum>(expected) &&
+									 std::get<ScriptEnum>(restored->second).Type != std::get<ScriptEnum>(expected).Type) ||
+									(std::holds_alternative<ScriptAggregate>(expected) &&
+									 (std::get<ScriptAggregate>(restored->second).Kind != std::get<ScriptAggregate>(expected).Kind ||
+									  std::get<ScriptAggregate>(restored->second).Type != std::get<ScriptAggregate>(expected).Type)))
+									Fail("Incompatible saved script field: " + restored->first + " (current=" + id + ")");
+							}
+						}
+						catch (const std::exception& error) { Fail(std::string(error.what()) + "; " + context); }
+						if (index && dependencies)
+							for (const auto& resource : entry->at("dependencies"))
+								ResolveAndAddStrictDependency(resource.get<std::string>(), owner, *index, *dependencies,
+									DependencyKind::HardRuntime, DependencySource::Structured, "ScriptRegistry", type,
+									path + "/Dependencies", "generated script dependency", StrictReferenceOptions{}, nullptr);
+					}
+				}
+				ValidateSceneScripts(child, options, owner, path, catalog, index, dependencies);
+			}
+		}
+
 		void VisitSceneStructuredDependencies(
 			const Json& value,
 			const std::string& ownerPath,
@@ -1255,6 +1336,11 @@ namespace HEngine::Cooker
 			for (const auto& [key, child] : value.items())
 			{
 				const std::string childLocation = location + "/" + key;
+				if (key == "Rigidbody3DComponent")
+				{
+					AddStructuredField(child, "CollisionAssetPath", ownerPath, index, dependencies, DependencyKind::HardRuntime,
+						diagnostics, "SceneComponent", "Rigidbody3DComponent", childLocation + "/CollisionAssetPath");
+				}
 				if (key == "MeshComponent")
 				{
 					AddStructuredField(child, "Path", ownerPath, index, dependencies, DependencyKind::HardRuntime,
@@ -1281,12 +1367,53 @@ namespace HEngine::Cooker
 					AddStructuredField(child, "Path", ownerPath, index, dependencies, DependencyKind::HardRuntime,
 						diagnostics, "SceneComponent", "PythonScriptComponent", childLocation + "/Path");
 				}
+				else if (key == "ScriptComponent")
+				{
+					try
+					{
+						const auto fields = DecodeScriptFields(child.value("Fields", std::string{}));
+						for (const auto& [fieldId, fieldValue] : fields)
+							for (const auto& resource : ScriptReferenceIds(fieldValue, true))
+								AddStructuredField(Json{{"value", resource}}, "value", ownerPath, index,
+									dependencies, DependencyKind::HardRuntime, diagnostics, "SceneComponent",
+									"ScriptComponent", childLocation + "/Fields/" + fieldId);
+					}
+					catch (const std::exception& error)
+					{
+						Fail("Script fields export rejected: scene=" + ownerPath + "; entity/component=" +
+							childLocation + "; " + error.what());
+					}
+				}
 				else if (key == "AnimatorComponent")
 				{
 					AddStructuredField(child, "animResPath", ownerPath, index, dependencies, DependencyKind::SoftRuntime,
 						diagnostics, "SceneComponent", "AnimatorComponent", childLocation + "/animResPath");
 					AddStructuredField(child, "controllerPath", ownerPath, index, dependencies, DependencyKind::SoftRuntime,
 						diagnostics, "SceneComponent", "AnimatorComponent", childLocation + "/controllerPath");
+					AddStructuredField(child, "FacialPerformancePath", ownerPath, index, dependencies, DependencyKind::SoftRuntime,
+						diagnostics, "SceneComponent", "AnimatorComponent", childLocation + "/FacialPerformancePath");
+				}
+				else if (key == "SequenceComponent")
+				{
+					if (child.contains("Tracks") && child["Tracks"].is_array())
+					for (size_t trackIndex = 0; trackIndex < child["Tracks"].size(); ++trackIndex)
+					{
+						const Json& track = child["Tracks"][trackIndex];
+						if (track.is_object() && track.value("Kind", std::string{}) == "audio")
+							AddStructuredField(track, "Name", ownerPath, index, dependencies, DependencyKind::HardRuntime,
+								diagnostics, "SceneComponent", "SequenceComponent", childLocation + "/Tracks/" + std::to_string(trackIndex) + "/Name");
+					}
+					if (child.contains("PrefetchTextures") && child["PrefetchTextures"].is_array())
+					for (size_t textureIndex = 0; textureIndex < child["PrefetchTextures"].size(); ++textureIndex)
+					{
+						const Json& texture = child["PrefetchTextures"][textureIndex];
+						if (!texture.is_string())
+							Fail("Sequence prefetch texture must be a path string: " + childLocation);
+						AddStructuredField(Json{{"value", texture}}, "value", ownerPath, index,
+							dependencies, DependencyKind::HardRuntime, diagnostics,
+							"SceneComponent", "SequenceComponent",
+							childLocation + "/PrefetchTextures/" + std::to_string(textureIndex));
+					}
 				}
 				else if (key == "SoundComponent")
 				{
@@ -1390,6 +1517,98 @@ namespace HEngine::Cooker
 			}
 		}
 
+		void CollectFeatureAssetDependencies(const Json& value, const std::string& ownerPath,
+			const ProjectIndex& index, DependencyMap& dependencies,
+			DependencyDiagnostics* diagnostics, const std::string& location)
+		{
+			if (value.is_object())
+			{
+				for (const char* field : { "Dependencies", "dependencies" })
+					AddStructuredStringArrayField(value, field, ownerPath, index, dependencies,
+						DependencyKind::HardRuntime, diagnostics, "PipelineFeature", "hengine.pipeline-profile",
+						location + "/" + field);
+				for (const auto& [key, child] : value.items())
+					if (key != "Dependencies" && key != "dependencies")
+						CollectFeatureAssetDependencies(child, ownerPath, index, dependencies, diagnostics, location + "/" + key);
+			}
+			else if (value.is_array())
+				for (size_t i = 0; i < value.size(); ++i)
+					CollectFeatureAssetDependencies(value[i], ownerPath, index, dependencies, diagnostics,
+						location + "/" + std::to_string(i));
+		}
+
+		void CollectPipelineSettingsDependencies(const Json& settings, const std::string& ownerPath,
+			const ProjectIndex& index, DependencyMap& dependencies, DependencyDiagnostics* diagnostics)
+		{
+			if (!settings.is_object()) return;
+			auto collectProfile = [&](const Json& value)
+			{
+				if (!value.is_string()) Fail(ownerPath + ": Pipeline Profile must be a name string");
+				const auto name = value.get<std::string>();
+				if (name.empty() || name.size() > 96 || name == "." || name == ".." ||
+					name.find_first_of("/\\:*?\"<>|") != std::string::npos || name.back() == '.' || name.back() == ' ' ||
+					std::any_of(name.begin(), name.end(), [](unsigned char c) { return c < 32; }))
+					Fail(ownerPath + ": invalid Pipeline Profile name");
+				const auto path = "Assets/Rendering/PipelineProfiles/" + name + ".hepipeline";
+				if (!index.Files.contains(FoldPath(path)) &&
+					(name == "Default" || name == "Low Cost" || name == "High Quality")) return;
+				ResolveAndAddStrictDependency(path, ownerPath, index, dependencies,
+					DependencyKind::HardRuntime, DependencySource::Structured, "PipelineProfile", "hengine.render-settings",
+					"/Rendering/Pipeline/Profile", "selected pipeline profile", {}, diagnostics);
+			};
+			if (settings.contains("Rendering.Pipeline.Profile")) collectProfile(settings["Rendering.Pipeline.Profile"]);
+			if (settings.contains("Rendering.Pipeline.Features"))
+				CollectFeatureAssetDependencies(settings["Rendering.Pipeline.Features"], ownerPath, index, dependencies,
+					diagnostics, "/Rendering.Pipeline.Features");
+			auto collectViews = [&](const Json& views)
+			{
+				if (!views.is_object()) Fail(ownerPath + ": view overrides must be an object");
+				for (const auto& [view, patch] : views.items())
+					CollectPipelineSettingsDependencies(patch, ownerPath, index, dependencies, diagnostics);
+			};
+			if (settings.contains("Rendering.Views.Overrides")) collectViews(settings["Rendering.Views.Overrides"]);
+			if (settings.contains("Rendering") && settings["Rendering"].is_object() &&
+				settings["Rendering"].contains("Views") && settings["Rendering"]["Views"].contains("Overrides"))
+				collectViews(settings["Rendering"]["Views"]["Overrides"]);
+			if (settings.contains("Rendering") && settings["Rendering"].is_object() &&
+				settings["Rendering"].contains("Pipeline"))
+			{
+				const auto& pipeline = settings["Rendering"]["Pipeline"];
+				if (pipeline.contains("Profile")) collectProfile(pipeline["Profile"]);
+				if (pipeline.contains("Features"))
+					CollectFeatureAssetDependencies(pipeline["Features"], ownerPath, index, dependencies,
+						diagnostics, "/Rendering/Pipeline/Features");
+			}
+		}
+
+		std::string PipelineAliasTargetPath(const Json& document, const std::string& ownerPath)
+		{
+			if (!document["AliasTarget"].is_string()) Fail(ownerPath + ": Profile AliasTarget must be a name string");
+			const auto name = document["AliasTarget"].get<std::string>();
+			if (name.empty() || name.size() > 96 || name == "." || name == ".." ||
+				name.find_first_of("/\\:*?\"<>|") != std::string::npos || name.back() == '.' || name.back() == ' ' ||
+				std::any_of(name.begin(), name.end(), [](unsigned char c) { return c < 32; }))
+				Fail(ownerPath + ": invalid Profile AliasTarget name");
+			return (std::filesystem::path(ownerPath).parent_path() / (name + ".hepipeline")).generic_string();
+		}
+
+		void ValidatePipelineAliasChain(const Json& document, const std::string& ownerPath, const ProjectIndex& index)
+		{
+			Json current = document;
+			std::string path = ownerPath;
+			std::set<std::string> visited;
+			for (size_t depth = 0; depth < 64; ++depth)
+			{
+				if (!visited.insert(FoldPath(path)).second) Fail(ownerPath + ": Pipeline Profile alias cycle");
+				if (!current.is_object() || current.value("Schema", "") != "hengine.pipeline-profile")
+					Fail(path + ": invalid aliased Pipeline Profile schema");
+				if (!current.contains("AliasTarget")) return;
+				path = PipelineAliasTargetPath(current, path);
+				current = ReadTextJson(RequireIndexedFile(index, path, "Pipeline Profile alias").PhysicalPath);
+			}
+			Fail(ownerPath + ": Pipeline Profile alias chain exceeds 64 assets");
+		}
+
 		void CollectStructuredJsonDependencies(
 			const Json& json,
 			const std::string& extension,
@@ -1398,6 +1617,29 @@ namespace HEngine::Cooker
 			DependencyMap& dependencies,
 			DependencyDiagnostics* diagnostics = nullptr)
 		{
+			if (extension == ".hepipeline")
+			{
+				if (!json.is_object() || json.value("Schema", "") != "hengine.pipeline-profile")
+					Fail(ownerPath + ": invalid Pipeline Profile schema");
+				const int version = json.value("SchemaVersion", 0);
+				if (version < 0 || version > 1) Fail(ownerPath + ": unsupported Pipeline Profile schema version");
+				if (json.contains("AliasTarget"))
+				{
+					ValidatePipelineAliasChain(json, ownerPath, index);
+					const auto target = PipelineAliasTargetPath(json, ownerPath);
+					ResolveAndAddStrictDependency(target, ownerPath, index, dependencies,
+						DependencyKind::HardRuntime, DependencySource::Structured, "PipelineProfileAlias", "hengine.pipeline-profile",
+						"/AliasTarget", "renamed pipeline profile", {}, diagnostics);
+					return; // Alias targets own the effective settings; retained legacy values are recovery data.
+				}
+				const char* field = version == 0 ? "Values" : "Settings";
+				if (!json.contains(field) || !json[field].is_object()) Fail(ownerPath + ": Profile Settings must be an object");
+				CollectPipelineSettingsDependencies(json[field], ownerPath, index, dependencies, diagnostics);
+				return;
+			}
+			if (extension == ".json" && (FoldPath(ownerPath) == FoldPath("Config/DefaultEngine.json") ||
+				FoldPath(ownerPath) == FoldPath("Config/BaseEngine.json")))
+				CollectPipelineSettingsDependencies(json, ownerPath, index, dependencies, diagnostics);
 			if (extension == ".hmesh")
 			{
 				if (json.contains("bufferVec") && json["bufferVec"].is_array())
@@ -1834,10 +2076,16 @@ namespace HEngine::Cooker
 				std::replace(value.begin(), value.end(), '/', '\\');
 				narrowVariants.insert(value);
 			};
-			appendNarrowVariants(root.string());
-			appendNarrowVariants(root.generic_string());
-			appendNarrowVariants(root.lexically_normal().string());
-			appendNarrowVariants(root.lexically_normal().generic_string());
+			try
+			{
+				appendNarrowVariants(root.string());
+				appendNarrowVariants(root.lexically_normal().string());
+			}
+			catch (const std::system_error&)
+			{
+				// A legacy Windows code page may not represent this root. Its UTF-8
+				// and native UTF-16 variants below remain mandatory leak checks.
+			}
 			const auto appendUtf8Variants = [&](const std::u8string& value)
 			{
 				appendNarrowVariants(std::string(
@@ -1893,7 +2141,7 @@ namespace HEngine::Cooker
 				if (ContainsRootLeak(data, forbiddenRoot))
 				{
 					Fail(logicalPath + ": forbidden-root path leakage is forbidden in cooked payloads: " +
-						forbiddenRoot.generic_string());
+						PathToUtf8(forbiddenRoot));
 				}
 			}
 		}
@@ -2397,12 +2645,13 @@ namespace HEngine::Cooker
 			if (!material.Load(source.Data.data(), static_cast<int32_t>(source.Data.size())))
 				Fail(ownerPath + ": cannot parse Effekseer material: " + source.LogicalPath);
 
+			Effekseer::CompiledMaterial compiled;
+#if HE_RENDER_DX12
 			Effekseer::MaterialCompilerDX12 compiler;
 			auto binary = Effekseer::CreateUniqueReference(compiler.Compile(&material));
 			if (!binary)
 				Fail(ownerPath + ": cannot compile Effekseer DX12 material: " + source.LogicalPath);
 
-			Effekseer::CompiledMaterial compiled;
 			AddEfkCompiledMaterialPlatform(
 				compiled,
 				*binary,
@@ -2410,6 +2659,8 @@ namespace HEngine::Cooker
 				"DX12",
 				ownerPath);
 
+#endif
+#if HE_RENDER_VULKAN
 			Effekseer::MaterialCompilerVulkan vulkanCompiler;
 			auto vulkanBinary = Effekseer::CreateUniqueReference(vulkanCompiler.Compile(&material));
 			if (!vulkanBinary)
@@ -2421,6 +2672,7 @@ namespace HEngine::Cooker
 				"Vulkan",
 				ownerPath);
 
+#endif
 			std::vector<std::uint8_t> originalData = source.Data;
 			std::vector<std::uint8_t> compiledData;
 			compiled.Save(compiledData, material.GetGUID(), originalData);
@@ -2428,8 +2680,8 @@ namespace HEngine::Cooker
 			Effekseer::CompiledMaterial verification;
 			if (compiledData.size() > static_cast<std::size_t>(std::numeric_limits<int32_t>::max()) ||
 				!verification.Load(compiledData.data(), static_cast<int32_t>(compiledData.size())) ||
-				!verification.GetHasValue(Effekseer::CompiledMaterialPlatformType::DirectX12) ||
-				!verification.GetHasValue(Effekseer::CompiledMaterialPlatformType::Vulkan))
+				(HE_RENDER_DX12 && !verification.GetHasValue(Effekseer::CompiledMaterialPlatformType::DirectX12)) ||
+				(HE_RENDER_VULKAN && !verification.GetHasValue(Effekseer::CompiledMaterialPlatformType::Vulkan)))
 			{
 				Fail(ownerPath + ": generated Effekseer DX12/Vulkan material failed verification: " + source.LogicalPath);
 			}
@@ -3019,11 +3271,13 @@ namespace HEngine::Cooker
 
 		std::string ClassifyResourceType(const std::string& extension)
 		{
+			if (extension == ".hcollision") return "Collision";
 			if (extension == ".he") return "Scene";
 			if (extension == ".hprefab") return "Prefab";
 			if (extension == ".hmesh") return "Mesh";
 			if (extension == ".hmat") return "Material";
 			if (extension == ".hskel") return "Skeleton";
+			if (extension == ".hepipeline") return "PipelineProfile";
 			if (extension == ".hanim") return "AnimationClip";
 			if (extension == ".hanimctrl") return "AnimationController";
 			if (extension == ".hui") return "UiDocument";
@@ -3139,7 +3393,7 @@ namespace HEngine::Cooker
 			const std::string& configLogicalPath,
 			const std::filesystem::path& projectRoot,
 			const std::vector<std::filesystem::path>& forbiddenRoots,
-			std::string witness = {})
+			std::string witness = {}, DependencyMap dependencies = {})
 		{
 			CookedFile result;
 			result.LogicalPath = source.LogicalPath;
@@ -3152,6 +3406,20 @@ namespace HEngine::Cooker
 			const std::string extension = ToLowerAscii(source.PhysicalPath.extension().string());
 			result.Type = ClassifyResourceType(extension);
 			const bool bCookedJson = config.CookedJsonExtensions.contains(extension);
+			if (extension == ".hcollision")
+			{
+#if HE_ENABLE_PHYSICS_3D
+				try
+				{
+					const auto cooked = CookTriangleCollisionForTarget(sourceData);
+					result.Data.assign(cooked.begin(), cooked.end());
+					result.Type = "Collision";
+				}
+				catch (const std::exception& error) { Fail(source.LogicalPath + ": " + error.what()); }
+#else
+				Fail(source.LogicalPath + ": collision cooking requires HE_ENABLE_PHYSICS_3D.");
+#endif
+			}
 
 			if (extension == ".efkpkg")
 				result.Data = CookEfkPackage(
@@ -3161,8 +3429,13 @@ namespace HEngine::Cooker
 					forbiddenRoots,
 					config.CompressionLevel);
 
-			const bool bJsonFile = extension == ".json" || config.CookedJsonExtensions.contains(extension);
-			DependencyMap dependencies;
+			// Dependency discovery is required even when a project keeps resources
+			// as plain JSON instead of opting into the MessagePack cook format.
+			static const std::set<std::string> EngineJsonExtensions = {
+				".json", ".hepipeline", ".he", ".hprefab", ".hmesh", ".hmat",
+				".htex", ".hanim", ".hskel", ".hanimctrl", ".hui", ".hbt"
+			};
+			const bool bJsonFile = EngineJsonExtensions.contains(extension) || bCookedJson;
 			DependencyDiagnostics diagnostics;
 			diagnostics.Witness = std::move(witness);
 			std::optional<Json> resourceJson;
@@ -3199,7 +3472,7 @@ namespace HEngine::Cooker
 					resourceJson->value("SchemaVersion", 1) >= 2;
 				const bool bMaterialManifest = extension == ".json" &&
 					FoldPath(source.LogicalPath).ends_with(".material.json");
-				if (!bTypedMaterial && !bMaterialManifest && !bDynamicAssetSet)
+				if (!bTypedMaterial && !bMaterialManifest && !bDynamicAssetSet && extension != ".hepipeline")
 				{
 					std::vector<std::string> references;
 					if (source.LogicalPath == configLogicalPath && resourceJson->contains("Game"))
@@ -3270,6 +3543,7 @@ namespace HEngine::Cooker
 			result.UnresolvedCandidates = std::move(diagnostics.UnresolvedCandidates);
 			// Payload encoding version only; resource schema versions remain inside each payload.
 			result.CookFormatVersion = result.bCookedJson || extension == ".efkpkg" ? 1u : 0u;
+			if (extension == ".hcollision") result.CookFormatVersion = 1u;
 			result.CpuBytes = static_cast<std::uint64_t>(result.Data.size());
 			if (extension == ".hmesh" && resourceJson)
 				result.GpuBytes = EstimateMeshGpuBytes(*resourceJson);
@@ -3281,21 +3555,22 @@ namespace HEngine::Cooker
 
 		void WriteJsonFile(const std::filesystem::path& path, const Json& json)
 		{
-			const std::filesystem::path temporaryPath = path.string() + ".tmp";
+			std::filesystem::path temporaryPath = path;
+			temporaryPath += ".tmp";
 			{
 				std::ofstream stream(temporaryPath, std::ios::binary | std::ios::trunc);
 				if (!stream)
-					Fail("Cannot write JSON output: " + temporaryPath.generic_string());
+					Fail("Cannot write JSON output: " + PathToUtf8(temporaryPath));
 				stream << json.dump(2) << '\n';
 				if (!stream)
-					Fail("Cannot finish JSON output: " + temporaryPath.generic_string());
+					Fail("Cannot finish JSON output: " + PathToUtf8(temporaryPath));
 			}
 			std::error_code error;
 			std::filesystem::remove(path, error);
 			error.clear();
 			std::filesystem::rename(temporaryPath, path, error);
 			if (error)
-				Fail("Cannot replace JSON output '" + path.generic_string() + "': " + error.message());
+				Fail("Cannot replace JSON output '" + PathToUtf8(path) + "': " + error.message());
 		}
 
 		void WritePak(
@@ -3303,13 +3578,17 @@ namespace HEngine::Cooker
 			std::map<std::string, CookedFile>& files,
 			int compressionLevel)
 		{
-			const std::filesystem::path temporaryPath = pakPath.string() + ".tmp";
+			auto temporaryPath = pakPath;
+			temporaryPath += ".tmp";
 			std::error_code error;
 			std::filesystem::remove(temporaryPath, error);
 
-			zip_t* archive = zip_open(temporaryPath.string().c_str(), compressionLevel, 'w');
+			// HEArchive accepts UTF-8, while filesystem::path::string() uses the
+			// Windows code page. Keep the native path until this library boundary.
+			const auto archivePath = temporaryPath.u8string();
+			zip_t* archive = zip_open(reinterpret_cast<const char*>(archivePath.c_str()), compressionLevel, 'w');
 			if (!archive)
-				Fail("Cannot create pak: " + temporaryPath.generic_string());
+				Fail("Cannot create pak: " + PathToUtf8(temporaryPath));
 
 			try
 			{
@@ -3338,7 +3617,7 @@ namespace HEngine::Cooker
 			error.clear();
 			std::filesystem::rename(temporaryPath, pakPath, error);
 			if (error)
-				Fail("Cannot replace pak '" + pakPath.generic_string() + "': " + error.message());
+				Fail("Cannot replace pak '" + PathToUtf8(pakPath) + "': " + error.message());
 		}
 
 		struct PakVerificationContext
@@ -3368,9 +3647,10 @@ namespace HEngine::Cooker
 			const std::filesystem::path& pakPath,
 			const std::map<std::string, CookedFile>& files)
 		{
-			zip_t* archive = zip_open(pakPath.string().c_str(), 0, 'r');
+			const auto archivePath = pakPath.u8string();
+			zip_t* archive = zip_open(reinterpret_cast<const char*>(archivePath.c_str()), 0, 'r');
 			if (!archive)
-				Fail("Cannot reopen generated pak: " + pakPath.generic_string());
+				Fail("Cannot reopen generated pak: " + PathToUtf8(pakPath));
 
 			try
 			{
@@ -3425,8 +3705,8 @@ namespace HEngine::Cooker
 					error);
 				return error ? std::filesystem::path{} : (parent / path.filename()).lexically_normal();
 			};
-			std::string firstPath = resolveOutputPath(first, firstError).generic_string();
-			std::string secondPath = resolveOutputPath(second, secondError).generic_string();
+			std::string firstPath = PathToUtf8(resolveOutputPath(first, firstError));
+			std::string secondPath = PathToUtf8(resolveOutputPath(second, secondError));
 			if (firstError || secondError)
 				Fail("Cannot resolve cooker output paths");
 #if defined(_WIN32)
@@ -4229,14 +4509,18 @@ namespace HEngine::Cooker
 
 	int Run(const CookOptions& options)
 	{
+		const Json cSharpCatalog = options.CSharpMetadataPath.empty() ? Json{} : ReadTextJson(options.CSharpMetadataPath);
+		if (!options.CSharpMetadataPath.empty() &&
+			(cSharpCatalog.value("version", 0) != 1 || !cSharpCatalog.contains("types") || !cSharpCatalog.at("types").is_array()))
+			Fail("Unsupported generated C# registry: " + PathToUtf8(options.CSharpMetadataPath));
 		std::error_code error;
 		const std::filesystem::path projectRoot = std::filesystem::weakly_canonical(options.ProjectRoot, error);
 		if (error || !std::filesystem::is_directory(projectRoot))
-			Fail("Invalid project root: " + options.ProjectRoot.generic_string());
+			Fail("Invalid project root: " + PathToUtf8(options.ProjectRoot));
 
 		const auto buildRootKey = [](const std::filesystem::path& root)
 		{
-			std::string key = root.generic_string();
+			std::string key = PathToUtf8(root);
 #if defined(_WIN32)
 			key = ToLowerAscii(std::move(key));
 #endif
@@ -4254,7 +4538,7 @@ namespace HEngine::Cooker
 			if (!rawForbiddenRoot.is_absolute())
 			{
 				Fail("--forbid-root must be an absolute directory: " +
-					rawForbiddenRoot.generic_string());
+					PathToUtf8(rawForbiddenRoot));
 			}
 
 			error.clear();
@@ -4262,7 +4546,7 @@ namespace HEngine::Cooker
 				std::filesystem::weakly_canonical(rawForbiddenRoot, error);
 			if (error || !std::filesystem::is_directory(canonicalForbiddenRoot))
 			{
-				Fail("Invalid --forbid-root directory: " + rawForbiddenRoot.generic_string());
+				Fail("Invalid --forbid-root directory: " + PathToUtf8(rawForbiddenRoot));
 			}
 
 			appendForbiddenRoot(rawForbiddenRoot);
@@ -4272,7 +4556,7 @@ namespace HEngine::Cooker
 		const std::filesystem::path outputDirectory = std::filesystem::weakly_canonical(
 			std::filesystem::absolute(options.OutputDirectory), error);
 		if (error)
-			Fail("Cannot resolve cooker output directory: " + options.OutputDirectory.generic_string());
+			Fail("Cannot resolve cooker output directory: " + PathToUtf8(options.OutputDirectory));
 		const std::filesystem::path pakPath = outputDirectory / "Game.pak";
 		const std::filesystem::path manifestPath = outputDirectory / "Game.manifest.json";
 		const std::filesystem::path reportPath = options.ReportPath.empty()
@@ -4296,9 +4580,9 @@ namespace HEngine::Cooker
 			: projectRoot / options.ConfigPath;
 		const std::filesystem::path configPath = std::filesystem::weakly_canonical(rawConfigPath, error);
 		if (error || !IsWithin(projectRoot, configPath) || !std::filesystem::is_regular_file(configPath))
-			Fail("Cook config must be a file inside the project root: " + options.ConfigPath.generic_string());
+			Fail("Cook config must be a file inside the project root: " + PathToUtf8(options.ConfigPath));
 		const std::string configLogicalPath = NormalizeLogicalPath(
-			configPath.lexically_relative(projectRoot).generic_string(), "Cook config");
+			PathToUtf8(configPath.lexically_relative(projectRoot)), "Cook config");
 		std::filesystem::create_directories(reportPath.parent_path(), error);
 		if (error)
 			Fail("Cannot create report output directory: " + error.message());
@@ -4324,11 +4608,18 @@ namespace HEngine::Cooker
 			if (error || !std::filesystem::is_regular_file(engineConfigPath))
 			{
 				Fail("Invalid engine cook config: " +
-					options.EngineConfigPath.generic_string());
+					PathToUtf8(options.EngineConfigPath));
 			}
 			MergeEngineCookConfig(config, ReadTextJson(engineConfigPath));
 		}
 		config.EntryScene = NormalizeLogicalPath(config.EntryScene, "Game.DefaultScene");
+		if (!options.PythonPluginEnabled)
+		{
+			std::erase_if(config.IncludeDirectories, [](const std::string& path)
+			{
+				return FoldPath(path) == "scripts/lib";
+			});
+		}
 
 		ProjectIndex projectIndex = BuildProjectIndex(projectRoot, config);
 		std::set<std::string> pending;
@@ -4450,7 +4741,18 @@ namespace HEngine::Cooker
 				Fail("Cooked content exceeds the packaged runtime file-count limit");
 
 			const IndexedFile& source = RequireIndexedFile(projectIndex, logicalPath, "Dependency closure");
+			const auto extension = FoldPath(std::filesystem::path(logicalPath).extension().string());
+			DependencyMap scriptDependencies;
+			if (extension == ".he" || extension == ".hprefab")
+				ValidateSceneScripts(ReadTextJson(source.PhysicalPath), options, logicalPath, {}, &cSharpCatalog, &projectIndex, &scriptDependencies);
 			const auto ownerWitness = discoveryWitnesses.find(logicalPath);
+			if (!options.PythonPluginEnabled &&
+				(std::filesystem::path(logicalPath).extension() == ".py" ||
+				 FoldPath(logicalPath).starts_with("scripts/lib/")))
+			{
+				Fail("Script export rejected: he.script.python is disabled; script=" + logicalPath +
+					"; reachable through " + (ownerWitness == discoveryWitnesses.end() ? logicalPath : ownerWitness->second.Text));
+			}
 			CookedFile cooked = CookFile(
 				source,
 				config,
@@ -4458,7 +4760,7 @@ namespace HEngine::Cooker
 				configLogicalPath,
 				projectRoot,
 				forbiddenRoots,
-				ownerWitness == discoveryWitnesses.end() ? std::string{} : ownerWitness->second.Text);
+				ownerWitness == discoveryWitnesses.end() ? std::string{} : ownerWitness->second.Text, std::move(scriptDependencies));
 			if (cooked.Data.size() > MaxContentSize - cookedContentSize)
 				Fail("Cooked content exceeds the packaged runtime total-size limit");
 			cookedContentSize += static_cast<std::uint64_t>(cooked.Data.size());
@@ -4553,9 +4855,14 @@ namespace HEngine::Cooker
 	int RunSelfTests()
 	{
 		const auto timestamp = std::chrono::steady_clock::now().time_since_epoch().count();
-		const std::filesystem::path testRoot = std::filesystem::temp_directory_path() /
-			("HEngine-HCooker-SelfTests-" + std::to_string(timestamp));
 		std::error_code error;
+		// Match RunCook's canonical project-root contract when TEMP uses an 8.3 alias.
+		const std::filesystem::path temporaryRoot = std::filesystem::canonical(
+			std::filesystem::temp_directory_path(), error);
+		if (error)
+			Fail("Cannot resolve HCooker self-test temporary directory: " + error.message());
+		const std::filesystem::path testRoot = temporaryRoot /
+			std::filesystem::u8path("HEngine-HCooker-SelfTests-\xE9\x9B\xAA\xF0\x9F\x8C\x9F Path-" + std::to_string(timestamp));
 		if (!std::filesystem::create_directories(testRoot, error) || error)
 			Fail("Cannot create HCooker self-test directory: " + error.message());
 
@@ -4572,16 +4879,16 @@ namespace HEngine::Cooker
 				Fail("Cannot create HCooker self-test fixture directory: " + directoryError.message());
 			std::ofstream stream(path, std::ios::binary | std::ios::trunc);
 			if (!stream)
-				Fail("Cannot create HCooker self-test fixture: " + path.generic_string());
+				Fail("Cannot create HCooker self-test fixture: " + PathToUtf8(path));
 			stream << text;
 			if (!stream)
-				Fail("Cannot finish HCooker self-test fixture: " + path.generic_string());
+				Fail("Cannot finish HCooker self-test fixture: " + PathToUtf8(path));
 		};
 		const auto writeProjectConfig = [&](const std::filesystem::path& projectRoot, std::string_view rootScript)
 		{
 			const Json config = {
 				{ "Game", {
-					{ "Name", "HCooker Python Import Contract" },
+					{ "Name", "小树保卫者 HCooker Python Import Contract" },
 					{ "DefaultScene", "Assets/Main.scene" }
 				} },
 				{ "Cook", {
@@ -4603,6 +4910,22 @@ namespace HEngine::Cooker
 
 		try
 		{
+			const std::string utf8Root = PathToUtf8(testRoot);
+			const std::vector<std::uint8_t> utf8RootBytes(utf8Root.begin(), utf8Root.end());
+			if (!ContainsRootLeak(utf8RootBytes, testRoot) ||
+				ContainsRootLeak(std::vector<std::uint8_t>{ 's', 'a', 'f', 'e' }, testRoot))
+				Fail("Unicode project-root UTF-8 leakage contract failed");
+#if defined(_WIN32)
+			const std::wstring nativeRoot = testRoot.native();
+			std::vector<std::uint8_t> wideRootBytes;
+			for (const wchar_t character : nativeRoot)
+			{
+				wideRootBytes.push_back(static_cast<std::uint8_t>(character & 0xff));
+				wideRootBytes.push_back(static_cast<std::uint8_t>(character >> 8));
+			}
+			if (!ContainsRootLeak(wideRootBytes, testRoot))
+				Fail("Unicode project-root UTF-16 leakage contract failed");
+#endif
 			const std::filesystem::path materialRoot = testRoot / "MaterialContract";
 			writeText(
 				materialRoot / "Shaders/Custom.hlsl",
@@ -4616,6 +4939,42 @@ namespace HEngine::Cooker
 			writeText(materialRoot / "Assets/Textures/real.png", "real texture\n");
 			writeText(materialRoot / "Assets/Textures/not-a-texture.png", "legacy texture\n");
 			writeText(materialRoot / "Assets/Meshes/Shared.hmesh", "{}\n");
+#if HE_ENABLE_PHYSICS_3D
+            const std::array<std::array<float, 3>, 6> collisionVertices = {{
+                {-1,0,-1}, {1,0,1}, {1,0,-1}, {-1,0,-1}, {-1,0,1}, {1,0,1}}};
+            const auto portableCollision = CookTriangleCollision(collisionVertices);
+            const auto asBytes = [](const std::string& value) {
+                return std::span(reinterpret_cast<const uint8_t*>(value.data()), value.size());
+            };
+            const auto targetCollision = CookTriangleCollisionForTarget(asBytes(portableCollision));
+            const auto portableDocument = PhysicsCollisionFormat::Parse(asBytes(portableCollision));
+            const auto targetDocument = PhysicsCollisionFormat::Parse(asBytes(targetCollision));
+            if (!portableDocument.bPortable || portableDocument.VertexCount != 6 || targetDocument.bPortable ||
+                targetDocument.Abi != portableDocument.Abi ||
+                CookTriangleCollisionForTarget(asBytes(targetCollision)) != targetCollision)
+                Fail("Collision portable-to-target and legacy exact-ABI contract failed.");
+            auto foreignPortable = portableCollision;
+            foreignPortable[8] ^= 1;
+            if (CookTriangleCollisionForTarget(asBytes(foreignPortable)) != targetCollision)
+                Fail("Foreign-ABI portable collision must recook deterministically for the target.");
+            const auto expectCollisionRejection = [&](std::string bad) {
+                bool rejected = false;
+                try { (void)CookTriangleCollisionForTarget(asBytes(bad)); }
+                catch (const std::exception&) { rejected = true; }
+                if (!rejected) Fail("Malformed/foreign legacy collision was accepted.");
+            };
+            auto foreignLegacy = targetCollision; foreignLegacy[8] ^= 1;
+            expectCollisionRejection(foreignLegacy);
+            expectCollisionRejection(portableCollision.substr(0, portableCollision.size() - 1));
+            auto invalidCount = portableCollision; invalidCount[16] = 5;
+            expectCollisionRejection(invalidCount);
+            auto nonFinite = portableCollision;
+            nonFinite[32] = 0; nonFinite[33] = 0; nonFinite[34] = char(0x80); nonFinite[35] = char(0x7f);
+            expectCollisionRejection(nonFinite);
+            writeText(materialRoot / "Assets/Collision/Room.hcollision", portableCollision);
+#else
+            writeText(materialRoot / "Assets/Collision/Room.hcollision", "native-collision-test\n");
+#endif
 			writeText(materialRoot / "Assets/Materials/Override.hmat", "{}\n");
 
 			MaterialShaderManifest expectedManifest;
@@ -4691,7 +5050,88 @@ namespace HEngine::Cooker
 				materialRoot / "Shaders/CACHES/Materials/Custom.hlsl.material.json",
 				materialManifest.dump(2));
 
+			const std::string profilePath = "Assets/Rendering/PipelineProfiles/Test Pipeline.hepipeline";
+			const Json pipelineProfile = {
+				{ "Schema", "hengine.pipeline-profile" }, { "SchemaVersion", 1 }, { "Name", "Test Pipeline" },
+				{ "Settings", {{ "Rendering.Pipeline.Features", Json::array({
+					{{ "Type", "uninstalled.plugin" }, { "Parameters", {
+						{ "Dependencies", Json::array({ "Assets/Textures/real.png" }) },
+						{ "OpaquePluginValue", 73 }, { "Label", "Assets/Textures/not-a-texture.png" }
+					}} }
+				}) }} }
+			};
+			writeText(materialRoot / profilePath, pipelineProfile.dump(2));
+			Json cycleProfileA = pipelineProfile;
+			Json cycleProfileB = pipelineProfile;
+			cycleProfileA["AliasTarget"] = "Cycle B";
+			cycleProfileB["AliasTarget"] = "Cycle A";
+			writeText(materialRoot / "Assets/Rendering/PipelineProfiles/Cycle A.hepipeline", cycleProfileA.dump());
+			writeText(materialRoot / "Assets/Rendering/PipelineProfiles/Cycle B.hepipeline", cycleProfileB.dump());
 			const ProjectIndex materialIndex = BuildProjectIndex(materialRoot, CookConfig{});
+			DependencyMap profileSettingsDependencies;
+			CollectStructuredJsonDependencies(
+				Json{{ "Rendering", {{ "Pipeline", {{ "Profile", "Test Pipeline" }} }} }},
+				".json", "Config/BaseEngine.json", materialIndex, profileSettingsDependencies);
+			if (!profileSettingsDependencies.contains(FoldPath(profilePath)) ||
+				profileSettingsDependencies.at(FoldPath(profilePath)).Kind != DependencyKind::HardRuntime)
+				Fail("Selected pipeline profile did not become a structured runtime dependency");
+			DependencyMap viewProfileDependencies;
+			CollectStructuredJsonDependencies(Json{{ "Rendering.Views.Overrides", {
+				{ "preview", {{ "Rendering.Pipeline.Profile", "Test Pipeline" }} } } }},
+				".json", "Config/BaseEngine.json", materialIndex, viewProfileDependencies);
+			if (!viewProfileDependencies.contains(FoldPath(profilePath))) Fail("Per-view profile dependency was omitted");
+			DependencyMap profileDependencies;
+			CollectStructuredJsonDependencies(pipelineProfile, ".hepipeline", profilePath, materialIndex, profileDependencies);
+			if (profileDependencies.size() != 1 || !profileDependencies.contains(FoldPath("Assets/Textures/real.png")))
+				Fail("Unknown plugin explicit asset dependencies were not retained");
+			Json legacyProfile = pipelineProfile;
+			legacyProfile["SchemaVersion"] = 0;
+			legacyProfile["Values"] = legacyProfile["Settings"];
+			legacyProfile.erase("Settings");
+			DependencyMap legacyProfileDependencies;
+			CollectStructuredJsonDependencies(legacyProfile, ".hepipeline", profilePath, materialIndex, legacyProfileDependencies);
+			if (legacyProfileDependencies.size() != profileDependencies.size())
+				Fail("Legacy pipeline profile lost asset dependencies");
+			bool rejectedMissingProfile = false;
+			try
+			{
+				CollectStructuredJsonDependencies(Json{{ "Rendering.Pipeline.Profile", "Missing Profile" }},
+					".json", "Config/BaseEngine.json", materialIndex, profileSettingsDependencies);
+			}
+			catch (const std::exception&) { rejectedMissingProfile = true; }
+			if (!rejectedMissingProfile) Fail("Missing selected pipeline profile was accepted by the cooker");
+			Json aliasProfile = pipelineProfile;
+			aliasProfile["AliasTarget"] = "Test Pipeline";
+			DependencyMap aliasDependencies;
+			CollectStructuredJsonDependencies(aliasProfile, ".hepipeline",
+				"Assets/Rendering/PipelineProfiles/Old Name.hepipeline", materialIndex, aliasDependencies);
+			if (aliasDependencies.size() != 1 || !aliasDependencies.contains(FoldPath(profilePath)))
+				Fail("Profile alias did not follow its renamed target exclusively");
+			bool rejectedAliasCycle = false;
+			try
+			{
+				ValidatePipelineAliasChain(cycleProfileA, "Assets/Rendering/PipelineProfiles/Cycle A.hepipeline", materialIndex);
+			}
+			catch (const std::exception& error) { rejectedAliasCycle = std::string(error.what()).find("alias cycle") != std::string::npos; }
+			if (!rejectedAliasCycle) Fail("Pipeline Profile alias cycle was not rejected");
+			for (const std::string target : { "../Escape", "Missing Alias", "Old Name" })
+			{
+				aliasProfile["AliasTarget"] = target;
+				bool rejectedAlias = false;
+				try
+				{
+					DependencyMap invalidAlias;
+					CollectStructuredJsonDependencies(aliasProfile, ".hepipeline",
+						"Assets/Rendering/PipelineProfiles/Old Name.hepipeline", materialIndex, invalidAlias);
+				}
+				catch (const std::exception&) { rejectedAlias = true; }
+				if (!rejectedAlias) Fail("Invalid, missing, or self-referencing profile alias was accepted");
+			}
+			const auto cookedProfile = CookFile(materialIndex.Files.at(FoldPath(profilePath)), CookConfig{},
+				materialIndex, "Config/BaseGame.json", materialRoot, {});
+			if (cookedProfile.Type != "PipelineProfile" || cookedProfile.Dependencies.size() != 1 ||
+				Json::parse(cookedProfile.Data.begin(), cookedProfile.Data.end()) != pipelineProfile)
+				Fail("Cooking a pipeline profile changed unknown plugin configuration or dependencies");
 			const std::optional<std::string> shaderRootInclude = ResolveReference(
 				"Math/Constants.hlsli",
 				"Shaders/Include/Common.hlsli",
@@ -4738,6 +5178,7 @@ namespace HEngine::Cooker
 
 			const Json materialOverrideScene = {
 				{ "entity", {
+					{ "Rigidbody3DComponent", {{"CollisionAssetPath", "Assets/Collision/Room.hcollision"}} },
 					{ "MeshComponent", {
 						{ "Path", "Assets/Meshes/Shared.hmesh" },
 						{ "meshResPath", "Assets/Meshes/Shared.hmesh" },
@@ -4754,10 +5195,20 @@ namespace HEngine::Cooker
 				materialIndex,
 				sceneDependencies);
 			if (!sceneDependencies.contains(FoldPath("Assets/Meshes/Shared.hmesh")) ||
-				!sceneDependencies.contains(FoldPath("Assets/Materials/Override.hmat")))
+				!sceneDependencies.contains(FoldPath("Assets/Materials/Override.hmat")) ||
+				!sceneDependencies.contains(FoldPath("Assets/Collision/Room.hcollision")))
 			{
 				Fail("Scene material override dependency collection is incorrect");
 			}
+#if HE_ENABLE_PHYSICS_3D
+            const auto cookedCollisionResource = CookFile(
+                materialIndex.Files.at(FoldPath("Assets/Collision/Room.hcollision")), CookConfig{},
+                materialIndex, "Config/BaseGame.json", materialRoot, {});
+            if (ClassifyResourceType(".hcollision") != "Collision" ||
+                cookedCollisionResource.Type != "Collision" || cookedCollisionResource.CookFormatVersion != 1 ||
+                PhysicsCollisionFormat::Parse(cookedCollisionResource.Data).bPortable)
+                Fail("Collision catalog type/target payload was lost during the real CookFile lifecycle.");
+#endif
 
 			const Json legacyMaterial = {
 				{ "ShaderPath", "Shaders/Custom.hlsl" },
@@ -4993,7 +5444,9 @@ namespace HEngine::Cooker
 			writeText(graphRoot / "Config/BaseEngine.json",
 				R"({"Schema":"hengine.render-settings","SchemaVersion":2})");
 			writeText(graphRoot / "Assets/Icon.png", "icon\n");
-			writeText(graphRoot / "Assets/Mesh.hmesh", "{}\n");
+			writeText(graphRoot / "Assets/Mesh.hmesh",
+				R"({"bufferVec":[{"uri":"Assets/Mesh.bin","byteLength":3}]})");
+			writeText(graphRoot / "Assets/Mesh.bin", "xyz");
 			writeText(graphRoot / "Assets/Skeleton.hskel", "{}\n");
 			writeText(graphRoot / "Assets/Background.png", "background\n");
 			writeText(graphRoot / "Assets/Explicit.png", "explicit\n");
@@ -5062,7 +5515,49 @@ namespace HEngine::Cooker
 			};
 			writeText(graphRoot / "Config/Game.json", graphConfig.dump(2));
 
+			writeText(graphRoot / "Assets/SequenceLine.wav", "sequence audio dependency fixture");
+			writeText(graphRoot / "Assets/SequenceShot.dds", "sequence texture dependency fixture");
+			writeText(graphRoot / "Assets/Expression.hface", "{\"Duration\":1,\"Curves\":[]}");
 			const ProjectIndex graphIndex = BuildProjectIndex(graphRoot, ParseCookConfig(graphConfig));
+			DependencyMap sequenceDependencies;
+			VisitSceneStructuredDependencies(Json{{"actor", {
+				{"AnimatorComponent", {{"FacialPerformancePath", "Assets/Expression.hface"}}},
+				{"SequenceComponent", {{"Tracks", Json::array({Json{{"Kind", "audio"}, {"Name", "Assets/SequenceLine.wav"}}})},
+					{"PrefetchTextures", Json::array({"Assets/SequenceShot.dds"})}}}
+			}}}, "Assets/Main.he", graphIndex, sequenceDependencies);
+			if (sequenceDependencies.size() != 3)
+				Fail("Sequence audio, texture prefetch or facial performance dependency was omitted from cooking");
+			const auto scriptScene = [](const std::string& resource) {
+				return Json{{"script-entity", {{"ScriptComponent", {
+					{"Backend", "he.script.csharp"}, {"Type", "sample.touch"}, {"Enabled", false},
+					{"Fields", EncodeScriptFields({{"texture", ScriptResourceReference{resource}}})}
+				}}}}};
+			};
+			DependencyMap scriptDependencies;
+			VisitSceneStructuredDependencies(scriptScene("Assets/Explicit.png"), "Assets/Main.he", graphIndex, scriptDependencies);
+			if (scriptDependencies.empty()) Fail("Script-only resource field was omitted from cooked dependencies");
+			for (const bool missingPlugin : {false, true})
+			{
+				bool rejected = false;
+				try
+				{
+					if (missingPlugin)
+					{
+						CookOptions disabled;
+						disabled.CSharpPluginEnabled = false;
+						ValidateSceneScripts(scriptScene("Assets/Explicit.png"), disabled, "Assets/Main.he");
+					}
+					else VisitSceneStructuredDependencies(scriptScene("Assets/MissingScriptTexture.png"),
+						"Assets/Main.he", graphIndex, scriptDependencies);
+				}
+				catch (const std::runtime_error& error)
+				{
+					const std::string message = error.what();
+					rejected = message.find("Assets/Main.he") != std::string::npos &&
+						message.find("script-entity") != std::string::npos;
+				}
+				if (!rejected) Fail("Script export did not reject a missing plugin/resource with scene and entity context");
+			}
 			bool bMissingStrictTargetRejected = false;
 			try
 			{
@@ -5115,6 +5610,9 @@ namespace HEngine::Cooker
 				return nullptr;
 			};
 			const Json* meshAnalysis = findReportFile("Assets/Mesh.hmesh");
+			const Json* rawMeshBuffer = findReportFile("Assets/Mesh.bin");
+			if (!rawMeshBuffer || rawMeshBuffer->at("RootWitness").at("Chain").size() < 3)
+				Fail("Uncompressed mesh JSON lost its transitive binary buffer dependency");
 			const Json* backgroundAnalysis = findReportFile("Assets/Background.png");
 			const Json* sharedAnalysis = findReportFile("Assets/Fallback/Shared.bin");
 			if (!meshAnalysis || !backgroundAnalysis || !sharedAnalysis ||

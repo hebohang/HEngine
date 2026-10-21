@@ -19,6 +19,8 @@
 #include <cmath>
 #include <exception>
 #include <filesystem>
+#include <limits>
+#include <stdexcept>
 #include <string>
 
 namespace HEngine
@@ -58,6 +60,15 @@ namespace HEngine
 				? property.Decl.Name.c_str()
 				: property.Decl.DisplayName.c_str();
 		}
+
+        void SyncEditedRenderProperty(Material& material, const MaterialRuntimeProperty& property)
+        {
+            // V2 render state is authoritative. Commit the exposed cutoff slider
+            // to that state before ApplyRuntimePropertyChanges mirrors it back.
+            // This changes coverage data, never the manifest-owned blend mode.
+            if (property.Decl.Name == "g_AlphaCutoff" && property.Decl.Type == MaterialPropertyType::Float)
+                material.mPbrMatRes.alphaCutoff = property.FloatValue;
+        }
 	}
 
 	MaterialPanel::MaterialPanel(EditorLayer* parent, std::string matPath)
@@ -510,11 +521,16 @@ namespace HEngine
 			switch (property.Decl.Type)
 			{
 			case MaterialPropertyType::Float:
+			{
+				bool bPropertyChanged = false;
 				if (property.Decl.bHasRange)
-					bChanged |= ImGui::SliderFloat(label, &property.FloatValue, property.Decl.RangeMin, property.Decl.RangeMax);
+					bPropertyChanged = ImGui::SliderFloat(label, &property.FloatValue, property.Decl.RangeMin, property.Decl.RangeMax);
 				else
-					bChanged |= ImGui::DragFloat(label, &property.FloatValue, 0.01f);
+					bPropertyChanged = ImGui::DragFloat(label, &property.FloatValue, 0.01f);
+				if (bPropertyChanged) SyncEditedRenderProperty(*mMaterial, property);
+				bChanged |= bPropertyChanged;
 				break;
+			}
 			case MaterialPropertyType::Float2:
 				if (property.Decl.bHasRange)
 					bChanged |= ImGui::SliderFloat2(label, glm::value_ptr(property.ColorValue), property.Decl.RangeMin, property.Decl.RangeMax);
@@ -528,7 +544,10 @@ namespace HEngine
 					bChanged |= ImGui::DragFloat3(label, glm::value_ptr(property.ColorValue), 0.01f);
 				break;
 			case MaterialPropertyType::Color:
-				bChanged |= ImGui::ColorEdit4(label, glm::value_ptr(property.ColorValue));
+				bChanged |= ImGui::ColorEdit4(label, glm::value_ptr(property.ColorValue),
+					property.Decl.Name == "g_EmissiveFactor"
+						? ImGuiColorEditFlags_HDR | ImGuiColorEditFlags_Float
+						: ImGuiColorEditFlags_None);
 				break;
 			case MaterialPropertyType::Bool:
 				bChanged |= ImGui::Checkbox(label, &property.BoolValue);
@@ -582,16 +601,116 @@ namespace HEngine
 		return bChanged;
 	}
 
+    Json MaterialPanel::AutomationMaterial(const Json& params)
+    {
+        if (!mAutomationLiveMaterial)
+            mAutomationLiveMaterial = MaterialResourceCache::GetInstance().Get(mMaterialPath);
+        const std::string action = params.at("action");
+        if (action == "set")
+        {
+            const Json& values = params.at("values");
+            if (!values.is_object() || values.empty() || values.size() > 32)
+                throw std::invalid_argument("Material values must contain 1..32 stable IDs");
+            auto lock = mMaterial->LockRuntimeStateForEdit();
+            auto candidate = mMaterial->GetExposedProperties();
+            for (const auto& [id, value] : values.items())
+            {
+                auto found = std::find_if(candidate.begin(), candidate.end(), [&](const auto& item) {
+                    return (item.Decl.StableId.empty() ? item.Decl.Name : item.Decl.StableId) == id;
+                });
+                if (found == candidate.end()) throw std::invalid_argument("Unknown material stable ID: " + id);
+                const auto number = [&](const Json& input) -> float {
+                    if (!input.is_number()) throw std::invalid_argument("Material numeric property requires a number: " + id);
+                    const double result = input.get<double>();
+                    if (!std::isfinite(result) || std::abs(result) > double(std::numeric_limits<float>::max()) ||
+                        (found->Decl.bHasRange && (result < found->Decl.RangeMin || result > found->Decl.RangeMax)))
+                        throw std::invalid_argument("Material value is outside declared range: " + id);
+                    return static_cast<float>(result);
+                };
+                switch (found->Decl.Type)
+                {
+                case MaterialPropertyType::Float: found->FloatValue = number(value); break;
+                case MaterialPropertyType::Int:
+                    if (!value.is_number_integer() || value.get<double>() < std::numeric_limits<int>::min() ||
+                        value.get<double>() > std::numeric_limits<int>::max())
+                        throw std::invalid_argument("Material integer property requires int32: " + id);
+                    (void)number(value); found->IntValue = value.get<int>(); break;
+                case MaterialPropertyType::Bool:
+                    if (!value.is_boolean()) throw std::invalid_argument("Material boolean property requires bool: " + id);
+                    found->BoolValue = value.get<bool>(); break;
+                case MaterialPropertyType::Color:
+                case MaterialPropertyType::Float2:
+                case MaterialPropertyType::Float3:
+                {
+                    const size_t count = found->Decl.Type == MaterialPropertyType::Color ? 4 :
+                        found->Decl.Type == MaterialPropertyType::Float2 ? 2 : 3;
+                    if (!value.is_array() || value.size() != count)
+                        throw std::invalid_argument("Material vector dimension mismatch: " + id);
+                    for (size_t index = 0; index < count; ++index) found->ColorValue[index] = number(value[index]);
+                    break;
+                }
+                default: throw std::invalid_argument("Material author channel supports scalar/vector properties only: " + id);
+                }
+            }
+            // Validate the entire candidate before touching the panel draft.
+            mMaterial->GetExposedProperties() = std::move(candidate);
+            for (const auto& property : mMaterial->GetExposedProperties())
+                if (values.contains(property.Decl.StableId.empty() ? property.Decl.Name : property.Decl.StableId))
+                    SyncEditedRenderProperty(*mMaterial, property);
+            mMaterial->ApplyRuntimePropertyChanges();
+            mPreviewScene.SetMaterial(mMaterial);
+            mDirty = true;
+        }
+        else if (action == "save") SaveDraft();
+        else if (action == "revert") RevertDraft();
+        else if (action != "open" && action != "state") throw std::invalid_argument("Unknown material panel action");
+        const auto snapshot = [](const Ref<Material>& material) {
+            auto lock = material->LockRuntimeStateForEdit();
+            Json result = Json::object();
+            for (const auto& item : material->GetExposedProperties())
+            {
+                const auto& id = item.Decl.StableId.empty() ? item.Decl.Name : item.Decl.StableId;
+                switch (item.Decl.Type)
+                {
+                case MaterialPropertyType::Float: result[id] = item.FloatValue; break;
+                case MaterialPropertyType::Int: result[id] = item.IntValue; break;
+                case MaterialPropertyType::Bool: result[id] = item.BoolValue; break;
+                case MaterialPropertyType::Color: result[id] = {item.ColorValue.x,item.ColorValue.y,item.ColorValue.z,item.ColorValue.w}; break;
+                case MaterialPropertyType::Float2: result[id] = {item.ColorValue.x,item.ColorValue.y}; break;
+                case MaterialPropertyType::Float3: result[id] = {item.ColorValue.x,item.ColorValue.y,item.ColorValue.z}; break;
+                default: break;
+                }
+            }
+            return result;
+        };
+        return {{"path",mMaterialPath},{"dirty",mDirty},{"revision",mMaterial->GetRuntimeRevision()},
+            {"values",snapshot(mMaterial)},{"cachedRevision",mAutomationLiveMaterial->GetRuntimeRevision()},
+            {"cachedValues",snapshot(mAutomationLiveMaterial)}};
+    }
+
+    void MaterialPanel::SaveDraft()
+    {
+        mMaterial->SaveToRes();
+        (void)MaterialResourceCache::GetInstance().Publish(mMaterialPath, mMaterial);
+        mParent->PreviewMaterialAsset(mMaterialPath, *mMaterial);
+        mDirty = false;
+    }
+
+    void MaterialPanel::RevertDraft()
+    {
+        mMaterial = CreateRef<Material>(mMaterialPath);
+        mPreviewScene.SetMaterial(mMaterial);
+        mDirty = false;
+        mCompileState = CompileState::Ready;
+        mCompileMessage = "Reverted to the material saved on disk.";
+        mPreviewRuntimeError.clear();
+    }
+
 	void MaterialPanel::SaveMaterial()
 	{
 		try
 		{
-			mMaterial->SaveToRes();
-			(void)MaterialResourceCache::GetInstance().Publish(
-				mMaterialPath,
-				mMaterial);
-			mParent->PreviewMaterialAsset(mMaterialPath, *mMaterial);
-			mDirty = false;
+			SaveDraft();
 			ImGui::InsertNotification({ ImGuiToastType_Success, 3000,
 				EditorLayer::GetText("Material saved successfully!") });
 		}
@@ -605,13 +724,7 @@ namespace HEngine
 	{
 		try
 		{
-			Ref<Material> reverted = CreateRef<Material>(mMaterialPath);
-			mMaterial = std::move(reverted);
-			mPreviewScene.SetMaterial(mMaterial);
-			mDirty = false;
-			mCompileState = CompileState::Ready;
-			mCompileMessage = "Reverted to the material saved on disk.";
-			mPreviewRuntimeError.clear();
+			RevertDraft();
 			ImGui::InsertNotification({ ImGuiToastType_Success, 3000,
 				EditorLayer::GetText("Material reverted successfully.") });
 		}

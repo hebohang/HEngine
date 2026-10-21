@@ -381,6 +381,17 @@ namespace HEngine::Tests
 
     void RuntimeResourceCatalogContract()
     {
+        RuntimeCatalogResourceType collisionType = RuntimeCatalogResourceType::Data;
+        Require(TryParseRuntimeCatalogResourceType("Collision", collisionType) &&
+            collisionType == RuntimeCatalogResourceType::Collision &&
+            std::string_view(ToString(collisionType)) == "Collision",
+            "Packaged collision manifest type failed its parser/formatter round trip.");
+        const auto collisionCatalog = MakeSnapshot({MakeEntry(
+            "Assets/Collision/Room.hcollision", collisionType, 1, {}, {}, 1024, 0)});
+        const auto* collision = collisionCatalog->Find("Assets/Collision/Room.hcollision");
+        Require(collision && collision->Type == RuntimeCatalogResourceType::Collision &&
+            collision->CookFormatVersion == 1,
+            "Collision was rejected or relabeled by catalog validation/install.");
         VerifyLookupAndExpansion();
         VerifyRegistryHash();
         VerifyContractRejections();

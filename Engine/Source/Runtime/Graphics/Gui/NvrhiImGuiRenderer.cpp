@@ -62,6 +62,13 @@ namespace HEngine
             uint32_t RetireFrameSlot = 0;
         };
 
+        struct DeferredTextureBinding
+        {
+            nvrhi::TextureHandle Texture;
+            nvrhi::BindingSetHandle BindingSet;
+            uint32_t RetireFrameSlot = 0;
+        };
+
         struct FrameBuffers
         {
             nvrhi::BufferHandle VertexBuffer;
@@ -284,7 +291,9 @@ namespace HEngine
             slot.BindingSet = Device->createBindingSet(bindingDesc, BindingLayout);
             if (!slot.BindingSet)
             {
+                const uint32_t generation = slot.Generation;
                 slot = TextureSlot{};
+                slot.Generation = generation;
                 FreeTextureSlots.push_back(index);
                 throw std::runtime_error("NVRHI failed to create ImGui texture binding set");
             }
@@ -307,6 +316,32 @@ namespace HEngine
             return const_cast<Impl*>(this)->ResolveTexture(handle);
         }
 
+        void ReplaceTexture(ImGuiTextureHandle handle,
+            const nvrhi::TextureHandle& texture,
+            nvrhi::Format viewFormat, uint32_t retireFrameIndex)
+        {
+            TextureSlot* slot = ResolveTexture(handle);
+            if (!slot || slot->bAtlasOwned || !texture)
+                throw std::invalid_argument("Cannot replace an invalid or atlas-owned ImGui texture");
+            if (slot->Texture == texture && slot->ViewFormat == viewFormat)
+                return;
+            nvrhi::BindingSetDesc bindingDesc;
+            bindingDesc.addItem(nvrhi::BindingSetItem::PushConstants(0, sizeof(ProjectionConstants)))
+                .addItem(nvrhi::BindingSetItem::Texture_SRV(0, texture, viewFormat, slot->Subresources))
+                .addItem(nvrhi::BindingSetItem::Sampler(0, slot->Sampler));
+            nvrhi::BindingSetHandle bindingSet = Device->createBindingSet(bindingDesc, BindingLayout);
+            if (!bindingSet)
+                throw std::runtime_error("NVRHI failed to replace ImGui texture binding set");
+            DeferredBindings.push_back(DeferredTextureBinding{
+                .Texture = slot->Texture,
+                .BindingSet = slot->BindingSet,
+                .RetireFrameSlot = retireFrameIndex % FramesInFlight,
+            });
+            slot->Texture = texture;
+            slot->ViewFormat = viewFormat;
+            slot->BindingSet = std::move(bindingSet);
+        }
+
         void ScheduleTextureRelease(ImGuiTextureHandle handle, uint32_t retireFrameIndex)
         {
             TextureSlot* slot = ResolveTexture(handle);
@@ -322,6 +357,8 @@ namespace HEngine
 
         void CollectDeferredReleases(uint32_t frameIndex)
         {
+            std::erase_if(DeferredBindings, [this, frameIndex](const DeferredTextureBinding& binding)
+                { return binding.RetireFrameSlot == frameIndex % FramesInFlight; });
             auto it = DeferredReleases.begin();
             while (it != DeferredReleases.end())
             {
@@ -577,6 +614,7 @@ namespace HEngine
             }
 
             DeferredReleases.clear();
+            DeferredBindings.clear();
             FreeTextureSlots.clear();
             TextureSlots.clear();
             FrameResources.clear();
@@ -605,6 +643,7 @@ namespace HEngine
         std::vector<TextureSlot> TextureSlots;
         std::vector<uint32_t> FreeTextureSlots;
         std::vector<DeferredTextureRelease> DeferredReleases;
+        std::vector<DeferredTextureBinding> DeferredBindings;
         NvrhiImGuiRendererStats Stats;
         bool bShutdown = false;
     };
@@ -637,6 +676,13 @@ namespace HEngine
         nvrhi::TextureSubresourceSet subresources)
     {
         return mImpl->RegisterTexture(texture, sampler, viewFormat, subresources, false);
+    }
+
+    void NvrhiImGuiRenderer::ReplaceTexture(ImGuiTextureHandle handle,
+        const nvrhi::TextureHandle& texture,
+        nvrhi::Format viewFormat, uint32_t retireFrameIndex)
+    {
+        mImpl->ReplaceTexture(handle, texture, viewFormat, retireFrameIndex);
     }
 
     void NvrhiImGuiRenderer::UnregisterTexture(ImGuiTextureHandle handle, uint32_t retireFrameIndex)

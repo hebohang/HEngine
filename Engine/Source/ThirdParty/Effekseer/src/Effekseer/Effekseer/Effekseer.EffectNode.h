@@ -1,8 +1,11 @@
-﻿
+
 #ifndef __EFFEKSEER_EFFECTNODE_H__
 #define __EFFEKSEER_EFFECTNODE_H__
 
 #include "Effekseer.Base.h"
+#include <atomic>
+#include <cstdio>
+#include <cstdlib>
 #include "Effekseer.Color.h"
 #include "Effekseer.FCurves.h"
 #include "Effekseer.InternalStruct.h"
@@ -132,6 +135,15 @@ struct ParameterRendererCommon
 
 	void load(uint8_t*& pos, int32_t version)
 	{
+		const uint8_t* diagnosticStart = pos;
+		#if defined(HE_EFFEKSEER_DEV_TEST_HOOKS) && HE_EFFEKSEER_DEV_TEST_HOOKS
+	const char* diagnostic = std::getenv("HE_VFX_EARLY_SMOKE");
+#else
+	const char* diagnostic = nullptr; // No environment-controlled SDK diagnostics in shipping.
+#endif
+		static std::atomic<unsigned> diagnosticLoads{0};
+		const bool trace = diagnostic && diagnostic[0] == '1' && diagnostic[1] == '\0' &&
+			diagnosticLoads.fetch_add(1) < 32;
 		// memset(this, 0, sizeof(ParameterRendererCommon));
 
 		if (version >= 15)
@@ -238,6 +250,15 @@ struct ParameterRendererCommon
 
 		memcpy(&TextureWraps[0], pos, sizeof(int));
 		pos += sizeof(int);
+		if (trace)
+		{
+			std::fprintf(stderr, "EARLY_COMMON_LOAD common=%p basic=%p version=%d input=%p samplerOffset=%td material=%d alpha=%d rawFilter0=%d rawWrap0=%d index0=%d index1=%d\n",
+				static_cast<void*>(this), static_cast<void*>(&BasicParameter), version,
+				static_cast<const void*>(diagnosticStart), pos - diagnosticStart - 8,
+				static_cast<int>(MaterialType), static_cast<int>(AlphaBlend),
+				static_cast<int>(TextureFilters[0]), static_cast<int>(TextureWraps[0]), TextureIndexes[0], TextureIndexes[1]);
+			std::fflush(stderr);
+		}
 
 		if (version >= 15)
 		{
@@ -396,6 +417,15 @@ struct ParameterRendererCommon
 		BasicParameter.AlphaBlend = AlphaBlend;
 		BasicParameter.TextureFilters = TextureFilters;
 		BasicParameter.TextureWraps = TextureWraps;
+		if (trace)
+		{
+			std::fprintf(stderr, "EARLY_COMMON_COPY basic=%p rawFilter0=%d rawWrap0=%d size=%zu filterOffset=%td wrapOffset=%td\n",
+				static_cast<void*>(&BasicParameter), static_cast<int>(BasicParameter.TextureFilters[0]),
+				static_cast<int>(BasicParameter.TextureWraps[0]), sizeof(BasicParameter),
+				reinterpret_cast<const char*>(BasicParameter.TextureFilters.data()) - reinterpret_cast<const char*>(&BasicParameter),
+				reinterpret_cast<const char*>(BasicParameter.TextureWraps.data()) - reinterpret_cast<const char*>(&BasicParameter));
+			std::fflush(stderr);
+		}
 
 		BasicParameter.DistortionIntensity = DistortionIntensity;
 		BasicParameter.MaterialType = MaterialType;

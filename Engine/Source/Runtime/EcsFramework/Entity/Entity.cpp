@@ -8,6 +8,7 @@ namespace HEngine
     Entity::Entity(EntityHandle handle, Level* level)
         : mEntityHandle(handle), mLevel(level)
     {
+        if (level) mLevelLifetime = level->mEntityLifetime;
     }
 
     UUID Entity::UUID() { return GetComponent<IDComponent>().ID; }

@@ -11,7 +11,7 @@ namespace HEngine
 
     struct NvrhiImGuiLayerDesc
     {
-        // Non-owning. The Window must outlive the layer and its GLFW callbacks.
+        // Non-owning. The Window must outlive the layer and its platform callbacks.
         Window* MainWindow = nullptr;
         NvrhiImGuiRendererDesc Renderer;
         bool bInstallGlfwCallbacks = true;
@@ -22,7 +22,7 @@ namespace HEngine
 #endif
     };
 
-    // Owns the Dear ImGui context and GLFW platform backend, while delegating
+    // Owns the Dear ImGui context and window platform backend, while delegating
     // all GPU work to the pure-NVRHI renderer. Secondary platform windows are
     // intentionally disabled until they have NVRHI-owned swap chains.
     class NvrhiImGuiLayer final : public ImGuiLayer
@@ -55,6 +55,9 @@ namespace HEngine
             const nvrhi::SamplerHandle& sampler = nullptr,
             nvrhi::Format viewFormat = nvrhi::Format::UNKNOWN,
             nvrhi::TextureSubresourceSet subresources = nvrhi::AllSubresources);
+        void ReplaceTexture(ImGuiTextureHandle handle,
+            const nvrhi::TextureHandle& texture,
+            nvrhi::Format viewFormat, uint32_t retireFrameSlot);
         void UnregisterTexture(ImGuiTextureHandle handle, uint32_t retireFrameSlot);
         [[nodiscard]] bool IsTextureValid(ImGuiTextureHandle handle) const;
 

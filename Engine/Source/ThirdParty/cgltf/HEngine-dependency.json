@@ -1,0 +1,9 @@
+{
+  "name": "cgltf",
+  "version": "1.15",
+  "commit": "bbeb5b0b070ddacddac6852fb72143eb68454937",
+  "source": "https://github.com/jkuhlmann/cgltf",
+  "license": "MIT",
+  "cgltf.h.sha256": "e378a21c084bf1f288bb799de827bb26906efb024255f1ecf1705ea13f11c6ec",
+  "integration": "Vendored header; compiled only in Importers plugin. No configure/build downloads."
+}

@@ -62,7 +62,7 @@ void main(uint3 dtid : SV_DispatchThreadID)
         float3 direction = normalize(UnpackNormalizedFloat3(particle.Direction));
         float3 velocity = UnpackFloat4(particle.Velocity).xyz;
 
-        if (emitter.TrailSize > 0) {
+        if (deltaTime > 0.0f && emitter.TrailSize > 0) {
             uint trailID = emitter.TrailHead + dtid.x * paramData.ShapeData + emitter.TrailPhase;
             TrailData trail;
             trail.Position = position;
@@ -157,6 +157,13 @@ void main(uint3 dtid : SV_DispatchThreadID)
         // Fade-in/out
         color.a *= clamp(particle.LifeAge / paramData.FadeIn, 0.0, 1.0);
         color.a *= clamp((lifeTime - particle.LifeAge) / paramData.FadeOut, 0.0, 1.0);
+
+        // A paused/speed-zero update still publishes root color. Preserve every
+        // simulation field and trail sample; random draws above remain in order.
+        if (deltaTime == 0.0f) {
+            Particles[particleID].Color = PackColor(color);
+            return;
+        }
 
         particle.Transform = TRSMatrix(position, rotation, scale.xyz * scale.w * paramData.ShapeSize);
         particle.Velocity = PackFloat4(float4(velocity, 0.0));

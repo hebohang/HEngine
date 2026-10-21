@@ -3,6 +3,8 @@
 #include "Runtime/Core/Templates/PublicSingleton.h"
 #include "Runtime/Graphics/Settings/RenderSettings.h"
 
+#include <atomic>
+#include <memory>
 #include <filesystem>
 #include <functional>
 #include <map>
@@ -98,6 +100,7 @@ namespace HEngine
         [[nodiscard]] ResolvedRenderSettings ResolveLocked(
             const std::map<SettingsLayer, LayerState>& layers) const;
         void RefreshSnapshotLocked();
+        void InvokeRuntimeApplyLocked(const ResolvedRenderSettings& settings, const RenderSettingsChangePlan& plan);
         [[nodiscard]] std::filesystem::path GetLayerPath(
             SettingsLayer layer) const;
         [[nodiscard]] Json BuildSparseLayerDocumentLocked(
@@ -115,6 +118,10 @@ namespace HEngine
         std::map<SettingsLayer, LayerState> mLayers;
         RenderSettingsCapabilities mCapabilities;
         ResolvedRenderSettings mSnapshot;
+        // Runtime preparation reads the last published state without entering the transaction mutex.
+        // C++11 atomic shared_ptr operations also support NDK libc++, which does
+        // not yet implement the C++20 atomic<shared_ptr<T>> specialization.
+        std::shared_ptr<const ResolvedRenderSettings> mPublishedSnapshot;
         RuntimeApplyCallback mRuntimeApply;
         bool bInitialized = false;
     };

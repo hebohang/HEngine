@@ -75,6 +75,10 @@ namespace nvrhi::vulkan
 
         // Indicates if VkPhysicalDeviceVulkan12Features::bufferDeviceAddress was set to 'true' at device creation time
         bool bufferDeviceAddressSupported = false;
+        // Indicates if VkPhysicalDeviceVulkan12Features::descriptorBindingUniformBufferUpdateAfterBind was set to
+        // 'true' at device creation time. Without it, ConstantBuffer entries of a bindless layout do not get
+        // UPDATE_AFTER_BIND. The other descriptorBinding*UpdateAfterBind features are required by bindless layouts.
+        bool descriptorBindingUniformBufferUpdateAfterBind = false;
         bool aftermathEnabled = false;
         bool logBufferLifetime = false;
 

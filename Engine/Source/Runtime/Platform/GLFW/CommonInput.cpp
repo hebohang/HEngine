@@ -3,11 +3,14 @@
 
 #include "Runtime/Core/AppFramework/Application.h"
 #include "Runtime/Platform/GLFW/CommonWindow.h"
+#include "Runtime/Platform/GLFW/GlfwInputEvents.h"
+#include "Runtime/Platform/GLFW/GlfwEventModifiers.h"
 
 #include <GLFW/glfw3.h>
 
 namespace HEngine
 {
+    bool Input::SetTouchControlsEnabled(bool) { return false; }
 	namespace
 	{
 		constexpr std::uint32_t kMaximumGamepads = GLFW_JOYSTICK_LAST - GLFW_JOYSTICK_1 + 1;
@@ -40,18 +43,40 @@ namespace HEngine
             break;
         }
 #endif
+#if defined(__APPLE__)
+        int modifiers = 0;
+        if (TryGetGlfwEventModifiers(modifiers))
+        {
+            switch (key)
+            {
+            case KeyCode::LeftControl: case KeyCode::RightControl: return (modifiers & GLFW_MOD_CONTROL) != 0;
+            case KeyCode::LeftShift: case KeyCode::RightShift: return (modifiers & GLFW_MOD_SHIFT) != 0;
+            case KeyCode::LeftAlt: case KeyCode::RightAlt: return (modifiers & GLFW_MOD_ALT) != 0;
+            case KeyCode::LeftSuper: case KeyCode::RightSuper: return (modifiers & GLFW_MOD_SUPER) != 0;
+            default: break;
+            }
+        }
+#endif
         GLFWwindow* window = GetInputWindow();
         auto state = glfwGetKey(window, static_cast<int32_t>(key));
         return state == GLFW_PRESS || state == GLFW_REPEAT;
     }
     bool Input::IsMouseButtonPressed(MouseCode button)
     {
+#if defined(HE_DEV_AGENT_RUNTIME)
+        const auto synthetic = QuerySyntheticMouseButton(button);
+        if (synthetic != SyntheticKeyQuery::UsePhysical) return synthetic == SyntheticKeyQuery::Pressed;
+#endif
         GLFWwindow* window = GetInputWindow();
         auto state = glfwGetMouseButton(window, static_cast<int32_t>(button));
         return state == GLFW_PRESS;
     }
     bool Input::IsMouseButtonReleased(MouseCode button)
     {
+#if defined(HE_DEV_AGENT_RUNTIME)
+        const auto synthetic = QuerySyntheticMouseButton(button);
+        if (synthetic != SyntheticKeyQuery::UsePhysical) return synthetic == SyntheticKeyQuery::Released;
+#endif
         GLFWwindow* window = GetInputWindow();
         auto state = glfwGetMouseButton(window, static_cast<int32_t>(button));
         return state == GLFW_RELEASE;
@@ -63,6 +88,8 @@ namespace HEngine
         if (TryGetSyntheticPointerPosition(syntheticPosition))
             return syntheticPosition;
 #endif
+        glm::vec2 eventPosition;
+        if (TryGetGlfwMouseEventPosition(eventPosition)) return eventPosition;
         GLFWwindow* window = GetInputWindow();
         double xpos, ypos;
         glfwGetCursorPos(window, &xpos, &ypos);

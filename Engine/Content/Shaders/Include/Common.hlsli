@@ -3,6 +3,7 @@
 
 #include "Math/Constants.hlsli"
 #include "Math/Math.hlsli"
+#include "Shared/NormalMapDecode.hlsli"
 
 struct DirLightData
 {
@@ -18,7 +19,7 @@ struct PointLightData
     float intensity;
     float3 color;
     float radius;
-    float falloffExponent;
+    float _pointPadding;
     float3 _PointLightPad;
 };
 
@@ -159,26 +160,37 @@ float3 SampleNormalTexture(
     float3 normalWS,
     float3 tangentWS,
     float3 bitangentWS,
-    float normalStrength)
+    float normalStrength,
+    out float normalMipVariance,
+    uint normalEncoding = 0u)
 {
-    float2 normalXY = normalTexture.SampleBias(g_LinearWrapSampler, texCoord, 1.0f).xy * 2.0f - 1.0f;
-    normalXY *= max(normalStrength, 0.0f);
-    const float xyLengthSq = dot(normalXY, normalXY);
-    if (xyLengthSq > 0.999f)
-        normalXY *= sqrt(0.999f / xyLengthSq);
-
-    const float3 normalTS = float3(normalXY, sqrt(max(1.0f - dot(normalXY, normalXY), 1e-4f)));
+    const float3 normalTS = HE_DecodeNormalMap(
+        normalTexture.SampleBias(g_LinearWrapSampler, texCoord, 1.0f),
+        normalStrength, normalMipVariance, normalEncoding);
 
     const float3x3 tbn = BuildWorldTBN(normalWS, tangentWS, bitangentWS);
     return SafeNormalize(normalTS.x * tbn[0] + normalTS.y * tbn[1] + normalTS.z * tbn[2]);
 }
 
-float ApplySpecularAntiAliasing(float roughness, float3 normalWS)
+// Preserve the older RGB call contract. Production legacy materials are
+// extracted into SceneOpaque, which supplies format flags from GPU Scene.
+float3 SampleNormalTexture(Texture2D normalTexture, float2 texCoord,
+    float3 normalWS, float3 tangentWS, float3 bitangentWS, float normalStrength)
+{
+    float normalMipVariance;
+    return SampleNormalTexture(normalTexture, texCoord, normalWS, tangentWS,
+        bitangentWS, normalStrength, normalMipVariance, 0u);
+}
+
+float ApplySpecularAntiAliasing(float roughness, float3 normalWS,
+    float normalMipVariance = 0.0f)
 {
     const float3 dndx = ddx(normalWS);
     const float3 dndy = ddy(normalWS);
     const float normalVariance = min(max(dot(dndx, dndx), dot(dndy, dndy)), 0.35f);
-    return clamp(sqrt(saturate(roughness * roughness + normalVariance)), 0.045f, 1.0f);
+    const float mipVariance = isfinite(normalMipVariance)
+        ? clamp(normalMipVariance, 0.0f, HE_MAX_NORMAL_MIP_VARIANCE) : 0.0f;
+    return clamp(sqrt(saturate(roughness * roughness + normalVariance + mipVariance)), 0.045f, 1.0f);
 }
 
 SurfaceVaryings BuildSurfaceVaryings(

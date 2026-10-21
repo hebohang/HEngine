@@ -49,6 +49,7 @@ namespace HEngine
 
     struct ReferencePathTracerOutputs
     {
+        TextureHandle DenoisedRadiance;
         TextureHandle AccumulatedRadiance;
         TextureHandle DirectDiffuse;
         TextureHandle IndirectDiffuse;
@@ -62,6 +63,7 @@ namespace HEngine
 
     struct ReferencePathTracerNativeOutputs
     {
+        nvrhi::TextureHandle DenoisedRadiance;
         nvrhi::TextureHandle AccumulatedRadiance;
         nvrhi::TextureHandle DirectDiffuse;
         nvrhi::TextureHandle IndirectDiffuse;
@@ -84,7 +86,7 @@ namespace HEngine
             Resume,
             Restart,
             Cancel,
-            SamplesSubmitted,
+            SamplesCompleted,
         };
 
         [[nodiscard]] uint32_t ResolveReferenceOfflineDispatchCount(
@@ -131,6 +133,7 @@ namespace HEngine
         void Resume() noexcept override;
         void Restart() override;
         void Cancel() noexcept override;
+        [[nodiscard]] bool HasPendingWork() const noexcept override;
 
         [[nodiscard]] TextureReadbackHandle RequestExport(
             OfflineViewportAov aov,

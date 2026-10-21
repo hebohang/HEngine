@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "host": "win-x64",
+  "dotnet": {
+    "version": "10.0.302",
+    "directory": "dotnet-10.0.302",
+    "archive": "dotnet-sdk-10.0.302-win-x64.zip",
+    "url": "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.302/dotnet-sdk-10.0.302-win-x64.zip",
+    "algorithm": "SHA512",
+    "hash": "7d170ed75fa9af34c00646621d92011dbd71943952e2787cd15df9be78e6452b55dadef34d7eff77b802e6af4959e071a55855ac649afeac70901c3a2a258716"
+  },
+  "jdk": {
+    "version": "21.0.12.1",
+    "directory": "openjdk-21.0.12.1",
+    "home": "jdk-21.0.12.1+1",
+    "archive": "microsoft-jdk-21.0.12.1-windows-x64.zip",
+    "url": "https://aka.ms/download-jdk/microsoft-jdk-21.0.12.1-windows-x64.zip",
+    "algorithm": "SHA256",
+    "hash": "192441a9d27da813bada974bb88b4cf64d37a9589ed37f204374d411ca5ce07f"
+  },
+  "commandLineTools": {
+    "version": "22.0",
+    "archive": "commandlinetools-win-15859902_latest.zip",
+    "url": "https://dl.google.com/android/repository/commandlinetools-win-15859902_latest.zip",
+    "algorithm": "SHA256",
+    "hash": "90ae805d20434428bffcb699c290860f19bb5f66a67e6b330067e3de801fb04a"
+  },
+  "ndk": {
+    "version": "30.0.16248370",
+    "directory": "android-ndk-r30",
+    "archive": "android-ndk-r30-windows.zip",
+    "url": "https://dl.google.com/android/repository/android-ndk-r30-windows.zip",
+    "algorithm": "SHA256",
+    "hash": "b830098aaf18b67a42eb831c404e15e5f2990a474f054ac145b0bc957ac6d729"
+  },
+  "platform": "android-36",
+  "buildTools": "36.0.0",
+  "androidWorkload": "36.1.2"
+}

@@ -1,8 +1,24 @@
 #include "Hepch.h"
+#include "Runtime/Graphics/Renderer/RenderResolution.h"
 
 #include "SceneRenderer.h"
+#include "DirectionalShadowMath.h"
+#include "MainViewAabb.h"
+#include "RenderFeature.h"
+#include "SceneLightGrid.h"
+#include "SceneLocalShadowPass.h"
+#include "SceneShadowGpuSubmission.h"
+#include "SceneGpuOcclusionPass.h"
+#include "SceneGeometryArena.h"
+#include "SceneIndirectCompactionPass.h"
+#include "SceneBonePalette.h"
 
 #include "Runtime/Graphics/Material/Material.h"
+#include "Runtime/Graphics/Material/MaterialParameterPackingCache.h"
+#include "Runtime/Graphics/Scene/SubmittedMotionHistory.h"
+#include "Runtime/Graphics/Scene/SubmittedDeformationHistory.h"
+#include "Runtime/Graphics/Scene/CameraView.h"
+#include "Runtime/Graphics/Scene/BakedIrradiance.h"
 #include "Runtime/Graphics/Material/MaterialPipelineKey.h"
 #include "Runtime/Graphics/Material/MaterialShaderManager.h"
 #include "Runtime/Graphics/GlobalIllumination/GlobalIlluminationCompositePass.h"
@@ -12,10 +28,13 @@
 #include "Runtime/Graphics/GlobalIllumination/SceneSurfaceDataPass.h"
 #include "Runtime/Graphics/GlobalIllumination/ScreenSpaceGlobalIllumination.h"
 #include "Runtime/Graphics/GlobalIllumination/SvgfDenoiser.h"
+#include "Runtime/Graphics/GlobalIllumination/SsgiReactiveShadowScope.h"
+#include "Runtime/Graphics/Mesh/Mesh.h"
 #include "Runtime/Graphics/Mesh/SubMesh.h"
 #include "Runtime/Graphics/RayTracing/RayTracingScene.h"
 #include "Runtime/Graphics/Renderer/EnvironmentMapSizes.h"
 #include "Runtime/Graphics/Renderer/SceneAntiAliasingPass.h"
+#include "Runtime/Graphics/Renderer/SceneUpscalingPass.h"
 #include "Runtime/Graphics/RHI/PipelineCache.h"
 #include "Runtime/Graphics/RHI/ShaderArtifactResolver.h"
 #include "Runtime/Graphics/RHI/MaterialDescriptorPaging.h"
@@ -33,8 +52,10 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdlib>
 #include <fstream>
 #include <limits>
 #include <memory>
@@ -124,6 +145,28 @@ namespace HEngine
 
     namespace
     {
+        uint64_t EnvironmentQueryHoldFrames(const std::string& key) noexcept
+        {
+            const char* path = std::getenv("HE_ENVIRONMENT_IBL_QUERY_HOLD_PATH");
+            if (path && *path && key != path) return 0;
+            static const uint64_t holdFrames = []
+            {
+                const char* value = std::getenv("HE_ENVIRONMENT_IBL_QUERY_HOLD_FRAMES");
+                if (!value || !*value) return uint64_t{ 0 };
+                char* end = nullptr;
+                const unsigned long long parsed = std::strtoull(value, &end, 10);
+                return end && *end == '\0' && parsed <= 1000000000
+                    ? static_cast<uint64_t>(parsed)
+                    : uint64_t{ 0 };
+            }();
+            static uint64_t matchingSubmissions = 0;
+            const char* afterFirst = std::getenv("HE_ENVIRONMENT_IBL_QUERY_HOLD_AFTER_FIRST");
+            if (holdFrames != 0 && afterFirst && *afterFirst == '1' &&
+                matchingSubmissions++ == 0)
+                return 0;
+            return holdFrames;
+        }
+
         class OffGlobalIlluminationTechnique final
             : public IGlobalIlluminationTechnique
         {
@@ -174,25 +217,34 @@ namespace HEngine
         constexpr nvrhi::Format c_SceneDepthFormat = nvrhi::Format::D32;
         constexpr uint32_t c_MaxDirectionalShadowCascades = 4;
         constexpr uint32_t c_DefaultDirectionalShadowMapSize = 1024;
-        constexpr float c_DirectionalShadowCascadeBlendFraction = 0.10f;
-        constexpr float c_DirectionalShadowFarFadeFraction = 0.10f;
-        constexpr float c_DirectionalShadowCasterDepthPadding = 20.0f;
+        constexpr float c_DirectionalShadowCascadeBlendFraction = DirectionalShadowMath::CascadeBlendFraction;
+        constexpr float c_DirectionalShadowFarFadeFraction = DirectionalShadowMath::FarFadeFraction;
         constexpr uint32_t c_MaxGpuDrivenObjects = 16384;
         constexpr uint32_t c_MaxGpuDrivenBatches = 4096;
         constexpr uint32_t c_MaxGpuMaterials = 4096;
 		// Vulkan implements volatile constant buffers as an aligned version ring.
 		// CPU fallback objects can be written by depth, shadow cascades, forward,
 		// transparent and outline passes in the same command list.
-		constexpr uint32_t c_MaxObjectConstantWritesPerFrame = 32768;
+		// Reserve the additional unculled post-TAA depth replay as well.
+        constexpr uint32_t c_MaxObjectConstantWritesPerFrame = 65536;
         constexpr uint32_t c_MaxMaterialParameterRows =
             c_MaxGpuMaterials * static_cast<uint32_t>(MaterialParameterMaximumPropertyCount);
         constexpr uint32_t c_MaxPrimitive2DVertices = 65536;
-        constexpr uint32_t c_MaxSkinnedDraws = 256;
-        constexpr uint32_t c_MaxBonesPerPalette = 100;
         constexpr uint32_t c_EnvironmentSampleCount = 256;
         constexpr uint32_t c_MaterialFlagAlphaMask = 1u << 0u;
         constexpr uint32_t c_MaterialFlagAlphaBlend = 1u << 1u;
         constexpr uint32_t c_MaterialFlagDoubleSided = 1u << 2u;
+        constexpr uint32_t c_MaterialNormalEncodingShift = 3u;
+
+        [[nodiscard]] constexpr uint32_t GetNormalMapEncoding(nvrhi::Format format) noexcept
+        {
+            switch (format)
+            {
+            case nvrhi::Format::BC5_UNORM: return 1u;
+            case nvrhi::Format::BC5_SNORM: return 3u;
+            default: return 0u;
+            }
+        }
 
         [[nodiscard]] bool IsIdentityMatrix(const glm::mat4& matrix) noexcept
         {
@@ -233,19 +285,40 @@ namespace HEngine
             glm::vec4 DirectionalShadowCascadeSplits{ 0.0f };
             // x: cascade count, y: map size, z: blend fraction, w: far fade fraction.
             glm::vec4 DirectionalShadowCascadeSettings{ 1.0f, 1.0f, 0.0f, 0.0f };
-            // x: cascade debug, y: PBR debug mode, z: first point falloff exponent,
+            // x: cascade debug, y: PBR debug mode, z: reserved,
             // w: sanitized camera near plane used by the first cascade blend span.
             glm::vec4 DirectionalShadowDebugSettings{ 0.0f };
             // x: monotonic presentation time in seconds, yzw reserved.
             glm::vec4 MaterialTimeAndPadding{ 0.0f };
+            glm::mat4 PreviousViewProjection{ 1.0f };
+            glm::mat4 PreviousView{ 1.0f };
+            // RGB is linear HDR fog radiance; A is extinction per world unit.
+            glm::vec4 FogColorDensity{ 0.0f };
+            // x: start distance, y: base height, z: height falloff.
+            glm::vec4 FogDistanceHeight{ 0.0f };
+            // RGB: sunward sky-haze radiance, A: intensity; x: angular exponent.
+            glm::vec4 FogDirectionalColorIntensity{ 0.0f };
+            // x: sunward haze exponent; yzw: presentation-only sky color tint.
+            glm::vec4 FogDirectionalParams{ 4.0f, 1.0f, 1.0f, 1.0f };
+            // Independent secondary distance/height scattering layer.
+            glm::vec4 SecondaryFogColorDensity{ 0.0f };
+            glm::vec4 SecondaryFogDistanceHeight{ 0.0f };
+            BakedIrradianceGpuData BakedIrradiance;
         };
 
         struct alignas(16) ObjectConstants
         {
             glm::mat4 World{ 1.0f };
             glm::mat4 WorldInverseTranspose{ 1.0f };
-            // x: GPU material, y: object, z: mesh, w: reserved.
+            // x: stable GPU material, y: stable object, z: section primitive prefix, w: bone palette offset.
             glm::uvec4 MaterialObjectMeshIndices{ 0u };
+            glm::mat4 PreviousWorld{ 1.0f };
+            glm::vec4 StaticLightmapUvScaleBias{ 1.0f, 1.0f, 0.0f, 0.0f };
+            glm::vec4 StaticLightmapScale0{ 1.0f };
+            glm::vec4 StaticLightmapAdd0{ 0.0f };
+            glm::vec4 StaticLightmapScale1{ 1.0f };
+            glm::vec4 StaticLightmapAdd1{ 0.0f };
+            glm::uvec4 StaticLightmapDescriptor{ InvalidDescriptorIndex, 0u, 0u, 0u };
         };
 
         struct alignas(16) GpuMaterialData
@@ -258,13 +331,15 @@ namespace HEngine
             // x: program id, y: parameter float4-row offset,
             // z: parameter row count, w: material ABI flags.
             glm::uvec4 ProgramParameterData{ 0u };
+            TextureSamplingGpu Sampling[5];
         };
 
         struct alignas(16) ToneMappingConstants
         {
             float Exposure = 1.0f;
             uint32_t PbrDebugMode = 0;
-            float Padding[2]{};
+            uint32_t GiDebugView = 0;
+            float Upscale = 0;
         };
 
         struct alignas(16) GpuBoundsData
@@ -287,16 +362,11 @@ namespace HEngine
             uint32_t Padding[3]{};
         };
 
-        struct alignas(16) GpuDrawConstants
-        {
-            uint32_t VisibleBase = 0;
-            uint32_t Padding[3]{};
-        };
-
         struct alignas(16) ShadowPassConstants
         {
             uint32_t CascadeIndex = 0;
-            uint32_t Padding[3]{};
+            uint32_t VisibleBase = 0;
+            uint32_t Padding[2]{};
         };
 
         struct alignas(16) EnvironmentPrecomputeConstants
@@ -330,19 +400,18 @@ namespace HEngine
             uint32_t Padding[3]{};
         };
 
-        static_assert(sizeof(FrameConstants) == 624);
+        static_assert(sizeof(FrameConstants) == 848 + sizeof(BakedIrradianceGpuData));
         static_assert(offsetof(FrameConstants, ShadowCameraView) == 304);
         static_assert(offsetof(FrameConstants, AdditionalLightViewProjections) == 368);
         static_assert(offsetof(FrameConstants, DirectionalShadowCascadeSplits) == 560);
         static_assert(offsetof(FrameConstants, DirectionalShadowCascadeSettings) == 576);
         static_assert(offsetof(FrameConstants, DirectionalShadowDebugSettings) == 592);
-        static_assert(sizeof(ObjectConstants) == 144);
-        static_assert(sizeof(GpuMaterialData) == 96);
+        static_assert(sizeof(ObjectConstants) == 304);
+        static_assert(sizeof(GpuMaterialData) == 336);
         static_assert(sizeof(ToneMappingConstants) == 16);
         static_assert(sizeof(GpuBoundsData) == 16);
         static_assert(sizeof(GpuDrawData) == 16);
         static_assert(sizeof(CullConstants) == 80);
-        static_assert(sizeof(GpuDrawConstants) == 16);
         static_assert(sizeof(ShadowPassConstants) == 16);
         static_assert(sizeof(EnvironmentPrecomputeConstants) == 32);
         static_assert(sizeof(Primitive2DVertex) == 80);
@@ -499,18 +568,40 @@ namespace HEngine
                 HashValue(hash, object.Sections.size());
                 for (const RenderMeshSection& section : object.Sections)
                 {
-                    HashValue(hash, section.MaterialInstance.Revision);
-                    HashValue(hash, section.MaterialInstance.BaseColor);
-                    HashValue(hash, section.MaterialInstance.Emissive);
-                    HashValue(hash, section.MaterialInstance.Metallic);
-                    HashValue(hash, section.MaterialInstance.Roughness);
+                    HashValue(hash, section.GetMaterialInstance().Revision);
+                    HashValue(hash, section.GetMaterialInstance().BaseColor);
+                    HashValue(hash, section.GetMaterialInstance().Emissive);
+                    HashValue(hash, section.GetMaterialInstance().Metallic);
+                    HashValue(hash, section.GetMaterialInstance().Roughness);
                 }
             }
             return hash == 0 ? 1 : hash;
         }
 
+        [[nodiscard]] uint64_t FingerprintScreenSpaceTransportGeometry(
+            const RenderWorld& world) noexcept
+        {
+            uint64_t hash = 14695981039346656037ull;
+            for (const RenderObject& object : world.Objects)
+            {
+                if (!object.bVisible || !std::any_of(object.Sections.begin(), object.Sections.end(),
+                    [](const RenderMeshSection& section) {
+                        return section.GetMaterialInstance().bDepthWrite &&
+                            section.AlphaMode != RenderMaterialAlphaMode::Blend;
+                    }))
+                    continue;
+                // Raster SSGI also observes textured, smooth and skinned geometry
+                // excluded by the hardware-RT scene's transform revision.
+                HashValue(hash, object.EntityId);
+                HashValue(hash, object.WorldTransform);
+                for (const glm::mat4& bone : object.BonePalette)
+                    HashValue(hash, bone);
+            }
+            return hash == 0 ? 1 : hash;
+        }
+
         [[nodiscard]] RayTracingSceneRevisions BuildRayTracingSceneRevisions(
-            const RenderWorld& world)
+            const RenderWorld& world, bool bBasePbrMaterials)
         {
             RayTracingSceneRevisions revisions;
             revisions.GeometryContentRevisions.reserve(world.Objects.size());
@@ -535,7 +626,7 @@ namespace HEngine
                     HashValue(topology, section.AlphaMode);
                     HashValue(topology, section.bDoubleSided);
                     const RayTracingGeometrySupport support = object.bVisible
-                        ? ClassifyRayTracingGeometry(object, section)
+                        ? ClassifyRayTracingGeometry(object, section, bBasePbrMaterials)
                         : RayTracingGeometrySupport::MissingGeometry;
                     HashValue(topology, support);
                     if (support ==
@@ -548,7 +639,7 @@ namespace HEngine
                                 revisions.GeometryContentRevisions,
                                 *section.SubMeshResource));
                     }
-                    const auto& material = section.MaterialInstance;
+                    const auto& material = section.GetMaterialInstance();
                     HashString(materials, material.AssetPath);
                     HashString(materials, material.ShaderPath);
                     HashValue(materials, material.Revision);
@@ -556,6 +647,22 @@ namespace HEngine
                     HashValue(materials, material.Emissive);
                     HashValue(materials, material.Metallic);
                     HashValue(materials, material.Roughness);
+                    if (bBasePbrMaterials)
+                    {
+                        HashValue(materials, material.NormalScale);
+                        HashValue(materials, material.AlphaCutoff);
+                        for (const auto& texture : material.LegacyTextures)
+                        {
+                            HashString(materials, texture.AssetPath);
+                            HashValue(materials, texture.bEnabled);
+                        }
+                        for (const auto& parameter : material.ParameterValues)
+                        {
+                            HashString(materials, parameter.Name);
+                            HashString(materials, parameter.TexturePath);
+                            HashValue(materials, parameter.Numeric);
+                        }
+                    }
                 }
                 if (bHasSupportedSection)
                 {
@@ -571,7 +678,6 @@ namespace HEngine
                 HashValue(lights, light.Intensity);
                 HashValue(lights, light.Color);
                 HashValue(lights, light.Radius);
-                HashValue(lights, light.FalloffExponent);
             }
             for (const RenderDirectionalLight& light : world.DirectionalLights)
             {
@@ -579,112 +685,24 @@ namespace HEngine
                 HashValue(lights, light.Intensity);
                 HashValue(lights, light.Color);
             }
+            for (const auto& light : world.SpotLights)
+            {
+                HashValue(lights, light.Position);
+                HashValue(lights, light.Direction);
+                HashValue(lights, light.Intensity);
+                HashValue(lights, light.Color);
+                HashValue(lights, light.Radius);
+                HashValue(lights, light.InnerConeCosine);
+                HashValue(lights, light.OuterConeCosine);
+            }
             HashString(lights, world.Environment.HdrTexturePath);
             HashValue(lights, world.Environment.IblIntensity);
-            revisions.Scene = std::max(world.SceneGeneration, 1ull);
+            revisions.Scene = std::max<uint64_t>(world.SceneGeneration, 1);
             revisions.GeometryTopology = topology == 0 ? 1 : topology;
             revisions.Transform = transforms == 0 ? 1 : transforms;
             revisions.Material = materials == 0 ? 1 : materials;
             revisions.Light = lights == 0 ? 1 : lights;
             return revisions;
-        }
-
-        [[nodiscard]] float SanitizeDirectionalShadowNearPlane(float nearPlane) noexcept
-        {
-            return std::isfinite(nearPlane) ? std::max(nearPlane, 0.001f) : 0.001f;
-        }
-
-        [[nodiscard]] float ComputeDirectionalShadowCascadeSplit(
-            float nearPlane,
-            float farPlane,
-            float ratio,
-            float lambda)
-        {
-            const float logarithmicSplit = nearPlane * std::pow(farPlane / nearPlane, ratio);
-            const float uniformSplit = nearPlane + (farPlane - nearPlane) * ratio;
-            return glm::mix(uniformSplit, logarithmicSplit, lambda);
-        }
-
-        [[nodiscard]] std::array<glm::vec3, 8> ComputeDirectionalShadowFrustumCorners(
-            const glm::mat4& view,
-            const glm::mat4& projection,
-            float nearSplit,
-            float farSplit)
-        {
-            const glm::mat4 inverseViewProjection = glm::inverse(projection * view);
-            const glm::vec4 projectedNear =
-                projection * glm::vec4(0.0f, 0.0f, -nearSplit, 1.0f);
-            const glm::vec4 projectedFar =
-                projection * glm::vec4(0.0f, 0.0f, -farSplit, 1.0f);
-            const float ndcNear = projectedNear.z / projectedNear.w;
-            const float ndcFar = projectedFar.z / projectedFar.w;
-
-            std::array<glm::vec3, 8> corners{};
-            uint32_t cornerIndex = 0;
-            for (float x : { -1.0f, 1.0f })
-            {
-                for (float y : { -1.0f, 1.0f })
-                {
-                    for (float z : { ndcNear, ndcFar })
-                    {
-                        const glm::vec4 corner =
-                            inverseViewProjection * glm::vec4(x, y, z, 1.0f);
-                        corners[cornerIndex++] = glm::vec3(corner) / corner.w;
-                    }
-                }
-            }
-            return corners;
-        }
-
-        [[nodiscard]] glm::mat4 ComputeDirectionalShadowCascadeMatrix(
-            const std::array<glm::vec3, 8>& frustumCorners,
-            const glm::vec3& lightDirection,
-            uint32_t shadowMapSize)
-        {
-            glm::vec3 center(0.0f);
-            for (const glm::vec3& corner : frustumCorners)
-                center += corner;
-            center /= static_cast<float>(frustumCorners.size());
-
-            float radius = 0.0f;
-            for (const glm::vec3& corner : frustumCorners)
-                radius = std::max(radius, glm::length(corner - center));
-            // Quantizing the square extent avoids tiny floating-point changes
-            // in the fitted frustum from continuously rescaling the projection.
-            radius = std::max(std::ceil(radius * 16.0f) / 16.0f, 1.0f / 16.0f);
-
-            const glm::vec3 up =
-                std::abs(glm::dot(lightDirection, glm::vec3(0.0f, 1.0f, 0.0f))) > 0.95f
-                ? glm::vec3(0.0f, 0.0f, 1.0f)
-                : glm::vec3(0.0f, 1.0f, 0.0f);
-            const float eyeDistance =
-                radius * 2.0f + c_DirectionalShadowCasterDepthPadding;
-            const glm::mat4 lightView = glm::lookAt(
-                center - lightDirection * eyeDistance,
-                center,
-                up);
-            glm::mat4 lightProjection = glm::orthoZO(
-                -radius,
-                radius,
-                -radius,
-                radius,
-                0.0f,
-                radius * 4.0f + c_DirectionalShadowCasterDepthPadding * 2.0f);
-
-            // Align the projection origin to an integer shadow texel. The
-            // square extent above keeps the world-units-per-texel stable.
-            const glm::mat4 lightViewProjection = lightProjection * lightView;
-            glm::vec4 shadowOrigin =
-                lightViewProjection * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-            const float halfResolution =
-                std::max(static_cast<float>(shadowMapSize) * 0.5f, 1.0f);
-            shadowOrigin *= halfResolution;
-            const glm::vec2 roundedOrigin = glm::round(glm::vec2(shadowOrigin));
-            const glm::vec2 roundingOffset =
-                (roundedOrigin - glm::vec2(shadowOrigin)) / halfResolution;
-            lightProjection[3][0] += roundingOffset.x;
-            lightProjection[3][1] += roundingOffset.y;
-            return lightProjection * lightView;
         }
 
         struct DirectionalShadowData
@@ -710,7 +728,7 @@ namespace HEngine
                 lightDirection = glm::vec3(0.0f, -1.0f, 0.0f);
             lightDirection = glm::normalize(lightDirection);
 
-            const float nearPlane = SanitizeDirectionalShadowNearPlane(world.Camera.NearPlane);
+            const float nearPlane = DirectionalShadowMath::SanitizeNearPlane(world.Camera.NearPlane);
             const float requestedFar = std::max(light.ShadowDistance, nearPlane + 1.0f);
             const float cameraFar =
                 std::isfinite(world.Camera.FarPlane) && world.Camera.FarPlane > nearPlane
@@ -725,7 +743,7 @@ namespace HEngine
             {
                 const float ratio =
                     static_cast<float>(cascade + 1u) / static_cast<float>(cascadeCount);
-                splits[cascade] = ComputeDirectionalShadowCascadeSplit(
+                splits[cascade] = DirectionalShadowMath::ComputeSplit(
                     nearPlane,
                     farPlane,
                     ratio,
@@ -740,25 +758,15 @@ namespace HEngine
 
             for (uint32_t cascade = 0; cascade < cascadeCount; ++cascade)
             {
-                float cascadeNear = cascade == 0 ? nearPlane : splits[cascade - 1u];
-                if (cascade > 0)
-                {
-                    const float previousNear = cascade == 1
-                        ? nearPlane
-                        : splits[cascade - 2u];
-                    cascadeNear -= (cascadeNear - previousNear) *
-                        c_DirectionalShadowCascadeBlendFraction;
-                }
-                const auto corners = ComputeDirectionalShadowFrustumCorners(
+                const float cascadeNear = DirectionalShadowMath::ComputeSliceNear(
+                    cascade, nearPlane, splits);
+                data.LightViewProjections[cascade] = DirectionalShadowMath::ComputeCascadeMatrix(
                     world.Camera.View,
                     world.Camera.Projection,
                     cascadeNear,
-                    splits[cascade]);
-                data.LightViewProjections[cascade] =
-                    ComputeDirectionalShadowCascadeMatrix(
-                        corners,
-                        lightDirection,
-                        shadowMapSize);
+                    splits[cascade],
+                    lightDirection,
+                    shadowMapSize);
                 data.CascadeSplits[cascade] = splits[cascade];
             }
             return data;
@@ -816,6 +824,7 @@ namespace HEngine
             BufferHandle IndirectArguments;
             BufferHandle Primitive2DVertices;
             BufferHandle BoneMatrices;
+            BufferHandle PreviousBoneMatrices;
         };
 
         struct GpuCullingPassData
@@ -830,6 +839,7 @@ namespace HEngine
         struct DepthPrepassPassData
         {
             TextureHandle SceneDepth;
+            bool bPostTaa = false;
             BufferHandle FrameConstantsBuffer;
             BufferHandle ObjectConstantsBuffer;
             BufferHandle GpuObjects;
@@ -875,8 +885,12 @@ namespace HEngine
         {
             TextureHandle ShadowDepth;
             BufferHandle FrameConstantsBuffer;
+            BufferHandle LightConstantsBuffer;
+            BufferHandle LightRecords;
+            BufferHandle ClusterMasks;
             BufferHandle ObjectConstantsBuffer;
             BufferHandle BoneMatrices;
+            BufferHandle PreviousBoneMatrices;
             BufferHandle GpuMaterials;
             BufferHandle MaterialParameters;
             std::vector<BufferHandle> VertexBuffers;
@@ -964,6 +978,8 @@ namespace HEngine
         struct LinearHdrCapturePassData
         {
             TextureHandle SceneColor;
+            TextureHandle DiagnosticInput;
+            TextureHandle SelectedNativeInput;
         };
 
         struct OffscreenCopyPassData
@@ -995,10 +1011,54 @@ namespace HEngine
             std::string Error;
             ManagedTextureHandle SourceAsset;
             nvrhi::TextureHandle SourceEquirectangular;
+            nvrhi::TextureHandle EnvironmentCdf;
+            std::shared_ptr<const EnvironmentSamplingProposal> EnvironmentProposal;
             nvrhi::TextureHandle Environment;
             nvrhi::TextureHandle Irradiance;
             nvrhi::TextureHandle Prefilter;
+            nvrhi::EventQueryHandle PreparationComplete;
+            nvrhi::CommandListHandle PreparationCommandList;
+            std::vector<nvrhi::BindingSetHandle> PreparationBindings;
+            uint64_t PreparationSubmission = 0;
+            uint64_t NotBeforePumpFrame = 0;
+            bool bCancelled = false;
+            bool bReloadRequested = false;
         };
+
+        struct RetiredEnvironmentEntry
+        {
+            EnvironmentEntry Resource;
+            uint64_t RetireAfterSubmission = 0;
+        };
+
+        ~Impl() noexcept
+        {
+            for (auto& [path, entry] : EnvironmentCache)
+            {
+                (void)path;
+                try
+                {
+                    if (entry.PreparationComplete)
+                    {
+                        Device->waitEventQuery(entry.PreparationComplete);
+                        Device->resetEventQuery(entry.PreparationComplete);
+                    }
+                    if (TextureManagerInstance.IsValid(entry.SourceAsset))
+                        TextureManagerInstance.ReleaseTexture(
+                            entry.SourceAsset, LastSubmittedSubmission);
+                }
+                catch (const std::exception& exception)
+                {
+                    Log::WriteFallbackError(
+                        "SceneRenderer environment cleanup failed", exception.what());
+                }
+                catch (...)
+                {
+                    Log::WriteFallbackError(
+                        "SceneRenderer environment cleanup failed", "unknown exception");
+                }
+            }
+        }
 
         struct EnvironmentBindingKey
         {
@@ -1039,12 +1099,25 @@ namespace HEngine
 
         struct MeshEntry
         {
+            struct LodRange
+            {
+                uint32_t FirstIndex = 0;
+                uint32_t IndexCount = 0;
+                uint32_t PrimitiveOffset = 0;
+                float ObjectSpaceError = 0.0f;
+            };
             Ref<SubMesh> Resource;
+            SceneGeometryArenaAllocation ArenaAllocation;
             nvrhi::BufferHandle VertexBuffer;
             nvrhi::BufferHandle IndexBuffer;
             uint32_t IndexCount = 0;
+            std::vector<uint32_t> ResidentIndices;
+            std::vector<LodRange> Lods;
             uint32_t GraphIndex = InvalidRenderGraphIndex;
             bool bUploaded = false;
+            uint64_t DeformationRevision = 0;
+            SubmittedDeformationHistory DeformationHistory;
+            bool bDynamicVertices = false;
             bool bSkinned = false;
         };
 
@@ -1064,17 +1137,20 @@ namespace HEngine
         struct DrawItem
         {
             const SubMesh* Key = nullptr;
+            uint32_t LodIndex = 0;
             ObjectConstants Constants;
             std::shared_ptr<const CompiledMaterialShader> MaterialProgram;
             TransparentDrawSortKey SortKey;
             bool bDoubleSided = false;
             bool bSkinned = false;
+            bool bGpuShadow = false;
         };
 
         struct GpuBatchKey
         {
             const SubMesh* Mesh = nullptr;
             const Material* MaterialResource = nullptr;
+            uint32_t LodIndex = 0;
             bool bDoubleSided = false;
 
             [[nodiscard]] bool operator==(const GpuBatchKey&) const = default;
@@ -1086,6 +1162,7 @@ namespace HEngine
             {
                 uint64_t value = reinterpret_cast<uintptr_t>(key.Mesh);
                 value = MixKey(value, reinterpret_cast<uintptr_t>(key.MaterialResource));
+                value = MixKey(value, key.LodIndex);
                 value = MixKey(value, key.bDoubleSided ? 1u : 0u);
                 return static_cast<size_t>(value);
             }
@@ -1094,6 +1171,7 @@ namespace HEngine
         struct GpuBatch
         {
             GpuBatchKey Key;
+            std::shared_ptr<const CompiledMaterialShader> MaterialProgram;
             uint32_t VisibleBase = 0;
             uint32_t ObjectCount = 0;
 			uint32_t MaterialIndex = 0;
@@ -1104,6 +1182,9 @@ namespace HEngine
             std::string Signature;
             std::array<ManagedTextureHandle, 5> Handles{};
             std::array<uint32_t, 5> ShaderIndices{};
+            uint32_t NormalEncoding = 0;
+            uint64_t LastUsedFrame = 0;
+            uint64_t TextureRevision = 0;
         };
 
         struct MaterialParameterTextureSet
@@ -1111,8 +1192,11 @@ namespace HEngine
             std::string Signature;
             std::vector<ManagedTextureHandle> Handles;
             std::vector<uint32_t> ShaderIndices;
+			std::vector<uint32_t> NormalEncodings;
 			std::vector<DefaultBindlessTexture> Fallbacks;
 			std::vector<uint32_t> RowOffsets;
+            uint64_t LastUsedFrame = 0;
+            uint64_t TextureRevision = 0;
         };
 
 		struct FrameMaterialDescriptorInput
@@ -1175,6 +1259,51 @@ namespace HEngine
             bool bPending = false;
         };
 
+        class CpuRenderGraphObserver final : public IRenderGraphCpuObserver
+        {
+        public:
+            void Begin(SceneRendererStats& stats)
+            {
+                mStats = &stats;
+                mUsed = 0;
+                stats.bCpuGraphTimingValid = true;
+            }
+            void End()
+            {
+                mStats->CpuGraphTimings.resize(mUsed);
+                mStats->CpuGraphTimingCount = static_cast<uint32_t>(mUsed);
+                mStats = nullptr;
+            }
+            void OnCpuPhase(RenderGraphCpuPhase phase, uint32_t executionIndex,
+                std::string_view name, double milliseconds, bool completed) noexcept override
+            {
+                if (!mStats) return;
+                static constexpr const char* labels[] = {
+                    "Compile", "Realize", "Validate", "Setup", "Barriers", "Record", "Trailing"};
+                try
+                {
+                    auto& timings = mStats->CpuGraphTimings;
+                    if (mUsed == timings.size()) timings.emplace_back();
+                    auto& timing = timings[mUsed++];
+                    timing.Phase = labels[static_cast<size_t>(phase)];
+                    timing.PhaseIndex = static_cast<uint8_t>(phase);
+                    timing.ExecutionIndex = executionIndex;
+                    if (timing.Name != name) timing.Name.assign(name);
+                    timing.Milliseconds = milliseconds;
+                    timing.bCompleted = completed;
+                    mStats->bCpuGraphTimingValid &= completed;
+                }
+                catch (...)
+                {
+                    // Diagnostics must never throw while unwinding a failed pass.
+                    mStats->bCpuGraphTimingValid = false;
+                }
+            }
+        private:
+            SceneRendererStats* mStats = nullptr;
+            size_t mUsed = 0;
+        };
+
         class GpuRenderGraphInstrumentation final : public IRenderGraphInstrumentation
         {
         public:
@@ -1198,7 +1327,8 @@ namespace HEngine
             {
             }
 
-            void BeginFrame(uint32_t frameSlot, uint64_t completedSubmission)
+            void BeginFrame(uint32_t frameSlot, uint64_t completedSubmission,
+                nvrhi::ICommandList* commandList)
             {
                 if (!bEnabled)
                     return;
@@ -1222,15 +1352,23 @@ namespace HEngine
                 slot.bAllQueriesAvailable = true;
                 slot.bRecording = true;
                 mCurrentFrameSlot = frameSlot;
+                if (!slot.FrameQuery) slot.FrameQuery = mDevice->createTimerQuery();
+                if (slot.FrameQuery)
+                {
+                    mDevice->resetTimerQuery(slot.FrameQuery);
+                    commandList->beginTimerQuery(slot.FrameQuery);
+                }
+                else slot.bAllQueriesAvailable = false;
             }
 
-            void EndFrame(uint32_t frameSlot)
+            void EndFrame(uint32_t frameSlot, nvrhi::ICommandList* commandList)
             {
                 if (!bEnabled)
                     return;
                 Slot& slot = mSlots.at(frameSlot);
                 if (!slot.bRecording || mCurrentFrameSlot != frameSlot)
                     throw std::logic_error("SceneRenderer GPU timing frame is not recording");
+                if (slot.FrameQuery) commandList->endTimerQuery(slot.FrameQuery);
                 slot.bRecording = false;
                 slot.bRecorded = true;
                 mCurrentFrameSlot = InvalidRenderGraphIndex;
@@ -1262,6 +1400,7 @@ namespace HEngine
                     if (slot.Queries[index].Handle)
                         mDevice->resetTimerQuery(slot.Queries[index].Handle);
                 }
+                if (slot.FrameQuery) mDevice->resetTimerQuery(slot.FrameQuery);
                 slot.Submission = 0;
                 slot.UsedQueryCount = 0;
                 slot.bAllQueriesAvailable = true;
@@ -1314,6 +1453,7 @@ namespace HEngine
             {
                 return bEnabled;
             }
+            void Enable() noexcept { bEnabled = true; }
 
             [[nodiscard]] double GetAverageMilliseconds() const noexcept
             {
@@ -1330,6 +1470,16 @@ namespace HEngine
             [[nodiscard]] uint64_t GetFrameSampleCount() const noexcept
             {
                 return mFrameSampleCount;
+            }
+
+            [[nodiscard]] uint64_t GetLastSubmissionId() const noexcept
+            {
+                return mLastFrameSubmissionId;
+            }
+
+            [[nodiscard]] const std::vector<SceneGpuPassTiming>& GetLastFramePasses() const noexcept
+            {
+                return mLastFramePasses;
             }
 
             [[nodiscard]] double GetLastPassMilliseconds(
@@ -1425,6 +1575,7 @@ namespace HEngine
             struct Slot
             {
                 std::vector<TimerRecord> Queries;
+                nvrhi::TimerQueryHandle FrameQuery;
                 uint64_t Submission = 0;
                 uint32_t UsedQueryCount = 0;
                 bool bAllQueriesAvailable = true;
@@ -1444,6 +1595,14 @@ namespace HEngine
 
                 double frameMilliseconds = 0.0;
                 const bool bCompleteSample = slot.bAllQueriesAvailable;
+                if (bCompleteSample) mLastFramePasses.clear();
+                if (slot.FrameQuery)
+                {
+                    if (bCompleteSample)
+                        RecordPassTiming("FrameGpuSpan", static_cast<double>(
+                            mDevice->getTimerQueryTime(slot.FrameQuery)) * 1000.0);
+                    mDevice->resetTimerQuery(slot.FrameQuery);
+                }
                 for (uint32_t index = 0; index < slot.UsedQueryCount; ++index)
                 {
                     TimerRecord& query = slot.Queries[index];
@@ -1453,7 +1612,10 @@ namespace HEngine
                         mDevice->getTimerQueryTime(query.Handle)) * 1000.0;
                     frameMilliseconds += milliseconds;
                     if (bCompleteSample)
+                    {
                         RecordPassTiming(query.PassName, milliseconds);
+                        mLastFramePasses.push_back({ query.PassName, milliseconds });
+                    }
                     mDevice->resetTimerQuery(query.Handle);
                 }
 
@@ -1461,6 +1623,8 @@ namespace HEngine
                 {
                     mLastFrameMilliseconds = frameMilliseconds;
                     mTotalFrameMilliseconds += frameMilliseconds;
+                    // Publish identity with this complete sample before releasing the slot.
+                    mLastFrameSubmissionId = slot.Submission;
                     ++mFrameSampleCount;
                     mRecentFrameSamples.push_back(frameMilliseconds);
                     if (mRecentFrameSamples.size() > 512u)
@@ -1506,11 +1670,13 @@ namespace HEngine
             nvrhi::IDevice* mDevice = nullptr;
             std::vector<Slot> mSlots;
             std::vector<PassTiming> mPassTimings;
+            std::vector<SceneGpuPassTiming> mLastFramePasses;
             std::unordered_map<std::string, size_t> mPassTimingIndices;
             uint32_t mCurrentFrameSlot = InvalidRenderGraphIndex;
             double mTotalFrameMilliseconds = 0.0;
             double mLastFrameMilliseconds = 0.0;
             uint64_t mFrameSampleCount = 0;
+            uint64_t mLastFrameSubmissionId = 0;
             uint64_t mDroppedFrameCount = 0;
             std::vector<double> mRecentFrameSamples;
             bool bEnabled = false;
@@ -1555,6 +1721,7 @@ namespace HEngine
                 Primitive2DVerticesHandle,
                 Primitive2DBufferSlots.at(frame.FrameSlot).Vertices);
             Graph.SetBufferResource(BoneMatricesHandle, BoneMatrixBuffer);
+            Graph.SetBufferResource(PreviousBoneMatricesHandle, PreviousBoneMatrixBuffer);
             for (const GraphGeometry& geometry : GraphGeometryResources)
             {
                 const MeshEntry& mesh = MeshCache.at(geometry.Key);
@@ -1573,6 +1740,7 @@ namespace HEngine
                 GetActiveIlluminationTechnique()->UpdateImportedResources(Graph);
             }
             SceneAntiAliasing.UpdateImportedResources(Graph);
+            Features->UpdateImportedResources(Graph);
         }
 
         explicit Impl(const SceneRendererDesc& desc)
@@ -1594,7 +1762,7 @@ namespace HEngine
                     ? *desc.SharedMaterialShaderHandleManager
                     : ShaderManagerInstance)
             , PipelineCacheInstance(desc.Device)
-            , ResourcePool(desc.Device, desc.FramesInFlight)
+            , ResourcePool(desc.Device, desc.FramesInFlight, desc.bTransientTextureReuse)
             , TextureManagerInstance({
                 .Device = desc.Device,
                 .AssetRootDirectory = desc.AssetRootDirectory,
@@ -1640,11 +1808,13 @@ namespace HEngine
             , AssetRootDirectory(desc.AssetRootDirectory)
             , EngineAssetRootDirectory(desc.EngineAssetRootDirectory)
             , Backend(desc.Backend)
+            , Path(desc.Path)
             , Capabilities(desc.Capabilities)
             , AaCapabilities(BuildAntiAliasingCapabilities(
                 desc.Backend,
                 desc.Capabilities))
             , RequestedAaSettings(desc.AntiAliasing)
+            , RequestedUpscaling(desc.Upscaling)
             , AaSelection(ResolveAntiAliasingSelection(
                 desc.AntiAliasing,
                 AaCapabilities))
@@ -1679,8 +1849,23 @@ namespace HEngine
 			RecordedGpuReadbacks.resize(FramesInFlight);
 
             CreateShaders();
+            LightGrid = CreateScope<SceneLightGrid>(SceneLightGridDesc{
+                .Device = Device, .SharedShaderManager = &MaterialShaderHandleManagerInstance,
+                .ShaderArtifactCacheRoot = ShaderCacheDirectory.parent_path(), .Backend = Backend });
+            (void)LightGrid->PrepareFrame(RenderWorld{}, 1, 1, 0);
+            LocalShadowPass = CreateScope<SceneLocalShadowPass>(SceneLocalShadowPassDesc{ .Device = Device });
             CreateImmutableState();
             CreateDefaultResources();
+            ShadowGpuSubmission = CreateScope<SceneShadowGpuSubmission>(SceneShadowGpuSubmissionDesc{
+                .Device = Device, .SharedShaderManager = &MaterialShaderHandleManagerInstance,
+                .ShaderArtifactCacheRoot = ShaderCacheDirectory.parent_path(), .Backend = Backend });
+            ShadowGpuVertexShader = LoadRasterShader("Modern/SceneShadow.hlsl", "SceneShadow_GPU_DRIVEN.vs",
+                nvrhi::ShaderType::Vertex, "VS", "vs_6_0");
+            nvrhi::BindingLayoutDesc gpuShadowLayout;
+            gpuShadowLayout.setVisibility(nvrhi::ShaderType::Vertex).setRegisterSpaceAndDescriptorSet(2)
+                .addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(0));
+            ShadowGpuObjectLayout = Device->createBindingLayout(gpuShadowLayout);
+            if (!ShadowGpuObjectLayout) throw std::runtime_error("GPU shadow layout creation failed");
             ActiveIrradiance = DefaultEnvironment;
             ActivePrefilter = DefaultEnvironment;
             ActiveEnvironment = DefaultEnvironment;
@@ -1688,8 +1873,52 @@ namespace HEngine
             Stats.SceneColorFormat = c_SceneColorFormat;
             Stats.SceneDepthFormat = c_SceneDepthFormat;
             Stats.bGpuTimingEnabled = desc.bEnableGpuTiming;
+            bCpuGraphTimingEnabled = desc.bEnableCpuGraphTiming;
             RegisterGlobalIlluminationTechniques();
+            UpscalingPass = CreateScope<SceneUpscalingPass>(SceneAntiAliasingPassDesc{
+                .Device = Device, .SharedShaderManager = &MaterialShaderHandleManagerInstance,
+                .ShaderArtifactCacheRoot = ShaderCacheDirectory.parent_path(), .Backend = Backend });
+            Features = CreateScope<RenderFeaturePlan>(desc.PipelineFeatures, RenderFeatureCreateContext{
+                .Device = Device, .SharedShaderManager = &MaterialShaderHandleManagerInstance,
+                .ShaderArtifactCacheRoot = ShaderCacheDirectory.parent_path(),
+                .AssetRootDirectory = AssetRootDirectory, .EngineAssetRootDirectory = EngineAssetRootDirectory,
+                .Backend = Backend, .FramesInFlight = FramesInFlight });
+            ResourcePool.SetTransientCacheBudget(desc.TransientCacheBudgetBytes);
+            TextureStreamingBudgetBytes = desc.TextureStreamingBudgetBytes;
             ConfigureGlobalIllumination(desc.GlobalIllumination);
+            ReflectionSettings = desc.Reflections;
+            bGpuOcclusionEnabled = desc.bGpuOcclusionEnabled;
+            bGpuBatchingEnabled = desc.bGpuBatchingEnabled && SupportsCountedIndirectDraws(Capabilities);
+            bGpuTightFrustumEnabled = desc.bGpuTightFrustumEnabled;
+            bGpuShadowBatchingEnabled = desc.bGpuShadowBatchingEnabled && SupportsCountedIndirectDraws(Capabilities);
+            GeometryArena = CreateScope<SceneGeometryArena>(SceneGeometryArenaDesc{ .Device = Device });
+            SceneIndirectCompactionPassDesc compactionDesc{ .Device = Device,
+                .SharedShaderManager = &MaterialShaderHandleManagerInstance,
+                .ShaderArtifactCacheRoot = ShaderCacheDirectory.parent_path(), .Backend = Backend,
+                .DebugName = "DepthIndirect" };
+            DepthIndirectCompaction = CreateScope<SceneIndirectCompactionPass>(compactionDesc);
+            compactionDesc.DebugName = "MainIndirect";
+            MainIndirectCompaction = CreateScope<SceneIndirectCompactionPass>(compactionDesc);
+            bLodEnabled = desc.bLodEnabled;
+            bShadowsEnabled = desc.bShadowsEnabled;
+            bContinuousPcfEnabled = desc.bContinuousPcfEnabled;
+            LodMaxPixelError = desc.LodMaxPixelError;
+            GpuOcclusionPass = CreateScope<SceneGpuOcclusionPass>(SceneGpuOcclusionPassDesc{
+                .Device = Device, .SharedShaderManager = &MaterialShaderHandleManagerInstance,
+                .ShaderArtifactCacheRoot = ShaderCacheDirectory.parent_path(), .Backend = Backend });
+            ReflectionPass = CreateScope<SceneReflectionPass>(SceneReflectionPassDesc{
+                .Device = Device, .SharedShaderManager = &MaterialShaderHandleManagerInstance,
+                .ShaderArtifactCacheRoot = ShaderCacheDirectory.parent_path(), .Backend = Backend });
+            CloudQualitySettings = desc.Clouds;
+            AmbientOcclusionSettings = desc.AmbientOcclusion;
+            AmbientOcclusionPass = CreateScope<SceneAmbientOcclusionPass>(SceneAmbientOcclusionPassDesc{
+                .Device = Device, .SharedShaderManager = &MaterialShaderHandleManagerInstance,
+                .ShaderArtifactCacheRoot = ShaderCacheDirectory.parent_path(), .Backend = Backend });
+            PostProcessSettings = desc.PostProcess;
+            PostProcessPass = CreateScope<ScenePostProcessPass>(ScenePostProcessPassDesc{
+                .Device = Device, .SharedShaderManager = &MaterialShaderHandleManagerInstance,
+                .ShaderArtifactCacheRoot = ShaderCacheDirectory.parent_path(), .Backend = Backend });
+            RefreshAntiAliasingSelection();
         }
 
         void RegisterGlobalIlluminationTechniques()
@@ -1742,9 +1971,7 @@ namespace HEngine
                     GlobalIlluminationTechniqueRequiredInput::PreviousDepth |
                     GlobalIlluminationTechniqueRequiredInput::OpaqueDirectHdr |
                     GlobalIlluminationTechniqueRequiredInput::DepthPyramid |
-                    GlobalIlluminationTechniqueRequiredInput::FrameBuffer |
-                    GlobalIlluminationTechniqueRequiredInput::LightBuffer |
-                    GlobalIlluminationTechniqueRequiredInput::GeometryBuffer,
+                    GlobalIlluminationTechniqueRequiredInput::FrameBuffer,
                 .OutputSemantics = { .Outputs = commonOutputs |
                     GlobalIlluminationTechniqueOutput::DirectDiffuseRadiance },
                 .SupportedDebugViews = {
@@ -1762,6 +1989,12 @@ namespace HEngine
                     GlobalIlluminationDebugView::Confidence,
                     GlobalIlluminationDebugView::Coverage,
                     GlobalIlluminationDebugView::Variance,
+                    GlobalIlluminationDebugView::SourceLighting,
+                    GlobalIlluminationDebugView::TemporalDiffuseIllumination,
+                    GlobalIlluminationDebugView::ViewDepth,
+                    GlobalIlluminationDebugView::ScreenHitCoverage,
+                    GlobalIlluminationDebugView::TraceTermination,
+                    GlobalIlluminationDebugView::TraceHitLocation,
                 },
             });
             GiTechniqueRegistry.Register(GlobalIlluminationTechniqueDescriptor{
@@ -1820,6 +2053,10 @@ namespace HEngine
                     GlobalIlluminationDebugView::Confidence,
                     GlobalIlluminationDebugView::Coverage,
                     GlobalIlluminationDebugView::Variance,
+                    GlobalIlluminationDebugView::SourceLighting,
+                    GlobalIlluminationDebugView::TemporalDiffuseIllumination,
+                    GlobalIlluminationDebugView::ViewDepth,
+                    GlobalIlluminationDebugView::ScreenHitCoverage,
                 },
             });
         }
@@ -1869,9 +2106,24 @@ namespace HEngine
                 input);
         }
 
+        [[nodiscard]] ScenePostProcessSettings ResolveViewPostProcess(const RenderWorld& world) const
+        {
+            auto settings = PostProcessSettings;
+            settings.BloomIntensity = settings.BloomIntensity * world.PostProcess.BloomBaseWeight + world.PostProcess.BloomContribution;
+            settings.Contrast = settings.Contrast * world.PostProcess.ContrastBaseWeight + world.PostProcess.ContrastContribution;
+            settings.Saturation = settings.Saturation * world.PostProcess.SaturationBaseWeight + world.PostProcess.SaturationContribution;
+            settings.Temperature = settings.Temperature * world.PostProcess.TemperatureBaseWeight + world.PostProcess.TemperatureContribution;
+            settings.VignetteIntensity = settings.VignetteIntensity * world.PostProcess.VignetteBaseWeight + world.PostProcess.VignetteContribution;
+            settings.ColorGain = settings.ColorGain * world.PostProcess.ColorGainBaseWeight + world.PostProcess.ColorGainContribution;
+            settings.ColorOffset = settings.ColorOffset * world.PostProcess.ColorOffsetBaseWeight + world.PostProcess.ColorOffsetContribution;
+            return settings;
+        }
+
         [[nodiscard]] bool RequiresSceneSurfaceData() const noexcept
         {
-            return IsTaaActive() || RequiresGiInput(
+            return (Features && (Features->RequiredInputs() &
+                (uint32_t(RenderFeatureInput::Normal) | uint32_t(RenderFeatureInput::MotionVector)))) ||
+                IsTemporalRasterActive() || RequiresGiInput(
                     GlobalIlluminationTechniqueRequiredInput::NormalRoughness) ||
                 RequiresGiInput(
                     GlobalIlluminationTechniqueRequiredInput::BaseColorMetalness) ||
@@ -1887,8 +2139,7 @@ namespace HEngine
 
         [[nodiscard]] bool RequiresSceneTableProvider() const noexcept
         {
-            return RequiresSceneSurfaceData() ||
-                RequiresGiInput(GlobalIlluminationTechniqueRequiredInput::SceneTlas) ||
+            return RequiresGiInput(GlobalIlluminationTechniqueRequiredInput::SceneTlas) ||
                 RequiresGiInput(GlobalIlluminationTechniqueRequiredInput::MaterialBuffer) ||
                 RequiresGiInput(GlobalIlluminationTechniqueRequiredInput::GeometryBuffer) ||
                 RequiresGiInput(GlobalIlluminationTechniqueRequiredInput::LightBuffer) ||
@@ -1916,15 +2167,28 @@ namespace HEngine
                 IsOfflineViewportRenderingActive()
                     ? AntiAliasingRenderPath::OfflinePathTracing
                     : AntiAliasingRenderPath::RealtimeRaster);
+            if ((Path == RenderingPath::Deferred || bGpuOcclusionEnabled || ReflectionSettings.bScreenSpaceEnabled ||
+                    ReflectionSettings.bLocalProbesEnabled) &&
+                AaSelection.Effective.Mode == AntiAliasingMode::Msaa)
+            {
+                AaSelection.Effective.Mode = AntiAliasingMode::Taa;
+                AaSelection.bFallback = true;
+                AaSelection.bRequestedModeAvailable = false;
+                AaSelection.Reason = "Deferred, reflection composition and same-frame GPU occlusion use native-resolution TAA; Forward MSAA requires reflection passes and GPU occlusion disabled.";
+            }
             if (!AaSelection.bBypassed &&
-                AaSelection.Effective.Mode == AntiAliasingMode::Msaa &&
                 EffectiveGiSettings.DebugView !=
                     GlobalIlluminationDebugView::Composite)
             {
                 AaSelection.Effective.Mode = AntiAliasingMode::None;
                 AaSelection.bFallback = true;
                 AaSelection.Reason =
-                    "MSAA is disabled for non-composite GI debug views.";
+                    "Anti-aliasing is disabled for GI diagnostic views to preserve data and sample positions.";
+            }
+            if (IsFsrActive())
+            {
+                AaSelection.Effective.Mode = AntiAliasingMode::None;
+                AaSelection.Reason = "FSR 3.1 provides temporal reconstruction and anti-aliasing.";
             }
             Stats.RequestedAntiAliasing = RequestedAaSettings.Mode;
             Stats.EffectiveAntiAliasing = AaSelection.Effective.Mode;
@@ -1950,6 +2214,9 @@ namespace HEngine
         {
             return AaSelection.Effective.Mode == AntiAliasingMode::Taa;
         }
+
+        [[nodiscard]] bool IsFsrActive() const noexcept { return UpscalingPass && UpscalingPass->IsActive(); }
+        [[nodiscard]] bool IsTemporalRasterActive() const noexcept { return IsTaaActive() || IsFsrActive(); }
 
         [[nodiscard]] bool IsFxaaActive() const noexcept
         {
@@ -1986,14 +2253,28 @@ namespace HEngine
                     &PreviousTaaNonJitteredViewProjection,
                     sizeof(glm::mat4)) != 0;
             const bool bReset = world.Camera.bCameraCut || bSequenceReset ||
-                !bHasPreviousRasterCamera;
+                !bHasPreviousRasterCamera || !MotionHistory.HasSubmittedScene(world.SceneGeneration);
+            bRasterCameraHistoryReset = bReset;
+            if (bReset)
+            {
+                // Reset before choosing this frame's jitter, not afterwards in
+                // PrepareFrame, so cuts/reloads start at a consistent sample.
+                SceneAntiAliasing.ResetHistory();
+                GlobalIlluminationRenderSequence = 0;
+            }
+            PendingRasterView = world.Camera.View;
+            PendingRasterJitterPixels = glm::vec2(0.0f);
+            PendingRasterWorldFrame = world.FrameNumber;
             if (bViewChanged && !bReset)
                 SceneAntiAliasing.RestartConvergence();
-            if (IsTaaActive())
+            if (IsTemporalRasterActive())
             {
-                const glm::vec2 jitterPixels = GetTaaJitterPixels(
+                const glm::vec2 jitterPixels = IsFsrActive()
+                    ? UpscalingPass->PrepareFrame(world.Camera, world.TimeSeconds, bReset)
+                    : GetTaaJitterPixels(
                     SceneAntiAliasing.GetTemporalFrameIndex(),
                     world.Camera.JitterSequenceGeneration);
+                PendingRasterJitterPixels = jitterPixels;
                 CurrentRasterCamera.Projection = ApplyProjectionJitter(
                     world.Camera.Projection,
                     jitterPixels,
@@ -2008,25 +2289,55 @@ namespace HEngine
                     CurrentRasterCamera.ViewProjection;
                 PendingRasterJitterGeneration =
                     world.Camera.JitterSequenceGeneration;
-                PendingTaaNonJitteredViewProjection =
-                    world.Camera.NonJitteredViewProjection;
-                bRasterCameraFrameRecorded = true;
             }
             else
             {
                 PendingRasterViewProjection = world.Camera.ViewProjection;
+                CurrentRasterCamera.PreviousViewProjection = bReset
+                    ? CurrentRasterCamera.ViewProjection
+                    : PreviousRasterViewProjection;
                 PendingRasterJitterGeneration =
                     world.Camera.JitterSequenceGeneration;
-                bRasterCameraFrameRecorded = false;
             }
+            // Motion guides are also consumed by GI without TAA. Advance this
+            // camera state only when its raster work is successfully submitted;
+            // AA selection controls projection jitter, not camera ownership.
+            PendingTaaNonJitteredViewProjection =
+                world.Camera.NonJitteredViewProjection;
+            bRasterCameraFrameRecorded = true;
             SceneAntiAliasing.PrepareFrame(
                 AaSelection.Effective,
-                frame.Width,
-                frame.Height,
+                IsSpatialPostAntiAliasingActive() ? LastOutputWidth : frame.Width,
+                IsSpatialPostAntiAliasingActive() ? LastOutputHeight : frame.Height,
                 frame.CompletedSubmission,
-                bReset);
+                bReset,
+                PendingRasterJitterPixels);
             if (SceneAntiAliasing.ConsumeGraphRebuildRequest())
                 bGraphDirty = true;
+        }
+
+        void RetireIllumination()
+        {
+            if (!ActiveOfflineViewportRenderer && !ActiveGiTechnique && !HardwareRayTracingScene)
+                return;
+            if (ActiveOfflineViewportRenderer) ActiveOfflineViewportRenderer->Cancel();
+            RetiredIlluminationSets.push_back({LastSubmittedSubmission,
+                std::move(HardwareRayTracingScene), std::move(SurfaceDataPassInstance),
+                std::move(SvgfDenoiserInstance), std::move(DepthPyramidPassInstance),
+                std::move(ActiveGiTechnique), std::move(ActiveOfflineViewportRenderer)});
+        }
+
+        void CollectIllumination(uint64_t completed)
+        {
+            std::erase_if(RetiredIlluminationSets, [completed](RetiredIllumination& retired)
+            {
+                if (retired.Offline) retired.Offline->Collect(completed);
+                if (retired.Submission > completed || (retired.Offline && retired.Offline->HasPendingWork()))
+                    return false;
+                if (retired.Offline) retired.Offline->Clear(completed);
+                if (retired.Realtime) retired.Realtime->Clear(completed);
+                return true;
+            });
         }
 
         void ConfigureOfflineViewportRenderer(std::string providerId)
@@ -2060,22 +2371,12 @@ namespace HEngine
             if (!support.bSupported)
                 throw std::runtime_error(support.Reason);
 
-            if (ActiveOfflineViewportRenderer)
-            {
-                ActiveOfflineViewportRenderer->Clear(
-                    std::numeric_limits<uint64_t>::max());
-                ActiveOfflineViewportRenderer.Release();
-            }
-            if (ActiveGiTechnique)
-            {
-                ActiveGiTechnique->Clear(
-                    std::numeric_limits<uint64_t>::max());
-                ActiveGiTechnique.Release();
-            }
-            SvgfDenoiserInstance.reset();
-            SurfaceDataPassInstance.reset();
-            DepthPyramidPassInstance.reset();
-            HardwareRayTracingScene.reset();
+            // Progressive providers need delayed whole-frame feedback even
+            // when the optional CSV profiler was not enabled at startup.
+            GpuTiming.Enable();
+            Stats.bGpuTimingEnabled = true;
+
+            RetireIllumination();
             try
             {
                 ActiveGiRequiredInputs = descriptor->RequiredInputs;
@@ -2089,6 +2390,8 @@ namespace HEngine
                             .FramesInFlight = FramesInFlight,
                             .bCreateAccelerationStructures =
                                 UsesHardwareRayTracing(),
+                            .bBasePbrMaterials = descriptor->bBasePbrMaterials,
+                            .Textures = &TextureManagerInstance,
                         });
                 }
                 if (RequiresSceneSurfaceData())
@@ -2174,9 +2477,7 @@ namespace HEngine
         {
             if (!ActiveOfflineViewportRenderer)
                 return;
-            ActiveOfflineViewportRenderer->Clear(
-                std::numeric_limits<uint64_t>::max());
-            ActiveOfflineViewportRenderer.Release();
+            RetireIllumination();
             ActiveOfflineViewportRendererDescriptor = {};
             ActiveOfflineViewportRendererId.clear();
             ConfigureGlobalIllumination(RequestedGiSettings);
@@ -2210,6 +2511,9 @@ namespace HEngine
                 true);
             EffectiveGiSettings = normalized;
             EffectiveGiSettings.Technique = GiSelection.Selected;
+            if (EffectiveGiSettings.Denoiser != GlobalIlluminationDenoiserKind::Svgf &&
+                EffectiveGiSettings.DebugView == GlobalIlluminationDebugView::TemporalDiffuseIllumination)
+                EffectiveGiSettings.DebugView = GlobalIlluminationDebugView::RawIndirectDiffuse;
             const std::vector<GlobalIlluminationTechniqueDescriptor>
                 registeredTechniques = GiTechniqueRegistry.Enumerate();
             const auto activeDescriptor = std::ranges::find_if(
@@ -2240,15 +2544,7 @@ namespace HEngine
                         GiSelection.Reason);
                 }
             }
-            if (ActiveGiTechnique)
-            {
-                ActiveGiTechnique->Clear(
-                    std::numeric_limits<uint64_t>::max());
-                ActiveGiTechnique.Release();
-            }
-            SvgfDenoiserInstance.reset();
-            SurfaceDataPassInstance.reset();
-            DepthPyramidPassInstance.reset();
+            RetireIllumination();
             RefreshAntiAliasingSelection();
 
             if (RequiresSceneTableProvider())
@@ -2263,17 +2559,6 @@ namespace HEngine
             else
             {
                 HardwareRayTracingScene.reset();
-            }
-            if (RequiresSceneSurfaceData())
-            {
-                SurfaceDataPassInstance = CreateScope<SceneSurfaceDataPass>(
-                    SceneSurfaceDataPassDesc{
-                        .Device = Device,
-                        .SharedShaderManager = &MaterialShaderHandleManagerInstance,
-                        .Scene = HardwareRayTracingScene.get(),
-                        .ShaderArtifactCacheRoot = ShaderCacheDirectory.parent_path(),
-                        .Backend = Backend,
-                    });
             }
 
             if (!IsGlobalIlluminationActive())
@@ -2353,9 +2638,43 @@ namespace HEngine
             const RenderWorld& world,
             const SceneRendererFrameDesc& frame)
         {
+            if (!HardwareRayTracingScene && !IsGlobalIlluminationActive())
+            {
+                bHasCachedRtWorld = false;
+                return;
+            }
+            // RenderWorldSubmission publishes immutable snapshots. Continuing
+            // accumulation on that same snapshot must not rehash mesh bytes.
+            const bool bBasePbrMaterials = HardwareRayTracingScene && HardwareRayTracingScene->UsesBasePbrMaterials();
+            if (!bHasCachedRtWorld || CachedRtWorldFrame != world.FrameNumber || CachedRtWorldScene != world.SceneGeneration ||
+                bCachedBasePbrMaterials != bBasePbrMaterials)
+            {
+                static const bool bTimeRevisions = []
+                {
+                    const char* setting = std::getenv("HE_RT_REVISION_TIMINGS");
+                    return setting && setting[0] == '1' && setting[1] == '\0';
+                }();
+                const auto revisionStart = bTimeRevisions ? std::chrono::steady_clock::now()
+                    : std::chrono::steady_clock::time_point{};
+                CurrentRtRevisions = BuildRayTracingSceneRevisions(world, bBasePbrMaterials);
+                if (bTimeRevisions && world.FrameNumber % 60 == 0)
+                    HE_CORE_INFO("[RtRevisionTiming] frame={} objects={} uniqueMeshes={} totalMs={} topology={} transform={} material={}",
+                        world.FrameNumber, world.Objects.size(),
+                        CurrentRtRevisions.GeometryContentRevisions.size(),
+                        std::chrono::duration<double, std::milli>(
+                            std::chrono::steady_clock::now() - revisionStart).count(),
+                        CurrentRtRevisions.GeometryTopology,
+                        CurrentRtRevisions.Transform,
+                        CurrentRtRevisions.Material);
+                bCachedBasePbrMaterials = bBasePbrMaterials;
+                if (IsOfflineViewportRenderingActive())
+                    CachedOfflineSceneFingerprint = FingerprintOfflineViewportSceneState(world);
+                CachedRtWorldFrame = world.FrameNumber;
+                CachedRtWorldScene = world.SceneGeneration;
+                bHasCachedRtWorld = true;
+            }
             if (!HardwareRayTracingScene)
                 return;
-            CurrentRtRevisions = BuildRayTracingSceneRevisions(world);
             HardwareRayTracingScene->Prepare(
                 world,
                 CurrentRtRevisions,
@@ -2378,7 +2697,7 @@ namespace HEngine
             if (!IsGlobalIlluminationActive())
                 return;
             if (!IsOfflineViewportRenderingActive())
-                FrameData.IblSettings.x = 0.0f;
+                FrameData.IblSettings.w = 1.0f;
             const RenderCamera& techniqueCamera =
                 IsOfflineViewportRenderingActive()
                 ? world.Camera
@@ -2420,6 +2739,8 @@ namespace HEngine
                 .SceneGeneration = CurrentRtRevisions.Scene,
                 .GeometryTopologyGeneration =
                     CurrentRtRevisions.GeometryTopology,
+                .GeometryTransformGeneration = IsScreenSpaceGlobalIlluminationActive()
+                    ? FingerprintScreenSpaceTransportGeometry(world) : 0,
                 .MaterialGeneration = CurrentRtRevisions.Material,
                 .LightGeneration = CurrentRtRevisions.Light,
                 .Technique = techniqueSettings.Technique,
@@ -2434,14 +2755,67 @@ namespace HEngine
                     ? 1u
                     : techniqueSettings.MaxBounces,
                 .bHalfResolution = techniqueSettings.RenderScale < 0.999f,
-                .bCameraCut = world.Camera.bCameraCut,
+                .bCameraCut = bRasterCameraHistoryReset,
             };
+            SsgiReactiveRegion reactiveRegion;
+            if (techniqueSettings.bSsgiLocalReactiveBudget && IsScreenSpaceGlobalIlluminationActive())
+            {
+                const bool bPotentialShadowTransport = SsgiHasPotentialShadowTransport(
+                    world, bShadowsEnabled, !ActiveOfflineViewportRenderer && !UsesHardwareRayTracing());
+                std::vector<SsgiReactiveObject> objects;
+                objects.reserve(std::min(world.Objects.size(), SsgiReactiveBudget::MaxObjects + 1));
+                for (const RenderObject& object : world.Objects)
+                {
+                    if (!object.bVisible || !std::any_of(object.Sections.begin(), object.Sections.end(),
+                        [](const RenderMeshSection& section) { return section.GetMaterialInstance().bDepthWrite &&
+                            section.AlphaMode != RenderMaterialAlphaMode::Blend; })) continue;
+                    uint64_t revision = 14695981039346656037ull;
+                    HashValue(revision, object.WorldTransform);
+                    for (const auto& bone : object.BonePalette) HashValue(revision, bone);
+                    bool trusted = object.Bounds.bValid && object.BonePalette.empty() &&
+                        (object.Path == RenderPath::CpuOpaque || object.Path == RenderPath::GpuDrivenOpaque) &&
+                        object.MeshResource && !object.MeshResource->mSubMeshes.empty();
+                    if (object.MeshResource)
+                        for (const auto& subMesh : object.MeshResource->mSubMeshes)
+                            trusted = trusted && subMesh && subMesh->HasBounds();
+                    bool continuousDeformation = !object.BonePalette.empty() ||
+                        object.Path == RenderPath::CpuSkinned || object.Path == RenderPath::CpuSkinnedTransparent;
+                    bool globalOnChange = object.bCastShadow && bPotentialShadowTransport;
+                    for (const auto& section : object.Sections)
+                    {
+                        globalOnChange = globalOnChange || glm::any(glm::greaterThan(
+                            glm::abs(section.GetMaterialInstance().Emissive), glm::vec3(0.f)));
+                        HashValue(revision, section.GetMaterialInstance().Revision);
+                        HashValue(revision, section.GetMaterialInstance().ExpectedProgramGeneration);
+                        HashValue(revision, section.AlphaCutoff);
+                        HashString(revision, section.GetMaterialInstance().ShaderPath);
+                        // Reuse the same immutable classification that chooses the
+                        // actual raster pipeline. BasePBR paths need not be empty.
+                        trusted = trusted && !section.GetMaterialInstance().bCustomSurface;
+                        continuousDeformation = continuousDeformation || section.GetMaterialInstance().bCustomSurface ||
+                            section.Path == RenderPath::CpuSkinned || section.Path == RenderPath::CpuSkinnedTransparent;
+                        HashValue(revision, section.GetMaterialInstance().bCustomSurface);
+                    }
+                    objects.push_back({ object.EntityId, revision,
+                        object.Bounds.Center - object.Bounds.Extents,
+                        object.Bounds.Center + object.Bounds.Extents, trusted, globalOnChange, continuousDeformation });
+                    if (objects.size() > SsgiReactiveBudget::MaxObjects) break;
+                }
+                reactiveRegion = ReactiveBudget.Prepare(objects, world.SceneGeneration,
+                    historySignature.GeometryTransformGeneration, techniqueCamera.ViewProjection,
+                    std::max(1u, uint32_t(std::ceil(frame.Width * techniqueSettings.RenderScale))),
+                    std::max(1u, uint32_t(std::ceil(frame.Height * techniqueSettings.RenderScale))),
+                    techniqueSettings.ScreenSpaceMaximumRayDistance, techniqueSettings.MaxBounces,
+                    techniqueSettings.ScreenSpaceThickness, historySignature.bCameraCut);
+            }
+            else ReactiveBudget = {};
             GetActiveIlluminationTechnique()->Collect(frame.CompletedSubmission);
             const GlobalIlluminationPrepareResult prepareResult =
                 GetActiveIlluminationTechnique()->PrepareFrame(
                     GlobalIlluminationFrameContext{
                         .Camera = techniqueCamera,
                         .HistorySignature = historySignature,
+                        .ReactiveRegion = reactiveRegion,
                         .Width = frame.Width,
                         .Height = frame.Height,
                         .FrameSequenceIndex = static_cast<uint32_t>(
@@ -2457,7 +2831,7 @@ namespace HEngine
                         .MaximumRayDistance = techniqueMaximumRayDistance,
                         .EnvironmentRadiance = techniqueEnvironmentRadiance,
                         .SceneStateFingerprint = IsOfflineViewportRenderingActive()
-                            ? FingerprintOfflineViewportSceneState(world)
+                            ? CachedOfflineSceneFingerprint
                             : 0,
                         .CompletedSubmission = frame.CompletedSubmission,
                     },
@@ -2480,7 +2854,12 @@ namespace HEngine
                 .RayTracingVertexBuffer = CurrentRtGraphResources.Vertices,
                 .RayTracingIndexBuffer = CurrentRtGraphResources.Indices,
                 .RayTracingInstanceBuffer = CurrentRtGraphResources.Instances,
+                .AnalyticLightBuffer = CurrentRtGraphResources.AnalyticLights,
                 .Environment = EnvironmentHandle,
+                .EnvironmentCdf = EnvironmentCdfHandle,
+                .EnvironmentProposal = ActiveEnvironmentProposal,
+                .PackedNormalRoughnessAo = RasterSurfaceTargets[1],
+                .AmbientOcclusion = CurrentAmbientOcclusion,
                 .OpaqueDirectHdr = OpaqueDirectHdrHandle,
                 .DepthPyramid = CurrentDepthPyramid.Depth,
                 .Width = LastWidth,
@@ -2490,6 +2869,7 @@ namespace HEngine
 
         void AddGlobalIlluminationPasses()
         {
+            NativeGiDiagnosticInput = {};
             if (!IsGlobalIlluminationActive())
                 return;
             const GlobalIlluminationInputs inputs =
@@ -2497,7 +2877,7 @@ namespace HEngine
             TextureHandle compositeInput;
             GlobalIlluminationCompositeMode compositeMode =
                 GlobalIlluminationCompositeMode::Additive;
-            bool bScalarCompositeInput = false;
+            uint32_t compositeInputChannel = 0;
             CurrentGiOutputs = GetActiveIlluminationTechnique()->AddPasses(
                 Graph,
                 inputs,
@@ -2546,23 +2926,42 @@ namespace HEngine
                         break;
                     case GlobalIlluminationDebugView::HitDistance:
                         compositeInput = CurrentGiOutputs.HitDistance;
-                        bScalarCompositeInput = true;
+                        compositeInputChannel = 1;
                         break;
                     case GlobalIlluminationDebugView::HistoryLength:
                         compositeInput = CurrentGiOutputs.HistoryLength;
-                        bScalarCompositeInput = true;
+                        compositeInputChannel = 1;
                         break;
                     case GlobalIlluminationDebugView::Confidence:
                         compositeInput = CurrentGiOutputs.Confidence;
-                        bScalarCompositeInput = true;
+                        compositeInputChannel = 1;
                         break;
                     case GlobalIlluminationDebugView::Coverage:
                         compositeInput = CurrentGiOutputs.CoverageMask;
-                        bScalarCompositeInput = true;
+                        compositeInputChannel = 1;
                         break;
                     case GlobalIlluminationDebugView::Variance:
                         compositeInput = CurrentGiOutputs.Variance;
-                        bScalarCompositeInput = true;
+                        compositeInputChannel = 1;
+                        break;
+                    case GlobalIlluminationDebugView::SourceLighting:
+                        SceneColorHandle = OpaqueDirectHdrHandle;
+                        NativeGiDiagnosticInput = OpaqueDirectHdrHandle;
+                        return;
+                    case GlobalIlluminationDebugView::TemporalDiffuseIllumination:
+                        compositeInput = CurrentGiOutputs.TemporalDiffuseIllumination;
+                        break;
+                    case GlobalIlluminationDebugView::ViewDepth:
+                        compositeInput = inputs.Surface.ViewDepth;
+                        compositeInputChannel = 1;
+                        break;
+                    case GlobalIlluminationDebugView::ScreenHitCoverage:
+                        compositeInput = raw.RawIndirectDiffuse;
+                        compositeInputChannel = 2;
+                        break;
+                    case GlobalIlluminationDebugView::TraceTermination:
+                    case GlobalIlluminationDebugView::TraceHitLocation:
+                        compositeInput = raw.RawDirectDiffuse;
                         break;
                     default:
                         compositeInput = CurrentGiOutputs.CompositeRadiance;
@@ -2572,6 +2971,8 @@ namespace HEngine
             }
             if (!compositeInput)
                 throw std::logic_error("Global illumination produced no composite input");
+            if (EffectiveGiSettings.DebugView != GlobalIlluminationDebugView::Composite)
+                NativeGiDiagnosticInput = compositeInput;
             if (IsMsaaActive())
             {
                 if (compositeMode != GlobalIlluminationCompositeMode::Additive)
@@ -2588,7 +2989,7 @@ namespace HEngine
                     LastWidth,
                     LastHeight,
                     GetRasterSampleCount(),
-                    bScalarCompositeInput);
+                    compositeInputChannel);
             }
             else
             {
@@ -2599,7 +3000,7 @@ namespace HEngine
                     compositeMode,
                     LastWidth,
                     LastHeight,
-                    bScalarCompositeInput);
+                    compositeInputChannel);
             }
         }
 
@@ -2669,6 +3070,9 @@ namespace HEngine
                 poolStats.PersistentTextureBytes + poolStats.PersistentBufferBytes;
             Stats.RenderGraphTransientReservedBytes =
                 poolStats.TransientTextureBytes + poolStats.TransientBufferBytes;
+            Stats.RenderGraphCachedTransientBytes = poolStats.CachedTransientBytes;
+            Stats.RenderGraphRetiredResourceBytes = poolStats.RetiredResourceBytes;
+            Stats.RenderGraphTrimmedTransientBytes = poolStats.TrimmedTransientBytes;
             Stats.RenderGraphPeakFrameTransientBytes =
                 poolStats.PeakFrameTransientBytes;
         }
@@ -3089,7 +3493,11 @@ namespace HEngine
             frameLayoutDesc
                 .setVisibility(nvrhi::ShaderType::Vertex | nvrhi::ShaderType::Pixel)
                 .setRegisterSpaceAndDescriptorSet(0)
-                .addItem(nvrhi::BindingLayoutItem::VolatileConstantBuffer(0));
+                .addItem(nvrhi::BindingLayoutItem::VolatileConstantBuffer(0))
+                .addItem(nvrhi::BindingLayoutItem::VolatileConstantBuffer(1))
+                .addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(0))
+                .addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1))
+                .addItem(nvrhi::BindingLayoutItem::Texture_SRV(2));
             FrameBindingLayout = PipelineCacheInstance.GetOrCreateBindingLayout(
                 BindingLayoutKey{ 0x53434e4652414d45ull },
                 frameLayoutDesc,
@@ -3102,7 +3510,8 @@ namespace HEngine
                 .addItem(nvrhi::BindingLayoutItem::VolatileConstantBuffer(0))
                 .addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(2))
                 .addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(3))
-                .addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(4));
+                .addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(4))
+                .addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(6));
             ObjectBindingLayout = PipelineCacheInstance.GetOrCreateBindingLayout(
                 BindingLayoutKey{ 0x53434e4f424a4c5aull },
                 objectLayoutDesc,
@@ -3129,9 +3538,8 @@ namespace HEngine
                 .setVisibility(nvrhi::ShaderType::Vertex | nvrhi::ShaderType::Pixel)
                 .setRegisterSpaceAndDescriptorSet(2)
                 .addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(0))
-                .addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1))
                 .addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(2))
-                .addItem(nvrhi::BindingLayoutItem::PushConstants(1, sizeof(GpuDrawConstants)));
+                .addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(4));
             GpuObjectBindingLayout = PipelineCacheInstance.GetOrCreateBindingLayout(
                 BindingLayoutKey{ 0x53434e4750554f42ull },
                 gpuObjectLayoutDesc,
@@ -3177,7 +3585,10 @@ namespace HEngine
                 .addItem(nvrhi::BindingLayoutItem::Texture_SRV(1))
                 .addItem(nvrhi::BindingLayoutItem::Texture_SRV(2))
                 .addItem(nvrhi::BindingLayoutItem::Texture_SRV(3))
-                .addItem(nvrhi::BindingLayoutItem::Sampler(0));
+                .addItem(nvrhi::BindingLayoutItem::Texture_SRV(10))
+                .addItem(nvrhi::BindingLayoutItem::StructuredBuffer_SRV(11))
+                .addItem(nvrhi::BindingLayoutItem::Sampler(0))
+                .addItem(nvrhi::BindingLayoutItem::Sampler(1));
             ShadowTextureBindingLayout = PipelineCacheInstance.GetOrCreateBindingLayout(
                 BindingLayoutKey{ 0x53434e5348445445ull },
                 shadowTextureLayoutDesc,
@@ -3223,18 +3634,25 @@ namespace HEngine
                 .setAllAddressModes(nvrhi::SamplerAddressMode::Clamp);
             ToneSampler = Device->createSampler(samplerDesc);
             ShadowSampler = Device->createSampler(samplerDesc);
+            nvrhi::SamplerDesc comparisonDesc = samplerDesc;
+            comparisonDesc.setReductionType(nvrhi::SamplerReductionType::Comparison);
+            ShadowComparisonSampler = Device->createSampler(comparisonDesc);
             EnvironmentSampler = Device->createSampler(samplerDesc);
             samplerDesc.setAddressU(nvrhi::SamplerAddressMode::Wrap)
                 .setAddressV(nvrhi::SamplerAddressMode::Clamp)
                 .setAddressW(nvrhi::SamplerAddressMode::Clamp);
             EquirectangularSampler = Device->createSampler(samplerDesc);
 
-            const std::array<nvrhi::VertexAttributeDesc, 5> attributes = {
+            const std::array<nvrhi::VertexAttributeDesc, 8> attributes = {
                 nvrhi::VertexAttributeDesc()
                     .setName("POSITION")
                     .setFormat(nvrhi::Format::RGB32_FLOAT)
                     .setBufferIndex(0)
                     .setOffset(static_cast<uint32_t>(offsetof(StaticVertex, Pos)))
+                    .setElementStride(sizeof(StaticVertex)),
+                nvrhi::VertexAttributeDesc().setName("PREVIOUS_POSITION")
+                    .setFormat(nvrhi::Format::RGB32_FLOAT).setBufferIndex(0)
+                    .setOffset(static_cast<uint32_t>(offsetof(StaticVertex, PreviousPosition)))
                     .setElementStride(sizeof(StaticVertex)),
                 nvrhi::VertexAttributeDesc()
                     .setName("NORMAL")
@@ -3260,15 +3678,27 @@ namespace HEngine
                     .setBufferIndex(0)
                     .setOffset(static_cast<uint32_t>(offsetof(StaticVertex, Bitangent)))
                     .setElementStride(sizeof(StaticVertex)),
+                nvrhi::VertexAttributeDesc().setName("TEXCOORDONE")
+                    .setFormat(nvrhi::Format::RG32_FLOAT).setBufferIndex(0)
+                    .setOffset(static_cast<uint32_t>(offsetof(StaticVertex, TexCoord1)))
+                    .setElementStride(sizeof(StaticVertex)),
+                nvrhi::VertexAttributeDesc().setName("COLOR")
+                    .setFormat(nvrhi::Format::RGBA32_FLOAT).setBufferIndex(0)
+                    .setOffset(static_cast<uint32_t>(offsetof(StaticVertex, Color)))
+                    .setElementStride(sizeof(StaticVertex)),
             };
             InputLayout = Device->createInputLayout(
                 attributes.data(),
                 static_cast<uint32_t>(attributes.size()),
                 OpaqueVertexShader);
-            const std::array<nvrhi::VertexAttributeDesc, 7> skinnedAttributes = {
+            const std::array<nvrhi::VertexAttributeDesc, 10> skinnedAttributes = {
                 nvrhi::VertexAttributeDesc().setName("POSITION")
                     .setFormat(nvrhi::Format::RGB32_FLOAT).setBufferIndex(0)
                     .setOffset(static_cast<uint32_t>(offsetof(SkinnedVertex, Pos)))
+                    .setElementStride(sizeof(SkinnedVertex)),
+                nvrhi::VertexAttributeDesc()
+                    .setName("PREVIOUS_POSITION").setFormat(nvrhi::Format::RGB32_FLOAT)
+                    .setOffset(static_cast<uint32_t>(offsetof(SkinnedVertex, PreviousPosition)))
                     .setElementStride(sizeof(SkinnedVertex)),
                 nvrhi::VertexAttributeDesc().setName("NORMAL")
                     .setFormat(nvrhi::Format::RGB32_FLOAT).setBufferIndex(0)
@@ -3286,24 +3716,36 @@ namespace HEngine
                     .setFormat(nvrhi::Format::RGB32_FLOAT).setBufferIndex(0)
                     .setOffset(static_cast<uint32_t>(offsetof(SkinnedVertex, Bitangent)))
                     .setElementStride(sizeof(SkinnedVertex)),
-                nvrhi::VertexAttributeDesc().setName("BONEIDS")
+                nvrhi::VertexAttributeDesc().setName("BONEIDS").setArraySize(MAX_BONE_INFLUENCE / 4)
                     .setFormat(nvrhi::Format::RGBA32_SINT).setBufferIndex(0)
                     .setOffset(static_cast<uint32_t>(offsetof(SkinnedVertex, mBoneIDs)))
                     .setElementStride(sizeof(SkinnedVertex)),
-                nvrhi::VertexAttributeDesc().setName("BONEWEIGHTS")
+                nvrhi::VertexAttributeDesc().setName("BONEWEIGHTS").setArraySize(MAX_BONE_INFLUENCE / 4)
                     .setFormat(nvrhi::Format::RGBA32_FLOAT).setBufferIndex(0)
                     .setOffset(static_cast<uint32_t>(offsetof(SkinnedVertex, mWeights)))
+                    .setElementStride(sizeof(SkinnedVertex)),
+                nvrhi::VertexAttributeDesc().setName("TEXCOORDONE")
+                    .setFormat(nvrhi::Format::RG32_FLOAT).setBufferIndex(0)
+                    .setOffset(static_cast<uint32_t>(offsetof(SkinnedVertex, TexCoord1)))
+                    .setElementStride(sizeof(SkinnedVertex)),
+                nvrhi::VertexAttributeDesc().setName("COLOR")
+                    .setFormat(nvrhi::Format::RGBA32_FLOAT).setBufferIndex(0)
+                    .setOffset(static_cast<uint32_t>(offsetof(SkinnedVertex, Color)))
                     .setElementStride(sizeof(SkinnedVertex)),
             };
             SkinnedInputLayout = Device->createInputLayout(
                 skinnedAttributes.data(),
                 static_cast<uint32_t>(skinnedAttributes.size()),
                 SkinnedVertexShader);
+            std::array<nvrhi::VertexAttributeDesc, 9> gpuAttributes;
+            std::copy(attributes.begin(), attributes.end(), gpuAttributes.begin());
+            gpuAttributes.back() = nvrhi::VertexAttributeDesc().setName("INPUT_OBJECT_ID")
+                .setFormat(nvrhi::Format::R32_UINT).setBufferIndex(1).setOffset(0)
+                .setElementStride(sizeof(uint32_t)).setIsInstanced(true);
             GpuInputLayout = Device->createInputLayout(
-                attributes.data(),
-                static_cast<uint32_t>(attributes.size()),
+                gpuAttributes.data(), static_cast<uint32_t>(gpuAttributes.size()),
                 GpuOpaqueVertexShader);
-            const std::array<nvrhi::VertexAttributeDesc, 2> shadowAttributes = {
+            const std::array<nvrhi::VertexAttributeDesc, 4> shadowAttributes = {
                 nvrhi::VertexAttributeDesc()
                     .setName("POSITION")
                     .setFormat(nvrhi::Format::RGB32_FLOAT)
@@ -3316,12 +3758,31 @@ namespace HEngine
                     .setBufferIndex(0)
                     .setOffset(static_cast<uint32_t>(offsetof(StaticVertex, TexCoord)))
                     .setElementStride(sizeof(StaticVertex)),
+                nvrhi::VertexAttributeDesc().setName("TEXCOORDONE")
+                    .setFormat(nvrhi::Format::RG32_FLOAT).setBufferIndex(0)
+                    .setOffset(static_cast<uint32_t>(offsetof(StaticVertex, TexCoord1)))
+                    .setElementStride(sizeof(StaticVertex)),
+                nvrhi::VertexAttributeDesc().setName("COLOR")
+                    .setFormat(nvrhi::Format::RGBA32_FLOAT).setBufferIndex(0)
+                    .setOffset(static_cast<uint32_t>(offsetof(StaticVertex, Color)))
+                    .setElementStride(sizeof(StaticVertex)),
             };
             ShadowInputLayout = Device->createInputLayout(
                 shadowAttributes.data(),
                 static_cast<uint32_t>(shadowAttributes.size()),
                 ShadowVertexShader);
-            const std::array<nvrhi::VertexAttributeDesc, 4> skinnedShadowAttributes = {
+            std::array<nvrhi::VertexAttributeDesc, 5> gpuDepthAttributes;
+            std::copy(shadowAttributes.begin(), shadowAttributes.end(), gpuDepthAttributes.begin());
+            gpuDepthAttributes.back() = nvrhi::VertexAttributeDesc().setName("INPUT_OBJECT_ID")
+                .setFormat(nvrhi::Format::R32_UINT).setBufferIndex(1).setOffset(0)
+                .setElementStride(sizeof(uint32_t)).setIsInstanced(true);
+            GpuDepthInputLayout = Device->createInputLayout(gpuDepthAttributes.data(),
+                static_cast<uint32_t>(gpuDepthAttributes.size()), GpuDepthVertexShader);
+            gpuDepthAttributes.back().setOffset(static_cast<uint32_t>(offsetof(GpuDrawData, ObjectIndex)))
+                .setElementStride(sizeof(GpuDrawData));
+            GpuUnculledDepthInputLayout = Device->createInputLayout(gpuDepthAttributes.data(),
+                static_cast<uint32_t>(gpuDepthAttributes.size()), GpuDepthVertexShader);
+            const std::array<nvrhi::VertexAttributeDesc, 6> skinnedShadowAttributes = {
                 nvrhi::VertexAttributeDesc().setName("POSITION")
                     .setFormat(nvrhi::Format::RGB32_FLOAT).setBufferIndex(0)
                     .setOffset(static_cast<uint32_t>(offsetof(SkinnedVertex, Pos)))
@@ -3330,13 +3791,21 @@ namespace HEngine
                     .setFormat(nvrhi::Format::RG32_FLOAT).setBufferIndex(0)
                     .setOffset(static_cast<uint32_t>(offsetof(SkinnedVertex, TexCoord)))
                     .setElementStride(sizeof(SkinnedVertex)),
-                nvrhi::VertexAttributeDesc().setName("BONEIDS")
+                nvrhi::VertexAttributeDesc().setName("BONEIDS").setArraySize(MAX_BONE_INFLUENCE / 4)
                     .setFormat(nvrhi::Format::RGBA32_SINT).setBufferIndex(0)
                     .setOffset(static_cast<uint32_t>(offsetof(SkinnedVertex, mBoneIDs)))
                     .setElementStride(sizeof(SkinnedVertex)),
-                nvrhi::VertexAttributeDesc().setName("BONEWEIGHTS")
+                nvrhi::VertexAttributeDesc().setName("BONEWEIGHTS").setArraySize(MAX_BONE_INFLUENCE / 4)
                     .setFormat(nvrhi::Format::RGBA32_FLOAT).setBufferIndex(0)
                     .setOffset(static_cast<uint32_t>(offsetof(SkinnedVertex, mWeights)))
+                    .setElementStride(sizeof(SkinnedVertex)),
+                nvrhi::VertexAttributeDesc().setName("TEXCOORDONE")
+                    .setFormat(nvrhi::Format::RG32_FLOAT).setBufferIndex(0)
+                    .setOffset(static_cast<uint32_t>(offsetof(SkinnedVertex, TexCoord1)))
+                    .setElementStride(sizeof(SkinnedVertex)),
+                nvrhi::VertexAttributeDesc().setName("COLOR")
+                    .setFormat(nvrhi::Format::RGBA32_FLOAT).setBufferIndex(0)
+                    .setOffset(static_cast<uint32_t>(offsetof(SkinnedVertex, Color)))
                     .setElementStride(sizeof(SkinnedVertex)),
             };
             SkinnedShadowInputLayout = Device->createInputLayout(
@@ -3367,11 +3836,11 @@ namespace HEngine
                     .setFormat(nvrhi::Format::RGB32_FLOAT).setBufferIndex(0)
                     .setOffset(static_cast<uint32_t>(offsetof(SkinnedVertex, Normal)))
                     .setElementStride(sizeof(SkinnedVertex)),
-                nvrhi::VertexAttributeDesc().setName("BONEIDS")
+                nvrhi::VertexAttributeDesc().setName("BONEIDS").setArraySize(MAX_BONE_INFLUENCE / 4)
                     .setFormat(nvrhi::Format::RGBA32_SINT).setBufferIndex(0)
                     .setOffset(static_cast<uint32_t>(offsetof(SkinnedVertex, mBoneIDs)))
                     .setElementStride(sizeof(SkinnedVertex)),
-                nvrhi::VertexAttributeDesc().setName("BONEWEIGHTS")
+                nvrhi::VertexAttributeDesc().setName("BONEWEIGHTS").setArraySize(MAX_BONE_INFLUENCE / 4)
                     .setFormat(nvrhi::Format::RGBA32_FLOAT).setBufferIndex(0)
                     .setOffset(static_cast<uint32_t>(offsetof(SkinnedVertex, mWeights)))
                     .setElementStride(sizeof(SkinnedVertex)),
@@ -3437,9 +3906,9 @@ namespace HEngine
                 !EnvironmentPrecomputeBindingLayout ||
                 !ShadowTextureBindingLayout || !SkyBindingLayout || !ToneBindingLayout ||
                 !Primitive2DBindingLayout ||
-                !ToneSampler || !ShadowSampler || !EnvironmentSampler ||
+                !ToneSampler || !ShadowSampler || !ShadowComparisonSampler || !EnvironmentSampler ||
                 !EquirectangularSampler ||
-                !InputLayout || !GpuInputLayout || !ShadowInputLayout ||
+                !InputLayout || !GpuInputLayout || !GpuDepthInputLayout || !GpuUnculledDepthInputLayout || !ShadowInputLayout ||
                 !SkinnedShadowInputLayout ||
                 !OutlineInputLayout || !SkinnedOutlineInputLayout ||
                 !Primitive2DInputLayout || !SkinnedInputLayout)
@@ -3465,11 +3934,14 @@ namespace HEngine
             frameBufferDesc.setByteSize(sizeof(FrameConstants))
                 .setIsConstantBuffer(true)
                 .setIsVolatile(true)
-                .setMaxVersions(std::max(FramesInFlight, 2u))
+                .setMaxVersions(2u * std::max(FramesInFlight, 2u))
                 .setInitialState(nvrhi::ResourceStates::Common)
                 .setKeepInitialState(false)
                 .setDebugName("SceneRenderer Volatile Frame Constants");
             FrameConstantBuffer = Device->createBuffer(frameBufferDesc);
+            frameBufferDesc.setMaxVersions(20u * std::max(FramesInFlight, 2u))
+                .setDebugName("SceneRenderer Local Shadow View Constants");
+            LocalShadowFrameConstantBuffer = Device->createBuffer(frameBufferDesc);
             frameBufferDesc.setByteSize(sizeof(ObjectConstants))
 				.setMaxVersions(c_MaxObjectConstantWritesPerFrame *
 					std::max(FramesInFlight, 2u))
@@ -3532,13 +4004,14 @@ namespace HEngine
                 .setDebugName("SceneRenderer Material Parameter Rows");
             MaterialParameterBuffer = Device->createBuffer(gpuBufferDesc);
             gpuBufferDesc
-                .setByteSize(static_cast<uint64_t>(c_MaxSkinnedDraws) *
-                    c_MaxBonesPerPalette * sizeof(glm::mat4))
+                .setByteSize(static_cast<uint64_t>(SceneBoneMatrixCapacity) * sizeof(glm::mat4))
                 .setStructStride(sizeof(glm::mat4))
                 .setCanHaveUAVs(false)
                 .setIsDrawIndirectArgs(false)
                 .setDebugName("SceneRenderer Skinned Bone Matrices");
             BoneMatrixBuffer = Device->createBuffer(gpuBufferDesc);
+            gpuBufferDesc.setDebugName("SceneRenderer Previous Bone Matrices");
+            PreviousBoneMatrixBuffer = Device->createBuffer(gpuBufferDesc);
             gpuBufferDesc
                 .setByteSize(static_cast<uint64_t>(c_MaxGpuDrivenObjects) * sizeof(GpuBoundsData))
                 .setStructStride(sizeof(GpuBoundsData))
@@ -3547,18 +4020,21 @@ namespace HEngine
             gpuBufferDesc
                 .setByteSize(static_cast<uint64_t>(c_MaxGpuDrivenObjects) * sizeof(GpuDrawData))
                 .setStructStride(sizeof(GpuDrawData))
+                .setIsVertexBuffer(true)
                 .setDebugName("SceneRenderer GPU Scene Draw Data");
             GpuDrawDataBuffer = Device->createBuffer(gpuBufferDesc);
             gpuBufferDesc
                 .setByteSize(static_cast<uint64_t>(c_MaxGpuDrivenObjects) * sizeof(uint32_t))
                 .setStructStride(sizeof(uint32_t))
                 .setCanHaveUAVs(true)
+                .setIsVertexBuffer(true)
                 .setDebugName("SceneRenderer GPU Visible Object Indices");
             VisibleObjectIndicesBuffer = Device->createBuffer(gpuBufferDesc);
             gpuBufferDesc
                 .setByteSize(static_cast<uint64_t>(c_MaxGpuDrivenBatches) *
                     sizeof(nvrhi::DrawIndexedIndirectArguments))
                 .setStructStride(sizeof(nvrhi::DrawIndexedIndirectArguments))
+                .setIsVertexBuffer(false)
                 .setIsDrawIndirectArgs(true)
                 .setDebugName("SceneRenderer GPU Indexed Indirect Arguments");
             IndirectArgumentsBuffer = Device->createBuffer(gpuBufferDesc);
@@ -3598,7 +4074,7 @@ namespace HEngine
                 !DefaultEnvironment || !DefaultBrdfLut ||
                 !EnvironmentDummyOutputCube || !EnvironmentDummyOutputBrdf ||
                 !GpuObjectBuffer || !GpuMaterialBuffer || !MaterialParameterBuffer ||
-                !BoneMatrixBuffer ||
+                !BoneMatrixBuffer || !PreviousBoneMatrixBuffer ||
                 !GpuBoundsBuffer || !GpuDrawDataBuffer ||
                 !VisibleObjectIndicesBuffer || !IndirectArgumentsBuffer ||
                 std::ranges::any_of(
@@ -3611,19 +4087,30 @@ namespace HEngine
                 throw std::runtime_error("NVRHI failed to create SceneRenderer default resources");
 
             nvrhi::BindingSetDesc frameBindingDesc;
-            frameBindingDesc.addItem(nvrhi::BindingSetItem::ConstantBuffer(0, FrameConstantBuffer));
+            frameBindingDesc.addItem(nvrhi::BindingSetItem::ConstantBuffer(0, FrameConstantBuffer))
+                .addItem(nvrhi::BindingSetItem::ConstantBuffer(1, LightGrid->GetConstantsBuffer()))
+                .addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(0, LightGrid->GetLightBuffer()))
+                .addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(1, LightGrid->GetClusterMaskBuffer()))
+                .addItem(nvrhi::BindingSetItem::Texture_SRV(2,
+                    TextureManagerInstance.GetDefaultTexture(DefaultBindlessTexture::White).Texture));
             FrameBindingSet = PipelineCacheInstance.GetOrCreateStaticBindingSet(
                 StaticBindingSetKey{ 0x53434e4652414d53ull },
                 frameBindingDesc,
                 FrameBindingLayout,
                 "SceneRenderer frame binding set");
 
+            frameBindingDesc.bindings[0] = nvrhi::BindingSetItem::ConstantBuffer(0, LocalShadowFrameConstantBuffer);
+            LocalShadowFrameBindingSet = Device->createBindingSet(frameBindingDesc, FrameBindingLayout);
+            if (!LocalShadowFrameConstantBuffer || !LocalShadowFrameBindingSet)
+                throw std::runtime_error("Local shadow frame resource creation failed");
+
             nvrhi::BindingSetDesc objectBindingDesc;
             objectBindingDesc.addItem(nvrhi::BindingSetItem::ConstantBuffer(
                     0, ObjectConstantBuffer))
                 .addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(2, GpuMaterialBuffer))
                 .addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(3, BoneMatrixBuffer))
-                .addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(4, MaterialParameterBuffer));
+                .addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(4, MaterialParameterBuffer))
+                .addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(6, PreviousBoneMatrixBuffer));
             ObjectBindingSet = PipelineCacheInstance.GetOrCreateStaticBindingSet(
                 StaticBindingSetKey{ 0x53434e4f424a5346ull },
                 objectBindingDesc,
@@ -3641,9 +4128,8 @@ namespace HEngine
             nvrhi::BindingSetDesc gpuObjectBindingDesc;
             gpuObjectBindingDesc
                 .addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(0, GpuObjectBuffer))
-                .addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(1, VisibleObjectIndicesBuffer))
                 .addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(2, GpuMaterialBuffer))
-                .addItem(nvrhi::BindingSetItem::PushConstants(1, sizeof(GpuDrawConstants)));
+                .addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(4, MaterialParameterBuffer));
             GpuObjectBindingSet = Device->createBindingSet(
                 gpuObjectBindingDesc,
                 GpuObjectBindingLayout);
@@ -3684,12 +4170,22 @@ namespace HEngine
                 throw std::runtime_error("NVRHI failed to create Primitive2D binding set");
         }
 
+        #include "SceneRendererLod.inl"
+        #include "SceneRendererGpuBatch.inl"
+
         MeshEntry& GetOrCreateMesh(const Ref<SubMesh>& subMesh)
         {
             const SubMesh* key = subMesh.get();
             const auto existing = MeshCache.find(key);
             if (existing != MeshCache.end())
+            {
+                if (!existing->second.bDynamicVertices && subMesh->GetDeformationRevision() != 0)
+                {
+                    existing->second.bDynamicVertices = true;
+                    bGraphDirty = true;
+                }
                 return existing->second;
+            }
 
             if (!subMesh ||
                 (subMesh->mStaticVertices.empty() && subMesh->mSkinnedVertices.empty()) ||
@@ -3714,9 +4210,22 @@ namespace HEngine
                 .setDebugName(bSkinned
                     ? "SceneRenderer Skinned Mesh Vertices"
                     : "SceneRenderer Static Mesh Vertices");
+            MeshEntry entry;
+            entry.ResidentIndices = subMesh->GetIndices();
+            entry.Lods.push_back({ 0, static_cast<uint32_t>(entry.ResidentIndices.size()), 0, 0.0f });
+            for (const SubMeshLod& lod : subMesh->GetLods())
+            {
+                const size_t firstIndex = entry.ResidentIndices.size();
+                if (firstIndex + lod.Indices.size() > std::numeric_limits<uint32_t>::max())
+                    throw std::length_error("Mesh resident LOD index capacity exceeded");
+                entry.Lods.push_back({ static_cast<uint32_t>(firstIndex),
+                    static_cast<uint32_t>(lod.Indices.size()), static_cast<uint32_t>(firstIndex / 3u),
+                    lod.ObjectSpaceError });
+                entry.ResidentIndices.insert(entry.ResidentIndices.end(), lod.Indices.begin(), lod.Indices.end());
+            }
             nvrhi::BufferDesc indexDesc;
             indexDesc.setByteSize(
-                    static_cast<uint64_t>(subMesh->GetIndices().size()) * sizeof(uint32_t))
+                    static_cast<uint64_t>(entry.ResidentIndices.size()) * sizeof(uint32_t))
                 .setIsIndexBuffer(true)
                 .setCanHaveRawViews(true)
                 .setIsAccelStructBuildInput(true)
@@ -3724,10 +4233,22 @@ namespace HEngine
                 .setKeepInitialState(false)
                 .setDebugName("SceneRenderer Static Mesh Indices");
 
-            MeshEntry entry;
             entry.Resource = subMesh;
-            entry.VertexBuffer = Device->createBuffer(vertexDesc);
-            entry.IndexBuffer = Device->createBuffer(indexDesc);
+            entry.DeformationRevision = subMesh->GetDeformationRevision();
+            entry.bDynamicVertices = entry.DeformationRevision != 0;
+            if (bSkinned)
+            {
+                entry.VertexBuffer = Device->createBuffer(vertexDesc);
+                entry.IndexBuffer = Device->createBuffer(indexDesc);
+            }
+            else
+            {
+                entry.ArenaAllocation = GeometryArena->Allocate(static_cast<uint32_t>(subMesh->mStaticVertices.size()),
+                    static_cast<uint32_t>(entry.ResidentIndices.size()), sizeof(StaticVertex));
+                const auto& page = GeometryArena->GetPages()[entry.ArenaAllocation.PageIndex];
+                entry.VertexBuffer = page.VertexBuffer;
+                entry.IndexBuffer = page.IndexBuffer;
+            }
             entry.IndexCount = static_cast<uint32_t>(subMesh->GetIndices().size());
             entry.bSkinned = bSkinned;
             if (!entry.VertexBuffer || !entry.IndexBuffer)
@@ -3737,6 +4258,7 @@ namespace HEngine
             const auto [iterator, bInserted] = MeshCache.emplace(key, std::move(entry));
             (void)bInserted;
             bGraphDirty = true;
+            Stats.GraphBuildReasonMask |= SceneGraphRebuildReason::MeshAdded;
             return iterator->second;
         }
 
@@ -3813,26 +4335,102 @@ namespace HEngine
             if (key.empty())
                 return GetEnvironmentPreparation({});
 
-            auto [iterator, bInserted] = EnvironmentCache.try_emplace(key);
+            auto iterator = EnvironmentCache.try_emplace(key).first;
             EnvironmentEntry& entry = iterator->second;
-            if (!bInserted && entry.State != SceneEnvironmentState::Unrequested)
+            if (entry.State == SceneEnvironmentState::Unrequested)
+            {
+                entry = {};
+                entry.State = SceneEnvironmentState::Preparing;
+                entry.Path = key;
+                try
+                {
+                    (void)ResolveEnvironmentPath(key);
+                    entry.SourceAsset = TextureManagerInstance.LoadTexture(TextureLoadDesc{
+                        .AssetPath = key,
+                        .ColorSpace = TextureColorSpace::Linear,
+                        .bCreateBindlessDescriptor = false,
+                        .bAllowAbsolutePath = Utils::Utf8ToPath(key).is_absolute(),
+                        .bGenerateMipmaps = false,
+                        .bBuildEnvironmentProposal = true,
+                        .bRequireReady = false,
+                        .DebugName = "SceneRenderer HDR Equirectangular: " + key,
+                    });
+                }
+                catch (const std::exception& exception)
+                {
+                    entry.Error = exception.what();
+                    entry.State = SceneEnvironmentState::Failed;
+                }
+                return GetEnvironmentPreparation(key);
+            }
+            if (entry.State != SceneEnvironmentState::Preparing)
                 return GetEnvironmentPreparation(key);
 
-            entry = {};
-            entry.State = SceneEnvironmentState::Preparing;
-            entry.Path = key;
+            bool bCreateBrdfLut = false;
+            uint64_t preparationSubmission = 0;
+            const auto releaseSource = [&](uint64_t retireAfterSubmission)
+            {
+                const ManagedTextureHandle source = std::exchange(entry.SourceAsset, {});
+                entry.SourceEquirectangular = nullptr;
+                if (TextureManagerInstance.IsValid(source))
+                    TextureManagerInstance.ReleaseTexture(source, retireAfterSubmission);
+            };
+            if (entry.PreparationComplete)
+            {
+                if (!entry.bCancelled &&
+                    EnvironmentPumpFrame < entry.NotBeforePumpFrame)
+                    return GetEnvironmentPreparation(key);
+                if (!Device->pollEventQuery(entry.PreparationComplete))
+                    return GetEnvironmentPreparation(key);
+                Device->resetEventQuery(entry.PreparationComplete);
+                entry.PreparationComplete = nullptr;
+                entry.PreparationBindings.clear();
+                entry.PreparationCommandList = nullptr;
+                releaseSource(entry.PreparationSubmission);
+                entry.PreparationSubmission = 0;
+                if (entry.NotBeforePumpFrame != 0)
+                    HE_CORE_INFO("Environment IBL GPU query complete: {} pump={} releaseAt={}",
+                        key, EnvironmentPumpFrame, entry.NotBeforePumpFrame);
+                if (entry.bCancelled)
+                {
+                    if (entry.NotBeforePumpFrame != 0)
+                        HE_CORE_INFO("Environment IBL discarded after completed GPU query: {}", key);
+                    entry.EnvironmentCdf = nullptr;
+                    entry.EnvironmentProposal.reset();
+                    entry.Environment = nullptr;
+                    entry.Irradiance = nullptr;
+                    entry.Prefilter = nullptr;
+                    entry.State = SceneEnvironmentState::Failed;
+                    return GetEnvironmentPreparation(key);
+                }
+                entry.State = SceneEnvironmentState::Ready;
+                bGraphDirty = true;
+                return GetEnvironmentPreparation(key);
+            }
+            if (!TextureManagerInstance.IsValid(entry.SourceAsset))
+            {
+                entry.Error = "Environment HDR source was released before preparation";
+                entry.State = SceneEnvironmentState::Failed;
+                return GetEnvironmentPreparation(key);
+            }
+            const TextureUploadStage sourceStage =
+                TextureManagerInstance.GetUploadStage(entry.SourceAsset);
+            if (sourceStage == TextureUploadStage::Failed ||
+                sourceStage == TextureUploadStage::Cancelled)
+            {
+                entry.Error = "Environment HDR source upload failed: " + key;
+                releaseSource(0);
+                entry.State = SceneEnvironmentState::Failed;
+                return GetEnvironmentPreparation(key);
+            }
+            if (sourceStage != TextureUploadStage::Ready)
+                return GetEnvironmentPreparation(key);
             try
             {
-                (void)ResolveEnvironmentPath(key);
-                entry.SourceAsset = TextureManagerInstance.LoadTexture(TextureLoadDesc{
-                    .AssetPath = key,
-                    .ColorSpace = TextureColorSpace::Linear,
-                    .bCreateBindlessDescriptor = false,
-					.bGenerateMipmaps = false,
-                    .DebugName = "SceneRenderer HDR Equirectangular: " + key,
-                });
                 entry.SourceEquirectangular =
                     TextureManagerInstance.GetTexture(entry.SourceAsset).Texture;
+                entry.EnvironmentCdf = TextureManagerInstance.GetTexture(entry.SourceAsset).EnvironmentCdf;
+                entry.EnvironmentProposal = TextureManagerInstance.GetTexture(entry.SourceAsset).EnvironmentProposal;
 
                 nvrhi::TextureDesc cubeDesc;
                 cubeDesc.width = EnvironmentMapSizes::Capture;
@@ -3860,7 +4458,7 @@ namespace HEngine
                 cubeDesc.debugName = "SceneRenderer Prefilter Cubemap: " + key;
                 entry.Prefilter = Device->createTexture(cubeDesc);
 
-                const bool bCreateBrdfLut = !BrdfLut;
+                bCreateBrdfLut = !BrdfLut;
                 if (bCreateBrdfLut)
                 {
                     nvrhi::TextureDesc brdfDesc;
@@ -4100,17 +4698,31 @@ namespace HEngine
                     nvrhi::ResourceStates::UnorderedAccess);
                 commandList->commitBarriers();
                 commandList->close();
-                Device->executeCommandList(commandList, nvrhi::CommandQueue::Graphics);
-                if (!Device->waitForIdle())
-                    throw std::runtime_error("GPU wait failed during environment IBL preparation");
-
-                entry.State = SceneEnvironmentState::Ready;
-                bGraphDirty = true;
+                nvrhi::EventQueryHandle preparationComplete = Device->createEventQuery();
+                if (!preparationComplete)
+                    throw std::runtime_error("Failed to create environment IBL completion query");
+                Device->resetEventQuery(preparationComplete);
+                preparationSubmission = Device->executeCommandList(commandList, nvrhi::CommandQueue::Graphics);
+                Device->setEventQuery(preparationComplete, nvrhi::CommandQueue::Graphics);
+                entry.PreparationComplete = std::move(preparationComplete);
+                entry.PreparationCommandList = std::move(commandList);
+                entry.PreparationBindings = std::move(preparationBindings);
+                entry.PreparationSubmission = preparationSubmission;
+                const uint64_t holdFrames = EnvironmentQueryHoldFrames(key);
+                entry.NotBeforePumpFrame = holdFrames == 0 ? 0 :
+                    EnvironmentPumpFrame > std::numeric_limits<uint64_t>::max() - holdFrames
+                    ? std::numeric_limits<uint64_t>::max()
+                    : EnvironmentPumpFrame + holdFrames;
+                if (holdFrames != 0)
+                    HE_CORE_INFO("Environment IBL submitted: {} (hold {} preparation frames, pump={}, releaseAt={})",
+                        key, holdFrames, EnvironmentPumpFrame, entry.NotBeforePumpFrame);
             }
             catch (const std::exception& exception)
             {
-                entry.SourceAsset = {};
-                entry.SourceEquirectangular = nullptr;
+                if (bCreateBrdfLut) BrdfLut = nullptr;
+                releaseSource(preparationSubmission);
+                entry.EnvironmentCdf = nullptr;
+                entry.EnvironmentProposal.reset();
                 entry.Environment = nullptr;
                 entry.Irradiance = nullptr;
                 entry.Prefilter = nullptr;
@@ -4119,8 +4731,10 @@ namespace HEngine
             }
             catch (...)
             {
-                entry.SourceAsset = {};
-                entry.SourceEquirectangular = nullptr;
+                if (bCreateBrdfLut) BrdfLut = nullptr;
+                releaseSource(preparationSubmission);
+                entry.EnvironmentCdf = nullptr;
+                entry.EnvironmentProposal.reset();
                 entry.Environment = nullptr;
                 entry.Irradiance = nullptr;
                 entry.Prefilter = nullptr;
@@ -4130,12 +4744,110 @@ namespace HEngine
             return GetEnvironmentPreparation(key);
         }
 
+        void RetireObsoleteEnvironmentEntries(const RenderWorld& world)
+        {
+            if (EnvironmentSceneGeneration == world.SceneGeneration) return;
+            EnvironmentSceneGeneration = world.SceneGeneration;
+            std::unordered_set<std::string> used;
+            const std::string active = NormalizeEnvironmentKey(world.Environment.HdrTexturePath);
+            if (!active.empty()) used.insert(active);
+            for (const RenderReflectionProbe& probe : world.ReflectionProbes)
+            {
+                const std::string key = NormalizeEnvironmentKey(probe.HdrTexturePath);
+                if (!key.empty()) used.insert(key);
+            }
+            RetiredEnvironmentEntries.reserve(
+                RetiredEnvironmentEntries.size() + EnvironmentCache.size());
+            for (auto iterator = EnvironmentCache.begin(); iterator != EnvironmentCache.end();)
+            {
+                EnvironmentEntry& entry = iterator->second;
+                if (entry.NotBeforePumpFrame != 0)
+                    HE_CORE_INFO("Environment IBL generation audit: {} used={} state={} query={} pump={} releaseAt={}",
+                        iterator->first, used.contains(iterator->first),
+                        static_cast<int>(entry.State), static_cast<bool>(entry.PreparationComplete),
+                        EnvironmentPumpFrame, entry.NotBeforePumpFrame);
+                if (used.contains(iterator->first))
+                {
+                    if (!entry.bReloadRequested)
+                        entry.bCancelled = false;
+                    ++iterator;
+                    continue;
+                }
+                if (entry.State == SceneEnvironmentState::Preparing &&
+                    entry.PreparationComplete)
+                {
+                    entry.bCancelled = true;
+                    if (entry.NotBeforePumpFrame != 0)
+                        HE_CORE_INFO("Environment IBL cancelled before GPU query publication: {}",
+                            iterator->first);
+                    ++iterator;
+                    continue;
+                }
+                if (TextureManagerInstance.IsValid(entry.SourceAsset))
+                    TextureManagerInstance.ReleaseTexture(
+                        entry.SourceAsset, LastSubmittedSubmission);
+                entry.SourceAsset = {};
+                if (entry.State == SceneEnvironmentState::Ready)
+                    RetiredEnvironmentEntries.push_back({
+                        std::move(entry), LastSubmittedSubmission });
+                iterator = EnvironmentCache.erase(iterator);
+                bGraphDirty = true;
+            }
+        }
+
+        size_t InvalidateEnvironmentEntries(std::string_view path)
+        {
+            const std::string requested = NormalizeEnvironmentKey(path);
+            const auto matches = [&requested](std::string_view key)
+            {
+                return requested.empty() ||
+                    (key.size() == requested.size() &&
+                        std::equal(key.begin(), key.end(), requested.begin(),
+                            [](unsigned char left, unsigned char right)
+                            { return std::tolower(left) == std::tolower(right); }));
+            };
+            size_t invalidated = 0;
+            RetiredEnvironmentEntries.reserve(
+                RetiredEnvironmentEntries.size() + EnvironmentCache.size());
+            for (auto iterator = EnvironmentCache.begin(); iterator != EnvironmentCache.end();)
+            {
+                if (!matches(iterator->first))
+                {
+                    ++iterator;
+                    continue;
+                }
+                EnvironmentEntry& entry = iterator->second;
+                ++invalidated;
+                if (entry.PreparationComplete)
+                {
+                    // Its command list still owns the HDR and derived textures.
+                    // The frame pump discards them after the query completes.
+                    entry.bCancelled = true;
+                    entry.bReloadRequested = true;
+                    ++iterator;
+                    continue;
+                }
+                if (TextureManagerInstance.IsValid(entry.SourceAsset))
+                    TextureManagerInstance.ReleaseTexture(
+                        entry.SourceAsset, LastSubmittedSubmission);
+                entry.SourceAsset = {};
+                if (entry.State == SceneEnvironmentState::Ready)
+                    RetiredEnvironmentEntries.push_back({
+                        std::move(entry), LastSubmittedSubmission });
+                iterator = EnvironmentCache.erase(iterator);
+                bGraphDirty = true;
+            }
+            return invalidated;
+        }
+
         void SelectEnvironment(const RenderEnvironment& environment)
         {
             const std::string key = NormalizeEnvironmentKey(environment.HdrTexturePath);
             nvrhi::TextureHandle irradiance = DefaultEnvironment;
             nvrhi::TextureHandle prefilter = DefaultEnvironment;
             nvrhi::TextureHandle environmentMap = DefaultEnvironment;
+            nvrhi::TextureHandle environmentCdf;
+            std::shared_ptr<const EnvironmentSamplingProposal> environmentProposal;
             nvrhi::TextureHandle brdf = DefaultBrdfLut;
             bool bReady = key.empty();
             if (!key.empty())
@@ -4147,18 +4859,22 @@ namespace HEngine
                     irradiance = existing->second.Irradiance;
                     prefilter = existing->second.Prefilter;
                     environmentMap = existing->second.Environment;
+                    environmentCdf = existing->second.EnvironmentCdf;
+                    environmentProposal = existing->second.EnvironmentProposal;
                     brdf = BrdfLut;
                     bReady = true;
                 }
             }
 
             if (ActiveIrradiance != irradiance || ActivePrefilter != prefilter ||
-                ActiveEnvironment != environmentMap ||
+                ActiveEnvironment != environmentMap || ActiveEnvironmentCdf != environmentCdf ||
                 ActiveBrdfLut != brdf)
             {
                 ActiveIrradiance = std::move(irradiance);
                 ActivePrefilter = std::move(prefilter);
                 ActiveEnvironment = std::move(environmentMap);
+                ActiveEnvironmentCdf = std::move(environmentCdf);
+                ActiveEnvironmentProposal = std::move(environmentProposal);
                 ActiveBrdfLut = std::move(brdf);
                 EnvironmentBindingSets.clear();
                 SkyBindingSets.clear();
@@ -4172,6 +4888,28 @@ namespace HEngine
                 ActivePrefilter ? static_cast<float>(ActivePrefilter->getDesc().mipLevels - 1u) : 0.0f,
                 bReady ? 1.0f : 0.0f,
                 0.0f);
+            const float fogDensity = environment.bFogEnabled
+                ? std::max(environment.FogDensity, 0.0f) : 0.0f;
+            FrameData.FogColorDensity = glm::vec4(
+                glm::max(environment.FogColor, glm::vec3(0.0f)), fogDensity);
+            FrameData.FogDistanceHeight = glm::vec4(
+                std::max(environment.FogStartDistance, 0.0f),
+                environment.FogBaseHeight,
+                std::max(environment.FogHeightFalloff, 0.0f),
+                environment.SkyExposureCompensation);
+            FrameData.FogDirectionalColorIntensity = glm::vec4(
+                glm::max(environment.FogDirectionalColor, glm::vec3(0.0f)),
+                fogDensity > 0.0f ? std::max(environment.FogDirectionalIntensity, 0.0f) : 0.0f);
+            FrameData.FogDirectionalParams = glm::vec4(
+                std::max(environment.FogDirectionalExponent, 1.0f),
+                glm::clamp(environment.SkyColorTint, glm::vec3(0.0f), glm::vec3(4.0f)));
+            FrameData.SecondaryFogColorDensity = glm::vec4(
+                glm::max(environment.SecondaryFogColor, glm::vec3(0.0f)),
+                std::max(environment.SecondaryFogDensity, 0.0f));
+            FrameData.SecondaryFogDistanceHeight = glm::vec4(
+                std::max(environment.SecondaryFogStartDistance, 0.0f),
+                environment.SecondaryFogBaseHeight,
+                std::max(environment.SecondaryFogHeightFalloff, 0.0f), 0.0f);
         }
 
         [[nodiscard]] static std::string BuildMaterialTextureSignature(
@@ -4211,6 +4949,37 @@ namespace HEngine
                     TextureManagerInstance.ReleaseTexture(handle, retireAfterSubmission);
                 handle = {};
             }
+        }
+
+        [[nodiscard]] uint32_t GetOrCreateStaticLightmapDescriptor(
+            const std::string& assetPath)
+        {
+            if (!bHeapDirectlyIndexed)
+            {
+                if (!bLoggedUnsupportedStaticLightmaps)
+                {
+                    HE_CORE_WARN("Static lightmaps require the DX12 heap-direct raster path; using dynamic lighting on this device");
+                    bLoggedUnsupportedStaticLightmaps = true;
+                }
+                return InvalidDescriptorIndex;
+            }
+            auto found = StaticLightmapTextureCache.find(assetPath);
+            if (found == StaticLightmapTextureCache.end())
+            {
+                const ManagedTextureHandle handle = TextureManagerInstance.LoadTexture(
+                    TextureLoadDesc{
+                        .AssetPath = assetPath,
+                        .ColorSpace = TextureColorSpace::Linear,
+                        .bCreateBindlessDescriptor = true,
+                        .DebugName = "Static lightmap: " + assetPath,
+                    });
+                found = StaticLightmapTextureCache.emplace(assetPath, handle).first;
+            }
+            const uint32_t index = TextureManagerInstance.GetTexture(
+                found->second).ShaderDescriptorIndex;
+            if (index == InvalidDescriptorIndex)
+                throw std::logic_error("Static lightmap has no heap-direct descriptor: " + assetPath);
+            return index;
         }
 
         [[nodiscard]] MaterialTextureSet BuildMaterialTextureSet(
@@ -4255,10 +5024,13 @@ namespace HEngine
                         TextureLoadDesc{
                             .AssetPath = reference.AssetPath,
                             .ColorSpace = colorSpaces[index],
+                            .PendingFallback = fallbacks[index],
 							.bCreateBindlessDescriptor = bHeapDirectlyIndexed,
                             .bPreserveAlphaCoverage =
                                 index == 0 && bPreserveAlphaCoverage,
                             .AlphaCoverageCutoff = alphaCoverageCutoff,
+                            .bStreamable = true,
+                            .FirstResidentMip = 2,
                             .DebugName = "Material texture: " + reference.AssetPath,
                         });
 					if (bHeapDirectlyIndexed)
@@ -4268,6 +5040,9 @@ namespace HEngine
 						if (textureSet.ShaderIndices[index] == InvalidDescriptorIndex)
 							throw std::logic_error("Material texture has no heap-direct descriptor");
 					}
+                    if (index == 1)
+                        textureSet.NormalEncoding = GetNormalMapEncoding(
+                            TextureManagerInstance.GetTexture(textureSet.Handles[index]).Format);
                 }
                 catch (const std::exception& exception)
                 {
@@ -4290,6 +5065,7 @@ namespace HEngine
                     }
                 }
             }
+            textureSet.TextureRevision = TextureManagerInstance.GetRevision();
             return textureSet;
         }
 
@@ -4309,6 +5085,22 @@ namespace HEngine
             if (existing != MaterialTextureCache.end() &&
                 existing->second.Signature == signature)
             {
+                existing->second.LastUsedFrame = CurrentMaterialFrame;
+                if (existing->second.TextureRevision != TextureManagerInstance.GetRevision())
+                {
+                    if (bHeapDirectlyIndexed)
+                        for (size_t index = 0; index < existing->second.Handles.size(); ++index)
+                        {
+                            const auto handle = existing->second.Handles[index];
+                            if (handle && TextureManagerInstance.IsValid(handle))
+                                existing->second.ShaderIndices[index] =
+                                    TextureManagerInstance.GetTexture(handle).ShaderDescriptorIndex;
+                        }
+                    const ManagedTextureHandle normal = existing->second.Handles[1];
+                    existing->second.NormalEncoding = normal && TextureManagerInstance.IsValid(normal)
+                        ? GetNormalMapEncoding(TextureManagerInstance.GetTexture(normal).Format) : 0u;
+                    existing->second.TextureRevision = TextureManagerInstance.GetRevision();
+                }
                 return existing->second;
             }
 
@@ -4317,6 +5109,7 @@ namespace HEngine
                 std::move(signature),
                 bPreserveAlphaCoverage,
                 alphaCoverageCutoff);
+            replacement.LastUsedFrame = CurrentMaterialFrame;
             if (existing != MaterialTextureCache.end())
             {
                 ReleaseMaterialTextureSet(existing->second, LastSubmittedSubmission);
@@ -4351,6 +5144,7 @@ namespace HEngine
                 std::to_string(std::bit_cast<uint32_t>(alphaCutoff));
             textureSet.Handles.resize(packing.TextureFixups.size());
             textureSet.ShaderIndices.resize(packing.TextureFixups.size());
+            textureSet.NormalEncodings.resize(packing.TextureFixups.size(), 0u);
 			textureSet.Fallbacks.resize(packing.TextureFixups.size());
 			textureSet.RowOffsets.resize(packing.TextureFixups.size());
             for (size_t index = 0; index < packing.TextureFixups.size(); ++index)
@@ -4392,11 +5186,15 @@ namespace HEngine
                             .ColorSpace = fixup.ColorSpace == MaterialShaderColorSpace::Srgb
                                 ? TextureColorSpace::SRgb
                                 : TextureColorSpace::Linear,
+                            .PendingFallback = fixup.Semantic == MaterialShaderTextureSemantic::Normal
+                                ? DefaultBindlessTexture::Normal : DefaultBindlessTexture::White,
 							.bCreateBindlessDescriptor = bHeapDirectlyIndexed,
                             .bPreserveAlphaCoverage =
                                 alphaMode == RenderMaterialAlphaMode::Mask &&
                                 fixup.Semantic == MaterialShaderTextureSemantic::BaseColor,
                             .AlphaCoverageCutoff = std::clamp(alphaCutoff, 0.0f, 1.0f),
+                            .bStreamable = true,
+                            .FirstResidentMip = 2,
                             .DebugName = "Material parameter texture: " + fixup.AssetPath,
                         });
 					if (bHeapDirectlyIndexed)
@@ -4407,6 +5205,8 @@ namespace HEngine
 							throw std::logic_error(
 								"Material parameter texture has no heap-direct descriptor");
 					}
+                    textureSet.NormalEncodings[index] = GetNormalMapEncoding(
+                        TextureManagerInstance.GetTexture(textureSet.Handles[index]).Format);
                 }
                 catch (const std::exception& exception)
                 {
@@ -4424,6 +5224,7 @@ namespace HEngine
                     }
                 }
             }
+            textureSet.TextureRevision = TextureManagerInstance.GetRevision();
             return textureSet;
         }
 
@@ -4440,6 +5241,22 @@ namespace HEngine
             if (existing != MaterialParameterTextureCache.end() &&
                 existing->second.Signature == signature)
             {
+                existing->second.LastUsedFrame = CurrentMaterialFrame;
+                if (existing->second.TextureRevision != TextureManagerInstance.GetRevision())
+                {
+                    for (size_t index = 0; index < existing->second.Handles.size(); ++index)
+                    {
+                        const ManagedTextureHandle handle = existing->second.Handles[index];
+                        if (bHeapDirectlyIndexed && handle && TextureManagerInstance.IsValid(handle))
+                            existing->second.ShaderIndices[index] =
+                                TextureManagerInstance.GetTexture(handle).ShaderDescriptorIndex;
+                        existing->second.NormalEncodings[index] =
+                            handle && TextureManagerInstance.IsValid(handle)
+                                ? GetNormalMapEncoding(TextureManagerInstance.GetTexture(handle).Format)
+                                : 0u;
+                    }
+                    existing->second.TextureRevision = TextureManagerInstance.GetRevision();
+                }
                 return existing->second;
             }
 
@@ -4447,6 +5264,7 @@ namespace HEngine
                 packing,
                 alphaMode,
                 alphaCutoff);
+            replacement.LastUsedFrame = CurrentMaterialFrame;
             if (existing != MaterialParameterTextureCache.end())
             {
                 ReleaseMaterialParameterTextureSet(
@@ -4506,6 +5324,8 @@ namespace HEngine
                 getIndex(2, DefaultBindlessTexture::White),
                 getIndex(3, DefaultBindlessTexture::White));
             uint32_t flags = bDoubleSided ? c_MaterialFlagDoubleSided : 0u;
+            if (textureSet)
+                flags |= textureSet->NormalEncoding << c_MaterialNormalEncodingShift;
             if (alphaMode == RenderMaterialAlphaMode::Mask)
                 flags |= c_MaterialFlagAlphaMask;
             else if (alphaMode == RenderMaterialAlphaMode::Blend)
@@ -4517,6 +5337,8 @@ namespace HEngine
                 std::bit_cast<uint32_t>(safeAlphaCutoff));
             if (material)
             {
+                for (size_t slot = 0; slot < 5; ++slot)
+                    constants.Sampling[slot] = PackTextureSampling(material->LegacyTextures[slot].Sampling);
                 constants.BaseColor = material->BaseColor;
                 constants.EmissiveAndMetallic = glm::vec4(
                     material->Emissive,
@@ -4860,10 +5682,26 @@ namespace HEngine
             sorted.reserve(world.Primitives2D.size());
             for (const RenderPrimitive2D& primitive : world.Primitives2D)
                 sorted.push_back(&primitive);
-            std::stable_sort(sorted.begin(), sorted.end(), [](const auto* left, const auto* right)
+            std::stable_sort(sorted.begin(), sorted.end(), [&world](const auto* left, const auto* right)
             {
-                return std::tie(left->Category, left->DepthMode, left->Layer) <
-                    std::tie(right->Category, right->DepthMode, right->Layer);
+                const auto leftKey = std::tie(left->Category, left->DepthMode, left->Layer);
+                const auto rightKey = std::tie(right->Category, right->DepthMode, right->Layer);
+                if (leftKey != rightKey) return leftKey < rightKey;
+                // Scene sprites blend without depth writes. Submit far-to-near
+                // within a layer so overlap does not depend on ECS storage order.
+                if (left->Category == RenderPrimitive2DCategory::Scene &&
+                    left->DepthMode == RenderPrimitiveDepthMode::DepthTest)
+                {
+                    const auto depth = [&world](const RenderPrimitive2D* item) {
+                        const glm::vec4 center = item->Kind == RenderPrimitive2DKind::Line
+                            ? glm::vec4((item->LineStart + item->LineEnd) * 0.5f, 1.0f)
+                            : item->Transform[3];
+                        const float value = (world.Camera.View * center).z;
+                        return std::isfinite(value) ? value : 0.0f;
+                    };
+                    return depth(left) < depth(right);
+                }
+                return false;
             });
 
             std::unordered_set<std::string> usedTextures;
@@ -4970,8 +5808,56 @@ namespace HEngine
             return refresh;
         }
 
+        void PrepareMaterialPublicationHistory(const SceneRendererFrameDesc& frame)
+        {
+            // A refresh can publish while PrepareFrameData resolves a material.
+            // Observe the final revision after that work, independently per view.
+            PendingMaterialShaderPublicationRevision =
+                MaterialShaderManagerInstance.GetPublicationRevision();
+            if (LastSubmittedSubmission == 0 ||
+                PendingMaterialShaderPublicationRevision ==
+                    SubmittedMaterialShaderPublicationRevision)
+                return;
+
+            SceneAntiAliasing.ResetHistory();
+            UpscalingPass->ResetHistory();
+            // Consume the reset for this frame, whose jittered camera and motion
+            // constants have already been prepared. No geometry motion is lost.
+            SceneAntiAliasing.PrepareFrame(AaSelection.Effective,
+                IsSpatialPostAntiAliasingActive() ? LastOutputWidth : frame.Width,
+                IsSpatialPostAntiAliasingActive() ? LastOutputHeight : frame.Height, frame.CompletedSubmission, false);
+            Features->ResetHistory();
+            if (auto* technique = GetActiveIlluminationTechnique())
+                technique->ResetHistory(GlobalIlluminationHistoryResetReason::Material);
+        }
+
         void PrepareFrameData(const RenderWorld& world)
         {
+            HE_PROFILE;
+            struct PreparationTimer
+            {
+                double& Elapsed;
+                std::chrono::steady_clock::time_point Start = std::chrono::steady_clock::now();
+                ~PreparationTimer()
+                { Elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Start).count(); }
+            } preparationTimer{ Stats.CpuFramePreparationMilliseconds };
+            static const bool bTracePreparation = [] {
+                const char* setting = std::getenv("HE_FRAME_PREPARATION_TIMINGS");
+                return setting && setting[0] == '1' && setting[1] == '\0';
+            }();
+            auto stageStart = preparationTimer.Start;
+            const auto checkpoint = [&]() {
+                if (!bTracePreparation) return 0.0;
+                const auto now = std::chrono::steady_clock::now();
+                const double elapsed = std::chrono::duration<double, std::milli>(now - stageStart).count();
+                stageStart = now;
+                return elapsed;
+            };
+            if (EnvironmentPumpFrame != std::numeric_limits<uint64_t>::max())
+                ++EnvironmentPumpFrame;
+            CurrentMaterialFrame = world.FrameNumber;
+            TextureManagerInstance.BeginStreamingFrame();
+            Stats.bMaterialPackingCacheEnabled = bMaterialPackingCacheEnabled;
 			const std::uint64_t publicationRevision =
 				MaterialShaderManagerInstance.GetPublicationRevision();
 			if (publicationRevision != ObservedMaterialShaderPublicationRevision)
@@ -4979,11 +5865,29 @@ namespace HEngine
 				PipelineCacheInstance.Clear();
 				ObservedMaterialShaderPublicationRevision = publicationRevision;
 			}
-            TextureManagerInstance.Collect(CurrentCompletedSubmission);
+            TextureManagerInstance.Collect(
+                CurrentCompletedSubmission, LastSubmittedSubmission);
+            const double textureCollectMs = checkpoint();
+            RetireObsoleteEnvironmentEntries(world);
+            std::erase_if(RetiredEnvironmentEntries,
+                [this](const RetiredEnvironmentEntry& entry)
+                { return entry.RetireAfterSubmission <= CurrentCompletedSubmission; });
+            for (auto iterator = EnvironmentCache.begin(); iterator != EnvironmentCache.end();)
+            {
+                if (iterator->second.State == SceneEnvironmentState::Preparing)
+                    (void)PrepareEnvironment(iterator->first);
+                if (iterator->second.bCancelled &&
+                    iterator->second.State != SceneEnvironmentState::Preparing)
+                    iterator = EnvironmentCache.erase(iterator);
+                else
+                    ++iterator;
+            }
+            const double environmentMs = checkpoint();
             CpuDrawItems.clear();
             TransparentDrawItems.clear();
             SkinnedDrawItems.clear();
             BoneMatricesCpu.clear();
+            PreviousBoneMatricesCpu.clear();
             Stats.SkinnedNonIdentityBoneMatrixCount = 0;
             ShadowDrawItems.clear();
             OutlineDrawItems.clear();
@@ -4993,24 +5897,61 @@ namespace HEngine
             GpuIndirectArgumentsCpu.clear();
             GpuBatches.clear();
             GpuBatchObjectIndices.clear();
-			MaterialPages.clear();
-			RetiredMaterialPages.clear();
-			MaterialPageByMaterialIndex.clear();
+			CollectRetiredMaterialDescriptorPages();
             Primitive2DVertices.clear();
             Primitive2DBatches.clear();
             GpuMaterialDataCpu.clear();
             MaterialParameterRowsCpu.clear();
-            GpuMaterialRegistry.clear();
-            NextGpuMaterialIndex = 1;
+            if (GpuSceneGeneration != world.SceneGeneration)
+            {
+                for (auto& [material, set] : MaterialTextureCache)
+                    ReleaseMaterialTextureSet(set, LastSubmittedSubmission);
+                MaterialTextureCache.clear();
+                for (auto& [material, set] : MaterialParameterTextureCache)
+                    ReleaseMaterialParameterTextureSet(set, LastSubmittedSubmission);
+                MaterialParameterTextureCache.clear();
+                for (auto& [path, handle] : StaticLightmapTextureCache)
+                {
+                    (void)path;
+                    TextureManagerInstance.ReleaseTexture(handle, LastSubmittedSubmission);
+                }
+                StaticLightmapTextureCache.clear();
+                GpuMaterialRegistry.clear();
+                MaterialPackingCache.Clear();
+                NextGpuMaterialIndex = 1;
+                GpuSceneGeneration = world.SceneGeneration;
+                MeshLodHistoryBySection.clear();
+                UploadedSceneTables.clear();
+                if (bHeapDirectlyIndexed)
+                {
+                    constexpr size_t MaxPreloadedStaticLightmapAtlases = 256;
+                    if (world.StaticLightmapAssets.size() <= MaxPreloadedStaticLightmapAtlases)
+                    {
+                        for (const std::string& assetPath : world.StaticLightmapAssets)
+                            (void)GetOrCreateStaticLightmapDescriptor(assetPath);
+                    }
+                    else
+                    {
+                        HE_CORE_WARN("Scene has {} static lightmap atlases; prewarm limit is {}, loading visible atlases on demand",
+                            world.StaticLightmapAssets.size(), MaxPreloadedStaticLightmapAtlases);
+                    }
+                }
+            }
             if (FailedMaterialPrograms.size() > 256)
                 FailedMaterialPrograms.clear();
             GpuMaterialDataCpu.resize(1);
             PopulateMaterialConstants(GpuMaterialDataCpu.front(), nullptr);
             std::unordered_map<GpuBatchKey, uint32_t, GpuBatchKeyHash> batchLookup;
+            std::vector<uint8_t> mainAabbRejectFlags;
+            Stats.MainAabbTestedCandidates = 0;
+            Stats.MainAabbRejectedCandidates = 0;
+            Stats.MainAabbRejectedCandidateTriangles = 0;
+
             std::unordered_set<const Material*> frameMaterials;
             std::unordered_set<const Material*> frameLegacyTextureMaterials;
             std::unordered_set<const Material*> frameCustomParameterMaterials;
             std::unordered_set<uint32_t> frameGpuMaterials;
+            std::unordered_set<uint32_t> framePreparedMaterials;
             std::unordered_map<uint32_t, std::shared_ptr<const CompiledMaterialShader>>
                 frameMaterialPrograms;
             std::unordered_map<uint32_t, glm::uvec4> frameMaterialProgramHeaders;
@@ -5032,13 +5973,25 @@ namespace HEngine
 				},
 			};
             FrameData = {};
+            FrameData.BakedIrradiance = PrepareBakedIrradiance(world.BakedIrradianceVolumes, world.Camera.Position);
             FrameData.MaterialTimeAndPadding.x = std::isfinite(world.TimeSeconds)
                 ? static_cast<float>(std::clamp(
                     world.TimeSeconds,
                     0.0,
                     static_cast<double>(std::numeric_limits<float>::max())))
                 : 0.0f;
+            FrameData.MaterialTimeAndPadding.y =
+                !world.Camera.bCameraCut && MaterialTimeSeconds >= 0.0 &&
+                MaterialTimeSeconds <= world.TimeSeconds
+                    ? static_cast<float>(std::clamp(
+                        MaterialTimeSeconds,
+                        0.0,
+                        static_cast<double>(std::numeric_limits<float>::max())))
+                    : FrameData.MaterialTimeAndPadding.x;
+            MaterialTimeSeconds = world.TimeSeconds;
             FrameData.ViewProjection = CurrentRasterCamera.ViewProjection;
+            FrameData.PreviousViewProjection = CurrentRasterCamera.PreviousViewProjection;
+            FrameData.PreviousView = bRasterCameraHistoryReset ? world.Camera.View : PreviousRasterView;
             FrameData.InverseViewProjection = glm::inverse(
                 CurrentRasterCamera.ViewProjection);
             FrameData.ShadowCameraView = world.Camera.View;
@@ -5053,8 +6006,8 @@ namespace HEngine
             FrameData.DirectionalShadowDebugSettings = glm::vec4(
                 bDirectionalShadowCascadeDebug ? 1.0f : 0.0f,
                 static_cast<float>(CurrentPbrDebugMode),
-                2.0f,
-                SanitizeDirectionalShadowNearPlane(world.Camera.NearPlane));
+                0.0f,
+                DirectionalShadowMath::SanitizeNearPlane(world.Camera.NearPlane));
             bDirectionalShadowEnabled = false;
 
             if (!world.DirectionalLights.empty())
@@ -5082,7 +6035,7 @@ namespace HEngine
                     glm::vec4(light.Direction, std::max(light.Intensity, 0.0f));
                 FrameData.DirectionalColor = glm::vec4(light.Color, 1.0f);
                 const float shadowStrength = std::clamp(light.ShadowStrength, 0.0f, 1.0f);
-                if (light.bCastShadows && light.Intensity > 0.0f && shadowStrength > 0.0f)
+                if (bShadowsEnabled && light.bCastShadows && light.Intensity > 0.0f && shadowStrength > 0.0f)
                 {
                     bDirectionalShadowEnabled = true;
                     const DirectionalShadowData shadowData = BuildDirectionalShadowData(
@@ -5106,6 +6059,11 @@ namespace HEngine
                         light.bUsePcf ? std::clamp(light.PcfRadius, 0.0f, 4.0f) : 0.0f);
                 }
             }
+            // Negative w encodes continuous comparison PCF: radius = -w - 1.
+            // Also publish the mode when only local shadow lights are active.
+            if (bContinuousPcfEnabled)
+                FrameData.ShadowSettings.w = -(
+                    (bDirectionalShadowEnabled ? FrameData.ShadowSettings.w : 0.0f) + 1.0f);
             if (!world.PointLights.empty())
             {
                 const RenderPointLight& light = world.PointLights.front();
@@ -5113,36 +6071,42 @@ namespace HEngine
                     glm::vec4(light.Position, std::max(light.Intensity, 0.0f));
                 FrameData.PointColorAndRadius =
                     glm::vec4(light.Color, std::max(light.Radius, 0.0f));
-                FrameData.DirectionalShadowDebugSettings.z =
-                    std::isfinite(light.FalloffExponent)
-                        ? std::clamp(light.FalloffExponent, 0.0f, 8.0f)
-                        : 2.0f;
+                FrameData.DirectionalShadowDebugSettings.z = 0.0f;
             }
 
-            for (const RenderObject& object : world.Objects)
+            Stats.bCpuCounterFrameValid = true;
+            Stats.CpuCounterWorldFrame = world.FrameNumber;
+            Stats.InputRenderObjects = world.Objects.size();
+            Stats.PreparedRasterSections = 0;
+            Stats.SectionsWithAuthoredLods = 0;
+            Stats.SelectedLodSections.fill(0);
+            Stats.BaseRasterTriangleCount = 0;
+            Stats.SelectedRasterTriangleCount = 0;
+            Stats.ReducedLodSectionCount = 0;
+            const double frameSetupMs = checkpoint();
+            for (size_t objectIndex = 0;
+                objectIndex < world.Objects.size() + world.ResourceWarmupObjects.size(); ++objectIndex)
             {
+                const bool bResourceWarmup = objectIndex >= world.Objects.size();
+                const RenderObject& object = bResourceWarmup
+                    ? *world.ResourceWarmupObjects[objectIndex - world.Objects.size()] : world.Objects[objectIndex];
                 if (!object.bVisible)
                     continue;
 
                 uint32_t bonePaletteOffset = 0;
+                const RenderObject* previousObject = bResourceWarmup ? nullptr : MotionHistory.Previous(
+                    world, object, bRasterCameraHistoryReset);
                 const bool bObjectSkinned = object.Path == RenderPath::CpuSkinned ||
                     object.Path == RenderPath::CpuSkinnedTransparent;
                 if (bObjectSkinned)
                 {
-                    if (BoneMatricesCpu.size() + c_MaxBonesPerPalette >
-                        static_cast<size_t>(c_MaxSkinnedDraws) * c_MaxBonesPerPalette)
+                    bonePaletteOffset = AppendSceneBonePalette(object.BonePalette,
+                        previousObject ? std::span<const glm::mat4>(previousObject->BonePalette)
+                                       : std::span<const glm::mat4>{},
+                        BoneMatricesCpu, PreviousBoneMatricesCpu);
+                    for (const auto& boneMatrix : object.BonePalette)
                     {
-                        throw std::length_error("SceneRenderer skinned palette capacity exceeded");
-                    }
-                    bonePaletteOffset = static_cast<uint32_t>(BoneMatricesCpu.size());
-                    for (uint32_t boneIndex = 0; boneIndex < c_MaxBonesPerPalette; ++boneIndex)
-                    {
-                        const bool bHasBone = boneIndex < object.BonePalette.size();
-                        const glm::mat4 boneMatrix = bHasBone
-                            ? object.BonePalette[boneIndex]
-                            : glm::mat4(1.0f);
-                        BoneMatricesCpu.push_back(boneMatrix);
-                        if (bHasBone && !IsIdentityMatrix(boneMatrix))
+                        if (!IsIdentityMatrix(boneMatrix))
                             ++Stats.SkinnedNonIdentityBoneMatrixCount;
                     }
                 }
@@ -5151,16 +6115,26 @@ namespace HEngine
                 if (std::abs(glm::determinant(object.WorldTransform)) > 1e-8f)
                     inverseTranspose = glm::transpose(glm::inverse(object.WorldTransform));
 
+                uint32_t surfacePrimitiveOffset = 0;
                 for (std::size_t renderSectionIndex = 0;
                     renderSectionIndex < object.Sections.size();
                     ++renderSectionIndex)
                 {
                     const RenderMeshSection& section = object.Sections[renderSectionIndex];
+                    const uint32_t sectionPrimitiveOffset = surfacePrimitiveOffset;
+                    size_t sectionPrimitiveCount = section.SubMeshResource
+                        ? section.SubMeshResource->GetIndices().size() / 3u : 0u;
+                    if (section.SubMeshResource)
+                        for (const SubMeshLod& lod : section.SubMeshResource->GetLods())
+                            sectionPrimitiveCount += lod.Indices.size() / 3u;
+                    if (sectionPrimitiveCount > std::numeric_limits<uint32_t>::max() - surfacePrimitiveOffset)
+                        throw std::length_error("Surface primitive identity capacity exceeded");
+                    surfacePrimitiveOffset += static_cast<uint32_t>(sectionPrimitiveCount);
                     RenderPath sectionPath = section.Path;
                     // Synthetic/legacy snapshots created before section-level
                     // classification inherit the explicit object path.
                     if (sectionPath == RenderPath::CpuOpaque &&
-                        !section.MaterialInstance.bCustomSurface &&
+                        !section.GetMaterialInstance().bCustomSurface &&
                         object.Path != RenderPath::CpuOpaque)
                     {
                         sectionPath = object.Path;
@@ -5180,12 +6154,12 @@ namespace HEngine
                     {
                         continue;
                     }
-                    if (section.MaterialResource && !section.MaterialInstance.bValid)
+                    if (section.MaterialResource && !section.GetMaterialInstance().bValid)
                     {
                         throw std::invalid_argument(
                             "RenderMeshSection with a MaterialResource requires an immutable material snapshot");
                     }
-                    if (section.MaterialInstance.bCustomSurface)
+                    if (section.GetMaterialInstance().bCustomSurface)
                     {
                         const bool bSectionSkinned = section.SubMeshResource->IsSkinned();
                         sectionPath = bSectionSkinned
@@ -5198,8 +6172,21 @@ namespace HEngine
                     }
 
                     MeshEntry& mesh = GetOrCreateMesh(section.SubMeshResource);
+                    const uint32_t lodIndex = bResourceWarmup ? 0u : SelectMeshLod(mesh, object, section,
+                        world.Camera, static_cast<uint32_t>(renderSectionIndex));
+                    if (!bResourceWarmup)
+                    {
+                    ++Stats.PreparedRasterSections;
+                    Stats.SectionsWithAuthoredLods += mesh.Lods.size() > 1 ? 1u : 0u;
+                    ++Stats.SelectedLodSections.at(lodIndex);
+                    Stats.BaseRasterTriangleCount += mesh.Lods[0].IndexCount / 3u;
+                    Stats.SelectedRasterTriangleCount += mesh.Lods[lodIndex].IndexCount / 3u;
+                    Stats.ReducedLodSectionCount += lodIndex > 0 ? 1u : 0u;
+                    }
                     ObjectConstants constants;
                     constants.World = object.WorldTransform;
+                    constants.PreviousWorld = previousObject
+                        ? previousObject->WorldTransform : object.WorldTransform;
                     constants.WorldInverseTranspose = inverseTranspose;
                     const uint32_t gpuMaterialIndex = GetOrCreateGpuMaterialIndex(section);
                     constants.MaterialObjectMeshIndices = glm::uvec4(
@@ -5207,26 +6194,44 @@ namespace HEngine
                         object.ObjectGpuIndex == InvalidGpuSceneIndex
                             ? 0u
                             : object.ObjectGpuIndex,
-                        object.MeshGpuIndex == InvalidGpuSceneIndex
-                            ? 0u
-                            : object.MeshGpuIndex,
+                        sectionPrimitiveOffset + mesh.Lods[lodIndex].PrimitiveOffset,
                         bonePaletteOffset);
+                    if (!object.StaticLightmapPath.empty() &&
+                        object.StaticLightmapBlend > 0.0f &&
+                        object.BonePalette.empty() && lodIndex == 0u)
+                    {
+                        constants.StaticLightmapDescriptor.x =
+                            GetOrCreateStaticLightmapDescriptor(object.StaticLightmapPath);
+                        constants.StaticLightmapUvScaleBias = glm::vec4(
+                            object.StaticLightmapUvScale, object.StaticLightmapUvBias);
+                        constants.StaticLightmapScale0 = object.StaticLightmapScale0;
+                        constants.StaticLightmapAdd0 = object.StaticLightmapAdd0;
+                        constants.StaticLightmapScale1 = object.StaticLightmapScale1;
+                        constants.StaticLightmapAdd1 = object.StaticLightmapAdd1;
+                        constants.StaticLightmapDescriptor.z = object.StaticLightmapEncoding == 1 ? 1u : 0u;
+                        constants.StaticLightmapDescriptor.y = static_cast<uint32_t>(
+                            glm::round(glm::clamp(object.StaticLightmapBlend, 0.0f, 1.0f)
+                                * 65535.0f));
+                    }
 
                     if (GpuMaterialDataCpu.size() <= gpuMaterialIndex)
                         GpuMaterialDataCpu.resize(gpuMaterialIndex + 1u);
 					if (frameMaterialDescriptorInputs.size() <= gpuMaterialIndex)
 						frameMaterialDescriptorInputs.resize(gpuMaterialIndex + 1u);
+                    std::shared_ptr<const CompiledMaterialShader> materialProgram;
+                    if (!section.MaterialResource || !framePreparedMaterials.contains(gpuMaterialIndex))
+                    {
                     GpuMaterialData materialData;
                     PopulateMaterialConstants(
                         materialData,
-                        &section.MaterialInstance,
+                        &section.GetMaterialInstance(),
                         section.MaterialResource.get(),
-                        !section.MaterialInstance.bCustomSurface,
+                        !section.GetMaterialInstance().bCustomSurface,
                         section.AlphaMode,
                         section.AlphaCutoff,
                         section.bDoubleSided);
                     if (section.MaterialResource &&
-                        !section.MaterialInstance.bCustomSurface)
+                        !section.GetMaterialInstance().bCustomSurface)
                     {
                         frameLegacyTextureMaterials.insert(section.MaterialResource.get());
 						constexpr std::array<DefaultBindlessTexture, 5> fallbacks = {
@@ -5255,8 +6260,7 @@ namespace HEngine
 						}
                     }
 
-                    std::shared_ptr<const CompiledMaterialShader> materialProgram;
-                    if (section.MaterialInstance.bCustomSurface)
+                    if (section.GetMaterialInstance().bCustomSurface)
                     {
                         const auto existingProgram = frameMaterialPrograms.find(gpuMaterialIndex);
                         if (existingProgram != frameMaterialPrograms.end())
@@ -5268,15 +6272,15 @@ namespace HEngine
                         else
                         {
                             const MaterialShaderProgramIdentity expectedIdentity{
-                                .SourcePath = section.MaterialInstance.ShaderPath,
+                                .SourcePath = section.GetMaterialInstance().ShaderPath,
                                 .RecursiveContentHash =
-                                    section.MaterialInstance.ExpectedRecursiveSourceHash,
+                                    section.GetMaterialInstance().ExpectedRecursiveSourceHash,
                                 .MaterialAbiVersion =
-                                    section.MaterialInstance.ExpectedMaterialAbiVersion,
+                                    section.GetMaterialInstance().ExpectedMaterialAbiVersion,
                                 .BindingSignatureHash =
-                                    section.MaterialInstance.ExpectedBindingSignature,
+                                    section.GetMaterialInstance().ExpectedBindingSignature,
                                 .ArtifactIdentityHash =
-                                    section.MaterialInstance.ExpectedArtifactIdentityHash,
+                                    section.GetMaterialInstance().ExpectedArtifactIdentityHash,
                             };
                             materialProgram = MaterialShaderManagerInstance.FindCompatible(
                                 expectedIdentity);
@@ -5285,7 +6289,7 @@ namespace HEngine
                             if (RequiresMaterialShaderFrameBoundaryRefresh(materialProgram))
                             {
                                 refresh = RefreshMaterialShaderAtFrameBoundary(
-                                    section.MaterialInstance.ShaderPath);
+                                    section.GetMaterialInstance().ShaderPath);
                                 materialProgram = MaterialShaderManagerInstance.FindCompatible(
                                     expectedIdentity);
                             }
@@ -5294,13 +6298,13 @@ namespace HEngine
                                 if (diagnostic.Severity != MaterialShaderDiagnosticSeverity::Error)
                                     continue;
                                 const std::string diagnosticKey =
-                                    section.MaterialInstance.ShaderPath + ':' +
+                                    section.GetMaterialInstance().ShaderPath + ':' +
                                     diagnostic.Code + ':' + diagnostic.Message;
                                 if (FailedMaterialPrograms.insert(diagnosticKey).second)
                                 {
                                     HE_CORE_WARN(
                                         "Material shader '{}' retained last-known-good or skipped: [{}] {}",
-                                        section.MaterialInstance.ShaderPath,
+                                        section.GetMaterialInstance().ShaderPath,
                                         diagnostic.Code,
                                         diagnostic.Message);
                                 }
@@ -5312,21 +6316,21 @@ namespace HEngine
                                 materialProgram->GetIdentity();
                             const bool bSnapshotProgramCompatible =
                                 IsMaterialSnapshotProgramCompatible(
-                                    section.MaterialInstance,
+                                    section.GetMaterialInstance(),
                                     programIdentity,
                                     materialProgram->GetGeneration());
                             if (!bSnapshotProgramCompatible)
                             {
                                 const std::string diagnosticKey =
-                                    section.MaterialInstance.AssetPath + ":snapshot-program-mismatch";
+                                    section.GetMaterialInstance().AssetPath + ":snapshot-program-mismatch";
                                 if (FailedMaterialPrograms.insert(diagnosticKey).second)
                                 {
                                     HE_CORE_WARN(
                                         "Material '{}' snapshot does not match shader program '{}' generation {} (expected {}); draw deferred until an atomic layout migration",
-                                        section.MaterialInstance.AssetPath,
-                                        section.MaterialInstance.ShaderPath,
+                                        section.GetMaterialInstance().AssetPath,
+                                        section.GetMaterialInstance().ShaderPath,
                                         materialProgram->GetGeneration(),
-                                        section.MaterialInstance.ExpectedProgramGeneration);
+                                        section.GetMaterialInstance().ExpectedProgramGeneration);
                                 }
                                 continue;
                             }
@@ -5335,20 +6339,20 @@ namespace HEngine
                                 materialProgram->GetManifest();
                             const MaterialShaderBlendMode programBlend = programManifest.BlendMode;
                             const bool bSnapshotStateMatchesSection =
-                                section.MaterialInstance.AlphaMode == section.AlphaMode &&
-                                section.MaterialInstance.bDoubleSided == section.bDoubleSided;
+                                section.GetMaterialInstance().AlphaMode == section.AlphaMode &&
+                                section.GetMaterialInstance().bDoubleSided == section.bDoubleSided;
                             if (!IsMaterialSnapshotRenderStateCompatible(
-                                    section.MaterialInstance,
+                                    section.GetMaterialInstance(),
                                     programManifest) ||
                                 !bSnapshotStateMatchesSection)
                             {
                                 const std::string diagnosticKey =
-                                    section.MaterialInstance.ShaderPath + ":render-state-mismatch";
+                                    section.GetMaterialInstance().ShaderPath + ":render-state-mismatch";
                                 if (FailedMaterialPrograms.insert(diagnosticKey).second)
                                 {
                                     HE_CORE_WARN(
                                         "Material '{}' snapshot render state does not match shader manifest (blend='{}', cull='{}', depthWrite={}); draw skipped",
-                                        section.MaterialInstance.AssetPath,
+                                        section.GetMaterialInstance().AssetPath,
                                         ToString(programBlend),
                                         ToString(programManifest.CullMode),
                                         programManifest.bDepthWrite ? 1 : 0);
@@ -5356,21 +6360,42 @@ namespace HEngine
                                 continue;
                             }
 
-                            MaterialParameterPackingResult packing = PackMaterialParameters(
-                                materialProgram->GetManifest(),
-                                section.MaterialInstance.ParameterValues);
+                            MaterialParameterPackingResult packing;
+                            const auto* cachedPacking = bMaterialPackingCacheEnabled
+                                ? MaterialPackingCache.Find(gpuMaterialIndex, section.MaterialResource.get(),
+                                    section.GetMaterialInstance().Revision, materialProgram->GetIdentity(),
+                                    materialProgram->GetGeneration()) : nullptr;
+                            if (cachedPacking)
+                            {
+                                ++Stats.MaterialPackingCacheHitCount;
+                                // Copy before per-frame texture/descriptor fixups.
+                                packing = *cachedPacking;
+                            }
+                            else
+                            {
+                                const auto packingStart = std::chrono::steady_clock::now();
+                                ++Stats.MaterialPackingCallCount;
+                                packing = PackMaterialParameters(materialProgram->GetManifest(),
+                                    section.GetMaterialInstance().ParameterValues);
+                                Stats.CpuMaterialPackingMilliseconds += std::chrono::duration<double, std::milli>(
+                                    std::chrono::steady_clock::now() - packingStart).count();
+                                if (bMaterialPackingCacheEnabled)
+                                    MaterialPackingCache.Store(gpuMaterialIndex, section.MaterialResource,
+                                        section.GetMaterialInstance().Revision, materialProgram->GetIdentity(),
+                                        materialProgram->GetGeneration(), packing);
+                            }
                             if (!packing.Succeeded())
                             {
                                 for (const MaterialShaderDiagnostic& diagnostic : packing.Diagnostics)
                                 {
                                     const std::string diagnosticKey =
-                                        section.MaterialInstance.ShaderPath + ':' +
+                                        section.GetMaterialInstance().ShaderPath + ':' +
                                         diagnostic.Code + ':' + diagnostic.Message;
                                     if (FailedMaterialPrograms.insert(diagnosticKey).second)
                                     {
                                         HE_CORE_WARN(
                                             "Material parameters for '{}' are invalid: [{}] {}",
-                                            section.MaterialInstance.ShaderPath,
+                                            section.GetMaterialInstance().ShaderPath,
                                             diagnostic.Code,
                                             diagnostic.Message);
                                     }
@@ -5399,13 +6424,19 @@ namespace HEngine
                                 const uint32_t rowOffset =
                                     packing.TextureFixups[textureIndex].RowOffset;
                                 if (rowOffset >= packing.PackedFloat4Rows.size() ||
-                                    textureIndex >= parameterTextures.ShaderIndices.size())
+                                    textureIndex >= parameterTextures.ShaderIndices.size() ||
+                                    textureIndex >= parameterTextures.NormalEncodings.size())
                                 {
                                     throw std::logic_error(
                                         "Material texture fixup escaped its packed parameter block");
                                 }
                                 packing.PackedFloat4Rows[rowOffset][0] = std::bit_cast<float>(
                                     parameterTextures.ShaderIndices[textureIndex]);
+                                // Texture properties own a float4 row. The descriptor
+                                // uses x; y carries actual-format decoding metadata and
+                                // remains intact when descriptor pages remap x.
+                                packing.PackedFloat4Rows[rowOffset][1] = std::bit_cast<float>(
+                                    parameterTextures.NormalEncodings[textureIndex]);
                             }
 
                             const uint32_t parameterRowOffset =
@@ -5456,11 +6487,33 @@ namespace HEngine
                         frameGpuMaterials.insert(gpuMaterialIndex);
                     }
                     GpuMaterialDataCpu[gpuMaterialIndex] = materialData;
+                    if (section.MaterialResource) framePreparedMaterials.insert(gpuMaterialIndex);
+                    }
+                    else if (section.GetMaterialInstance().bCustomSurface)
+                        materialProgram = frameMaterialPrograms.at(gpuMaterialIndex);
+                    // Resource-only requests use the same upload/material lifecycle,
+                    // but never contribute draws, shadows, visibility or bone history.
+                    if (bResourceWarmup) continue;
+
+                    if (materialProgram && sectionPath == RenderPath::CpuOpaque)
+                    {
+                        const auto geometryCapabilities = ResolveMaterialGeometryCapabilities(
+                            *materialProgram, bHeapDirectlyIndexed
+                                ? MaterialShaderDescriptorMode::HeapDirect
+                                : MaterialShaderDescriptorMode::Baseline, mesh.bSkinned);
+                        if (geometryCapabilities.bGpuInstances)
+                            sectionPath = RenderPath::GpuDrivenOpaque;
+                        else if (FailedMaterialPrograms.insert(section.GetMaterialInstance().ShaderPath +
+                            ":gpu-fallback:" + geometryCapabilities.FallbackReason).second)
+                            HE_CORE_INFO("Material '{}' uses CPU submission: {}",
+                                section.GetMaterialInstance().ShaderPath, geometryCapabilities.FallbackReason);
+                    }
 
                     if (object.bSelected)
                     {
                         OutlineDrawItems.push_back(DrawItem{
                             .Key = mesh.Resource.get(),
+                            .LodIndex = lodIndex,
                             .Constants = constants,
                             .MaterialProgram = materialProgram,
                             .bDoubleSided = section.bDoubleSided,
@@ -5472,6 +6525,7 @@ namespace HEngine
                     {
                         CpuDrawItems.push_back(DrawItem{
                             .Key = mesh.Resource.get(),
+                            .LodIndex = lodIndex,
                             .Constants = constants,
                             .MaterialProgram = materialProgram,
                             .bDoubleSided = section.bDoubleSided,
@@ -5481,6 +6535,7 @@ namespace HEngine
                     {
                         TransparentDrawItems.push_back(DrawItem{
                             .Key = mesh.Resource.get(),
+                            .LodIndex = lodIndex,
                             .Constants = constants,
                             .MaterialProgram = materialProgram,
                             .SortKey = {
@@ -5502,6 +6557,7 @@ namespace HEngine
                     {
                         SkinnedDrawItems.push_back(DrawItem{
                             .Key = mesh.Resource.get(),
+                            .LodIndex = lodIndex,
                             .Constants = constants,
                             .MaterialProgram = materialProgram,
                             .bDoubleSided = section.bDoubleSided,
@@ -5512,6 +6568,7 @@ namespace HEngine
                     {
                         TransparentDrawItems.push_back(DrawItem{
                             .Key = mesh.Resource.get(),
+                            .LodIndex = lodIndex,
                             .Constants = constants,
                             .MaterialProgram = materialProgram,
                             .SortKey = {
@@ -5534,11 +6591,12 @@ namespace HEngine
                     if ((sectionPath == RenderPath::CpuOpaque ||
                             sectionPath == RenderPath::GpuDrivenOpaque ||
                             sectionPath == RenderPath::CpuSkinned) &&
-                        bDirectionalShadowEnabled && object.bCastShadow &&
+                        (bDirectionalShadowEnabled || LocalShadowPass->GetStats().ActiveViews > 0) && object.bCastShadow &&
                         (!materialProgram || materialProgram->GetManifest().bCastsShadow))
                     {
                         ShadowDrawItems.push_back(DrawItem{
                             .Key = mesh.Resource.get(),
+                            .LodIndex = lodIndex,
                             .Constants = constants,
                             .MaterialProgram = materialProgram,
                             .bDoubleSided = section.bDoubleSided,
@@ -5556,22 +6614,39 @@ namespace HEngine
                     }
 
                     RenderBounds bounds = object.Bounds;
-                    if (!bounds.bValid && section.SubMeshResource->HasBounds())
+                    glm::vec3 mainAabbExtents(0.f);
+                    bool bMainAabbTrusted = false;
+                    if (section.SubMeshResource->HasBounds())
                     {
                         const glm::vec3 localMinimum = section.SubMeshResource->GetBoundsMin();
                         const glm::vec3 localMaximum = section.SubMeshResource->GetBoundsMax();
                         const glm::vec3 localCenter = (localMinimum + localMaximum) * 0.5f;
                         const glm::vec3 localExtents = (localMaximum - localMinimum) * 0.5f;
                         bounds.Center = glm::vec3(object.WorldTransform * glm::vec4(localCenter, 1.0f));
-                        const float maximumScale = std::max({
-                            glm::length(glm::vec3(object.WorldTransform[0])),
-                            glm::length(glm::vec3(object.WorldTransform[1])),
-                            glm::length(glm::vec3(object.WorldTransform[2])),
-                        });
-                        bounds.Radius = glm::length(localExtents) * maximumScale;
+                        // Per-section bounds avoid reusing a whole imported
+                        // multi-section mesh sphere. Transform the full AABB;
+                        // absolute columns remain conservative under shear.
+                        const glm::vec3 worldExtents = glm::abs(glm::vec3(object.WorldTransform[0])) * localExtents.x +
+                            glm::abs(glm::vec3(object.WorldTransform[1])) * localExtents.y +
+                            glm::abs(glm::vec3(object.WorldTransform[2])) * localExtents.z;
+                        mainAabbExtents = worldExtents;
+                        bMainAabbTrusted = !section.GetMaterialInstance().bCustomSurface && !mesh.bSkinned &&
+                            object.BonePalette.empty() && object.WorldTransform[0][3] == 0.f &&
+                            object.WorldTransform[1][3] == 0.f && object.WorldTransform[2][3] == 0.f &&
+                            object.WorldTransform[3][3] == 1.f;
+                        bounds.Radius = glm::length(worldExtents);
                         bounds.bValid = true;
                     }
 
+                    if (bGpuTightFrustumEnabled)
+                    {
+                        const bool bReject = bMainAabbTrusted && !IsMainViewAabbVisible(
+                            CurrentRasterCamera.ViewProjection, bounds.Center, mainAabbExtents, LastWidth, LastHeight);
+                        mainAabbRejectFlags.push_back(bReject ? 1u : 0u);
+                        Stats.MainAabbTestedCandidates += bMainAabbTrusted ? 1u : 0u;
+                        Stats.MainAabbRejectedCandidates += bReject ? 1u : 0u;
+                        if (bReject) Stats.MainAabbRejectedCandidateTriangles += mesh.Lods[lodIndex].IndexCount / 3u;
+                    }
                     const uint32_t objectIndex = static_cast<uint32_t>(GpuObjectData.size());
                     GpuObjectData.push_back(constants);
                     GpuBoundsDataCpu.push_back(GpuBoundsData{
@@ -5583,6 +6658,7 @@ namespace HEngine
                     const GpuBatchKey batchKey{
                         .Mesh = mesh.Resource.get(),
                         .MaterialResource = section.MaterialResource.get(),
+                        .LodIndex = lodIndex,
                         .bDoubleSided = section.bDoubleSided,
                     };
                     auto batch = batchLookup.find(batchKey);
@@ -5596,6 +6672,7 @@ namespace HEngine
                         const uint32_t batchIndex = static_cast<uint32_t>(GpuBatches.size());
 						GpuBatches.push_back(GpuBatch{
 							.Key = batchKey,
+                            .MaterialProgram = materialProgram,
 							.MaterialIndex = gpuMaterialIndex,
 						});
                         GpuBatchObjectIndices.emplace_back();
@@ -5605,6 +6682,39 @@ namespace HEngine
                 }
             }
 
+            {
+                for (const auto& object : world.Objects)
+                {
+                    float pixels = 16384.0f; // Unknown/deforming bounds must not lose detail.
+                    if (object.Bounds.bValid && object.BonePalette.empty())
+                    {
+                        const auto& bounds = object.Bounds;
+                        if (!IsMainViewAabbVisible(world.Camera.NonJitteredViewProjection,
+                            bounds.Center, glm::vec3(bounds.Radius), LastOutputWidth, LastOutputHeight)) continue;
+                        const auto center = world.Camera.View * glm::vec4(bounds.Center, 1);
+                        const float depth = -center.z - bounds.Radius;
+                        const bool perspective = std::abs(world.Camera.Projection[2][3]) > .5f;
+                        if (!perspective || depth > world.Camera.NearPlane)
+                            pixels = bounds.Radius * std::max(
+                                LastOutputWidth * std::abs(world.Camera.Projection[0][0]),
+                                LastOutputHeight * std::abs(world.Camera.Projection[1][1])) /
+                                (perspective ? depth : 1.0f);
+                    }
+                    for (const auto& section : object.Sections)
+                    {
+                        if (const auto found = MaterialTextureCache.find(section.MaterialResource.get());
+                            found != MaterialTextureCache.end())
+                            for (const auto handle : found->second.Handles)
+                                TextureManagerInstance.RequestTextureDetail(handle, pixels);
+                        if (const auto found = MaterialParameterTextureCache.find(section.MaterialResource.get());
+                            found != MaterialParameterTextureCache.end())
+                            for (const auto handle : found->second.Handles)
+                                TextureManagerInstance.RequestTextureDetail(handle, pixels);
+                    }
+                }
+                TextureManagerInstance.EndStreamingFrame(TextureStreamingBudgetBytes);
+            }
+            const double objectsMs = checkpoint();
             std::sort(
                 TransparentDrawItems.begin(),
                 TransparentDrawItems.end(),
@@ -5623,45 +6733,99 @@ namespace HEngine
                 batch.ObjectCount = static_cast<uint32_t>(GpuBatchObjectIndices[batchIndex].size());
                 const MeshEntry& mesh = MeshCache.at(batch.Key.Mesh);
                 GpuIndirectArgumentsCpu.push_back(nvrhi::DrawIndexedIndirectArguments()
-                    .setIndexCount(mesh.IndexCount)
+                    .setIndexCount(mesh.Lods[batch.Key.LodIndex].IndexCount)
                     .setInstanceCount(0)
-                    .setStartIndexLocation(0)
-                    .setBaseVertexLocation(0)
-                    .setStartInstanceLocation(0));
+                    .setStartIndexLocation(mesh.ArenaAllocation.FirstIndex + mesh.Lods[batch.Key.LodIndex].FirstIndex)
+                    .setBaseVertexLocation(static_cast<int32_t>(mesh.ArenaAllocation.FirstVertex))
+                    .setStartInstanceLocation(visibleBase));
                 for (const uint32_t objectIndex : GpuBatchObjectIndices[batchIndex])
                 {
                     GpuDrawDataCpu.push_back(GpuDrawData{
                         .ObjectIndex = objectIndex,
                         .BatchIndex = batchIndex,
                         .VisibleBase = visibleBase,
+                        .Padding = bGpuTightFrustumEnabled ? mainAabbRejectFlags.at(objectIndex) : 0u,
                     });
                 }
                 visibleBase += batch.ObjectCount;
             }
 
-            for (auto iterator = MaterialTextureCache.begin();
-                iterator != MaterialTextureCache.end();)
+            const double batchesMs = checkpoint();
+            // Brief camera cuts must not synchronously reload the same material
+            // textures when their owners leave and re-enter the view. Retain only
+            // a bounded inactive working set; scene changes still release it.
+            constexpr uint64_t MaxInactiveFrames = 300;
+            constexpr uint64_t MaxInactiveBytes = 256ull * 1024 * 1024;
+            struct InactiveMaterial
             {
-                if (frameLegacyTextureMaterials.contains(iterator->first))
+                const Material* Identity;
+                uint64_t LastUsedFrame;
+                uint64_t Bytes;
+                bool bParameters;
+            };
+            std::vector<InactiveMaterial> inactiveMaterials;
+            uint64_t inactiveBytes = 0;
+            const auto payloadBytes = [&](const auto& handles)
+            {
+                uint64_t bytes = 0;
+                for (const auto handle : handles)
+                    if (handle && TextureManagerInstance.IsValid(handle))
+                        bytes += TextureManagerInstance.GetTexture(handle).PayloadBytes;
+                return bytes;
+            };
+            for (auto iterator = MaterialTextureCache.begin(); iterator != MaterialTextureCache.end();)
+            {
+                if (frameLegacyTextureMaterials.contains(iterator->first)) { ++iterator; continue; }
+                const auto& set = iterator->second;
+                if (CurrentMaterialFrame - set.LastUsedFrame > MaxInactiveFrames)
                 {
-                    ++iterator;
+                    ReleaseMaterialTextureSet(iterator->second, LastSubmittedSubmission);
+                    iterator = MaterialTextureCache.erase(iterator);
                     continue;
                 }
-                ReleaseMaterialTextureSet(iterator->second, LastSubmittedSubmission);
-                iterator = MaterialTextureCache.erase(iterator);
+                const uint64_t bytes = payloadBytes(set.Handles);
+                inactiveMaterials.push_back({iterator->first, set.LastUsedFrame, bytes, false});
+                inactiveBytes += bytes;
+                ++iterator;
             }
-            for (auto iterator = MaterialParameterTextureCache.begin();
-                iterator != MaterialParameterTextureCache.end();)
+            for (auto iterator = MaterialParameterTextureCache.begin(); iterator != MaterialParameterTextureCache.end();)
             {
-                if (frameCustomParameterMaterials.contains(iterator->first))
+                if (frameCustomParameterMaterials.contains(iterator->first)) { ++iterator; continue; }
+                const auto& set = iterator->second;
+                if (CurrentMaterialFrame - set.LastUsedFrame > MaxInactiveFrames)
                 {
-                    ++iterator;
+                    ReleaseMaterialParameterTextureSet(iterator->second, LastSubmittedSubmission);
+                    iterator = MaterialParameterTextureCache.erase(iterator);
                     continue;
                 }
-                ReleaseMaterialParameterTextureSet(
-                    iterator->second,
-                    LastSubmittedSubmission);
-                iterator = MaterialParameterTextureCache.erase(iterator);
+                const uint64_t bytes = payloadBytes(set.Handles);
+                inactiveMaterials.push_back({iterator->first, set.LastUsedFrame, bytes, true});
+                inactiveBytes += bytes;
+                ++iterator;
+            }
+            if (inactiveBytes > MaxInactiveBytes)
+            {
+                std::sort(inactiveMaterials.begin(), inactiveMaterials.end(),
+                    [](const auto& left, const auto& right) { return left.LastUsedFrame < right.LastUsedFrame; });
+                for (const auto& candidate : inactiveMaterials)
+                {
+                    if (inactiveBytes <= MaxInactiveBytes) break;
+                    if (candidate.bParameters)
+                    {
+                        const auto found = MaterialParameterTextureCache.find(candidate.Identity);
+                        if (found == MaterialParameterTextureCache.end()) continue;
+                        ReleaseMaterialParameterTextureSet(found->second, LastSubmittedSubmission);
+                        MaterialParameterTextureCache.erase(found);
+                    }
+                    else
+                    {
+                        const auto found = MaterialTextureCache.find(candidate.Identity);
+                        if (found == MaterialTextureCache.end()) continue;
+                        ReleaseMaterialTextureSet(found->second, LastSubmittedSubmission);
+                        MaterialTextureCache.erase(found);
+                    }
+                    inactiveBytes -= candidate.Bytes;
+                }
             }
 
 			std::erase_if(frameMaterialDescriptorInputs,
@@ -5671,24 +6835,10 @@ namespace HEngine
 				});
 			BuildBaselineMaterialDescriptorPages(
 				frameMaterialDescriptorInputs);
+            MaterialPackingCache.Retain(frameGpuMaterials);
             PreparePrimitive2DData(world);
 
-			const uint64_t objectConstantWrites =
-				static_cast<uint64_t>(CpuDrawItems.size()) * 2ull +
-				static_cast<uint64_t>(SkinnedDrawItems.size()) * 2ull +
-				static_cast<uint64_t>(TransparentDrawItems.size()) +
-				static_cast<uint64_t>(OutlineDrawItems.size()) +
-				static_cast<uint64_t>(ShadowDrawItems.size()) *
-					DirectionalShadowCascadeCount;
-			if (objectConstantWrites > c_MaxObjectConstantWritesPerFrame)
-			{
-				throw std::length_error(
-					"SceneRenderer requires " +
-					std::to_string(objectConstantWrites) +
-					" volatile object-constant writes in one frame, exceeding the explicit capacity of " +
-					std::to_string(c_MaxObjectConstantWritesPerFrame));
-			}
-
+            const double materialCachesMs = checkpoint();
             Stats.CpuFallbackDrawCount = static_cast<uint32_t>(CpuDrawItems.size());
             Stats.CustomMaterialCpuFallbackDrawCount = static_cast<uint32_t>(
                 std::ranges::count_if(CpuDrawItems, [](const DrawItem& item)
@@ -5718,7 +6868,7 @@ namespace HEngine
                 (void)materialIndex;
                 Stats.MaterialProgramGenerationMax = std::max(
                     Stats.MaterialProgramGenerationMax,
-                    program ? program->GetGeneration() : 0ull);
+                    program ? program->GetGeneration() : uint64_t{0});
             }
             Stats.CpuTransparentDrawCount =
                 static_cast<uint32_t>(TransparentDrawItems.size());
@@ -5780,17 +6930,55 @@ namespace HEngine
             Stats.CachedStaticMeshCount = static_cast<uint32_t>(MeshCache.size());
             Stats.BindlessMaterialCount = static_cast<uint32_t>(frameMaterials.size());
             Stats.GpuMaterialCount = static_cast<uint32_t>(frameGpuMaterials.size());
+            Stats.PendingTextureUploads = static_cast<uint32_t>(
+                TextureManagerInstance.GetUploadStatistics().Pending);
             Stats.BindlessTextureCount = static_cast<uint32_t>(
                 TextureManagerInstance.GetBindlessTextures().size());
             if (LastTextureManagerRevision != TextureManagerInstance.GetRevision())
             {
                 LastTextureManagerRevision = TextureManagerInstance.GetRevision();
-                bGraphDirty = true;
+                // Heap-direct textures are retained by TextureManager and remain
+                // in permanent ShaderResource state after upload. Its descriptor
+                // table can change without changing the render graph topology.
+                if (!bHeapDirectlyIndexed)
+                {
+                    bGraphDirty = true;
+                    Stats.GraphBuildReasonMask |= SceneGraphRebuildReason::TextureTable;
+                }
             }
+            if (bTracePreparation)
+            {
+                const double statsMs = checkpoint();
+                const double totalMs = textureCollectMs + environmentMs + frameSetupMs +
+                    objectsMs + batchesMs + materialCachesMs + statsMs;
+                if (totalMs > 6.0 || world.FrameNumber % 60 == 0)
+                    HE_CORE_INFO("[FramePreparation] frame={} totalMs={:.3f} textureCollectMs={:.3f} environmentMs={:.3f} setupMs={:.3f} objectsMs={:.3f} batchesMs={:.3f} materialCachesMs={:.3f} statsMs={:.3f}",
+                        world.FrameNumber, totalMs, textureCollectMs, environmentMs, frameSetupMs,
+                        objectsMs, batchesMs, materialCachesMs, statsMs);
+            }
+        }
+
+        void UpdatePostTaaView()
+        {
+            const bool bNeedsPostTaaDepth = IsTaaActive() && !IsOfflineViewportRenderingActive() &&
+                (!TransparentDrawItems.empty() || !OutlineDrawItems.empty() || !Primitive2DBatches.empty() ||
+                    CurrentVfxRequirements.bHasActiveEffects || bRunEmptyEffekseerPassForValidation);
+            if (bNeedsPostTaaDepth != bPostTaaDepthRequired)
+            {
+                bPostTaaDepthRequired = bNeedsPostTaaDepth;
+                bGraphDirty = true;
+                Stats.GraphBuildReasonMask |= SceneGraphRebuildReason::PostTaaDepth;
+            }
+            CurrentVfxView.Projection = bPostTaaDepthRequired
+                ? CurrentRasterCamera.NonJitteredViewProjection * glm::inverse(CurrentRasterCamera.View)
+                : CurrentRasterCamera.Projection;
+            VfxRenderGraphPass.UpdateView(CurrentVfxView);
         }
 
         void BuildGraph(const SceneRendererFrameDesc& frame)
         {
+            HE_PROFILE;
+            UpdatePostTaaView();
             Graph.Clear();
             Graph.Resize(frame.Width, frame.Height);
             GraphGeometryResources.clear();
@@ -5822,8 +7010,8 @@ namespace HEngine
                     .DebugName = bOffscreenOnly
                         ? OffscreenDebugName + " Color"
                         : "SceneRenderer Imported Backbuffer",
-                    .Width = frame.Width,
-                    .Height = frame.Height,
+                    .Width = LastOutputWidth,
+                    .Height = LastOutputHeight,
                     .Format = outputFormat,
                 },
                 outputTarget,
@@ -5996,18 +7184,24 @@ namespace HEngine
             BoneMatricesHandle = Graph.ImportBuffer(
                 RenderGraphBufferDesc{
                     .DebugName = "SceneRenderer Skinned Bone Matrices",
-                    .ByteSize = static_cast<uint64_t>(c_MaxSkinnedDraws) *
-                        c_MaxBonesPerPalette * sizeof(glm::mat4),
+                    .ByteSize = static_cast<uint64_t>(SceneBoneMatrixCapacity) * sizeof(glm::mat4),
                     .StructStride = sizeof(glm::mat4),
                 },
                 BoneMatrixBuffer,
                 nvrhi::ResourceStates::Common,
                 nvrhi::ResourceStates::Common);
+            PreviousBoneMatricesHandle = Graph.ImportBuffer(
+                RenderGraphBufferDesc{
+                    .DebugName = "SceneRenderer Previous Bone Matrices",
+                    .ByteSize = static_cast<uint64_t>(SceneBoneMatrixCapacity) * sizeof(glm::mat4),
+                    .StructStride = sizeof(glm::mat4),
+                }, PreviousBoneMatrixBuffer,
+                nvrhi::ResourceStates::Common, nvrhi::ResourceStates::Common);
 
-			std::vector<nvrhi::TextureHandle> frameMaterialTextures =
-				TextureManagerInstance.GetBindlessTextures();
+			std::vector<nvrhi::TextureHandle> frameMaterialTextures;
 			if (!bHeapDirectlyIndexed)
 			{
+				frameMaterialTextures = TextureManagerInstance.GetBindlessTextures();
 				for (const MaterialDescriptorPageState& page : MaterialPages)
 				{
 					frameMaterialTextures.insert(
@@ -6063,6 +7257,13 @@ namespace HEngine
                 ActiveIrradiance,
                 environmentInitialState,
                 nvrhi::ResourceStates::ShaderResource);
+            EnvironmentCdfHandle = {};
+            if (ActiveEnvironmentCdf && ActiveEnvironmentProposal)
+                EnvironmentCdfHandle = Graph.ImportTexture(RenderGraphTextureDesc{
+                    .DebugName = "Environment proposal CDF",
+                    .Width = EnvironmentSamplingProposal::Cells + 1, .Height = 1,
+                    .Format = nvrhi::Format::R32_FLOAT }, ActiveEnvironmentCdf,
+                    nvrhi::ResourceStates::ShaderResource, nvrhi::ResourceStates::ShaderResource);
             if (ActiveEnvironment == ActiveIrradiance)
             {
                 EnvironmentHandle = IrradianceHandle;
@@ -6119,10 +7320,17 @@ namespace HEngine
                     : nvrhi::ResourceStates::ShaderResource,
                 nvrhi::ResourceStates::ShaderResource);
 
+            ImportGeometryArenaPages();
             for (const SubMesh* key : MeshOrder)
             {
                 MeshEntry& mesh = MeshCache.at(key);
                 mesh.GraphIndex = static_cast<uint32_t>(GraphGeometryResources.size());
+                if (mesh.ArenaAllocation)
+                {
+                    const auto& page = GraphArenaPages.at(mesh.ArenaAllocation.PageIndex);
+                    GraphGeometryResources.push_back({ .Key = key, .VertexBuffer = page.Vertices, .IndexBuffer = page.Indices });
+                    continue;
+                }
                 const nvrhi::ResourceStates initialVertexState = mesh.bUploaded
                     ? nvrhi::ResourceStates::VertexBuffer
                     : nvrhi::ResourceStates::Common;
@@ -6151,7 +7359,7 @@ namespace HEngine
                     .IndexBuffer = Graph.ImportBuffer(
                         RenderGraphBufferDesc{
                             .DebugName = "SceneRenderer Static Mesh Indices",
-                            .ByteSize = static_cast<uint64_t>(mesh.Resource->GetIndices().size()) *
+                            .ByteSize = static_cast<uint64_t>(mesh.ResidentIndices.size()) *
                                 sizeof(uint32_t),
                             .StructStride = sizeof(uint32_t),
                         },
@@ -6161,9 +7369,17 @@ namespace HEngine
                 });
             }
 
+            LightGraphResources = LightGrid->AddPasses(Graph);
             AddSceneUploadPass();
+            if (!IsOfflineViewportRenderingActive())
+            {
+                ShadowGpuGraphViews = ShadowGpuSubmission->AddPasses(Graph, GpuBoundsHandle, bGpuShadowBatchingEnabled);
+                AddLocalShadowPasses();
+            }
             CurrentRtGraphResources = {};
             CurrentSurfaceData = {};
+            RasterSurfaceTargets = {};
+            CurrentAmbientOcclusion = {};
             CurrentDepthPyramid = {};
             CurrentGiOutputs = {};
             OpaqueDirectHdrHandle = {};
@@ -6173,12 +7389,21 @@ namespace HEngine
                 CurrentRtGraphResources =
                     HardwareRayTracingScene->AddBuildPasses(Graph);
             }
-            AddDirectionalShadowPass();
+            if (!IsOfflineViewportRenderingActive()) AddDirectionalShadowPass();
             AddGpuCullingPass();
-            AddGpuCullingReadbackPass();
+            DepthCompactedArgumentsHandle = bGpuBatchingEnabled
+                ? DepthIndirectCompaction->AddPasses(Graph, IndirectArgumentsHandle) : BufferHandle{};
             AddDepthPrepass();
             if (IsMsaaActive())
                 AddDepthPrepass(true);
+            if (bGpuOcclusionEnabled)
+                GpuOcclusionPass->AddPasses(Graph, SceneDepthHandle, frame.Width, frame.Height,
+                    GpuBoundsHandle, GpuDrawDataHandle, VisibleObjectIndicesHandle, IndirectArgumentsHandle);
+            MainCompactedArgumentsHandle = bGpuBatchingEnabled
+                ? MainIndirectCompaction->AddPasses(Graph, IndirectArgumentsHandle) : BufferHandle{};
+            // Read the final arguments after optional occlusion. The copy stays
+            // asynchronous and is mapped only after its submission completes.
+            AddGpuCullingReadbackPass();
             if (SurfaceDataPassInstance)
             {
                 CurrentSurfaceData = SurfaceDataPassInstance->AddPasses(
@@ -6186,9 +7411,26 @@ namespace HEngine
                     SceneDepthHandle,
                     CurrentRtGraphResources);
             }
-            AddOpaquePass();
+            if (!IsOfflineViewportRenderingActive())
+            {
+            if (Path == RenderingPath::Deferred || RequiresSceneSurfaceData() || AmbientOcclusionSettings.bEnabled ||
+                ReflectionSettings.bScreenSpaceEnabled || ReflectionSettings.bLocalProbesEnabled)
+            {
+                AddRasterSurfacePass();
+                if (RequiresSceneSurfaceData())
+                    AddRasterSurfaceUnpackPass();
+            }
+            CurrentAmbientOcclusion = AmbientOcclusionPass->AddPasses(
+                Graph, SceneDepthHandle, RasterSurfaceTargets[1]);
+            if (Path == RenderingPath::Deferred)
+                AddDeferredLightingPass();
+            else
+                AddOpaquePass();
+            RasterLitHdrHandle = SceneColorHandle;
             AddSkyPass();
-            AddSkinnedPass();
+            if (Path == RenderingPath::Forward)
+                AddSkinnedPass();
+            }
             if (DepthPyramidPassInstance)
             {
                 CurrentDepthPyramid = DepthPyramidPassInstance->AddPasses(
@@ -6204,8 +7446,56 @@ namespace HEngine
                     SceneColorHandle,
                     "SSGI Opaque Direct HDR")
                 : SceneColorHandle;
+            if (IsOfflineViewportRenderingActive())
+                SceneColorHandle = Graph.CreateTexture(RenderGraphTextureDesc{
+                    .DebugName = "Offline viewport HDR composition", .Width = LastWidth, .Height = LastHeight,
+                    .Format = c_SceneColorFormat, .bRelativeToGraph = true});
             if (IsGlobalIlluminationActive())
                 AddGlobalIlluminationPasses();
+            RenderFeatureBuildContext featureContext{ Graph, SceneColorHandle, SceneDepthHandle,
+                frame.Width, frame.Height, IsOfflineViewportRenderingActive(), IsMsaaActive(),
+                CurrentPbrDebugMode != ScenePbrDebugMode::Disabled ||
+                    EffectiveGiSettings.DebugView != GlobalIlluminationDebugView::Composite,
+                [this]() { AddEditorOutlinePass(); }, PostProcessPass.get() };
+            featureContext.Normal = CurrentSurfaceData.NormalRoughness;
+            featureContext.MotionVector = CurrentSurfaceData.MotionVectors;
+            featureContext.bDepthJittered = IsTemporalRasterActive();
+            featureContext.bSurfaceInputsJittered = IsTemporalRasterActive();
+            featureContext.bJittered = featureContext.bDepthJittered;
+            if (IsOfflineViewportRenderingActive())
+                Features->Build(RenderFeatureStage::SceneOverlay, featureContext);
+            if (!IsOfflineViewportRenderingActive() &&
+                CurrentPbrDebugMode == ScenePbrDebugMode::Disabled &&
+                EffectiveGiSettings.DebugView == GlobalIlluminationDebugView::Composite)
+            {
+                auto ao = CurrentAmbientOcclusion;
+                if (!ao)
+                    ao = Graph.ImportTexture(RenderGraphTextureDesc{
+                        .DebugName = "Neutral reflection AO", .Width = 1, .Height = 1,
+                        .Format = TextureManagerInstance.GetDefaultTexture(DefaultBindlessTexture::White).Texture->getDesc().format,
+                    }, TextureManagerInstance.GetDefaultTexture(DefaultBindlessTexture::White).Texture,
+                        nvrhi::ResourceStates::ShaderResource, nvrhi::ResourceStates::ShaderResource);
+                SceneColorHandle = ReflectionPass->AddPasses(Graph, SceneColorHandle, SceneDepthHandle,
+                    RasterSurfaceTargets[0], RasterSurfaceTargets[1], RasterSurfaceTargets[2],
+                    ao, PrefilterHandle, BrdfLutHandle, IrradianceHandle);
+            }
+            if (IsFsrActive() || (Features->RequiredInputs() & uint32_t(RenderFeatureInput::OpaqueColor)) != 0)
+            {
+                const auto source = IsMsaaActive()
+                    ? AddTextureResolvePass(Graph, SceneColorHandle, "Feature Opaque Color Resolve") : SceneColorHandle;
+                featureContext.OpaqueColor = Graph.CreateTexture(RenderGraphTextureDesc{
+                    .DebugName = "Feature Opaque Color Snapshot", .Width = frame.Width,
+                    .Height = frame.Height, .Format = c_SceneColorFormat });
+                Graph.AddPass<RuntimeUiBackdropCopyPassData>("FeatureOpaqueColorSnapshot", RenderGraphQueue::Copy,
+                    [&](RenderGraphBuilder& builder, RuntimeUiBackdropCopyPassData& data) {
+                        data.Source = builder.CopySource(source);
+                        data.Destination = builder.CopyDest(featureContext.OpaqueColor);
+                    },
+                    [](RenderGraphContext& context, const RuntimeUiBackdropCopyPassData& data) {
+                        context.GetCommandList()->copyTexture(context.GetTexture(data.Destination, RenderGraphAccess::Write),
+                            nvrhi::TextureSlice(), context.GetTexture(data.Source, RenderGraphAccess::Read), nvrhi::TextureSlice());
+                    });
+            }
             if (IsTaaActive())
             {
                 SceneColorHandle = SceneAntiAliasing.AddTaaPasses(
@@ -6226,9 +7516,38 @@ namespace HEngine
             }
             if (!IsOfflineViewportRenderingActive())
             {
+                featureContext.RasterDepth = RasterSceneDepthHandle;
+                Features->Build(RenderFeatureStage::TemporalComposite, featureContext);
+                if (bPostTaaDepthRequired)
+                {
+                    Graph.AddPass<BufferHandle>("PostTaaUnjitteredFrame", RenderGraphQueue::Graphics,
+                        [this](RenderGraphBuilder& builder, BufferHandle& data)
+                        {
+                            // This read orders the version publication after
+                            // temporal/color composition; the frame write also
+                            // depends on every prior raster reader.
+                            (void)builder.ShaderResource(SceneColorHandle);
+                            data = builder.CopyDest(FrameBufferHandle);
+                        },
+                        [this](RenderGraphContext& context, const BufferHandle& data)
+                        {
+                            (void)context.GetBuffer(data, RenderGraphAccess::Write);
+                            auto overlayFrame = FrameData;
+                            overlayFrame.ViewProjection = CurrentRasterCamera.NonJitteredViewProjection;
+                            overlayFrame.InverseViewProjection = glm::inverse(overlayFrame.ViewProjection);
+                            overlayFrame.PreviousViewProjection = PreviousTaaNonJitteredViewProjection;
+                            context.GetCommandList()->writeBuffer(FrameConstantBuffer, &overlayFrame, sizeof(overlayFrame));
+                        });
+                    AddDepthPrepass(false, true);
+                }
+                if (IsFsrActive()) UpscalingPass->BeginTransparency(Graph, SceneColorHandle);
+                featureContext.bTransparencyCoverageInAlpha = IsFsrActive();
                 AddPrimitive2DPass();
                 AddTransparentPass();
-                AddEditorOutlinePass();
+                featureContext.Depth = RasterSceneDepthHandle;
+                featureContext.bJittered = IsTemporalRasterActive() && !bPostTaaDepthRequired;
+                featureContext.bDepthJittered = featureContext.bJittered;
+                Features->Build(RenderFeatureStage::SceneOverlay, featureContext);
                 if (IsMsaaActive())
                 {
                     SceneColorHandle = AddTextureResolvePass(
@@ -6241,7 +7560,7 @@ namespace HEngine
                         Graph,
                         EffekseerRenderGraphInputs{
                             .SceneColor = SceneColorHandle,
-                            .SceneDepth = SceneDepthHandle,
+                            .SceneDepth = bPostTaaDepthRequired ? RasterSceneDepthHandle : SceneDepthHandle,
                             .Width = frame.Width,
                             .Height = frame.Height,
                             .View = CurrentVfxView.View,
@@ -6249,6 +7568,9 @@ namespace HEngine
                             .CameraPosition = CurrentVfxView.CameraPosition,
                             .ZNear = CurrentVfxView.ZNear,
                             .ZFar = CurrentVfxView.ZFar,
+                            .LightDirection = CurrentVfxView.LightDirection,
+                            .LightColor = CurrentVfxView.LightColor,
+                            .LightAmbientColor = CurrentVfxView.LightAmbientColor,
                         },
                         CurrentVfxRequirements,
                         bRunEmptyEffekseerPassForValidation);
@@ -6262,10 +7584,23 @@ namespace HEngine
                 Stats.bVfxDepthSnapshotAdded = false;
                 Stats.bVfxBackgroundSnapshotAdded = false;
             }
-            if (IsGlobalIlluminationActive())
-                AddLinearHdrCapturePass();
+            if (IsFsrActive())
+                SceneColorHandle = UpscalingPass->AddPasses(Graph, SceneColorHandle, featureContext.OpaqueColor,
+                    SceneDepthHandle, CurrentSurfaceData.MotionVectors);
+            if (bLinearHdrCaptureEnabled) AddLinearHdrCapturePass();
+            featureContext.bTransparencyCoverageInAlpha = false;
+            if (IsFsrActive()) { featureContext.Width = LastOutputWidth; featureContext.Height = LastOutputHeight; }
+            featureContext.bMsaa = false; // HDR resolve above precedes full-screen features.
+            featureContext.Depth = bPostTaaDepthRequired ? RasterSceneDepthHandle : SceneDepthHandle;
+            featureContext.bDepthJittered = IsTemporalRasterActive() && !bPostTaaDepthRequired;
+            featureContext.bJittered = !IsFsrActive() && featureContext.bDepthJittered;
+            Features->Build(RenderFeatureStage::HdrPostProcess, featureContext);
             AddToneMappingPass();
             AddSpatialAntiAliasingPass();
+            featureContext.Width = LastOutputWidth;
+            featureContext.Height = LastOutputHeight;
+            featureContext.DisplayColor = BackBufferHandle;
+            Features->Build(RenderFeatureStage::DisplayPostProcess, featureContext);
 			if (!bOffscreenOnly)
             {
                 if (CurrentSceneOverlayMode == RuntimeUiRenderMode::Offscreen)
@@ -6300,11 +7635,15 @@ namespace HEngine
                 RenderGraphQueue::Graphics,
                 [this](RenderGraphBuilder& builder, SceneUploadPassData& data)
                 {
+                    // The shared depth/outline frame binding includes b1 even
+                    // when lighting is not sampled. Keep its upload alive;
+                    // unused clustering still gets culled by the graph.
+                    (void)builder.ConstantBuffer(LightGraphResources.Constants);
                     data.FrameConstantsBuffer = builder.CopyDest(FrameBufferHandle);
                     for (const GraphGeometry& geometry : GraphGeometryResources)
                     {
                         const MeshEntry& mesh = MeshCache.at(geometry.Key);
-                        if (!mesh.bUploaded)
+                        if (!mesh.bUploaded || mesh.bDynamicVertices)
                         {
                             data.VertexBuffers.push_back(builder.CopyDest(geometry.VertexBuffer));
                             data.IndexBuffers.push_back(builder.CopyDest(geometry.IndexBuffer));
@@ -6324,6 +7663,7 @@ namespace HEngine
                     data.IndirectArguments = builder.CopyDest(IndirectArgumentsHandle);
                     data.Primitive2DVertices = builder.CopyDest(Primitive2DVerticesHandle);
                     data.BoneMatrices = builder.CopyDest(BoneMatricesHandle);
+                    data.PreviousBoneMatrices = builder.CopyDest(PreviousBoneMatricesHandle);
                 },
                 [this](RenderGraphContext& context, const SceneUploadPassData& data)
                 {
@@ -6336,27 +7676,63 @@ namespace HEngine
                     for (const GraphGeometry& geometry : GraphGeometryResources)
                     {
                         MeshEntry& mesh = MeshCache.at(geometry.Key);
-                        if (mesh.bUploaded)
+                        if (mesh.bUploaded && !mesh.bDynamicVertices)
                             continue;
-
-                        (void)context.GetBuffer(data.VertexBuffers.at(uploadIndex), RenderGraphAccess::Write);
-                        (void)context.GetBuffer(data.IndexBuffers.at(uploadIndex), RenderGraphAccess::Write);
+                        const size_t resourceIndex = uploadIndex++;
+                        if (mesh.bUploaded && !mesh.DeformationHistory.NeedsUpload(
+                            mesh.Resource->GetDeformationRevision(), mesh.Resource->GetDeformationHistoryGeneration()))
+                            continue;
+                        const bool firstUpload = !mesh.bUploaded;
+                        PendingMeshUploads.push_back(geometry.Key);
+                        (void)context.GetBuffer(data.VertexBuffers.at(resourceIndex), RenderGraphAccess::Write);
+                        (void)context.GetBuffer(data.IndexBuffers.at(resourceIndex), RenderGraphAccess::Write);
+                        const auto* staticVertices = &mesh.Resource->mStaticVertices;
+                        const auto* skinnedVertices = &mesh.Resource->mSkinnedVertices;
+                        if (mesh.bDynamicVertices)
+                        {
+                            if (mesh.bSkinned)
+                            {
+                                mesh.DeformationHistory.Stage(std::span<const SkinnedVertex>(*skinnedVertices),
+                                    DeformedSkinnedUpload, mesh.Resource->GetDeformationRevision(),
+                                    mesh.Resource->GetDeformationHistoryGeneration(), bRasterCameraHistoryReset);
+                                skinnedVertices = &DeformedSkinnedUpload;
+                            }
+                            else
+                            {
+                                mesh.DeformationHistory.Stage(std::span<const StaticVertex>(*staticVertices),
+                                    DeformedStaticUpload, mesh.Resource->GetDeformationRevision(),
+                                    mesh.Resource->GetDeformationHistoryGeneration(), bRasterCameraHistoryReset);
+                                staticVertices = &DeformedStaticUpload;
+                            }
+                        }
+                        if (mesh.ArenaAllocation)
+                        {
+                            GeometryArena->WriteAllocation(commandList, mesh.ArenaAllocation,
+                                std::as_bytes(std::span(*staticVertices)), mesh.ResidentIndices);
+                        }
+                        else
+                        {
                         commandList->writeBuffer(
                             mesh.VertexBuffer,
                             mesh.bSkinned
-                                ? static_cast<const void*>(mesh.Resource->mSkinnedVertices.data())
-                                : static_cast<const void*>(mesh.Resource->mStaticVertices.data()),
+                                ? static_cast<const void*>(skinnedVertices->data())
+                                : static_cast<const void*>(staticVertices->data()),
                             mesh.bSkinned
                                 ? mesh.Resource->mSkinnedVertices.size() * sizeof(SkinnedVertex)
                                 : mesh.Resource->mStaticVertices.size() * sizeof(StaticVertex));
-                        commandList->writeBuffer(
+                        if (firstUpload) commandList->writeBuffer(
                             mesh.IndexBuffer,
-                            mesh.Resource->GetIndices().data(),
-                            mesh.Resource->GetIndices().size() * sizeof(uint32_t));
+                            mesh.ResidentIndices.data(),
+                            mesh.ResidentIndices.size() * sizeof(uint32_t));
+                        }
                         mesh.bUploaded = true;
-                        ++uploadIndex;
+                        mesh.DeformationRevision = mesh.Resource->GetDeformationRevision();
                         ++Stats.UploadedMeshCount;
-                        bGraphDirty = true;
+                        if (firstUpload)
+                        {
+                            bGraphDirty = true;
+                            PendingGraphBuildReasonMask |= SceneGraphRebuildReason::MeshUploaded;
+                        }
                     }
 
                     if (!bDefaultEnvironmentUploaded &&
@@ -6399,39 +7775,27 @@ namespace HEngine
                     (void)context.GetBuffer(data.IndirectArguments, RenderGraphAccess::Write);
                     (void)context.GetBuffer(data.Primitive2DVertices, RenderGraphAccess::Write);
                     (void)context.GetBuffer(data.BoneMatrices, RenderGraphAccess::Write);
+                    (void)context.GetBuffer(data.PreviousBoneMatrices, RenderGraphAccess::Write);
                     if (!GpuObjectData.empty())
                     {
-                        commandList->writeBuffer(
-                            GpuObjectBuffer,
-                            GpuObjectData.data(),
-                            GpuObjectData.size() * sizeof(ObjectConstants));
-                        commandList->writeBuffer(
-                            GpuBoundsBuffer,
-                            GpuBoundsDataCpu.data(),
-                            GpuBoundsDataCpu.size() * sizeof(GpuBoundsData));
-                        commandList->writeBuffer(
-                            GpuDrawDataBuffer,
-                            GpuDrawDataCpu.data(),
-                            GpuDrawDataCpu.size() * sizeof(GpuDrawData));
+                        UploadSceneRows(commandList, GpuObjectBuffer, GpuObjectData);
+                        UploadSceneRows(commandList, GpuBoundsBuffer, GpuBoundsDataCpu);
+                        UploadSceneRows(commandList, GpuDrawDataBuffer, GpuDrawDataCpu);
                         commandList->writeBuffer(
                             IndirectArgumentsBuffer,
                             GpuIndirectArgumentsCpu.data(),
                             GpuIndirectArgumentsCpu.size() *
                                 sizeof(nvrhi::DrawIndexedIndirectArguments));
+                        Stats.SceneTableUploadedBytes += GpuIndirectArgumentsCpu.size() *
+                            sizeof(nvrhi::DrawIndexedIndirectArguments);
                     }
                     if (!GpuMaterialDataCpu.empty())
                     {
-                        commandList->writeBuffer(
-                            GpuMaterialBuffer,
-                            GpuMaterialDataCpu.data(),
-                            GpuMaterialDataCpu.size() * sizeof(GpuMaterialData));
+                        UploadSceneRows(commandList, GpuMaterialBuffer, GpuMaterialDataCpu);
                     }
                     if (!MaterialParameterRowsCpu.empty())
                     {
-                        commandList->writeBuffer(
-                            MaterialParameterBuffer,
-                            MaterialParameterRowsCpu.data(),
-                            MaterialParameterRowsCpu.size() * sizeof(glm::vec4));
+                        UploadSceneRows(commandList, MaterialParameterBuffer, MaterialParameterRowsCpu);
                     }
                     if (!Primitive2DVertices.empty())
                     {
@@ -6442,10 +7806,8 @@ namespace HEngine
                     }
                     if (!BoneMatricesCpu.empty())
                     {
-                        commandList->writeBuffer(
-                            BoneMatrixBuffer,
-                            BoneMatricesCpu.data(),
-                            BoneMatricesCpu.size() * sizeof(glm::mat4));
+                        UploadSceneRows(commandList, BoneMatrixBuffer, BoneMatricesCpu);
+                        UploadSceneRows(commandList, PreviousBoneMatrixBuffer, PreviousBoneMatricesCpu);
                     }
                 });
         }
@@ -6518,9 +7880,16 @@ namespace HEngine
                                 .ArraySliceCount = 1,
                             });
                     }
+                    DeclareGpuShadowResources(builder, 0, 4);
+                    // The shared frame/object binding sets include these even
+                    // when the shadow shader does not read every binding.
                     data.FrameConstantsBuffer = builder.ConstantBuffer(FrameBufferHandle);
+                    data.LightConstantsBuffer = builder.ConstantBuffer(LightGraphResources.Constants);
+                    data.LightRecords = builder.ShaderResource(LightGraphResources.Lights);
+                    data.ClusterMasks = builder.ShaderResource(LightGraphResources.ClusterMasks);
                     data.ObjectConstantsBuffer = builder.ConstantBuffer(ObjectBufferHandle);
                     data.BoneMatrices = builder.ShaderResource(BoneMatricesHandle);
+                    data.PreviousBoneMatrices = builder.ShaderResource(PreviousBoneMatricesHandle);
                     data.GpuMaterials = builder.ShaderResource(GpuMaterialsHandle);
                     data.MaterialParameters = builder.ShaderResource(MaterialParametersHandle);
                     for (const GraphMaterialTexture& texture : GraphMaterialTextures)
@@ -6538,20 +7907,21 @@ namespace HEngine
                 });
         }
 
-        void AddDepthPrepass(bool bMultisample = false)
+        void AddDepthPrepass(bool bMultisample = false, bool bPostTaa = false)
         {
             Graph.AddPass<DepthPrepassPassData>(
-                bMultisample ? "SceneDepthPrepassMSAA" : "SceneDepthPrepass",
+                bPostTaa ? "PostTaaUnjitteredDepth" : bMultisample ? "SceneDepthPrepassMSAA" : "SceneDepthPrepass",
                 RenderGraphQueue::Graphics,
-                [this, bMultisample](
+                [this, bMultisample, bPostTaa](
                     RenderGraphBuilder& builder,
                     DepthPrepassPassData& data)
                 {
-                    data.SceneDepth = !bMultisample &&
+                    data.bPostTaa = bPostTaa;
+                    data.SceneDepth = !bPostTaa && !bMultisample &&
                             CurrentOutputMode == SceneRendererOutputMode::OffscreenOnly
                         ? OffscreenDepthHandle
                         : builder.CreateTexture(RenderGraphTextureDesc{
-                            .DebugName = bMultisample
+                            .DebugName = bPostTaa ? "Post TAA unjittered occlusion depth" : bMultisample
                                 ? "SceneRenderer MSAA Scene Depth"
                                 : "SceneRenderer Scene Depth",
                             .Width = LastWidth,
@@ -6570,8 +7940,10 @@ namespace HEngine
                     data.GpuObjects = builder.ShaderResource(GpuObjectsHandle);
                     data.GpuMaterials = builder.ShaderResource(GpuMaterialsHandle);
                     data.MaterialParameters = builder.ShaderResource(MaterialParametersHandle);
-                    data.VisibleObjectIndices = builder.ShaderResource(VisibleObjectIndicesHandle);
-                    data.IndirectArguments = builder.IndirectArgument(IndirectArgumentsHandle);
+                    data.VisibleObjectIndices = builder.VertexBuffer(bPostTaa
+                        ? GpuDrawDataHandle : VisibleObjectIndicesHandle);
+                    data.IndirectArguments = builder.IndirectArgument(bGpuBatchingEnabled
+                        ? DepthCompactedArgumentsHandle : IndirectArgumentsHandle);
                     data.BoneMatrices = builder.ShaderResource(BoneMatricesHandle);
                     for (const GraphMaterialTexture& texture : GraphMaterialTextures)
                         data.MaterialTextures.push_back(builder.ShaderResource(texture.Handle));
@@ -6580,14 +7952,14 @@ namespace HEngine
                         data.VertexBuffers.push_back(builder.VertexBuffer(geometry.VertexBuffer));
                         data.IndexBuffers.push_back(builder.IndexBuffer(geometry.IndexBuffer));
                     }
-                    if (bMultisample)
+                    if (bPostTaa || bMultisample)
                         RasterSceneDepthHandle = data.SceneDepth;
                     else
                     {
                         SceneDepthHandle = data.SceneDepth;
                         RasterSceneDepthHandle = data.SceneDepth;
                     }
-                    if (!bMultisample &&
+                    if (!bPostTaa && !bMultisample &&
                         CurrentOutputMode == SceneRendererOutputMode::OffscreenOnly)
                     {
                         builder.Export(data.SceneDepth);
@@ -6599,6 +7971,9 @@ namespace HEngine
                 });
         }
 
+        #include "SceneRendererRaster.inl"
+        #include "SceneRendererShadow.inl"
+
         void AddOpaquePass()
         {
             Graph.AddPass<OpaquePassData>(
@@ -6606,6 +7981,7 @@ namespace HEngine
                 RenderGraphQueue::Graphics,
                 [this](RenderGraphBuilder& builder, OpaquePassData& data)
                 {
+                    AddLightDependencies(builder);
                     data.SceneColor = builder.CreateTexture(RenderGraphTextureDesc{
                         .DebugName = "SceneRenderer HDR Scene Color",
                             .Width = LastWidth,
@@ -6625,8 +8001,9 @@ namespace HEngine
                     for (const GraphMaterialTexture& texture : GraphMaterialTextures)
                         data.MaterialTextures.push_back(builder.ShaderResource(texture.Handle));
                     data.GpuObjects = builder.ShaderResource(GpuObjectsHandle);
-                    data.VisibleObjectIndices = builder.ShaderResource(VisibleObjectIndicesHandle);
-                    data.IndirectArguments = builder.IndirectArgument(IndirectArgumentsHandle);
+                    data.VisibleObjectIndices = builder.VertexBuffer(VisibleObjectIndicesHandle);
+                    data.IndirectArguments = builder.IndirectArgument(bGpuBatchingEnabled
+                        ? MainCompactedArgumentsHandle : IndirectArgumentsHandle);
                     data.DirectionalShadow = builder.ShaderResource(
                         DirectionalShadowHandle,
                         RenderGraphSubresourceRange{
@@ -6703,6 +8080,7 @@ namespace HEngine
                 RenderGraphQueue::Graphics,
                 [this](RenderGraphBuilder& builder, SkinnedPassData& data)
                 {
+                    AddLightDependencies(builder);
                     data.SceneColor = builder.ReadWrite(
                         SceneColorHandle,
                         RenderGraphUsage::RenderTarget);
@@ -6801,20 +8179,20 @@ namespace HEngine
                                 nvrhi::Viewport(
                                     static_cast<float>(LastWidth),
                                     static_cast<float>(LastHeight))))
-                            .addBindingSet(FrameBindingSet)
+                            .addBindingSet(GetLightingFrameBindingSet(context))
                             .addBindingSet(ObjectBindingSet)
                             .addBindingSet(environmentBindingSet)
 							.addBindingSet(GetMaterialTextureBindingSet(
 								drawItem.Constants.MaterialObjectMeshIndices.x))
                             .addBindingSet(TextureManagerInstance.GetSamplerBindingSet())
                             .addVertexBuffer(nvrhi::VertexBufferBinding()
-                                .setBuffer(mesh.VertexBuffer).setSlot(0).setOffset(0))
+                                .setBuffer(mesh.VertexBuffer).setSlot(0).setOffset(MeshVertexByteOffset(mesh)))
                             .setIndexBuffer(nvrhi::IndexBufferBinding()
                                 .setBuffer(mesh.IndexBuffer)
-                                .setFormat(nvrhi::Format::R32_UINT).setOffset(0));
+                                .setFormat(nvrhi::Format::R32_UINT).setOffset(MeshIndexByteOffset(mesh)));
                         context.GetCommandList()->setGraphicsState(state);
                         context.GetCommandList()->drawIndexed(
-                            nvrhi::DrawArguments().setVertexCount(mesh.IndexCount));
+                            MeshDrawArguments(mesh, drawItem.LodIndex));
                     }
                 });
         }
@@ -6867,6 +8245,8 @@ namespace HEngine
                                 nvrhi::Viewport(
                                     static_cast<float>(LastWidth),
                                     static_cast<float>(LastHeight))))
+                            // 2D primitives are unlit. The lighting variant reads
+                            // GTAO, which this pass neither declares nor samples.
                             .addBindingSet(FrameBindingSet)
                             .addBindingSet(Primitive2DBindingSet)
 							.addBindingSet(TextureManagerInstance.GetTextureBindingSet())
@@ -6891,6 +8271,7 @@ namespace HEngine
                 RenderGraphQueue::Graphics,
                 [this](RenderGraphBuilder& builder, TransparentPassData& data)
                 {
+                    AddLightDependencies(builder);
                     data.SceneColor = builder.ReadWrite(
                         SceneColorHandle,
                         RenderGraphUsage::RenderTarget);
@@ -6996,7 +8377,7 @@ namespace HEngine
                                 nvrhi::Viewport(
                                     static_cast<float>(LastWidth),
                                     static_cast<float>(LastHeight))))
-                            .addBindingSet(FrameBindingSet)
+                            .addBindingSet(GetLightingFrameBindingSet(context))
                             .addBindingSet(ObjectBindingSet)
                             .addBindingSet(environmentBindingSet)
 							.addBindingSet(GetMaterialTextureBindingSet(
@@ -7005,14 +8386,14 @@ namespace HEngine
                             .addVertexBuffer(nvrhi::VertexBufferBinding()
                                 .setBuffer(mesh.VertexBuffer)
                                 .setSlot(0)
-                                .setOffset(0))
+                                .setOffset(MeshVertexByteOffset(mesh)))
                             .setIndexBuffer(nvrhi::IndexBufferBinding()
                                 .setBuffer(mesh.IndexBuffer)
                                 .setFormat(nvrhi::Format::R32_UINT)
-                                .setOffset(0));
+                                .setOffset(MeshIndexByteOffset(mesh)));
                         context.GetCommandList()->setGraphicsState(state);
                         context.GetCommandList()->drawIndexed(
-                            nvrhi::DrawArguments().setVertexCount(mesh.IndexCount));
+                            MeshDrawArguments(mesh, drawItem.LodIndex));
                     }
                 });
         }
@@ -7024,9 +8405,8 @@ namespace HEngine
                 RenderGraphQueue::Graphics,
                 [this](RenderGraphBuilder& builder, OutlinePassData& data)
                 {
-                    data.SceneColor = builder.ReadWrite(
-                        SceneColorHandle,
-                        RenderGraphUsage::RenderTarget);
+                    data.SceneColor = builder.ColorAttachment(
+                        SceneColorHandle, RenderGraphAttachmentOps{});
                     data.SceneDepth = builder.DepthRead(RasterSceneDepthHandle);
                     data.FrameConstantsBuffer = builder.ConstantBuffer(FrameBufferHandle);
                     data.ObjectConstantsBuffer = builder.ConstantBuffer(ObjectBufferHandle);
@@ -7104,11 +8484,11 @@ namespace HEngine
                             .addVertexBuffer(nvrhi::VertexBufferBinding()
                                 .setBuffer(mesh.VertexBuffer)
                                 .setSlot(0)
-                                .setOffset(0))
+                                .setOffset(MeshVertexByteOffset(mesh)))
                             .setIndexBuffer(nvrhi::IndexBufferBinding()
                                 .setBuffer(mesh.IndexBuffer)
                                 .setFormat(nvrhi::Format::R32_UINT)
-                                .setOffset(0));
+                                .setOffset(MeshIndexByteOffset(mesh)));
                         if (bCustomMask)
                         {
 							state.addBindingSet(GetMaterialTextureBindingSet(
@@ -7117,7 +8497,7 @@ namespace HEngine
                         }
                         commandList->setGraphicsState(state);
                         commandList->drawIndexed(
-                            nvrhi::DrawArguments().setVertexCount(mesh.IndexCount));
+                            MeshDrawArguments(mesh, drawItem.LodIndex));
                     }
                 });
         }
@@ -7136,8 +8516,8 @@ namespace HEngine
                             RenderGraphTextureDesc{
                                 .DebugName =
                                     "SceneRenderer Tone-Mapped AA Input",
-                                .Width = LastWidth,
-                                .Height = LastHeight,
+                                .Width = LastOutputWidth,
+                                .Height = LastOutputHeight,
                                 .Format = nvrhi::Format::RGBA8_UNORM,
                             });
                         data.BackBuffer = builder.RenderTarget(
@@ -7175,8 +8555,8 @@ namespace HEngine
                     data.Destination = builder.CreateTexture(
                         RenderGraphTextureDesc{
                             .DebugName = "Runtime UI LDR Backdrop",
-                            .Width = LastWidth,
-                            .Height = LastHeight,
+                            .Width = LastOutputWidth,
+                            .Height = LastOutputHeight,
                             .Format = outputFormat,
                         },
                         RenderGraphResourceLifetime::Persistent);
@@ -7203,8 +8583,8 @@ namespace HEngine
                 RuntimeUiRenderGraphInputs{
                     .BackBuffer = BackBufferHandle,
                     .Backdrop = RuntimeUiBackdropHandle,
-                    .Width = LastWidth,
-                    .Height = LastHeight,
+                    .Width = LastOutputWidth,
+                    .Height = LastOutputHeight,
                 });
             if (!uiResult.bAdded)
                 throw std::runtime_error("Failed to add runtime UI offscreen RenderGraph passes");
@@ -7271,8 +8651,8 @@ namespace HEngine
                         .CommandList = context.GetCommandList(),
                         .Framebuffer = GetOrCreateToneFramebuffer(backBuffer),
                         .BackBuffer = backBuffer,
-                        .Width = LastWidth,
-                        .Height = LastHeight,
+                        .Width = LastOutputWidth,
+                        .Height = LastOutputHeight,
                         .FrameSlot = CurrentFrameSlot,
                         .CompletedSubmission = CurrentCompletedSubmission,
                     });
@@ -7311,8 +8691,8 @@ namespace HEngine
                         .CommandList = context.GetCommandList(),
                         .Framebuffer = GetOrCreateToneFramebuffer(backBuffer),
                         .BackBuffer = backBuffer,
-                        .Width = LastWidth,
-                        .Height = LastHeight,
+                        .Width = LastOutputWidth,
+                        .Height = LastOutputHeight,
                         .FrameSlot = CurrentFrameSlot,
                         .CompletedSubmission = CurrentCompletedSubmission,
                     });
@@ -7322,6 +8702,10 @@ namespace HEngine
 
         void AddOffscreenCopyPass()
         {
+            if (Graph.GetTextureDesc(BackBufferHandle).Format !=
+                Graph.GetTextureDesc(OffscreenColorHandle).Format)
+                throw RenderGraphValidationError(
+                    "The main offscreen output must match the swapchain color format for a raw image copy");
             Graph.AddPass<OffscreenCopyPassData>(
                 "OffscreenOutputCopy",
                 RenderGraphQueue::Copy,
@@ -7372,22 +8756,56 @@ namespace HEngine
                     RenderGraphBuilder& builder,
                     LinearHdrCapturePassData& data)
                 {
-                    data.SceneColor = builder.CopySource(SceneColorHandle);
+                    if (CurrentCaptureSource == FrameCaptureSource::Automatic)
+                    {
+                        data.SceneColor = builder.CopySource(SceneColorHandle);
+                        if (NativeGiDiagnosticInput && IsGlobalIlluminationActive())
+                            data.DiagnosticInput = builder.CopySource(NativeGiDiagnosticInput);
+                    }
+                    else
+                    {
+                        // Read only attachments already produced by this main view.
+                        // Do not enable GI, guides, AA or any otherwise unused pass.
+                        TextureHandle selected;
+                        switch (CurrentCaptureSource)
+                        {
+                        case FrameCaptureSource::Depth: selected = SceneDepthHandle; break;
+                        case FrameCaptureSource::Motion: selected = RasterSurfaceTargets[3]; break;
+                        case FrameCaptureSource::Normal: selected = RasterSurfaceTargets[1]; break;
+                        case FrameCaptureSource::SurfaceId: selected = RasterSurfaceTargets[4]; break;
+                        case FrameCaptureSource::Reactive: selected = UpscalingPass->GetReactiveMask(); break;
+                        case FrameCaptureSource::Composition: selected = UpscalingPass->GetCompositionMask(); break;
+                        case FrameCaptureSource::UpscaleMotion: selected = UpscalingPass->GetMotionVectors(); break;
+                        case FrameCaptureSource::UpscaleColor: selected = UpscalingPass->GetInputColor(); break;
+                        case FrameCaptureSource::UpscaleOpaque: selected = UpscalingPass->GetOpaqueColor(); break;
+                        case FrameCaptureSource::DirectionalShadow:
+                            if (!IsOfflineViewportRenderingActive()) selected = DirectionalShadowHandle;
+                            break;
+                        default: throw std::invalid_argument("Invalid native capture source");
+                        }
+                        if (selected) data.SelectedNativeInput = builder.CopySource(selected);
+                        // If settings changed while queued, preserve the normal
+                        // frame and let the recorder return a narrow capture error.
+                        // No fallback attachment or additional effect is created.
+                    }
                     builder.SetSideEffect();
                 },
                 [this](
                     RenderGraphContext& context,
                     const LinearHdrCapturePassData& data)
                 {
-                    nvrhi::ITexture* sceneColor = context.GetTexture(
-                        data.SceneColor,
-                        RenderGraphAccess::Read);
+                    nvrhi::ITexture* sceneColor = data.SceneColor
+                        ? context.GetTexture(data.SceneColor, RenderGraphAccess::Read) : nullptr;
                     if (!CurrentLinearHdrCaptureRecorder)
                         return;
                     CurrentLinearHdrCaptureRecorder(
                         SceneRendererLinearHdrCaptureContext{
                             .CommandList = context.GetCommandList(),
                             .LinearHdr = sceneColor,
+                            .DiagnosticInput = data.DiagnosticInput
+                                ? context.GetTexture(data.DiagnosticInput, RenderGraphAccess::Read) : nullptr,
+                            .SelectedNativeInput = data.SelectedNativeInput
+                                ? context.GetTexture(data.SelectedNativeInput, RenderGraphAccess::Read) : nullptr,
                             .Width = LastWidth,
                             .Height = LastHeight,
                             .FrameSlot = CurrentFrameSlot,
@@ -7406,8 +8824,8 @@ namespace HEngine
                     ToneMappedSceneHandle,
                     BackBufferHandle,
                     AaSelection.Effective,
-                    LastWidth,
-                    LastHeight);
+                    LastOutputWidth,
+                    LastOutputHeight);
             }
             else if (IsSmaaActive())
             {
@@ -7416,8 +8834,8 @@ namespace HEngine
                     ToneMappedSceneHandle,
                     BackBufferHandle,
                     AaSelection.Effective,
-                    LastWidth,
-                    LastHeight);
+                    LastOutputWidth,
+                    LastOutputHeight);
             }
         }
 
@@ -7444,8 +8862,8 @@ namespace HEngine
                     CurrentCaptureRecorder(SceneRendererCaptureContext{
                         .CommandList = context.GetCommandList(),
                         .BackBuffer = backBuffer,
-                        .Width = LastWidth,
-                        .Height = LastHeight,
+                        .Width = LastOutputWidth,
+                        .Height = LastOutputHeight,
                         .FrameSlot = CurrentFrameSlot,
                         .CompletedSubmission = CurrentCompletedSubmission,
                     });
@@ -7484,8 +8902,21 @@ namespace HEngine
                     static_cast<float>(LastWidth),
                     static_cast<float>(LastHeight)));
 
+            if (bGpuBatchingEnabled && !data.bPostTaa)
+                RecordGroupedGpuGeometry(context, *DepthIndirectCompaction, data.IndirectArguments,
+                    [&](const GpuStateGroup& group)
+                    {
+                        nvrhi::GraphicsState state;
+                        state.setPipeline(GetOrCreateDepthPrepassPipeline(framebuffer, true, false, group.bDoubleSided))
+                            .setFramebuffer(framebuffer).setViewport(viewport)
+                            .addBindingSet(FrameBindingSet).addBindingSet(GpuObjectBindingSet)
+                            .addBindingSet(GetMaterialTextureBindingSet(GpuBatches[group.FirstBatch].MaterialIndex))
+                            .addBindingSet(TextureManagerInstance.GetSamplerBindingSet());
+                        return state;
+                    });
+
             for (uint32_t batchIndex = 0;
-                batchIndex < static_cast<uint32_t>(GpuBatches.size());
+                !data.bPostTaa && !bGpuBatchingEnabled && batchIndex < static_cast<uint32_t>(GpuBatches.size());
                 ++batchIndex)
             {
                 const GpuBatch& batch = GpuBatches[batchIndex];
@@ -7513,14 +8944,14 @@ namespace HEngine
                     .addBindingSet(TextureManagerInstance.GetSamplerBindingSet())
                     .addVertexBuffer(nvrhi::VertexBufferBinding()
                         .setBuffer(mesh.VertexBuffer).setSlot(0).setOffset(0))
+                    .addVertexBuffer(nvrhi::VertexBufferBinding()
+                        .setBuffer(VisibleObjectIndicesBuffer).setSlot(1).setOffset(0))
                     .setIndexBuffer(nvrhi::IndexBufferBinding()
                         .setBuffer(mesh.IndexBuffer)
                         .setFormat(nvrhi::Format::R32_UINT)
                         .setOffset(0))
                     .setIndirectParams(IndirectArgumentsBuffer);
                 commandList->setGraphicsState(state);
-                const GpuDrawConstants drawConstants{ .VisibleBase = batch.VisibleBase };
-                commandList->setPushConstants(&drawConstants, sizeof(drawConstants));
                 commandList->drawIndexedIndirect(
                     batchIndex * sizeof(nvrhi::DrawIndexedIndirectArguments),
                     1);
@@ -7568,15 +8999,58 @@ namespace HEngine
 						drawItem.Constants.MaterialObjectMeshIndices.x))
                     .addBindingSet(TextureManagerInstance.GetSamplerBindingSet())
                     .addVertexBuffer(nvrhi::VertexBufferBinding()
-                        .setBuffer(mesh.VertexBuffer).setSlot(0).setOffset(0))
+                        .setBuffer(mesh.VertexBuffer).setSlot(0).setOffset(MeshVertexByteOffset(mesh)))
                     .setIndexBuffer(nvrhi::IndexBufferBinding()
                         .setBuffer(mesh.IndexBuffer)
                         .setFormat(nvrhi::Format::R32_UINT)
-                        .setOffset(0));
+                        .setOffset(MeshIndexByteOffset(mesh)));
                 commandList->setGraphicsState(state);
                 commandList->drawIndexed(
-                    nvrhi::DrawArguments().setVertexCount(mesh.IndexCount));
+                    MeshDrawArguments(mesh, drawItem.LodIndex));
             };
+            if (data.bPostTaa)
+            {
+                // The first depth list was culled with a jittered frustum.
+                // Draw the complete authoritative input stream by batch instead
+                // of replaying each instance through CPU object constants. This
+                // retains off-frustum/occluded rows for the unjittered projection.
+                for (size_t batchIndex = 0; batchIndex < GpuBatches.size(); ++batchIndex)
+                {
+                    const auto& batch = GpuBatches[batchIndex];
+                    if (batch.MaterialProgram && batch.MaterialProgram->GetManifest().BlendMode ==
+                        MaterialShaderBlendMode::Mask)
+                    {
+                        // Preserve custom alpha/displacement depth programs.
+                        for (const auto objectIndex : GpuBatchObjectIndices[batchIndex])
+                            drawCpuItem(DrawItem{
+                                .Key = batch.Key.Mesh,
+                                .LodIndex = batch.Key.LodIndex,
+                                .Constants = GpuObjectData[objectIndex],
+                                .MaterialProgram = batch.MaterialProgram,
+                                .bDoubleSided = batch.Key.bDoubleSided }, false);
+                        continue;
+                    }
+                    const auto& mesh = MeshCache.at(batch.Key.Mesh);
+                    (void)context.GetBuffer(data.VertexBuffers.at(mesh.GraphIndex), RenderGraphAccess::Read);
+                    (void)context.GetBuffer(data.IndexBuffers.at(mesh.GraphIndex), RenderGraphAccess::Read);
+                    nvrhi::GraphicsState state;
+                    state.setPipeline(GetOrCreateDepthPrepassPipeline(
+                            framebuffer, true, false, batch.Key.bDoubleSided, true))
+                        .setFramebuffer(framebuffer).setViewport(viewport)
+                        .addBindingSet(FrameBindingSet).addBindingSet(GpuObjectBindingSet)
+                        .addBindingSet(GetMaterialTextureBindingSet(batch.MaterialIndex))
+                        .addBindingSet(TextureManagerInstance.GetSamplerBindingSet())
+                        .addVertexBuffer(nvrhi::VertexBufferBinding().setBuffer(mesh.VertexBuffer)
+                            .setSlot(0).setOffset(MeshVertexByteOffset(mesh)))
+                        .addVertexBuffer(nvrhi::VertexBufferBinding().setBuffer(GpuDrawDataBuffer)
+                            .setSlot(1).setOffset(static_cast<uint64_t>(batch.VisibleBase) * sizeof(GpuDrawData)))
+                        .setIndexBuffer(nvrhi::IndexBufferBinding().setBuffer(mesh.IndexBuffer)
+                            .setFormat(nvrhi::Format::R32_UINT).setOffset(MeshIndexByteOffset(mesh)));
+                    commandList->setGraphicsState(state);
+                    commandList->drawIndexed(MeshDrawArguments(mesh, batch.Key.LodIndex)
+                        .setInstanceCount(batch.ObjectCount));
+                }
+            }
             for (const DrawItem& drawItem : CpuDrawItems)
                 drawCpuItem(drawItem, false);
             for (const DrawItem& drawItem : SkinnedDrawItems)
@@ -7592,13 +9066,18 @@ namespace HEngine
                 context.GetTexture(data.ShadowDepth, RenderGraphAccess::Write);
             DirectionalShadowTextures.insert(shadowDepth);
             (void)context.GetBuffer(data.FrameConstantsBuffer, RenderGraphAccess::Read);
+            (void)context.GetBuffer(data.LightConstantsBuffer, RenderGraphAccess::Read);
+            (void)context.GetBuffer(data.LightRecords, RenderGraphAccess::Read);
+            (void)context.GetBuffer(data.ClusterMasks, RenderGraphAccess::Read);
             (void)context.GetBuffer(data.ObjectConstantsBuffer, RenderGraphAccess::Read);
             (void)context.GetBuffer(data.BoneMatrices, RenderGraphAccess::Read);
+            (void)context.GetBuffer(data.PreviousBoneMatrices, RenderGraphAccess::Read);
             (void)context.GetBuffer(data.GpuMaterials, RenderGraphAccess::Read);
             (void)context.GetBuffer(data.MaterialParameters, RenderGraphAccess::Read);
             for (TextureHandle texture : data.MaterialTextures)
                 (void)context.GetTexture(texture, RenderGraphAccess::Read);
 
+            Stats.DirectionalShadowDrawCount = 0;
             for (uint32_t cascade = 0;
                 cascade < DirectionalShadowCascadeCount;
                 ++cascade)
@@ -7627,8 +9106,15 @@ namespace HEngine
                 const ShadowPassConstants shadowPassConstants{
                     .CascadeIndex = cascade,
                 };
+                Stats.DirectionalShadowDrawCount += RecordGpuShadowView(context, cascade, cascade, framebuffer, viewport, FrameBindingSet);
                 for (const DrawItem& drawItem : ShadowDrawItems)
                 {
+                    if (drawItem.bGpuShadow) continue;
+                    const glm::mat4& cascadeMatrix = cascade == 0
+                        ? FrameData.LightViewProjection : FrameData.AdditionalLightViewProjections[cascade - 1];
+                    if (!IsShadowCasterVisible(drawItem, cascadeMatrix)) continue;
+                    ++Stats.DirectionalShadowDrawCount;
+                    ++Stats.DirectionalCpuCasterDraws.at(cascade);
                     const MeshEntry& mesh = MeshCache.at(drawItem.Key);
                     if (mesh.GraphIndex >= data.VertexBuffers.size())
                         throw std::logic_error("SceneRenderer shadow mesh graph index is stale");
@@ -7669,17 +9155,17 @@ namespace HEngine
                         .addVertexBuffer(nvrhi::VertexBufferBinding()
                             .setBuffer(mesh.VertexBuffer)
                             .setSlot(0)
-                            .setOffset(0))
+                            .setOffset(MeshVertexByteOffset(mesh)))
                         .setIndexBuffer(nvrhi::IndexBufferBinding()
                             .setBuffer(mesh.IndexBuffer)
                             .setFormat(nvrhi::Format::R32_UINT)
-                            .setOffset(0));
+                            .setOffset(MeshIndexByteOffset(mesh)));
                     commandList->setGraphicsState(state);
                     commandList->setPushConstants(
                         &shadowPassConstants,
                         sizeof(shadowPassConstants));
                     commandList->drawIndexed(
-                        nvrhi::DrawArguments().setVertexCount(mesh.IndexCount));
+                        MeshDrawArguments(mesh, drawItem.LodIndex));
                 }
             }
         }
@@ -7719,8 +9205,23 @@ namespace HEngine
                 nvrhi::AllSubresources,
                 nvrhi::Color(0.004f, 0.008f, 0.016f, 1.0f));
 
+            if (bGpuBatchingEnabled)
+                RecordGroupedGpuGeometry(context, *MainIndirectCompaction, data.IndirectArguments,
+                    [&](const GpuStateGroup& group)
+                    {
+                        nvrhi::GraphicsState state;
+                        state.setPipeline(GetGpuMaterialPipeline(framebuffer, GpuBatches[group.FirstBatch], MaterialShaderPass::Forward))
+                            .setFramebuffer(framebuffer).setViewport(nvrhi::ViewportState().addViewportAndScissorRect(
+                                nvrhi::Viewport(static_cast<float>(LastWidth), static_cast<float>(LastHeight))))
+                            .addBindingSet(GetLightingFrameBindingSet(context)).addBindingSet(GpuObjectBindingSet)
+                            .addBindingSet(shadowBindingSet)
+                            .addBindingSet(GetMaterialTextureBindingSet(GpuBatches[group.FirstBatch].MaterialIndex))
+                            .addBindingSet(TextureManagerInstance.GetSamplerBindingSet());
+                        return state;
+                    });
+
             for (uint32_t batchIndex = 0;
-                batchIndex < static_cast<uint32_t>(GpuBatches.size());
+                !bGpuBatchingEnabled && batchIndex < static_cast<uint32_t>(GpuBatches.size());
                 ++batchIndex)
             {
                 const GpuBatch& batch = GpuBatches[batchIndex];
@@ -7731,13 +9232,11 @@ namespace HEngine
                 (void)context.GetBuffer(data.IndexBuffers[mesh.GraphIndex], RenderGraphAccess::Read);
 
                 nvrhi::GraphicsState state;
-                state.setPipeline(GetOrCreateGpuOpaquePipeline(
-                        framebuffer,
-                        batch.Key.bDoubleSided))
+                state.setPipeline(GetGpuMaterialPipeline(framebuffer, batch, MaterialShaderPass::Forward))
                     .setFramebuffer(framebuffer)
                     .setViewport(nvrhi::ViewportState().addViewportAndScissorRect(
                         nvrhi::Viewport(static_cast<float>(LastWidth), static_cast<float>(LastHeight))))
-                    .addBindingSet(FrameBindingSet)
+                    .addBindingSet(GetLightingFrameBindingSet(context))
                     .addBindingSet(GpuObjectBindingSet)
                     .addBindingSet(shadowBindingSet)
 					.addBindingSet(GetMaterialTextureBindingSet(batch.MaterialIndex))
@@ -7746,14 +9245,14 @@ namespace HEngine
                         .setBuffer(mesh.VertexBuffer)
                         .setSlot(0)
                         .setOffset(0))
+                    .addVertexBuffer(nvrhi::VertexBufferBinding()
+                        .setBuffer(VisibleObjectIndicesBuffer).setSlot(1).setOffset(0))
                     .setIndexBuffer(nvrhi::IndexBufferBinding()
                         .setBuffer(mesh.IndexBuffer)
                         .setFormat(nvrhi::Format::R32_UINT)
                         .setOffset(0))
                     .setIndirectParams(IndirectArgumentsBuffer);
                 commandList->setGraphicsState(state);
-                const GpuDrawConstants drawConstants{ .VisibleBase = batch.VisibleBase };
-                commandList->setPushConstants(&drawConstants, sizeof(drawConstants));
                 commandList->drawIndexedIndirect(
                     batchIndex * sizeof(nvrhi::DrawIndexedIndirectArguments),
                     1);
@@ -7786,7 +9285,7 @@ namespace HEngine
                     .setFramebuffer(framebuffer)
                     .setViewport(nvrhi::ViewportState().addViewportAndScissorRect(
                         nvrhi::Viewport(static_cast<float>(LastWidth), static_cast<float>(LastHeight))))
-                    .addBindingSet(FrameBindingSet)
+                    .addBindingSet(GetLightingFrameBindingSet(context))
                     .addBindingSet(ObjectBindingSet)
                     .addBindingSet(shadowBindingSet)
 					.addBindingSet(GetMaterialTextureBindingSet(
@@ -7795,13 +9294,13 @@ namespace HEngine
                     .addVertexBuffer(nvrhi::VertexBufferBinding()
                         .setBuffer(mesh.VertexBuffer)
                         .setSlot(0)
-                        .setOffset(0))
+                        .setOffset(MeshVertexByteOffset(mesh)))
                     .setIndexBuffer(nvrhi::IndexBufferBinding()
                         .setBuffer(mesh.IndexBuffer)
                         .setFormat(nvrhi::Format::R32_UINT)
-                        .setOffset(0));
+                        .setOffset(MeshIndexByteOffset(mesh)));
                 commandList->setGraphicsState(state);
-                commandList->drawIndexed(nvrhi::DrawArguments().setVertexCount(mesh.IndexCount));
+                commandList->drawIndexed(MeshDrawArguments(mesh, drawItem.LodIndex));
             }
         }
 
@@ -7846,12 +9345,14 @@ namespace HEngine
             state.setPipeline(pipeline)
                 .setFramebuffer(framebuffer)
                 .setViewport(nvrhi::ViewportState().addViewportAndScissorRect(
-                    nvrhi::Viewport(static_cast<float>(LastWidth), static_cast<float>(LastHeight))))
+                    nvrhi::Viewport(static_cast<float>(backBuffer->getDesc().width), static_cast<float>(backBuffer->getDesc().height))))
                 .addBindingSet(bindingSet);
             commandList->setGraphicsState(state);
             const ToneMappingConstants constants{
                 .Exposure = Exposure,
                 .PbrDebugMode = static_cast<uint32_t>(CurrentPbrDebugMode),
+                .GiDebugView = static_cast<uint32_t>(EffectiveGiSettings.DebugView),
+                .Upscale = (LastOutputWidth > sceneColor->getDesc().width || LastOutputHeight > sceneColor->getDesc().height) ? 1.0f : 0.0f,
             };
             commandList->setPushConstants(&constants, sizeof(constants));
             commandList->draw(nvrhi::DrawArguments().setVertexCount(3));
@@ -7964,8 +9465,12 @@ namespace HEngine
                     nvrhi::Format::UNKNOWN,
                     nvrhi::AllSubresources,
                     nvrhi::TextureDimension::TextureCube))
+                .addItem(nvrhi::BindingSetItem::Texture_SRV(10, LocalShadowPass->GetDepthArray(),
+                    nvrhi::Format::UNKNOWN, nvrhi::AllSubresources, nvrhi::TextureDimension::Texture2DArray))
+                .addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(11, LocalShadowPass->GetViewRecordBuffer()))
                 .addItem(nvrhi::BindingSetItem::Texture_SRV(3, brdfLut))
-                .addItem(nvrhi::BindingSetItem::Sampler(0, ShadowSampler));
+                .addItem(nvrhi::BindingSetItem::Sampler(0, ShadowSampler))
+                .addItem(nvrhi::BindingSetItem::Sampler(1, ShadowComparisonSampler));
             nvrhi::BindingSetHandle bindingSet =
                 Device->createBindingSet(desc, ShadowTextureBindingLayout);
             if (!bindingSet)
@@ -8046,11 +9551,12 @@ namespace HEngine
             MaterialShaderPass pass,
             bool bSkinned,
             bool bDoubleSided,
-            bool bTransparent)
+            bool bTransparent,
+            bool bGpuDriven = false)
         {
             const MaterialShaderVertexPath vertexPath = bSkinned
                 ? MaterialShaderVertexPath::Skinned
-                : MaterialShaderVertexPath::Static;
+                : bGpuDriven ? MaterialShaderVertexPath::GpuDriven : MaterialShaderVertexPath::Static;
             const MaterialShaderDescriptorMode descriptorMode = bHeapDirectlyIndexed
                 ? MaterialShaderDescriptorMode::HeapDirect
                 : MaterialShaderDescriptorMode::Baseline;
@@ -8071,16 +9577,21 @@ namespace HEngine
             if (!vertexShader || !pixelShader)
             {
                 throw std::logic_error(
-                    "Material program is missing a required pass/vertex/tier shader");
+                    "Material program is missing a required shader: source='" +
+                    program.GetIdentity().SourcePath + "', generation=" +
+                    std::to_string(program.GetGeneration()) + ", pass=" + ToString(pass) +
+                    ", vertex=" + ToString(vertexPath) + ", descriptor=" + ToString(descriptorMode) +
+                    ", missingVS=" + (vertexShader ? "false" : "true") +
+                    ", missingPS=" + (pixelShader ? "false" : "true"));
             }
 
             nvrhi::GraphicsPipelineDesc pipelineDesc;
             pipelineDesc.setPrimType(nvrhi::PrimitiveType::TriangleList)
-                .setInputLayout(bSkinned ? SkinnedInputLayout : InputLayout)
+                .setInputLayout(bSkinned ? SkinnedInputLayout : bGpuDriven ? GpuInputLayout : InputLayout)
                 .setVertexShader(vertexShader)
                 .setPixelShader(pixelShader)
                 .addBindingLayout(FrameBindingLayout)
-                .addBindingLayout(ObjectBindingLayout);
+                .addBindingLayout(bGpuDriven ? GpuObjectBindingLayout : ObjectBindingLayout);
             if (pass == MaterialShaderPass::Forward)
                 pipelineDesc.addBindingLayout(ShadowTextureBindingLayout);
             else if (pass == MaterialShaderPass::Shadow)
@@ -8089,7 +9600,7 @@ namespace HEngine
                 .addBindingLayout(TextureManagerInstance.GetTextureBindingLayout())
                 .addBindingLayout(TextureManagerInstance.GetSamplerBindingLayout());
 
-            if (pass == MaterialShaderPass::Forward)
+            if (pass == MaterialShaderPass::Forward || pass == MaterialShaderPass::GBuffer)
             {
                 pipelineDesc.renderState.depthStencilState
                     .enableDepthTest()
@@ -8150,7 +9661,9 @@ namespace HEngine
                 .MaterialAbiVersion = manifest.MaterialAbiVersion,
                 .BindingSignature = program.GetIdentity().BindingSignatureHash,
             };
-            keyDesc.Pass = pass == MaterialShaderPass::Depth
+            keyDesc.Pass = pass == MaterialShaderPass::GBuffer
+                ? MaterialPipelinePass::GBuffer
+                : pass == MaterialShaderPass::Depth
                 ? MaterialPipelinePass::Depth
                 : pass == MaterialShaderPass::Shadow
                     ? MaterialPipelinePass::Shadow
@@ -8161,12 +9674,12 @@ namespace HEngine
                         : MaterialPipelinePass::ForwardOpaque;
             keyDesc.VertexPath = bSkinned
                 ? MaterialPipelineVertexPath::Skinned
-                : MaterialPipelineVertexPath::CpuStatic;
+                : bGpuDriven ? MaterialPipelineVertexPath::GpuDriven : MaterialPipelineVertexPath::CpuStatic;
             keyDesc.DescriptorTier = bHeapDirectlyIndexed
                 ? MaterialPipelineDescriptorTier::HeapDirect
                 : MaterialPipelineDescriptorTier::Baseline;
             keyDesc.InputLayout = MaterialInputLayoutIdentity{
-                .Value = bSkinned ? 0x534b494e4e454431ull : 0x5354415449433031ull,
+                .Value = bSkinned ? 0x534b494e4e454431ull : bGpuDriven ? 0x475055494e535431ull : 0x5354415449433031ull,
             };
             keyDesc.BlendMode = bTransparent
                 ? MaterialPipelineBlendMode::AlphaBlend
@@ -8326,13 +9839,16 @@ namespace HEngine
             nvrhi::IFramebuffer* framebuffer,
             bool bGpuDriven,
             bool bSkinned,
-            bool bDoubleSided)
+            bool bDoubleSided,
+            bool bUnculledInput = false)
         {
             nvrhi::GraphicsPipelineDesc desc;
             desc.setPrimType(nvrhi::PrimitiveType::TriangleList)
                 .setInputLayout(bSkinned
                     ? SkinnedShadowInputLayout
-                    : ShadowInputLayout)
+                    : bGpuDriven
+                        ? (bUnculledInput ? GpuUnculledDepthInputLayout : GpuDepthInputLayout)
+                        : ShadowInputLayout)
                 .setVertexShader(bSkinned
                     ? SkinnedDepthVertexShader
                     : bGpuDriven ? GpuDepthVertexShader : DepthVertexShader)
@@ -8359,6 +9875,7 @@ namespace HEngine
             uint64_t key = MixKey(0x53434e4450544850ull, bGpuDriven ? 1u : 0u);
             key = MixKey(key, bSkinned ? 1u : 0u);
             key = MixKey(key, bDoubleSided ? 1u : 0u);
+            key = MixKey(key, bUnculledInput ? 1u : 0u);
             return PipelineCacheInstance.GetOrCreateGraphicsPipeline(
                 GraphicsPipelineKey{ key },
                 desc,
@@ -8453,7 +9970,7 @@ namespace HEngine
             desc.renderState.rasterState.setCullNone().enableDepthClip();
             const uint64_t key = MixKey(
                 0x53434e544f4e4550ull,
-                static_cast<uint64_t>(LastBackBufferFormat));
+                static_cast<uint64_t>(framebuffer->getFramebufferInfo().colorFormats[0]));
             return PipelineCacheInstance.GetOrCreateGraphicsPipeline(
                 GraphicsPipelineKey{ key },
                 desc,
@@ -8540,8 +10057,45 @@ namespace HEngine
                 "SceneRenderer GPU-driven static opaque HDR pipeline");
         }
 
-        void RecordFrame(const RenderWorld& world, const SceneRendererFrameDesc& frame)
+        void RecordFrame(const RenderWorld& world, const SceneRendererFrameDesc& outputFrame)
         {
+            SceneRendererFrameDesc frame = outputFrame;
+            const bool bOutputSizeChanged = LastOutputWidth != frame.Width || LastOutputHeight != frame.Height;
+            LastOutputWidth = frame.Width;
+            LastOutputHeight = frame.Height;
+            // Editor/offscreen depth is consumed by native-resolution picking and
+            // external plugins. Keep that contract; cap the main game's 3D only.
+            const bool bCanScale = !world.bEditorView &&
+                frame.OutputMode == SceneRendererOutputMode::SwapChain &&
+                !IsOfflineViewportRenderingActive();
+            const bool wasFsrActive = bFsrActiveLastFrame;
+            const auto fallback = ResolveRenderExtent(frame.Width, frame.Height,
+                bCanScale ? PostProcessSettings.RenderHeight : 0);
+            const auto internal = UpscalingPass->Prepare(RequestedUpscaling, {frame.Width, frame.Height},
+                fallback, bCanScale && EffectiveGiSettings.DebugView == GlobalIlluminationDebugView::Composite,
+                frame.CompletedSubmission);
+            if (wasFsrActive != IsFsrActive()) { bGraphDirty = true; bHasPreviousRasterCamera = false; }
+            bFsrActiveLastFrame = IsFsrActive();
+            frame.Width = internal.Width;
+            frame.Height = internal.Height;
+            if (LastWidth != frame.Width || LastHeight != frame.Height || bOutputSizeChanged)
+            {
+                bGraphDirty = true;
+                PendingGraphBuildReasonMask |= SceneGraphRebuildReason::Output;
+                // Frame uniforms and screen-space preparation below must see
+                // the new dimensions on the very first switched frame.
+                LastWidth = frame.Width;
+                LastHeight = frame.Height;
+            }
+            Stats.InternalWidth = frame.Width;
+            Stats.InternalHeight = frame.Height;
+            Stats.OutputWidth = LastOutputWidth;
+            Stats.OutputHeight = LastOutputHeight;
+            Stats.bUpscalingActive = IsFsrActive();
+            Stats.bUpscalingFailed = UpscalingPass->HasFailed();
+            Stats.UpscalingState = UpscalingPass->GetStatus();
+            Stats.UpscalingFailureReason = Stats.bUpscalingFailed ? UpscalingPass->GetReason() : std::string{};
+            if (bOutputSizeChanged) bGraphDirty = true;
             if (!frame.CommandList)
                 throw std::invalid_argument("SceneRenderer frame requires a command list");
             const bool bOffscreenOnly =
@@ -8558,7 +10112,9 @@ namespace HEngine
 				throw std::invalid_argument(
 					"SceneRenderer offscreen reuse requires SwapChainAndOffscreen output");
 			}
-            if (frame.bReuseOffscreenScene && IsGlobalIlluminationActive())
+            const auto* activeTechnique = GetActiveIlluminationTechnique();
+            if (frame.bReuseOffscreenScene && activeTechnique &&
+                activeTechnique->RequiresContinuousUpdate())
             {
                 throw std::invalid_argument(
                     "SceneRenderer cannot reuse an offscreen scene while global illumination requires continuous updates");
@@ -8581,12 +10137,42 @@ namespace HEngine
             CurrentSceneOverlayRecorder = frame.SceneOverlayRecorder;
             CurrentWindowOverlayRecorder = frame.WindowOverlayRecorder;
             CurrentCaptureRecorder = frame.CaptureRecorder;
+            if (bLinearHdrCaptureEnabled != static_cast<bool>(frame.LinearHdrCaptureRecorder))
+            {
+                bLinearHdrCaptureEnabled = static_cast<bool>(frame.LinearHdrCaptureRecorder);
+                bGraphDirty = true;
+            }
+            const FrameCaptureSource requestedCaptureSource = frame.LinearHdrCaptureRecorder
+                ? frame.CaptureSource : FrameCaptureSource::Automatic;
+            if (CurrentCaptureSource != requestedCaptureSource)
+            {
+                CurrentCaptureSource = requestedCaptureSource;
+                bGraphDirty = true;
+            }
             CurrentLinearHdrCaptureRecorder = frame.LinearHdrCaptureRecorder;
             CurrentFrameSlot = frame.FrameSlot;
             CurrentCompletedSubmission = frame.CompletedSubmission;
+            CollectIllumination(frame.CompletedSubmission);
+            Features->Collect(frame.CompletedSubmission);
             CurrentOutputMode = frame.OutputMode;
             CurrentSceneOverlayMode = frame.SceneOverlayMode;
             CurrentSceneOverlayTransition = frame.SceneOverlayTransition;
+            Stats.bCpuCounterFrameValid = false;
+            Stats.DirectionalCpuCasterDraws.fill(0);
+            Stats.SceneTableUploadedBytes = 0;
+            Stats.CpuFramePreparationMilliseconds = 0.0;
+            Stats.CpuGraphRecordMilliseconds = 0.0;
+            Stats.CpuGraphBuildMilliseconds = 0.0;
+            Stats.GraphBuildReasonMask = 0;
+            uint32_t graphBuildReasons = (bGraphDirty ? SceneGraphRebuildReason::ExistingDirty : 0u) |
+                PendingGraphBuildReasonMask;
+            PendingGraphBuildReasonMask = 0;
+            Stats.CpuGraphTimingCount = 0;
+            Stats.CpuGraphSubmissionId = 0;
+            Stats.bCpuGraphTimingValid = false;
+            Stats.CpuMaterialPackingMilliseconds = 0.0;
+            Stats.MaterialPackingCallCount = 0;
+            Stats.MaterialPackingCacheHitCount = 0;
             Stats.bOverlayPassRecorded = false;
             Stats.bCapturePassRecorded = false;
             Stats.bLinearHdrCaptureRecorded = false;
@@ -8594,17 +10180,81 @@ namespace HEngine
 			Stats.bSceneReused = frame.bReuseOffscreenScene;
 			if (!frame.bReuseOffscreenScene)
             {
+                static const RenderWorld noShadowCasters;
+                if (LocalShadowPass->PrepareFrame(bShadowsEnabled ? world : noShadowCasters, frame.CompletedSubmission))
+                { bGraphDirty = true; graphBuildReasons |= SceneGraphRebuildReason::LocalShadow; }
+                const auto& localShadowStats = LocalShadowPass->GetStats();
+                Stats.LocalShadowActiveViews = localShadowStats.ActiveViews;
+                Stats.LocalShadowDirtyViews = localShadowStats.DirtyViews;
+                Stats.LocalShadowCachedViews = localShadowStats.ActiveViews >= localShadowStats.DirtyViews
+                    ? localShadowStats.ActiveViews - localShadowStats.DirtyViews : 0u;
+                Stats.LocalShadowVisibleCasters = localShadowStats.VisibleCasterObjects;
+                LightGrid->SetLocalShadowIndices(LocalShadowPass->GetPointShadowViews(), LocalShadowPass->GetSpotShadowViews());
+                PrepareLightGrid(world, frame);
                 PrepareAntiAliasingFrame(world, frame);
 				PrepareFrameData(world);
+                PrepareMaterialPublicationHistory(frame);
+                PrepareGpuBatchFrame();
+                PrepareGpuShadowFrame();
+                GpuOcclusionPass->PrepareFrame(CurrentRasterCamera,
+                    static_cast<uint32_t>(GpuDrawDataCpu.size()),
+                    static_cast<uint32_t>(GpuBatches.size()), frame.CompletedSubmission);
+                const bool bPostReset = world.Camera.bCameraCut ||
+                    PostProcessSceneGeneration != world.SceneGeneration;
+                const float postDelta = PostProcessTime >= 0.0
+                    ? static_cast<float>(std::clamp(world.TimeSeconds - PostProcessTime, 0.0, 0.25))
+                    : 1.0f / 60.0f;
+                PostProcessTime = world.TimeSeconds;
+                PostProcessSceneGeneration = world.SceneGeneration;
+                PostProcessPass->PrepareFrame(ResolveViewPostProcess(world), postDelta,
+                    Exposure, frame.CompletedSubmission, bPostReset);
+                if (PostProcessPass->ConsumeGraphRebuildRequest())
+                { bGraphDirty = true; graphBuildReasons |= SceneGraphRebuildReason::PostProcess; }
+                Features->PrepareFrame(RenderFeatureFrameContext{
+                    .World = &world, .RasterCamera = &CurrentRasterCamera, .Clouds = &CloudQualitySettings,
+                    .Width = frame.Width, .Height = frame.Height, .CompletedSubmission = frame.CompletedSubmission,
+                    .bOffline = IsOfflineViewportRenderingActive() });
+                if (Features->ConsumeGraphRebuildRequest())
+                { bGraphDirty = true; graphBuildReasons |= SceneGraphRebuildReason::Feature; }
+                AmbientOcclusionPass->PrepareFrame(AmbientOcclusionSettings, CurrentRasterCamera,
+                    frame.Width, frame.Height, frame.CompletedSubmission);
+                if (AmbientOcclusionPass->ConsumeGraphRebuildRequest())
+                { bGraphDirty = true; graphBuildReasons |= SceneGraphRebuildReason::AmbientOcclusion; }
                 PrepareSceneSurfaceFrame(world, frame);
                 PrepareGlobalIlluminationFrame(world, frame);
+                ReflectionPass->PrepareFrame(ReflectionSettings, CurrentRasterCamera, frame.Width,
+                    frame.Height, FrameData.IblSettings.x, FrameData.IblSettings.y,
+                    PreparedReflectionProbes, frame.CompletedSubmission,
+                    1.0f - std::clamp(FrameData.IblSettings.w, 0.0f, 1.0f));
+                if (ReflectionPass->ConsumeGraphRebuildRequest())
+                { bGraphDirty = true; graphBuildReasons |= SceneGraphRebuildReason::Reflection; }
             }
+            glm::vec3 vfxLightDirection(0.0f, 1.0f, 0.0f);
+            glm::vec3 vfxLightColor(0.0f);
+            if (!world.DirectionalLights.empty())
+            {
+                const auto& light = world.DirectionalLights.front();
+                if (glm::dot(light.Direction, light.Direction) > 1e-8f)
+                    // Scene lights store the ray direction; Effekseer's lit shader
+                    // dots its direction with the surface normal (toward the light).
+                    vfxLightDirection = -glm::normalize(light.Direction);
+                vfxLightColor = glm::clamp(light.Color * std::clamp(light.Intensity, 0.0f, 1.0f),
+                    glm::vec3(0.0f), glm::vec3(1.0f));
+            }
+            // Effekseer's lit particles use this value as ambient light directly.
+            // Match the scene's IBL strength instead of quartering it, which made
+            // textured foliage particles nearly black in moderately lit scenes.
+            const glm::vec3 vfxAmbientColor(std::clamp(world.Environment.IblIntensity,
+                0.03f, 1.0f));
             CurrentVfxView = EffekseerRenderView{
                 .View = world.Camera.View,
                 .Projection = CurrentRasterCamera.Projection,
                 .CameraPosition = world.Camera.Position,
                 .ZNear = world.Camera.NearPlane,
                 .ZFar = world.Camera.FarPlane,
+                .LightDirection = vfxLightDirection,
+                .LightColor = vfxLightColor,
+                .LightAmbientColor = vfxAmbientColor,
             };
 			if (!frame.bReuseOffscreenScene)
             {
@@ -8619,8 +10269,10 @@ namespace HEngine
 				{
 					CurrentVfxRequirements = vfxRequirements;
 					bGraphDirty = true;
+					graphBuildReasons |= SceneGraphRebuildReason::Vfx;
 				}
             }
+            UpdatePostTaaView();
             RecordedGpuObjectCounts[frame.FrameSlot] =
                 static_cast<uint32_t>(GpuObjectData.size());
             RecordedGpuBatchCounts[frame.FrameSlot] =
@@ -8636,15 +10288,27 @@ namespace HEngine
 				bLastReuseOffscreenScene != frame.bReuseOffscreenScene ||
                 LastSceneOverlayMode != frame.SceneOverlayMode)
             {
+                graphBuildReasons |= Stats.GraphBuildReasonMask;
+                if (!bGraphDirty) graphBuildReasons |= SceneGraphRebuildReason::Output;
+                if (graphBuildReasons == 0) graphBuildReasons = SceneGraphRebuildReason::ExistingDirty;
+                Stats.GraphBuildReasonMask = graphBuildReasons;
                 LastWidth = frame.Width;
                 LastHeight = frame.Height;
+                const auto graphBuildStart = std::chrono::steady_clock::now();
                 BuildGraph(frame);
+                Stats.CpuGraphBuildMilliseconds = std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - graphBuildStart).count();
             }
             else
             {
                 UpdateImportedResources(frame);
             }
 
+            GpuOcclusionPass->Collect(frame.CompletedSubmission);
+            GeometryArena->Collect(frame.CompletedSubmission);
+            DepthIndirectCompaction->Collect(frame.CompletedSubmission);
+            MainIndirectCompaction->Collect(frame.CompletedSubmission);
+            CollectPathGraphTransactions(frame.CompletedSubmission);
             ResourcePool.Collect(frame.CompletedSubmission);
             ResourcePool.BeginFrame(frame.FrameSlot, frame.CompletedSubmission);
             try
@@ -8671,22 +10335,37 @@ namespace HEngine
                     .FrameSlot = frame.FrameSlot,
                     .CompletedSubmission = frame.CompletedSubmission,
                 });
-                GpuTiming.BeginFrame(frame.FrameSlot, frame.CompletedSubmission);
+                GpuTiming.BeginFrame(frame.FrameSlot, frame.CompletedSubmission, frame.CommandList);
                 RefreshGpuTimingStats();
+                const auto graphRecordStart = std::chrono::steady_clock::now();
+                if (bCpuGraphTimingEnabled) CpuGraphObserver.Begin(Stats);
                 Graph.Execute(RenderGraphExecutionParams{
                     .CommandList = frame.CommandList,
                     .ResourcePool = &ResourcePool,
                     .Instrumentation = GpuTiming.IsEnabled() ? &GpuTiming : nullptr,
+                    .CpuObserver = bCpuGraphTimingEnabled ? &CpuGraphObserver : nullptr,
                     .FrameSlot = frame.FrameSlot,
                 });
+                if (bCpuGraphTimingEnabled) CpuGraphObserver.End();
+                Stats.CpuGraphRecordMilliseconds = std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - graphRecordStart).count();
+                Stats.IndirectCompactionUploadedBytes = DepthIndirectCompaction->GetStats().UploadedBytes +
+                    MainIndirectCompaction->GetStats().UploadedBytes;
+                const auto& gpuShadowStats = ShadowGpuSubmission->GetStats();
+                Stats.GpuShadowCompactedViews = gpuShadowStats.CompactedViews;
+                Stats.GpuShadowResidentBytes = gpuShadowStats.ResidentBytes + gpuShadowStats.RetiredBytes;
+                Stats.GpuShadowUploadedBytes = gpuShadowStats.UploadedBytes;
+                Stats.SceneTableUploadedBytes += gpuShadowStats.UploadedBytes;
+                Stats.SceneTableUploadedBytes += Stats.IndirectCompactionUploadedBytes;
 				if (bNeedsOffscreen && !bOffscreenOutputInitialized)
 				{
 					bOffscreenOutputInitialized = true;
 					bGraphDirty = true;
 				}
                 RefreshRenderGraphMemoryStats();
-                GpuTiming.EndFrame(frame.FrameSlot);
+                GpuTiming.EndFrame(frame.FrameSlot, frame.CommandList);
                 Stats.CompiledPasses = Graph.GetCompiledPassNames();
+                RememberPathSwitchFrame(frame);
                 CurrentSceneOverlayRecorder = {};
                 CurrentWindowOverlayRecorder = {};
                 CurrentCaptureRecorder = {};
@@ -8694,7 +10373,18 @@ namespace HEngine
             }
             catch (...)
             {
+                UploadedSceneTables.clear();
                 GpuTiming.AbortFrame(frame.FrameSlot);
+                PostProcessPass->AbortFrame();
+                Features->AbortFrame();
+                AmbientOcclusionPass->AbortFrame();
+                GpuOcclusionPass->AbortFrame();
+                DepthIndirectCompaction->AbortFrame();
+                MainIndirectCompaction->AbortFrame();
+                AbortGeometryUploads();
+                LocalShadowPass->AbortFrame();
+                ShadowGpuSubmission->AbortFrame();
+                ReflectionPass->AbortFrame();
                 CurrentSceneOverlayRecorder = {};
                 CurrentWindowOverlayRecorder = {};
                 CurrentCaptureRecorder = {};
@@ -8714,12 +10404,16 @@ namespace HEngine
                     throw std::logic_error("Cannot resize SceneRenderer with an active frame slot");
             }
             CollectGpuCullingStats();
+            // The caller's existing resize idle barrier has completed these
+            // submissions. Release retired swap-chain references before resize.
+            InvalidatePathSwitchFrame(LastSubmittedSubmission);
             VfxRenderGraphPass.ClearResourceCaches();
             RuntimeUiRenderPass.ClearResourceCaches();
             ShadowFramebuffers.clear();
             EnvironmentBindingSets.clear();
             DirectionalShadowTextures.clear();
             OpaqueFramebuffers.clear();
+            ClearRasterCaches();
             ToneFramebuffers.clear();
             ToneBindingSets.clear();
             Graph.Clear();
@@ -8756,11 +10450,13 @@ namespace HEngine
 
         void ClearCaches()
         {
+            MotionHistory.Reset();
             for (uint32_t frameSlot = 0; frameSlot < FramesInFlight; ++frameSlot)
             {
                 if (ResourcePool.IsFrameActive(frameSlot))
                     throw std::logic_error("Cannot clear SceneRenderer caches with an active frame slot");
             }
+            InvalidatePathSwitchFrame(LastSubmittedSubmission);
             Graph.Clear();
             GraphGeometryResources.clear();
 			GraphMaterialTextures.clear();
@@ -8780,6 +10476,14 @@ namespace HEngine
             ShadowDrawItems.clear();
             MeshOrder.clear();
             MeshCache.clear();
+            PendingMeshUploads.clear();
+            GraphArenaPages.clear();
+            GpuStateGroups.clear();
+            GpuGroupMapping.clear();
+            GeometryArena->Clear(LastSubmittedSubmission);
+            DepthIndirectCompaction->Clear(LastSubmittedSubmission);
+            MainIndirectCompaction->Clear(LastSubmittedSubmission);
+            MeshLodHistoryBySection.clear();
             GpuMaterialRegistry.clear();
             NextGpuMaterialIndex = 1;
             for (auto& [material, textureSet] : MaterialTextureCache)
@@ -8788,6 +10492,12 @@ namespace HEngine
                 ReleaseMaterialTextureSet(textureSet, LastSubmittedSubmission);
             }
             MaterialTextureCache.clear();
+            for (auto& [path, handle] : StaticLightmapTextureCache)
+            {
+                (void)path;
+                TextureManagerInstance.ReleaseTexture(handle, LastSubmittedSubmission);
+            }
+            StaticLightmapTextureCache.clear();
             for (auto& [material, textureSet] : MaterialParameterTextureCache)
             {
                 (void)material;
@@ -8806,6 +10516,7 @@ namespace HEngine
             EnvironmentBindingSets.clear();
             DirectionalShadowTextures.clear();
             OpaqueFramebuffers.clear();
+            ClearRasterCaches();
             ToneFramebuffers.clear();
             ToneBindingSets.clear();
             if (HardwareRayTracingScene)
@@ -8822,6 +10533,15 @@ namespace HEngine
                 CompositePassInstance->ClearCaches();
             SceneAntiAliasing.Clear(
                 std::numeric_limits<uint64_t>::max());
+            PostProcessPass->Clear(std::numeric_limits<uint64_t>::max());
+            UpscalingPass->Clear();
+            Features->Clear(std::numeric_limits<uint64_t>::max());
+            AmbientOcclusionPass->Clear(std::numeric_limits<uint64_t>::max());
+            GpuOcclusionPass->Clear(std::numeric_limits<uint64_t>::max());
+            ReflectionPass->Clear(std::numeric_limits<uint64_t>::max());
+            PostProcessTime = -1.0;
+            MaterialTimeSeconds = -1.0;
+            PostProcessSceneGeneration = 0;
             bHasPreviousRasterCamera = false;
             bRasterCameraFrameRecorded = false;
             ResetHardwareRayTracingStats();
@@ -8857,6 +10577,7 @@ namespace HEngine
             Stats.SkinnedNonIdentityBoneMatrixCount = 0;
             Stats.EditorOutlineDrawCount = 0;
             FailedMaterialPrograms.clear();
+            MaterialPackingCache.Clear();
             bGraphDirty = true;
             ResourcePool.Collect(std::numeric_limits<uint64_t>::max());
         }
@@ -8871,6 +10592,7 @@ namespace HEngine
                 return;
 
             uint32_t visibleCount = 0;
+            uint64_t visibleTriangles = 0;
             uint32_t instancedBatchCount = 0;
             uint32_t maxVisibleInstancesPerBatch = 0;
             if (slot.BatchCount > 0)
@@ -8883,6 +10605,8 @@ namespace HEngine
                 for (uint32_t batchIndex = 0; batchIndex < slot.BatchCount; ++batchIndex)
                 {
                     visibleCount += arguments[batchIndex].instanceCount;
+                    visibleTriangles += uint64_t(arguments[batchIndex].instanceCount) *
+                        (arguments[batchIndex].indexCount / 3u);
                     maxVisibleInstancesPerBatch = std::max(
                         maxVisibleInstancesPerBatch,
                         arguments[batchIndex].instanceCount);
@@ -8892,6 +10616,10 @@ namespace HEngine
                 Device->unmapBuffer(slot.Buffer);
             }
             Stats.GpuVisibleObjectCount = visibleCount;
+            Stats.GpuVisibleTriangleCount = visibleTriangles;
+            Stats.GpuCullingReadbackSubmission = slot.Submission;
+            Stats.GpuCullingReadbackInputObjects = slot.ObjectCount;
+            Stats.GpuCullingReadbackBatches = slot.BatchCount;
             Stats.GpuCulledObjectCount = slot.ObjectCount - std::min(slot.ObjectCount, visibleCount);
             Stats.GpuInstancedBatchCount = instancedBatchCount;
             Stats.GpuMaxVisibleInstancesPerBatch = maxVisibleInstancesPerBatch;
@@ -8914,6 +10642,9 @@ namespace HEngine
             Stats.GpuRenderGraphAverageMilliseconds = GpuTiming.GetAverageMilliseconds();
             Stats.GpuRenderGraphLastMilliseconds = GpuTiming.GetLastMilliseconds();
             Stats.GpuRenderGraphSampleCount = GpuTiming.GetFrameSampleCount();
+            Stats.GpuRenderGraphLastSubmissionId = GpuTiming.GetLastSubmissionId();
+            Stats.GpuFrameSpanMilliseconds = GpuTiming.GetLastPassMilliseconds("FrameGpuSpan");
+            Stats.GpuPassTimings = GpuTiming.GetLastFramePasses();
             Stats.bGpuGiTimingValid =
                 IsGlobalIlluminationActive() && GpuTiming.IsEnabled() &&
                 GpuTiming.GetFrameSampleCount() > 0u;
@@ -8961,7 +10692,7 @@ namespace HEngine
             if (ActiveOfflineViewportRenderer)
             {
                 ActiveOfflineViewportRenderer->SetLastGpuMilliseconds(
-                    Stats.GiStats.LastGpuMilliseconds);
+                    Stats.GpuFrameSpanMilliseconds);
             }
         }
 
@@ -8974,10 +10705,13 @@ namespace HEngine
         void ConfigureOffscreenOutput(
             uint32_t width,
             uint32_t height,
-            std::string debugName)
+            std::string debugName,
+            nvrhi::Format colorFormat)
         {
             if (width == 0 || height == 0)
                 throw std::invalid_argument("Offscreen output dimensions must be non-zero");
+            if (colorFormat != nvrhi::Format::RGBA8_UNORM && colorFormat != nvrhi::Format::BGRA8_UNORM)
+                throw std::invalid_argument("Offscreen output requires RGBA8_UNORM or BGRA8_UNORM color");
             for (uint32_t frameSlot = 0; frameSlot < FramesInFlight; ++frameSlot)
             {
                 if (ResourcePool.IsFrameActive(frameSlot))
@@ -8987,7 +10721,8 @@ namespace HEngine
                 }
             }
             if (OffscreenOutput && OffscreenOutput.Width == width &&
-                OffscreenOutput.Height == height && OffscreenDebugName == debugName)
+                OffscreenOutput.Height == height && OffscreenOutput.ColorFormat == colorFormat &&
+                OffscreenDebugName == debugName)
             {
                 return;
             }
@@ -8995,7 +10730,7 @@ namespace HEngine
             nvrhi::TextureDesc colorDesc;
             colorDesc.width = width;
             colorDesc.height = height;
-            colorDesc.format = nvrhi::Format::RGBA8_UNORM;
+            colorDesc.format = colorFormat;
             colorDesc.isShaderResource = true;
             colorDesc.isRenderTarget = true;
 			colorDesc.initialState = nvrhi::ResourceStates::Common;
@@ -9021,6 +10756,7 @@ namespace HEngine
             Graph.Clear();
             GraphGeometryResources.clear();
             OpaqueFramebuffers.clear();
+            ClearRasterCaches();
             ToneFramebuffers.clear();
             OffscreenDebugName = std::move(debugName);
             OffscreenOutput = SceneRendererOffscreenOutput{
@@ -9028,7 +10764,7 @@ namespace HEngine
                 .Depth = std::move(depth),
                 .Width = width,
                 .Height = height,
-                .ColorFormat = nvrhi::Format::RGBA8_UNORM,
+                .ColorFormat = colorFormat,
                 .DepthFormat = c_SceneDepthFormat,
                 .Generation = ++OffscreenGeneration,
             };
@@ -9051,6 +10787,7 @@ namespace HEngine
             Graph.Clear();
             GraphGeometryResources.clear();
             OpaqueFramebuffers.clear();
+            ClearRasterCaches();
             ToneFramebuffers.clear();
             OffscreenOutput = {};
 			bOffscreenOutputInitialized = false;
@@ -9072,6 +10809,17 @@ namespace HEngine
         RuntimeUiRenderGraphPass RuntimeUiRenderPass;
         SceneAntiAliasingPass SceneAntiAliasing;
         Scope<RayTracingScene> HardwareRayTracingScene;
+        struct RetiredIllumination
+        {
+            uint64_t Submission = 0;
+            Scope<RayTracingScene> Scene;
+            Scope<SceneSurfaceDataPass> Surface;
+            Scope<SvgfDenoiser> Denoiser;
+            Scope<DepthPyramidPass> Depth;
+            GlobalIlluminationTechniqueLease Realtime;
+            OfflineViewportRendererSessionLease Offline;
+        };
+        std::vector<RetiredIllumination> RetiredIlluminationSets;
         Scope<SceneSurfaceDataPass> SurfaceDataPassInstance;
         Scope<SvgfDenoiser> SvgfDenoiserInstance;
         GlobalIlluminationTechniqueRegistry GiTechniqueRegistry;
@@ -9089,16 +10837,58 @@ namespace HEngine
         Scope<GlobalIlluminationCompositePass> CompositePassInstance;
         RenderGraph Graph;
         GpuRenderGraphInstrumentation GpuTiming;
+        CpuRenderGraphObserver CpuGraphObserver;
+        bool bCpuGraphTimingEnabled = false;
         uint32_t FramesInFlight = 0;
         std::filesystem::path ShaderCacheDirectory;
         std::filesystem::path AssetRootDirectory;
         std::filesystem::path EngineAssetRootDirectory;
         RenderBackend Backend = RenderBackend::DX12;
+        RenderingPath Path = RenderingPath::Deferred;
+        Scope<SceneReflectionPass> ReflectionPass;
+        Scope<SceneGpuOcclusionPass> GpuOcclusionPass;
+        bool bGpuOcclusionEnabled = false;
+        uint64_t TextureStreamingBudgetBytes = 512ull * 1024 * 1024;
+        bool bLodEnabled = false;
+        bool bShadowsEnabled = true;
+        bool bContinuousPcfEnabled = false;
+        float LodMaxPixelError = 1.0f;
+        SceneReflectionSettings ReflectionSettings;
+        std::vector<SceneReflectionProbe> PreparedReflectionProbes;
+        bool bProbeBudgetWarning = false;
+        CloudSettings CloudQualitySettings;
+        Scope<SceneAmbientOcclusionPass> AmbientOcclusionPass;
+        SceneAmbientOcclusionSettings AmbientOcclusionSettings;
+        TextureHandle CurrentAmbientOcclusion;
+        std::map<std::array<const void*, 3>, nvrhi::BindingSetHandle> LightingFrameBindingSets;
+        Scope<ScenePostProcessPass> PostProcessPass;
+        Scope<RenderFeaturePlan> Features;
+        Scope<SceneLocalShadowPass> LocalShadowPass;
+        SceneLocalShadowGraphResources LocalShadowGraphResources;
+        nvrhi::BufferHandle LocalShadowFrameConstantBuffer;
+        nvrhi::BindingSetHandle LocalShadowFrameBindingSet;
+        Scope<SceneLightGrid> LightGrid;
+        SceneLightGridGraphResources LightGraphResources;
+        ScenePostProcessSettings PostProcessSettings;
+        double PostProcessTime = -1.0;
+        double MaterialTimeSeconds = -1.0;
+        uint64_t PostProcessSceneGeneration = 0;
         RenderCapabilities Capabilities;
         AntiAliasingCapabilities AaCapabilities;
         AntiAliasingSettings RequestedAaSettings;
+        UpscalingSettings RequestedUpscaling;
+        bool bFsrActiveLastFrame = false;
+        Scope<SceneUpscalingPass> UpscalingPass;
         AntiAliasingSelection AaSelection;
         RenderCamera CurrentRasterCamera;
+        bool bRasterCameraHistoryReset = true;
+        glm::mat4 PreviousRasterView{ 1.0f };
+        glm::mat4 PendingRasterView{ 1.0f };
+        glm::vec2 PendingRasterJitterPixels{ 0.0f };
+        glm::vec2 PreviousRasterJitterPixels{ 0.0f };
+        uint64_t PendingRasterWorldFrame = 0;
+        uint64_t PreviousRasterWorldFrame = 0;
+        uint64_t PreviousRasterSubmission = 0;
         glm::mat4 PreviousRasterViewProjection{ 1.0f };
         glm::mat4 PendingRasterViewProjection{ 1.0f };
         glm::mat4 PreviousTaaNonJitteredViewProjection{ 1.0f };
@@ -9107,11 +10897,16 @@ namespace HEngine
         uint64_t PendingRasterJitterGeneration = 0;
         bool bHasPreviousRasterCamera = false;
         bool bRasterCameraFrameRecorded = false;
+        uint64_t PendingMaterialShaderPublicationRevision = 0;
+        uint64_t SubmittedMaterialShaderPublicationRevision = 0;
         GlobalIlluminationSettings RequestedGiSettings;
         GlobalIlluminationSettings EffectiveGiSettings;
         GlobalIlluminationSettings CurrentIlluminationTechniqueSettings;
         GlobalIlluminationSelection GiSelection;
         RayTracingSceneRevisions CurrentRtRevisions;
+        bool bHasCachedRtWorld = false;
+        bool bCachedBasePbrMaterials = false;
+        uint64_t CachedRtWorldFrame = 0, CachedRtWorldScene = 0, CachedOfflineSceneFingerprint = 0;
         RayTracingSceneGraphResources CurrentRtGraphResources;
         SceneSurfaceData CurrentSurfaceData;
         DepthPyramidOutputs CurrentDepthPyramid;
@@ -9166,6 +10961,8 @@ namespace HEngine
         nvrhi::ComputePipelineHandle EnvironmentPrecomputePipeline;
         nvrhi::InputLayoutHandle InputLayout;
         nvrhi::InputLayoutHandle GpuInputLayout;
+        nvrhi::InputLayoutHandle GpuDepthInputLayout;
+        nvrhi::InputLayoutHandle GpuUnculledDepthInputLayout;
         nvrhi::InputLayoutHandle ShadowInputLayout;
         nvrhi::InputLayoutHandle SkinnedShadowInputLayout;
         nvrhi::InputLayoutHandle Primitive2DInputLayout;
@@ -9174,6 +10971,7 @@ namespace HEngine
         nvrhi::InputLayoutHandle SkinnedOutlineInputLayout;
         nvrhi::SamplerHandle ToneSampler;
         nvrhi::SamplerHandle ShadowSampler;
+        nvrhi::SamplerHandle ShadowComparisonSampler;
         nvrhi::SamplerHandle EnvironmentSampler;
         nvrhi::SamplerHandle EquirectangularSampler;
 
@@ -9183,6 +10981,7 @@ namespace HEngine
         nvrhi::BufferHandle GpuMaterialBuffer;
         nvrhi::BufferHandle MaterialParameterBuffer;
         nvrhi::BufferHandle BoneMatrixBuffer;
+        nvrhi::BufferHandle PreviousBoneMatrixBuffer;
         nvrhi::BufferHandle GpuBoundsBuffer;
         nvrhi::BufferHandle GpuDrawDataBuffer;
         nvrhi::BufferHandle VisibleObjectIndicesBuffer;
@@ -9200,6 +10999,8 @@ namespace HEngine
         nvrhi::TextureHandle ActiveIrradiance;
         nvrhi::TextureHandle ActivePrefilter;
         nvrhi::TextureHandle ActiveEnvironment;
+        nvrhi::TextureHandle ActiveEnvironmentCdf;
+        std::shared_ptr<const EnvironmentSamplingProposal> ActiveEnvironmentProposal;
         nvrhi::TextureHandle ActiveBrdfLut;
         SceneRendererOffscreenOutput OffscreenOutput;
 		bool bOffscreenOutputInitialized = false;
@@ -9212,7 +11013,11 @@ namespace HEngine
         bool bRunEmptyEffekseerPassForValidation = false;
 
         std::unordered_map<const SubMesh*, MeshEntry> MeshCache;
+        uint64_t CurrentMaterialFrame = 0;
+        uint64_t EnvironmentPumpFrame = 0;
         std::unordered_map<const Material*, MaterialTextureSet> MaterialTextureCache;
+        std::unordered_map<std::string, ManagedTextureHandle> StaticLightmapTextureCache;
+        bool bLoggedUnsupportedStaticLightmaps = false;
         std::unordered_map<const Material*, MaterialParameterTextureSet>
             MaterialParameterTextureCache;
         std::unordered_map<std::string, ManagedTextureHandle> PrimitiveTextureCache;
@@ -9221,9 +11026,24 @@ namespace HEngine
             uint32_t,
             MaterialRegistryKeyHash> GpuMaterialRegistry;
         std::unordered_map<std::string, EnvironmentEntry> EnvironmentCache;
+        std::vector<RetiredEnvironmentEntry> RetiredEnvironmentEntries;
+        uint64_t EnvironmentSceneGeneration = std::numeric_limits<uint64_t>::max();
         std::string ActiveEnvironmentKey;
         std::unordered_set<std::string> FailedMaterialTextures;
         std::unordered_set<std::string> FailedMaterialPrograms;
+        MaterialParameterPackingCache MaterialPackingCache;
+        const bool bMaterialPackingCacheEnabled = [] {
+#if defined(HE_DEV_AGENT_RUNTIME)
+            // Benchmark-only override, sampled once per process. No native API.
+            static const bool enabled = [] {
+                const char* value = std::getenv("HE_RENDER_DISABLE_MATERIAL_PACK_CACHE");
+                return !value || std::string_view(value) != "1";
+            }();
+            return enabled;
+#else
+            return true;
+#endif
+        }();
         std::vector<const SubMesh*> MeshOrder;
         std::vector<GraphGeometry> GraphGeometryResources;
         std::vector<GraphMaterialTexture> GraphMaterialTextures;
@@ -9233,6 +11053,9 @@ namespace HEngine
         std::vector<DrawItem> ShadowDrawItems;
         std::vector<DrawItem> OutlineDrawItems;
         std::vector<glm::mat4> BoneMatricesCpu;
+        std::vector<glm::mat4> PreviousBoneMatricesCpu;
+        SubmittedMotionHistory MotionHistory;
+        SsgiReactiveBudget ReactiveBudget;
         std::vector<ObjectConstants> GpuObjectData;
         std::vector<GpuMaterialData> GpuMaterialDataCpu;
         std::vector<glm::vec4> MaterialParameterRowsCpu;
@@ -9275,6 +11098,9 @@ namespace HEngine
         SceneRendererOverlayRecorder CurrentWindowOverlayRecorder;
         SceneRendererCaptureRecorder CurrentCaptureRecorder;
         SceneRendererLinearHdrCaptureRecorder CurrentLinearHdrCaptureRecorder;
+        bool bLinearHdrCaptureEnabled = false;
+        FrameCaptureSource CurrentCaptureSource = FrameCaptureSource::Automatic;
+        TextureHandle NativeGiDiagnosticInput;
         RuntimeUiTransitionParameters CurrentSceneOverlayTransition;
         RuntimeUiRenderMode CurrentSceneOverlayMode = RuntimeUiRenderMode::Direct;
         uint32_t CurrentFrameSlot = 0;
@@ -9286,10 +11112,12 @@ namespace HEngine
         TextureHandle ToneMappedSceneHandle;
         TextureHandle SceneDepthHandle;
         TextureHandle RasterSceneDepthHandle;
+        bool bPostTaaDepthRequired = false;
         TextureHandle DirectionalShadowHandle;
         TextureHandle IrradianceHandle;
         TextureHandle PrefilterHandle;
         TextureHandle EnvironmentHandle;
+        TextureHandle EnvironmentCdfHandle;
         TextureHandle BrdfLutHandle;
         TextureHandle OffscreenColorHandle;
         TextureHandle OffscreenDepthHandle;
@@ -9306,6 +11134,9 @@ namespace HEngine
         BufferHandle GpuReadbackHandle;
         BufferHandle Primitive2DVerticesHandle;
         BufferHandle BoneMatricesHandle;
+        BufferHandle PreviousBoneMatricesHandle;
+        uint32_t LastOutputWidth = 0;
+        uint32_t LastOutputHeight = 0;
         uint32_t LastWidth = 0;
         uint32_t LastHeight = 0;
         nvrhi::Format LastBackBufferFormat = nvrhi::Format::UNKNOWN;
@@ -9316,8 +11147,11 @@ namespace HEngine
         RuntimeUiRenderMode LastSceneOverlayMode = RuntimeUiRenderMode::Direct;
         uint64_t LastSubmittedSubmission = 0;
         uint64_t GlobalIlluminationRenderSequence = 0;
+        uint64_t GpuSceneGeneration = std::numeric_limits<uint64_t>::max();
+        std::unordered_map<nvrhi::IBuffer*, std::vector<uint8_t>> UploadedSceneTables;
         uint32_t NextGpuMaterialIndex = 1;
         uint64_t LastTextureManagerRevision = 0;
+        uint32_t PendingGraphBuildReasonMask = 0;
         uint32_t DirectionalShadowCascadeCount = 1;
         uint32_t DirectionalShadowMapSize = c_DefaultDirectionalShadowMapSize;
         bool bGraphDirty = true;
@@ -9326,6 +11160,7 @@ namespace HEngine
         bool bDirectionalShadowCascadeDebug = false;
         ScenePbrDebugMode CurrentPbrDebugMode = ScenePbrDebugMode::Disabled;
         SceneRendererStats Stats;
+        #include "SceneRendererSwitch.inl"
     };
 
     SceneRenderer::SceneRenderer(const SceneRendererDesc& desc)
@@ -9348,9 +11183,141 @@ namespace HEngine
 			mImpl->MaterialShaderManagerInstance.GetPublicationRevision();
     }
 
+    Json SceneRenderer::GetRecordedRasterCaptureMetadata() const
+    {
+        // Called before submission commits/overwrites the previous raster state.
+        if (!mImpl->bRasterCameraFrameRecorded || mImpl->Stats.bSceneReused ||
+            mImpl->IsOfflineViewportRenderingActive() || mImpl->LastWidth == 0 || mImpl->LastHeight == 0)
+            return Json{ {"valid", false}, {"reason", "no-fresh-main-raster-recording"} };
+        const std::array<const glm::mat4*, 9> matrices = {
+            &mImpl->CurrentRasterCamera.View, &mImpl->CurrentRasterCamera.Projection,
+            &mImpl->FrameData.ViewProjection, &mImpl->FrameData.InverseViewProjection,
+            &mImpl->FrameData.PreviousView, &mImpl->FrameData.PreviousViewProjection,
+            &mImpl->PendingTaaNonJitteredViewProjection, &mImpl->PreviousTaaNonJitteredViewProjection,
+            &mImpl->PendingRasterViewProjection };
+        for (const auto* value : matrices)
+            for (int column = 0; column < 4; ++column)
+                for (int row = 0; row < 4; ++row)
+                    if (!std::isfinite((*value)[column][row]))
+                        return Json{ {"valid", false}, {"reason", "nonfinite-raster-matrix"} };
+        const auto matrix = [](const glm::mat4& value) {
+            Json result = Json::array();
+            for (int column = 0; column < 4; ++column)
+                for (int row = 0; row < 4; ++row)
+                {
+                    result.push_back(value[column][row]);
+                }
+            return result;
+        };
+        const auto vector = [](const glm::vec2& value) { return Json::array({value.x, value.y}); };
+        const bool reset = mImpl->bRasterCameraHistoryReset;
+        const auto& currentJitter = mImpl->PendingRasterJitterPixels;
+        const auto& previousJitter = reset ? currentJitter : mImpl->PreviousRasterJitterPixels;
+        const auto uploads = mImpl->TextureManagerInstance.GetUploadStatistics();
+        return Json{
+            {"valid", true}, {"provenance", "recorded SceneRenderer FrameData shader constants before submission"},
+            {"worldFrame", mImpl->PendingRasterWorldFrame},
+            {"mainAabbBroadPhase", { {"enabled", mImpl->bGpuTightFrustumEnabled},
+                {"testedCandidates", mImpl->Stats.MainAabbTestedCandidates},
+                {"rejectedCandidates", mImpl->Stats.MainAabbRejectedCandidates},
+                {"rejectedCandidateTriangles", mImpl->Stats.MainAabbRejectedCandidateTriangles},
+                {"countDomain", "CPU pre-frustum candidates; not incremental GPU savings"} }},
+            {"width", mImpl->LastWidth}, {"height", mImpl->LastHeight},
+            {"taaActive", mImpl->IsTaaActive()}, {"historyReset", reset},
+            {"upscaling", mImpl->UpscalingPass->GetDiagnostics()},
+            {"textureStreaming", {
+                {"budgetBytes", uploads.StreamingBudgetBytes},
+                {"plannedBytes", uploads.StreamingPlannedBytes},
+                {"residentPendingRetiringBytes", uploads.StreamingAccountedBytes},
+                {"textures", uploads.StreamableTextures},
+                {"transitions", uploads.StreamingTransitions},
+                {"budgetStalls", uploads.StreamingBudgetStalls},
+                {"descriptorReplacements", uploads.DescriptorReplacements},
+                {"descriptorPublicationStalls", uploads.DescriptorPublicationStalls},
+                {"minimumOverrun", uploads.bStreamingMinimumOverrun},
+                {"pendingUploads", uploads.Pending},
+                {"failedUploads", uploads.Failed},
+                {"accounting", "texture payload and reserved replacements; not physical VRAM"} }},
+            {"jitterSequenceGeneration", mImpl->CurrentRasterCamera.JitterSequenceGeneration},
+            {"previousSubmittedFrameValid", !reset && mImpl->PreviousRasterSubmission != 0},
+            {"previousWorldFrame", reset ? Json(nullptr) : Json(mImpl->PreviousRasterWorldFrame)},
+            {"previousSubmissionId", reset ? Json(nullptr) : Json(mImpl->PreviousRasterSubmission)},
+            {"previousMatrixOrigin", reset ? "current-frame-history-reset" : "previous-successfully-submitted-raster-frame"},
+            {"currentViewColumnMajor", matrix(mImpl->CurrentRasterCamera.View)},
+            {"currentProjectionColumnMajor", matrix(mImpl->CurrentRasterCamera.Projection)},
+            {"currentViewProjectionColumnMajor", matrix(mImpl->FrameData.ViewProjection)},
+            {"currentInverseViewProjectionColumnMajor", matrix(mImpl->FrameData.InverseViewProjection)},
+            {"previousViewColumnMajor", matrix(mImpl->FrameData.PreviousView)},
+            {"previousViewProjectionColumnMajor", matrix(mImpl->FrameData.PreviousViewProjection)},
+            {"currentNonJitteredViewProjectionColumnMajor", matrix(mImpl->PendingTaaNonJitteredViewProjection)},
+            {"previousNonJitteredViewProjectionColumnMajor", matrix(reset
+                ? mImpl->PendingTaaNonJitteredViewProjection : mImpl->PreviousTaaNonJitteredViewProjection)},
+            {"currentJitterPixels", vector(currentJitter)}, {"previousJitterPixels", vector(previousJitter)},
+            {"jitterConvention", "clip translation: x=2*jitterPixels.x/width, y=-2*jitterPixels.y/height"},
+            {"matrixConvention", "GLM column-major, column vectors, clip=VP*world; device depth [0,1]"},
+            {"depthAttachment", "SceneDepthHandle (main pre-AA raster depth, not post-TAA overlay matching depth)"},
+            {"motionAttachment", "RasterSurfaceTargets[3]; use existing shader motion-vector encoding contract"}
+        };
+    }
+
+#if defined(HE_DEV_AGENT_RUNTIME)
+    bool SceneRenderer::InjectUpscalingFailureForValidation(bool duringDispatch)
+    {
+        return mImpl->UpscalingPass->InjectFailureForValidation(duringDispatch);
+    }
+#endif
+
+    bool SceneRenderer::IsCaptureSourceAvailable(FrameCaptureSource source) const noexcept
+    {
+        // Read-only preflight of the last main graph. The actual requested frame
+        // checks again during graph building, so queued changes cannot fake data.
+        switch (source)
+        {
+        case FrameCaptureSource::Automatic: return true;
+        case FrameCaptureSource::Depth: return static_cast<bool>(mImpl->SceneDepthHandle);
+        case FrameCaptureSource::Motion: return static_cast<bool>(mImpl->RasterSurfaceTargets[3]);
+        case FrameCaptureSource::Normal: return static_cast<bool>(mImpl->RasterSurfaceTargets[1]);
+        case FrameCaptureSource::SurfaceId: return static_cast<bool>(mImpl->RasterSurfaceTargets[4]);
+        case FrameCaptureSource::Reactive: return static_cast<bool>(mImpl->UpscalingPass->GetReactiveMask());
+        case FrameCaptureSource::Composition: return static_cast<bool>(mImpl->UpscalingPass->GetCompositionMask());
+        case FrameCaptureSource::UpscaleMotion: return static_cast<bool>(mImpl->UpscalingPass->GetMotionVectors());
+        case FrameCaptureSource::UpscaleColor: return static_cast<bool>(mImpl->UpscalingPass->GetInputColor());
+        case FrameCaptureSource::UpscaleOpaque: return static_cast<bool>(mImpl->UpscalingPass->GetOpaqueColor());
+        case FrameCaptureSource::DirectionalShadow:
+            return !mImpl->IsOfflineViewportRenderingActive() && static_cast<bool>(mImpl->DirectionalShadowHandle);
+        }
+        return false;
+    }
+
     void SceneRenderer::RecordFrame(const RenderWorld& world, const SceneRendererFrameDesc& frame)
     {
-        mImpl->RecordFrame(world, frame);
+        if (mImpl->ActiveOfflineViewportRenderer &&
+            !OfflineViewportRendererProviderRegistry::Get().Contains(
+                mImpl->ActiveOfflineViewportRenderer->GetProviderId()))
+        {
+            // Revocation retires the lease before opening a graph frame slot.
+            // Already submitted GPU/export/CPU work remains owned until Collect.
+            DeactivateOfflineViewportRenderer();
+        }
+        if (frame.FrameSlot >= mImpl->FramesInFlight)
+            throw std::out_of_range("SceneRenderer frame slot is out of range");
+        try
+        {
+            if (!frame.bReuseOffscreenScene)
+            {
+                if (frame.WorldSnapshot && frame.WorldSnapshot.get() != &world)
+                    throw std::invalid_argument("SceneRenderer snapshot does not match its frame world");
+                mImpl->MotionHistory.Stage(frame.WorldSnapshot
+                    ? frame.WorldSnapshot : CreateRef<RenderWorld>(world));
+            }
+            mImpl->RecordFrame(world, frame);
+        }
+        catch (...)
+        {
+            // Preparation can fail before the caller marks this view recorded.
+            AbortFrame(frame.FrameSlot);
+            throw;
+        }
     }
 
     void SceneRenderer::SetDirectionalShadowCascadeDebug(bool bEnabled) noexcept
@@ -9360,6 +11327,7 @@ namespace HEngine
 
     void SceneRenderer::SetPbrDebugMode(ScenePbrDebugMode mode) noexcept
     {
+        mImpl->bGraphDirty |= mImpl->CurrentPbrDebugMode != mode;
         mImpl->CurrentPbrDebugMode = mode;
     }
 
@@ -9383,6 +11351,7 @@ namespace HEngine
         mImpl->VfxRenderGraphPass.ClearResourceCaches();
         mImpl->RuntimeUiRenderPass.ClearResourceCaches();
         mImpl->OpaqueFramebuffers.clear();
+        mImpl->ClearRasterCaches();
         mImpl->ToneFramebuffers.clear();
         mImpl->ToneBindingSets.clear();
         if (mImpl->CompositePassInstance)
@@ -9461,6 +11430,10 @@ namespace HEngine
             previous.SamplesPerPixel == settings.SamplesPerPixel &&
             previous.MaxBounces == settings.MaxBounces &&
             previous.AtrousIterations == settings.AtrousIterations &&
+            previous.bSvgfOptimizedKernels == settings.bSvgfOptimizedKernels &&
+            previous.bSsgiLocalReactiveBudget == settings.bSsgiLocalReactiveBudget &&
+            previous.bSvgfSharedUncertainty == settings.bSvgfSharedUncertainty &&
+            previous.bSsgiEnvironmentMis == settings.bSsgiEnvironmentMis &&
             previous.ScreenSpaceRayCount == settings.ScreenSpaceRayCount &&
             previous.ScreenSpaceStepCount == settings.ScreenSpaceStepCount &&
             previous.ScreenSpaceHiZStartMip == settings.ScreenSpaceHiZStartMip &&
@@ -9470,6 +11443,7 @@ namespace HEngine
                 settings.ScreenSpaceMaximumRayDistance &&
             previous.ScreenSpaceThickness == settings.ScreenSpaceThickness &&
             previous.ScreenSpaceEdgeFade == settings.ScreenSpaceEdgeFade &&
+            previous.ScreenSpaceDiffuseHitDistanceWeight == settings.ScreenSpaceDiffuseHitDistanceWeight &&
             previous.ScreenSpaceTemporalWeight ==
                 settings.ScreenSpaceTemporalWeight &&
             previous.bDirectOnly == settings.bDirectOnly &&
@@ -9485,6 +11459,212 @@ namespace HEngine
             return;
         }
         mImpl->ConfigureGlobalIllumination(settings);
+    }
+
+    SceneRendererConfigurationPreparationResult SceneRenderer::PrepareRenderingConfiguration(
+        const SceneRendererDesc& target, const RenderWorld& world,
+        const SceneRendererFrameDesc* preparationFrame)
+    {
+        return mImpl->PrepareConfigurationGraphTransaction(target, world, preparationFrame);
+    }
+
+    void SceneRenderer::CommitPreparedRenderingConfiguration() noexcept
+    {
+        mImpl->CommitConfigurationGraphTransaction();
+    }
+
+    void SceneRenderer::AbortPreparedRenderingConfiguration() noexcept
+    {
+        mImpl->PreparedGraphSwitch.reset();
+    }
+
+    void SceneRenderer::PrepareRenderingPath(RenderingPath path)
+    {
+        if (path == RenderingPath::Forward)
+            return;
+        mImpl->PrepareRasterShaders();
+        // Validate shaders, target formats and all built-in PSOs without
+        // touching the active graph or its in-flight allocations.
+        const std::array<nvrhi::Format, 5> formats = {
+            nvrhi::Format::RGBA8_UNORM, nvrhi::Format::RGBA8_UNORM,
+            nvrhi::Format::RGBA16_FLOAT, nvrhi::Format::RGBA16_FLOAT,
+            nvrhi::Format::RG32_UINT };
+        std::vector<nvrhi::TextureHandle> targets;
+        nvrhi::FramebufferDesc framebufferDesc;
+        for (const auto format : formats)
+        {
+            targets.push_back(mImpl->Device->createTexture(nvrhi::TextureDesc()
+                .setWidth(4).setHeight(4).setFormat(format).setIsRenderTarget(true)));
+            if (!targets.back())
+                throw std::runtime_error("Deferred candidate GBuffer allocation failed");
+            framebufferDesc.addColorAttachment(targets.back());
+        }
+        auto depth = mImpl->Device->createTexture(nvrhi::TextureDesc()
+            .setWidth(4).setHeight(4).setFormat(c_SceneDepthFormat).setIsRenderTarget(true));
+        framebufferDesc.setDepthAttachment(depth);
+        auto framebuffer = mImpl->Device->createFramebuffer(framebufferDesc);
+        if (!depth || !framebuffer)
+            throw std::runtime_error("Deferred candidate framebuffer preparation failed");
+        for (uint32_t vertexPath = 0; vertexPath < 3; ++vertexPath)
+            for (bool bDoubleSided : {false, true})
+                if (!mImpl->GetRasterPipeline(framebuffer, vertexPath, bDoubleSided))
+                    throw std::runtime_error("Deferred candidate PSO preparation failed");
+        for (const auto* items : {&mImpl->CpuDrawItems, &mImpl->SkinnedDrawItems})
+            for (const auto& item : *items)
+                if (item.MaterialProgram)
+                    (void)mImpl->GetOrCreateMaterialPipeline(framebuffer, *item.MaterialProgram,
+                        MaterialShaderPass::GBuffer, items == &mImpl->SkinnedDrawItems,
+                        item.bDoubleSided, false);
+    }
+
+    void SceneRenderer::SetReflectionSettings(const SceneReflectionSettings& settings)
+    {
+        if (mImpl->ReflectionSettings == settings) return;
+        mImpl->ReflectionSettings = settings;
+        mImpl->bGraphDirty = true;
+        mImpl->SceneAntiAliasing.ResetHistory();
+    }
+
+    void SceneRenderer::SetGpuOcclusionEnabled(bool bEnabled)
+    {
+        if (mImpl->bGpuOcclusionEnabled == bEnabled) return;
+        mImpl->bGpuOcclusionEnabled = bEnabled;
+        mImpl->RefreshAntiAliasingSelection();
+        mImpl->bGraphDirty = true;
+    }
+
+    void SceneRenderer::SetGpuBatchingEnabled(bool bEnabled)
+    {
+        if (bEnabled && !SupportsCountedIndirectDraws(mImpl->Capabilities))
+        {
+            HE_CORE_WARN("GPU compacted draw groups are unavailable; keeping individual GPU-culled indirect draws");
+            bEnabled = false;
+        }
+        if (mImpl->bGpuBatchingEnabled == bEnabled) return;
+        mImpl->bGpuBatchingEnabled = bEnabled;
+        mImpl->bGraphDirty = true;
+    }
+
+    void SceneRenderer::SetGpuShadowBatchingEnabled(bool bEnabled)
+    {
+        if (bEnabled && !SupportsCountedIndirectDraws(mImpl->Capabilities))
+        {
+            HE_CORE_WARN("GPU compacted shadow draw groups are unavailable; keeping individual GPU-culled indirect draws");
+            bEnabled = false;
+        }
+        if (mImpl->bGpuShadowBatchingEnabled == bEnabled) return;
+        mImpl->bGpuShadowBatchingEnabled = bEnabled;
+        mImpl->bGraphDirty = true;
+    }
+
+    void SceneRenderer::SetLodSettings(bool bEnabled, float maxPixelError)
+    {
+        if (!std::isfinite(maxPixelError) || maxPixelError < 0.1f || maxPixelError > 8.0f)
+            throw std::invalid_argument("LOD maximum pixel error must be in [0.1, 8]");
+        if (mImpl->bLodEnabled == bEnabled && mImpl->LodMaxPixelError == maxPixelError) return;
+        mImpl->bLodEnabled = bEnabled;
+        mImpl->LodMaxPixelError = maxPixelError;
+        mImpl->bGraphDirty = true;
+        mImpl->SceneAntiAliasing.ResetHistory();
+    }
+
+    void SceneRenderer::PrepareReflectionProbeResources(const RenderWorld& world)
+    {
+        mImpl->PreparedReflectionProbes.clear();
+        if (!mImpl->ReflectionSettings.bLocalProbesEnabled) return;
+        std::vector<const RenderReflectionProbe*> candidates;
+        for (const auto& probe : world.ReflectionProbes)
+            if (!probe.HdrTexturePath.empty()) candidates.push_back(&probe);
+        const auto distance = [&](const RenderReflectionProbe* probe)
+        {
+            const glm::vec3 delta = world.Camera.Position -
+                glm::clamp(world.Camera.Position, probe->BoundsMin, probe->BoundsMax);
+            return glm::dot(delta, delta);
+        };
+        std::stable_sort(candidates.begin(), candidates.end(), [&](auto* a, auto* b)
+        {
+            const float left = distance(a), right = distance(b);
+            return left == right ? a->EntityId < b->EntityId : left < right;
+        });
+        if (candidates.size() > MaximumSceneReflectionProbes && !mImpl->bProbeBudgetWarning)
+        {
+            HE_CORE_WARN("Reflection probe budget: selecting the nearest {} of {} volumes per view",
+                MaximumSceneReflectionProbes, candidates.size());
+            mImpl->bProbeBudgetWarning = true;
+        }
+        for (size_t i = 0; i < std::min(candidates.size(), size_t(MaximumSceneReflectionProbes)); ++i)
+        {
+            const auto& probe = *candidates[i];
+            const auto preparation = mImpl->PrepareEnvironment(probe.HdrTexturePath);
+            if (preparation.State != SceneEnvironmentState::Ready) continue;
+            const auto found = mImpl->EnvironmentCache.find(preparation.Path);
+            if (found == mImpl->EnvironmentCache.end()) continue;
+            mImpl->PreparedReflectionProbes.push_back(SceneReflectionProbe{
+                .BoundsMin = probe.BoundsMin, .BlendDistance = probe.BlendDistance,
+                .BoundsMax = probe.BoundsMax, .Intensity = probe.Intensity,
+                .CapturePosition = probe.CapturePosition,
+                .PrefilteredEnvironment = found->second.Prefilter,
+                .Irradiance = probe.bAffectDiffuse ? found->second.Irradiance : nullptr,
+            });
+        }
+    }
+
+    void SceneRenderer::SetCloudSettings(const CloudSettings& settings)
+    {
+        mImpl->CloudQualitySettings = ResolveCloudSettings(settings);
+    }
+
+    void SceneRenderer::SetAmbientOcclusionSettings(const SceneAmbientOcclusionSettings& settings)
+    {
+        if (mImpl->AmbientOcclusionSettings == settings) return;
+        mImpl->AmbientOcclusionSettings = settings;
+        mImpl->bGraphDirty = true;
+        mImpl->SceneAntiAliasing.ResetHistory();
+    }
+
+    void SceneRenderer::SetTransientCacheBudget(uint64_t bytes) noexcept
+    {
+        mImpl->ResourcePool.SetTransientCacheBudget(bytes);
+    }
+
+    void SceneRenderer::SetTextureStreamingBudget(uint64_t bytes) noexcept
+    {
+        mImpl->TextureStreamingBudgetBytes = std::clamp<uint64_t>(bytes, 1ull * 1024 * 1024, 8192ull * 1024 * 1024);
+    }
+
+    void SceneRenderer::SetUpscalingSharpness(float sharpness)
+    {
+        mImpl->RequestedUpscaling.Sharpness = std::clamp(sharpness, 0.0f, 1.0f);
+    }
+
+    void SceneRenderer::SetPostProcessSettings(const ScenePostProcessSettings& settings)
+    {
+        if (mImpl->PostProcessSettings.RenderHeight != settings.RenderHeight ||
+            mImpl->PostProcessSettings.SkinSubsurfaceEnabled != settings.SkinSubsurfaceEnabled)
+            mImpl->bGraphDirty = true;
+        mImpl->PostProcessSettings = settings;
+        // PrepareFrame detects actual processing topology changes. Constant-only
+        // edits preserve the graph, exposure and temporal reconstruction history.
+    }
+
+    void SceneRenderer::CommitRenderingPath(RenderingPath path)
+    {
+        if (mImpl->Path == path)
+            return;
+        mImpl->Path = path;
+        mImpl->PostProcessPass->ResetHistory();
+        mImpl->SceneAntiAliasing.ResetHistory();
+        mImpl->bHasPreviousRasterCamera = false;
+        if (auto* technique = mImpl->GetActiveIlluminationTechnique())
+            technique->ResetHistory(GlobalIlluminationHistoryResetReason::CameraCut);
+        mImpl->RefreshAntiAliasingSelection();
+        mImpl->bGraphDirty = true;
+        HE_CORE_INFO("Rendering path committed: {}", ToString(path));
+    }
+
+    RenderingPath SceneRenderer::GetRenderingPath() const noexcept
+    {
+        return mImpl->Path;
     }
 
     void SceneRenderer::SetRenderSettings(
@@ -9530,6 +11710,16 @@ namespace HEngine
         }
     }
 
+    void SceneRenderer::ResetTemporalHistory()
+    {
+        mImpl->UpscalingPass->ResetHistory();
+        mImpl->SceneAntiAliasing.ResetHistory();
+        mImpl->PostProcessPass->ResetHistory();
+        mImpl->bHasPreviousRasterCamera = false;
+        mImpl->GlobalIlluminationRenderSequence = 0;
+        ResetGlobalIlluminationHistory(GlobalIlluminationHistoryResetReason::CameraCut);
+    }
+
     const GlobalIlluminationSettings&
         SceneRenderer::GetGlobalIlluminationSettings() const noexcept
     {
@@ -9562,6 +11752,10 @@ namespace HEngine
 
     bool SceneRenderer::RequiresContinuousUpdate() const noexcept
     {
+        if (mImpl->IsFsrActive()) return true;
+        if (!mImpl->RetiredIlluminationSets.empty()) return true;
+        if (mImpl->Features->RequiresContinuousUpdate()) return true;
+        if (mImpl->PostProcessPass->RequiresContinuousUpdate()) return true;
         if (mImpl->SceneAntiAliasing.RequiresContinuousUpdate())
             return true;
         const IGlobalIlluminationTechnique* technique =
@@ -9666,12 +11860,21 @@ namespace HEngine
         return mImpl->TextureManagerInstance.InvalidateFailedLoads(assetPath);
     }
 
+    size_t SceneRenderer::RequestTextureReload(std::string_view assetPath)
+    {
+        const size_t environments = mImpl->InvalidateEnvironmentEntries(assetPath);
+        const size_t textures = mImpl->TextureManagerInstance.RequestReload(assetPath);
+        (void)mImpl->TextureManagerInstance.InvalidateFailedLoads(assetPath);
+        return environments + textures;
+    }
+
     void SceneRenderer::ConfigureOffscreenOutput(
         uint32_t width,
         uint32_t height,
-        std::string debugName)
+        std::string debugName,
+        nvrhi::Format colorFormat)
     {
-        mImpl->ConfigureOffscreenOutput(width, height, std::move(debugName));
+        mImpl->ConfigureOffscreenOutput(width, height, std::move(debugName), colorFormat);
     }
 
     void SceneRenderer::DisableOffscreenOutput()
@@ -9687,6 +11890,10 @@ namespace HEngine
     void SceneRenderer::NotifyFrameSubmitted(uint32_t frameSlot, uint64_t submission)
     {
         mImpl->ResourcePool.EndFrame(frameSlot, submission);
+        // Actual graph submission, independent of GPU frame marker submissions and delayed samples.
+        if (mImpl->bCpuGraphTimingEnabled && mImpl->Stats.bCpuGraphTimingValid &&
+            frameSlot == mImpl->CurrentFrameSlot)
+            mImpl->Stats.CpuGraphSubmissionId = submission;
 		mImpl->GpuTiming.NotifySubmitted(frameSlot, submission);
         mImpl->LastSubmittedSubmission = std::max(
             mImpl->LastSubmittedSubmission,
@@ -9705,8 +11912,31 @@ namespace HEngine
             mImpl->RefreshGlobalIlluminationStats();
         }
         mImpl->SceneAntiAliasing.NotifyFrameSubmitted(submission);
+        mImpl->UpscalingPass->NotifySubmitted(submission);
+        mImpl->LightGrid->NotifyFrameSubmitted(submission);
+        mImpl->LocalShadowPass->NotifyFrameSubmitted(submission);
+        mImpl->ShadowGpuSubmission->NotifyFrameSubmitted(submission);
+        mImpl->PostProcessPass->NotifyFrameSubmitted(submission);
+        mImpl->Features->NotifyFrameSubmitted(submission);
+        mImpl->AmbientOcclusionPass->NotifyFrameSubmitted(submission);
+        mImpl->GpuOcclusionPass->NotifyFrameSubmitted(submission);
+        mImpl->DepthIndirectCompaction->NotifyFrameSubmitted(submission);
+        mImpl->MainIndirectCompaction->NotifyFrameSubmitted(submission);
+        mImpl->GeometryArena->NotifyFrameSubmitted(submission);
+        for (const auto* key : mImpl->PendingMeshUploads)
+            mImpl->MeshCache.at(key).DeformationHistory.Commit();
+        mImpl->PendingMeshUploads.clear();
+        mImpl->ReflectionPass->NotifyFrameSubmitted(submission);
+        mImpl->ReactiveBudget.Commit();
         if (mImpl->bRasterCameraFrameRecorded)
         {
+            mImpl->MotionHistory.Commit();
+            mImpl->SubmittedMaterialShaderPublicationRevision =
+                mImpl->PendingMaterialShaderPublicationRevision;
+            mImpl->PreviousRasterView = mImpl->PendingRasterView;
+            mImpl->PreviousRasterJitterPixels = mImpl->PendingRasterJitterPixels;
+            mImpl->PreviousRasterWorldFrame = mImpl->PendingRasterWorldFrame;
+            mImpl->PreviousRasterSubmission = submission;
             mImpl->PreviousRasterViewProjection =
                 mImpl->PendingRasterViewProjection;
             mImpl->PreviousRasterJitterGeneration =
@@ -9727,6 +11957,19 @@ namespace HEngine
 
     void SceneRenderer::AbortFrame(uint32_t frameSlot) noexcept
     {
+        mImpl->MotionHistory.Abort();
+        mImpl->ReactiveBudget.Abort();
+        mImpl->UploadedSceneTables.clear();
+        mImpl->PostProcessPass->AbortFrame();
+        mImpl->Features->AbortFrame();
+        mImpl->AmbientOcclusionPass->AbortFrame();
+        mImpl->GpuOcclusionPass->AbortFrame();
+        mImpl->DepthIndirectCompaction->AbortFrame();
+        mImpl->MainIndirectCompaction->AbortFrame();
+        mImpl->AbortGeometryUploads();
+        mImpl->LocalShadowPass->AbortFrame();
+        mImpl->ShadowGpuSubmission->AbortFrame();
+        mImpl->ReflectionPass->AbortFrame();
         if (mImpl->HardwareRayTracingScene)
             mImpl->HardwareRayTracingScene->AbortFrame();
         if (mImpl->IsGlobalIlluminationActive())
@@ -9735,6 +11978,7 @@ namespace HEngine
             mImpl->bGlobalIlluminationFrameRecorded = false;
         }
         mImpl->SceneAntiAliasing.AbortFrame();
+        mImpl->UpscalingPass->AbortFrame();
         mImpl->bRasterCameraFrameRecorded = false;
         mImpl->GpuTiming.AbortFrame(frameSlot);
         mImpl->ResourcePool.AbortFrame(frameSlot);
@@ -9762,6 +12006,7 @@ namespace HEngine
 
     const SceneRendererStats& SceneRenderer::GetStats() const noexcept
     {
+        mImpl->Stats.CloudCpuRecordMilliseconds = mImpl->Features->GetCpuRecordMilliseconds("builtin.cloud");
         return mImpl->Stats;
     }
 

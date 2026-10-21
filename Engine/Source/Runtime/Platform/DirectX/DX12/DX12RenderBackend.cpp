@@ -4,6 +4,7 @@
 #include "DX12Capabilities.h"
 
 #include "Runtime/Platform/GLFW/CommonWindow.h"
+#include "Runtime/Profile/RenderFrameTiming.h"
 
 #include <nvrhi/d3d12.h>
 #include <nvrhi/validation.h>
@@ -100,7 +101,33 @@ namespace HEngine
             {
                 const HRESULT removalReason = device->GetDeviceRemovedReason();
                 if (FAILED(removalReason))
+                {
                     stream << "; device removed reason: " << HResultToString(removalReason);
+                    ComPtr<ID3D12DeviceRemovedExtendedData1> dred;
+                    if (SUCCEEDED(device->QueryInterface(IID_PPV_ARGS(&dred))))
+                    {
+                        D3D12_DRED_AUTO_BREADCRUMBS_OUTPUT1 breadcrumbs{};
+                        if (SUCCEEDED(dred->GetAutoBreadcrumbsOutput1(&breadcrumbs)))
+                        {
+                            uint32_t nodes = 0;
+                            for (auto* node = breadcrumbs.pHeadAutoBreadcrumbNode; node && nodes < 6;
+                                node = node->pNext, ++nodes)
+                            {
+                                const uint32_t completed = node->pLastBreadcrumbValue ? *node->pLastBreadcrumbValue : 0;
+                                stream << "; DRED list=" << (node->pCommandListDebugNameA ? node->pCommandListDebugNameA : "unnamed")
+                                    << " completed=" << completed << '/' << node->BreadcrumbCount << " nearbyOps=";
+                                const uint32_t begin = completed > 3 ? completed - 3 : 0;
+                                const uint32_t end = std::min(node->BreadcrumbCount, completed + 5);
+                                if (node->pCommandHistory)
+                                    for (uint32_t index = begin; index < end; ++index)
+                                        stream << index << ':' << static_cast<uint32_t>(node->pCommandHistory[index]) << ',';
+                            }
+                        }
+                        D3D12_DRED_PAGE_FAULT_OUTPUT1 fault{};
+                        if (SUCCEEDED(dred->GetPageFaultAllocationOutput1(&fault)) && fault.PageFaultVA != 0)
+                            stream << "; DRED pageFaultVA=" << fault.PageFaultVA;
+                    }
+                }
             }
 
             throw std::runtime_error(stream.str());
@@ -184,9 +211,11 @@ namespace HEngine
                 IDXGIFactory6* factory,
                 ID3D12Device* nativeDevice,
                 ID3D12CommandQueue* graphicsQueue,
-                nvrhi::IDevice* nvrhiDevice)
+                nvrhi::IDevice* nvrhiDevice,
+                uint32_t framesInFlight)
                 : mNativeDevice(nativeDevice)
                 , mNvrhiDevice(nvrhiDevice)
+                , mBufferCount(framesInFlight)
             {
                 HWND windowHandle = glfwGetWin32Window(window);
                 if (windowHandle == nullptr)
@@ -217,7 +246,7 @@ namespace HEngine
                 description.SampleDesc.Count = 1;
                 description.SampleDesc.Quality = 0;
                 description.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-                description.BufferCount = c_BackBufferCount;
+                description.BufferCount = mBufferCount;
                 description.Scaling = DXGI_SCALING_STRETCH;
                 description.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
                 description.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
@@ -257,7 +286,7 @@ namespace HEngine
 
                 ReleaseBackBuffers();
                 CheckHResult("IDXGISwapChain4::ResizeBuffers", mSwapChain->ResizeBuffers(
-                    c_BackBufferCount,
+                    mBufferCount,
                     width,
                     height,
                     c_BackBufferFormat,
@@ -271,7 +300,7 @@ namespace HEngine
             [[nodiscard]] uint32_t AcquireNextImage() override
             {
                 mCurrentBackBuffer = mSwapChain->GetCurrentBackBufferIndex();
-                if (mCurrentBackBuffer >= c_BackBufferCount)
+                if (mCurrentBackBuffer >= mBufferCount)
                     throw std::runtime_error("DXGI returned an invalid swap-chain backbuffer index");
                 return mCurrentBackBuffer;
             }
@@ -288,7 +317,7 @@ namespace HEngine
 
             [[nodiscard]] uint32_t GetWidth() const override { return mWidth; }
             [[nodiscard]] uint32_t GetHeight() const override { return mHeight; }
-            [[nodiscard]] uint32_t GetBufferCount() const override { return c_BackBufferCount; }
+            [[nodiscard]] uint32_t GetBufferCount() const override { return mBufferCount; }
             [[nodiscard]] nvrhi::Format GetFormat() const override { return nvrhi::Format::RGBA8_UNORM; }
             [[nodiscard]] PresentMode GetPresentMode() const override { return mPresentMode; }
             [[nodiscard]] uint32_t GetCurrentImageIndex() const override { return mCurrentBackBuffer; }
@@ -310,7 +339,7 @@ namespace HEngine
         private:
             void ImportBackBuffers()
             {
-                for (uint32_t bufferIndex = 0; bufferIndex < c_BackBufferCount; ++bufferIndex)
+                for (uint32_t bufferIndex = 0; bufferIndex < mBufferCount; ++bufferIndex)
                 {
                     CheckHResult("IDXGISwapChain4::GetBuffer", mSwapChain->GetBuffer(
                         bufferIndex, IID_PPV_ARGS(&mNativeBackBuffers[bufferIndex])), mNativeDevice);
@@ -347,7 +376,7 @@ namespace HEngine
 
             void ReleaseBackBuffers()
             {
-                for (uint32_t bufferIndex = 0; bufferIndex < c_BackBufferCount; ++bufferIndex)
+                for (uint32_t bufferIndex = 0; bufferIndex < mBufferCount; ++bufferIndex)
                 {
                     mFramebuffers[bufferIndex] = nullptr;
                     mBackBuffers[bufferIndex] = nullptr;
@@ -361,6 +390,7 @@ namespace HEngine
             std::array<ComPtr<ID3D12Resource>, c_BackBufferCount> mNativeBackBuffers;
             std::array<nvrhi::TextureHandle, c_BackBufferCount> mBackBuffers;
             std::array<nvrhi::FramebufferHandle, c_BackBufferCount> mFramebuffers;
+            uint32_t mBufferCount = 3;
             uint32_t mWidth = 0;
             uint32_t mHeight = 0;
             uint32_t mCurrentBackBuffer = 0;
@@ -430,7 +460,8 @@ namespace HEngine
     void DX12RenderBackend::Initialize(
         RenderSurface& surface,
         bool bEnableValidation,
-        const RenderAdapterSelectionOptions& selection)
+        const RenderAdapterSelectionOptions& selection,
+        uint32_t framesInFlight)
     {
         if (mImpl->bInitialized)
             throw std::logic_error("DX12RenderBackend is already initialized");
@@ -438,6 +469,9 @@ namespace HEngine
         if (windowSurface == nullptr || windowSurface->GetGlfwWindow() == nullptr)
             throw std::invalid_argument("DX12RenderBackend requires a GLFW CommonWindow render surface");
         GLFWwindow* window = windowSurface->GetGlfwWindow();
+
+        if (framesInFlight < 2 || framesInFlight > 3)
+            throw std::invalid_argument("Frames in flight must be 2 or 3.");
 
         try
         {
@@ -447,6 +481,12 @@ namespace HEngine
             uint32_t factoryFlags = 0;
             if (bEnableValidation)
             {
+                ComPtr<ID3D12DeviceRemovedExtendedDataSettings> dredSettings;
+                if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&dredSettings))))
+                {
+                    dredSettings->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+                    dredSettings->SetPageFaultEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
+                }
                 const HRESULT debugInterfaceResult = D3D12GetDebugInterface(
                     IID_PPV_ARGS(&mImpl->DebugController));
                 if (SUCCEEDED(debugInterfaceResult))
@@ -552,9 +592,10 @@ namespace HEngine
                 mImpl->Factory.Get(),
                 mImpl->NativeDevice.Get(),
                 mImpl->GraphicsQueue.Get(),
-                mImpl->Device.Get());
+                mImpl->Device.Get(),
+                framesInFlight);
 
-            for (uint32_t frameIndex = 0; frameIndex < c_BackBufferCount; ++frameIndex)
+            for (uint32_t frameIndex = 0; frameIndex < framesInFlight; ++frameIndex)
             {
                 FrameContext& frame = mImpl->Frames[frameIndex];
                 frame.FrameIndex = frameIndex;
@@ -571,14 +612,14 @@ namespace HEngine
             mCapabilities.bComputeQueue = true;
             mCapabilities.bCopyQueue = true;
             mCapabilities.bValidationLayer = bEnableValidation;
-            mCapabilities.FramesInFlight = c_BackBufferCount;
+            mCapabilities.FramesInFlight = framesInFlight;
             mImpl->bInitialized = true;
 
             HE_CORE_INFO(
                 "Initialized DX12/NVRHI on {0} ({1} MiB dedicated VRAM), {2} frame(s) in flight, validation: {3}",
                 mCapabilities.AdapterName,
                 mCapabilities.DedicatedVideoMemory / (1024ull * 1024ull),
-                c_BackBufferCount,
+                framesInFlight,
                 bEnableValidation ? "enabled" : "disabled");
         }
         catch (...)
@@ -612,6 +653,28 @@ namespace HEngine
             mCapabilities = {};
             throw;
         }
+    }
+
+    RenderMemoryBudget DX12RenderBackend::QueryMemoryBudget() const
+    {
+        RenderMemoryBudget result;
+        if (!mImpl || !mImpl->Adapter) return result;
+        DXGI_QUERY_VIDEO_MEMORY_INFO local{};
+        if (FAILED(mImpl->Adapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &local)))
+            return result;
+        result.bAvailable = true;
+        result.bPerProcess = true;
+        result.LocalBudgetBytes = local.Budget;
+        result.LocalUsageBytes = local.CurrentUsage;
+        result.LocalReservationBytes = local.CurrentReservation;
+        DXGI_QUERY_VIDEO_MEMORY_INFO nonLocal{};
+        if (SUCCEEDED(mImpl->Adapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL, &nonLocal)))
+        {
+            result.bNonLocalAvailable = true;
+            result.NonLocalBudgetBytes = nonLocal.Budget;
+            result.NonLocalUsageBytes = nonLocal.CurrentUsage;
+        }
+        return result;
     }
 
     void DX12RenderBackend::Shutdown()
@@ -701,7 +764,12 @@ namespace HEngine
         if (mImpl->ActiveFrame != nullptr)
             throw std::logic_error("BeginFrame called before the previous DX12 frame was submitted");
 
-        const uint32_t frameIndex = mImpl->SwapChain->AcquireNextImage();
+        uint32_t frameIndex = 0;
+        {
+            HE_PROFILE_SECTION("DX12::AcquireImage");
+            ScopedRenderFrameCpuTiming timing(RenderFrameCpuPhase::AcquireImage);
+            frameIndex = mImpl->SwapChain->AcquireNextImage();
+        }
         FrameContext& frame = mImpl->Frames[frameIndex];
         frame.SwapChainImageIndex = frameIndex;
         if (frame.bInFlight)
@@ -711,7 +779,11 @@ namespace HEngine
                 throw std::logic_error(
                     "DX12 frame is in flight without an armed completion query");
             }
-            mImpl->Device->waitEventQuery(frame.CompletionQuery);
+            {
+                HE_PROFILE_SECTION("DX12::FrameSlotWait");
+                ScopedRenderFrameCpuTiming timing(RenderFrameCpuPhase::FrameSlotWait);
+                mImpl->Device->waitEventQuery(frame.CompletionQuery);
+            }
             CheckDeviceHealth("Waiting for the DX12 frame-in-flight completion query", mImpl->NativeDevice.Get());
             mImpl->Device->resetEventQuery(frame.CompletionQuery);
             mImpl->CompletionQueryArmed[frameIndex] = false;
@@ -719,11 +791,19 @@ namespace HEngine
             frame.CompletedSubmissionInstance = frame.SubmissionInstance;
         }
 
-        mImpl->Device->runGarbageCollection();
+        {
+            HE_PROFILE_SECTION("DX12::GarbageCollect");
+            ScopedRenderFrameCpuTiming timing(RenderFrameCpuPhase::GarbageCollect);
+            mImpl->Device->runGarbageCollection();
+        }
         frame.bSubmissionIssued = false;
         try
         {
-            frame.GraphicsCommandList->open();
+            {
+                HE_PROFILE_SECTION("DX12::CommandListOpen");
+                ScopedRenderFrameCpuTiming timing(RenderFrameCpuPhase::CommandListSetup);
+                frame.GraphicsCommandList->open();
+            }
             mImpl->ActiveFrame = &frame;
             NameActiveCommandList(frame);
         }
@@ -814,21 +894,43 @@ namespace HEngine
             nvrhi::ResourceStates::Present);
         try
         {
-            frame.GraphicsCommandList->close();
+            {
+                HE_PROFILE_SECTION("DX12::CommandListClose");
+                ScopedRenderFrameCpuTiming timing(RenderFrameCpuPhase::CommandListSetup);
+                if (frame.FullFrameTimer)
+                {
+                    // Include the final Present transition before writing end.
+                    frame.GraphicsCommandList->commitBarriers();
+                    frame.GraphicsCommandList->endTimerQuery(frame.FullFrameTimer);
+                    frame.bFullFrameTimerEnded = true;
+                }
+                frame.GraphicsCommandList->close();
+            }
             mImpl->ActiveFrame = nullptr;
 
-            frame.SubmissionInstance = mImpl->Device->executeCommandList(
-                frame.GraphicsCommandList, nvrhi::CommandQueue::Graphics);
-            // This flag is the transaction commit point. Everything after it
-            // must preserve the submitted resource lifetimes even on failure.
-            frame.bSubmissionIssued = true;
-            frame.bInFlight = true;
-            CheckDeviceHealth("Submitting the DX12 graphics command list", mImpl->NativeDevice.Get());
-            mImpl->Device->setEventQuery(frame.CompletionQuery, nvrhi::CommandQueue::Graphics);
-            mImpl->CompletionQueryArmed[frame.FrameIndex] = true;
-
-            mImpl->SwapChain->Present(bVSync);
-            mImpl->Device->runGarbageCollection();
+            {
+                HE_PROFILE_SECTION("DX12::GraphicsSubmit");
+                ScopedRenderFrameCpuTiming timing(RenderFrameCpuPhase::Submit);
+                frame.SubmissionInstance = mImpl->Device->executeCommandList(
+                    frame.GraphicsCommandList, nvrhi::CommandQueue::Graphics);
+                // This flag is the transaction commit point. Everything after it
+                // must preserve the submitted resource lifetimes even on failure.
+                frame.bSubmissionIssued = true;
+                frame.bInFlight = true;
+                CheckDeviceHealth("Submitting the DX12 graphics command list", mImpl->NativeDevice.Get());
+                mImpl->Device->setEventQuery(frame.CompletionQuery, nvrhi::CommandQueue::Graphics);
+                mImpl->CompletionQueryArmed[frame.FrameIndex] = true;
+            }
+            {
+                HE_PROFILE_SECTION("DX12::Present");
+                ScopedRenderFrameCpuTiming timing(RenderFrameCpuPhase::Present);
+                mImpl->SwapChain->Present(bVSync);
+            }
+            {
+                HE_PROFILE_SECTION("DX12::GarbageCollect");
+                ScopedRenderFrameCpuTiming timing(RenderFrameCpuPhase::GarbageCollect);
+                mImpl->Device->runGarbageCollection();
+            }
         }
         catch (const std::exception& exception)
         {
@@ -952,6 +1054,7 @@ namespace HEngine
         case nvrhi::MessageSeverity::Error:
         case nvrhi::MessageSeverity::Fatal:
             HE_CORE_ERROR("NVRHI: {0}", text);
+            Log::WriteFallbackError("NVRHI validation error", text);
             break;
         }
     }

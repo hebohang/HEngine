@@ -1,4 +1,5 @@
 #include "AssetPreviewPanel.h"
+#include "Runtime/Core/AppFramework/Application.h"
 
 #include "Editor/EditorTheme.h"
 #include "Editor/EditorLayer.h"
@@ -27,12 +28,14 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cctype>
 #include <cfloat>
 #include <cstdio>
 #include <cmath>
 #include <functional>
 #include <limits>
+#include <type_traits>
 #include <unordered_map>
 
 namespace HEngine
@@ -491,11 +494,18 @@ namespace HEngine
 
 		static const std::vector<glm::mat4>* GetActiveSkinningMatrices(const Mesh& mesh)
 		{
-			if (!mesh.bAnimated || !mesh.bPlayAnim)
+			const bool hasSkinnedSection = std::any_of(mesh.mSubMeshes.begin(), mesh.mSubMeshes.end(),
+				[](const auto& section) { return section && section->IsSkinned(); });
+			if (!hasSkinnedSection)
 				return nullptr;
 
-			if (mesh.bUseExternalBoneMatrices && !mesh.mExternalBoneMatrices.empty())
+			// Match render extraction: paused external poses remain authoritative,
+			// while a mesh without a clip uses its actual skeleton bind palette.
+			// Never substitute bind matrices for an incomplete animated pose.
+			if (mesh.bUseExternalBoneMatrices)
 				return &mesh.mExternalBoneMatrices;
+			if (!mesh.bPlayAnim && !mesh.mBindBoneMatrices.empty() && mesh.mAnimation.GetBoneIDMap().empty())
+				return &mesh.mBindBoneMatrices;
 
 			const std::vector<glm::mat4>& animatorMatrices = mesh.mAnimator.GetFinalBoneMatrices();
 			return animatorMatrices.empty() ? nullptr : &animatorMatrices;
@@ -677,6 +687,104 @@ namespace HEngine
 
 	AssetPreviewPanel::~AssetPreviewPanel() = default;
 
+    void AssetPreviewPanel::SetPreviewPlaying(bool playing)
+    {
+        mPlayAnimation = playing;
+        mAutomationFramesRemaining = 0;
+    }
+
+    void AssetPreviewPanel::ScrubPreview(float progress)
+    {
+        SetPreviewPlaying(false);
+        if (mSelectedClipIndex >= 0 && mSelectedClipIndex < static_cast<int>(mAnimRes.clips.size()))
+        {
+            const auto& clip = mAnimRes.clips[mSelectedClipIndex];
+            mAnimationProgress = clip.duration > 0.0f ? std::clamp(progress, 0.0f, 1.0f) : 0.0f;
+            mAnimationTimeTicks = clip.duration * mAnimationProgress;
+        }
+    }
+
+    Json AssetPreviewPanel::AutomationPreview(const Json& params)
+    {
+#if HE_ENABLE_GM
+        const std::string action = params.at("action");
+        const bool meshReady = mAssetKind == AssetKind::Mesh && mLoaded && HasPreviewMesh() &&
+            mAutomationLastRenderedFrame > 0;
+        const bool ready = meshReady || (mAssetKind == AssetKind::Animation && mLoaded && HasPreviewMesh() &&
+            GetSelectedClipDurationSeconds() > 0.0f && mAutomationPoseUpdates > 0);
+        if (action != "state" && !ready)
+            throw std::runtime_error("Asset preview is not ready; wait for its actual UI render.");
+        if (meshReady)
+        {
+            if (action == "morph")
+            {
+                const std::string name = params.at("name").get<std::string>();
+                const float weight = params.at("weight").get<float>();
+                if (!std::isfinite(weight) || weight < -2.0f || weight > 2.0f)
+                    throw std::invalid_argument("Morph preview weight must be finite in [-2,2].");
+                SetMorphPreviewWeight(name, weight);
+            }
+            else if (action == "reset") ResetMorphPreviewWeights();
+            else if (action == "focusMorph") FocusMorphPreview(params.at("name").get<std::string>());
+            else if (action != "state") throw std::invalid_argument("Unknown mesh preview action.");
+            uint64_t positionHash = 14695981039346656037ull;
+            uint64_t revision = 0;
+            const auto& sections = mPreviewEntity.GetComponent<MeshComponent>().mMesh->mSubMeshes;
+            for (const auto& section : sections)
+            {
+                if (!section) continue;
+                revision += section->GetDeformationRevision();
+                const auto hashVertices = [&](const auto& vertices) {
+                    for (const auto& vertex : vertices)
+                        for (int axis = 0; axis < 3; ++axis)
+                        {
+                            positionHash ^= std::bit_cast<uint32_t>(vertex.Pos[axis]);
+                            positionHash *= 1099511628211ull;
+                        }
+                };
+                if (section->IsSkinned()) hashVertices(section->mSkinnedVertices);
+                else hashVertices(section->mStaticVertices);
+            }
+            return Json{{"path",mAssetPath},{"ready",ready},{"loadError",mLoadError},
+                {"morphTargetCount",mPreviewMorphNames.size()},{"morphTargets",mPreviewMorphNames},
+                {"morphWeights",mPreviewMorphWeights},{"positionHash",std::to_string(positionHash)},
+                {"deformationRevision",revision},{"lastUiFrame",mAutomationLastRenderedFrame},
+                {"applicationFrame",Application::GetInstance().GetFrameNumber()}};
+        }
+        if (action == "play")
+        {
+            const float speed = params.at("speed").get<float>();
+            const int64_t frames = params.at("frames").get<int64_t>();
+            if (!std::isfinite(speed) || speed < 0.05f || speed > 4.0f || frames < 1 || frames > 600)
+                throw std::invalid_argument("Preview play requires speed .05..4 and frames 1..600.");
+            const float fixedDelta = Application::GetInstance().GetRunOptions().FixedDeltaSeconds;
+            if (!std::isfinite(fixedDelta) || fixedDelta <= 0.0f || fixedDelta > 0.1f)
+                throw std::invalid_argument("Bounded preview play requires application fixed delta in (0,.1].");
+            mAnimationSpeed = speed;
+            SetPreviewPlaying(true);
+            mAutomationFramesRemaining = static_cast<uint32_t>(frames);
+        }
+        else if (action == "pause") SetPreviewPlaying(false);
+        else if (action == "scrub")
+        {
+            const float progress = params.at("progress").get<float>();
+            if (!std::isfinite(progress) || progress < 0.0f || progress > 1.0f)
+                throw std::invalid_argument("Preview progress must be finite in [0,1].");
+            ScrubPreview(progress);
+        }
+        else if (action != "state") throw std::invalid_argument("Unknown preview action.");
+        return Json{{"path",mAssetPath},{"ready",ready},{"loadError",mLoadError},{"note",mPreviewNote},
+            {"playing",mPlayAnimation},{"speed",mAnimationSpeed},{"progress",mAnimationProgress},
+            {"seconds",GetSelectedClipCurrentSeconds()},{"durationSeconds",GetSelectedClipDurationSeconds()},
+            {"framesRemaining",mAutomationFramesRemaining},{"poseUpdates",mAutomationPoseUpdates},
+            {"fixedDeltaSeconds",Application::GetInstance().GetRunOptions().FixedDeltaSeconds},
+            {"lastUiFrame",mAutomationLastRenderedFrame},{"applicationFrame",Application::GetInstance().GetFrameNumber()}};
+#else
+        (void)params;
+        throw std::runtime_error("Editor preview automation requires HE_ENABLE_GM.");
+#endif
+    }
+
 	void AssetPreviewPanel::OnImGuiRender()
 	{
 		if (!(*pOpen))
@@ -687,12 +795,8 @@ namespace HEngine
 		}
 
 		const std::string title = GetAssetKindName() + " " + EditorLayer::GetText("Preview") + " - " + mAssetFullPath.filename().string() + "###" + BuildPanelKey(mAssetPath);
-		ImGuiWrapper::SetNextWindowSizeConstraints(ImVec2(760.0f, 480.0f), ImVec2(FLT_MAX, FLT_MAX));
-		if (mFirstOpen)
-		{
-			ImGuiWrapper::SetNextWindowSize(ImVec2(1080.0f, 720.0f), ImGuiCond_Once);
-			mFirstOpen = false;
-		}
+        ImGuiWrapper::ConstrainNextWindowToWorkArea(title.c_str(),
+            ImVec2(1080.0f, 720.0f), ImVec2(760.0f, 480.0f));
 
 		if (!ImGui::Begin(title.c_str(), pOpen))
 		{
@@ -714,6 +818,7 @@ namespace HEngine
 
 	void AssetPreviewPanel::OnImGuiRenderImpl()
 	{
+        mAutomationLastRenderedFrame = Application::GetInstance().GetFrameNumber();
 		if (mSceneDirty)
 			BuildPreviewScene();
 
@@ -762,6 +867,10 @@ namespace HEngine
 		mPreviewNote.clear();
 		mAnimRes = {};
 		mSkeletonRes = {};
+		mPreviewMorphNames.clear();
+		mPreviewMorphDefaults.clear();
+		mPreviewMorphWeights.clear();
+		mSelectedMorphIndex = 0;
 		mPreviewClipIndex = -1;
 		mAnimationTimeTicks = 0.0f;
 		mAnimationProgress = 0.0f;
@@ -829,7 +938,7 @@ namespace HEngine
 		Entity environmentLight = mPreviewScene->CreateEntity("Preview Studio Environment");
 		auto& environment = environmentLight.AddComponent<EnvironmentLightComponent>();
 		environment.HdrTexturePath = "Assets/Textures/Hdr/Default.hdr";
-		environment.Exposure = 0.9f;
+		environment.ExposureEV100 = 0.1520031f;
 		environment.IBLIntensity = 1.15f;
 
 		Entity directionalLight = mPreviewScene->CreateEntity("Preview Key Light");
@@ -863,8 +972,7 @@ namespace HEngine
 		fillLight.AddComponent<PointLightComponent>(
 			3.0f * studioScale * studioScale,
 			glm::vec3(0.55f, 0.68f, 1.0f),
-			6.0f * studioScale,
-			2.0f);
+			6.0f * studioScale);
 
 		mFrameRequested = true;
 		mSceneDirty = false;
@@ -872,6 +980,8 @@ namespace HEngine
 
 	void AssetPreviewPanel::BuildMeshPreview()
 	{
+		mPreviewMorphNames.clear();
+		mPreviewMorphDefaults.clear();
 		mPreviewEntity = mPreviewScene->CreateEntity(mAssetFullPath.stem().string());
 		auto& meshComponent = mPreviewEntity.AddComponent<MeshComponent>(mAssetPath);
 		meshComponent.meshResPath = mAssetPath;
@@ -880,6 +990,15 @@ namespace HEngine
 		const std::string skeletonAssetPath = meshComponent.mMesh ? Utils::NormalizeAssetPath(meshComponent.mMesh->mSkeletonPath) : std::string();
 		if (meshComponent.mMesh)
 		{
+			for (const auto& section : meshComponent.mMesh->mSubMeshes)
+				if (section)
+					for (const auto& target : section->GetMorphTargets())
+						if (!target.Name.empty())
+							mPreviewMorphDefaults.emplace(target.Name, target.DefaultWeight);
+			for (const auto& [name, weight] : mPreviewMorphDefaults)
+				mPreviewMorphNames.push_back(name);
+			if (!mPreviewMorphWeights.empty())
+				meshComponent.mMesh->UpdateMorphWeights(mPreviewMorphWeights, true);
 			if (!TryLoadSkeletonAsset(skeletonAssetPath, mSkeletonRes, skeletonError) && !skeletonError.empty())
 				mPreviewNote = skeletonError;
 		}
@@ -1074,7 +1193,7 @@ namespace HEngine
 
 			ImGuiWrapper::SameLine(0.0f, 16.0f);
 			if (ImGui::Button(LocalizedLabel(mPlayAnimation ? "Pause" : "Play", "AssetPreviewPlayPause").c_str(), ImGuiWrapper::S(78.0f, 0.0f)))
-				mPlayAnimation = !mPlayAnimation;
+				SetPreviewPlaying(!mPlayAnimation);
 
 			ImGuiWrapper::SameLine(0.0f, 8.0f);
 			if (ImGui::Button(LocalizedLabel("Reset", "AssetPreviewReset").c_str(), ImGuiWrapper::S(78.0f, 0.0f)))
@@ -1135,7 +1254,8 @@ namespace HEngine
 		viewportSize.x = std::max(viewportSize.x, ImGuiWrapper::S(64.0f));
 		viewportSize.y = std::max(viewportSize.y, ImGuiWrapper::S(64.0f));
 
-		const Timestep frameTs(ImGui::GetIO().DeltaTime);
+        const Timestep frameTs(mAutomationFramesRemaining > 0
+            ? Application::GetInstance().GetRunOptions().FixedDeltaSeconds : ImGui::GetIO().DeltaTime);
 		if (mFrameRequested)
 		{
 			RenderPreview(Timestep(0.0f), viewportSize);
@@ -1173,6 +1293,17 @@ namespace HEngine
 				return;
 			}
 
+            if (mAssetKind == AssetKind::Animation)
+            {
+                DrawAnimationDetailsSection();
+                ImGui::Spacing();
+            }
+			if (mAssetKind == AssetKind::Mesh && !mPreviewMorphNames.empty())
+			{
+				DrawMorphDetailsSection();
+				ImGui::Spacing();
+			}
+
 			if (!mSkeletonRes.bones.empty())
 			{
 				DrawSkeletonDetailsSection();
@@ -1190,11 +1321,6 @@ namespace HEngine
 			ImGui::Spacing();
 			DrawPreviewDetailsSection();
 
-			if (mAssetKind == AssetKind::Animation)
-			{
-				ImGui::Spacing();
-				DrawAnimationDetailsSection();
-			}
 		}
 		ImGui::EndChild();
 	}
@@ -1241,10 +1367,135 @@ namespace HEngine
 		}
 	}
 
+	void AssetPreviewPanel::SetMorphPreviewWeight(const std::string& name, float weight)
+	{
+		const auto found = mPreviewMorphDefaults.find(name);
+		if (found == mPreviewMorphDefaults.end())
+			throw std::invalid_argument("Morph target does not exist in preview mesh.");
+		if (!mPreviewEntity || !mPreviewEntity.HasComponent<MeshComponent>())
+			throw std::runtime_error("Morph preview mesh is unavailable.");
+		auto& mesh = mPreviewEntity.GetComponent<MeshComponent>().mMesh;
+		if (!mesh) throw std::runtime_error("Morph preview mesh is unavailable.");
+		if (std::abs(weight - found->second) < 1e-6f)
+			mPreviewMorphWeights.erase(name);
+		else
+			mPreviewMorphWeights[name] = weight;
+		const auto selected = std::find(mPreviewMorphNames.begin(), mPreviewMorphNames.end(), name);
+		if (selected != mPreviewMorphNames.end())
+			mSelectedMorphIndex = static_cast<int>(selected - mPreviewMorphNames.begin());
+		mesh->UpdateMorphWeights(mPreviewMorphWeights, true);
+	}
+
+	void AssetPreviewPanel::ResetMorphPreviewWeights()
+	{
+		mPreviewMorphWeights.clear();
+		if (mPreviewEntity && mPreviewEntity.HasComponent<MeshComponent>())
+			if (auto& mesh = mPreviewEntity.GetComponent<MeshComponent>().mMesh; mesh)
+				mesh->UpdateMorphWeights({}, true);
+	}
+
+	void AssetPreviewPanel::FocusMorphPreview(const std::string& name)
+	{
+		if (!mPreviewEntity || !mPreviewEntity.HasComponent<MeshComponent>() || !mPreviewScene)
+			throw std::runtime_error("Morph preview mesh is unavailable.");
+		const auto& mesh = mPreviewEntity.GetComponent<MeshComponent>().mMesh;
+		if (!mesh || !mPreviewMorphDefaults.contains(name))
+			throw std::invalid_argument("Morph target does not exist in preview mesh.");
+		const std::vector<glm::mat4>* skinningMatrices = GetActiveSkinningMatrices(*mesh);
+		const glm::mat4 world = mPreviewScene->GetWorldTransform(mPreviewEntity);
+		glm::vec3 minBounds(std::numeric_limits<float>::max());
+		glm::vec3 maxBounds(std::numeric_limits<float>::lowest());
+		bool hasMovedVertex = false;
+		for (const auto& section : mesh->mSubMeshes)
+		{
+			if (!section) continue;
+			const auto target = std::find_if(section->GetMorphTargets().begin(), section->GetMorphTargets().end(),
+				[&](const MorphTarget& item) { return item.Name == name; });
+			if (target == section->GetMorphTargets().end()) continue;
+			const auto collect = [&](const auto& vertices) {
+				for (size_t index = 0; index < vertices.size() && index < target->Positions.size(); ++index)
+				{
+					if (glm::dot(target->Positions[index], target->Positions[index]) <= 1e-8f) continue;
+					glm::vec3 local = vertices[index].Pos;
+					if constexpr (std::is_same_v<std::decay_t<decltype(vertices[index])>, SkinnedVertex>)
+						if (skinningMatrices) local = CalculateSkinnedPosition(vertices[index], *skinningMatrices);
+					ExpandBounds(minBounds, maxBounds, glm::vec3(world * glm::vec4(local, 1.0f)));
+					hasMovedVertex = true;
+				}
+			};
+			if (section->IsSkinned()) collect(section->mSkinnedVertices);
+			else collect(section->mStaticVertices);
+		}
+		if (!hasMovedVertex)
+		{
+			mPreviewNote = EditorLayer::GetText("Morph target has no moved vertices to focus.");
+			return;
+		}
+		mPreviewNote.clear();
+		const float radius = SafeRadiusFromBounds(minBounds, maxBounds);
+		const float distance = std::max(radius * 6.0f, 2.5f);
+		mCamera.SetFarPlane(std::max(1000.0f, distance + radius * 4.0f));
+		mCamera.UpdateProjection();
+		mCamera.SetCenter((minBounds + maxBounds) * 0.5f);
+		mCamera.SetDistance(distance);
+		mCamera.mCameraSpeed = std::clamp(distance * 0.18f, 0.2f, 20.0f);
+	}
+
+	void AssetPreviewPanel::DrawMorphDetailsSection()
+	{
+		EditorTheme::DrawSectionHeader(EditorLayer::GetText("Morph Targets"));
+		ImGui::Dummy(ImGuiWrapper::S(0.0f, 6.0f));
+		ImGuiWrapper::PropertyRow(EditorLayer::GetText("Targets"), [this]() {
+			ImGui::Text("%zu", mPreviewMorphNames.size());
+		});
+		mSelectedMorphIndex = std::clamp(mSelectedMorphIndex, 0,
+			static_cast<int>(mPreviewMorphNames.size()) - 1);
+		const std::string& selected = mPreviewMorphNames[mSelectedMorphIndex];
+		ImGui::SetNextItemWidth(-1.0f);
+		if (ImGui::BeginCombo("##AssetPreviewMorphTarget", selected.c_str()))
+		{
+			for (int index = 0; index < static_cast<int>(mPreviewMorphNames.size()); ++index)
+			{
+				const bool isSelected = index == mSelectedMorphIndex;
+				if (ImGui::Selectable(mPreviewMorphNames[index].c_str(), isSelected))
+					mSelectedMorphIndex = index;
+				if (isSelected) ImGui::SetItemDefaultFocus();
+			}
+			ImGui::EndCombo();
+		}
+		const std::string& name = mPreviewMorphNames[mSelectedMorphIndex];
+		const auto weightOverride = mPreviewMorphWeights.find(name);
+		float weight = weightOverride == mPreviewMorphWeights.end()
+			? mPreviewMorphDefaults.at(name) : weightOverride->second;
+		ImGui::SetNextItemWidth(-1.0f);
+		if (ImGui::SliderFloat(LocalizedLabel("Weight", "AssetPreviewMorphWeight").c_str(),
+			&weight, -2.0f, 2.0f, "%.3f"))
+			SetMorphPreviewWeight(name, weight);
+		if (ImGui::Button(LocalizedLabel("Reset", "AssetPreviewMorphReset").c_str(), ImGuiWrapper::S(90.0f, 0.0f)))
+			SetMorphPreviewWeight(name, mPreviewMorphDefaults.at(name));
+		ImGuiWrapper::SameLine(0.0f, 8.0f);
+		if (ImGui::Button(LocalizedLabel("Reset All", "AssetPreviewMorphResetAll").c_str(), ImGuiWrapper::S(90.0f, 0.0f)))
+			ResetMorphPreviewWeights();
+		if (ImGui::Button(LocalizedLabel("Focus Target", "AssetPreviewMorphFocus").c_str(), ImVec2(-1.0f, 0.0f)))
+			FocusMorphPreview(name);
+	}
+
 	void AssetPreviewPanel::DrawAnimationDetailsSection()
 	{
 		EditorTheme::DrawSectionHeader(EditorLayer::GetText("Animation"));
 		ImGui::Dummy(ImGuiWrapper::S(0.0f, 6.0f));
+
+		if (!mAnimRes.clips.empty())
+		{
+			mSelectedClipIndex = std::clamp(mSelectedClipIndex, 0, static_cast<int>(mAnimRes.clips.size()) - 1);
+			float normalizedTime = mAnimationProgress;
+			if (ImGui::SliderFloat(LocalizedLabel("Timeline", "AssetPreviewTimeline").c_str(), &normalizedTime, 0.0f, 1.0f, "%.3f"))
+			{
+				ScrubPreview(normalizedTime);
+			}
+			ImGuiWrapper::PropertyRow(EditorLayer::GetText("Time"), [this]() { ImGui::Text("%.2fs", GetSelectedClipCurrentSeconds()); });
+			ImGuiWrapper::PropertyRow(EditorLayer::GetText("Duration"), [this]() { ImGui::Text("%.2fs", GetSelectedClipDurationSeconds()); });
+		}
 
 		ImGuiWrapper::PropertyRow(EditorLayer::GetText("Clips"), [this]() { ImGui::Text("%zu", mAnimRes.clips.size()); });
 		ImGuiWrapper::PropertyRow(EditorLayer::GetText("Mesh"), [this]() { ImGui::TextWrapped("%s", mAnimRes.meshResPath.empty() ? EditorLayer::GetText("None") : mAnimRes.meshResPath.c_str()); });
@@ -1267,26 +1518,8 @@ namespace HEngine
 				const std::string clipName = clip.name.empty() ? std::string(EditorLayer::GetText("Clip")) + " " + std::to_string(mSelectedClipIndex) : clip.name;
 				ImGui::TextWrapped("%s", clipName.c_str());
 			});
-		ImGuiWrapper::PropertyRow(EditorLayer::GetText("Duration"), [this]() { ImGui::Text("%.2fs", GetSelectedClipDurationSeconds()); });
-		ImGuiWrapper::PropertyRow(EditorLayer::GetText("Time"), [this]() { ImGui::Text("%.2fs", GetSelectedClipCurrentSeconds()); });
 		ImGuiWrapper::PropertyRow(EditorLayer::GetText("Ticks/s"), [&clip]() { ImGui::Text("%.2f", clip.ticksPerSecond); });
 		ImGuiWrapper::PropertyRow(EditorLayer::GetText("Channels"), [&clip]() { ImGui::Text("%zu", clip.channels.size()); });
-
-		float normalizedTime = mAnimationProgress;
-		if (ImGui::SliderFloat(LocalizedLabel("Timeline", "AssetPreviewTimeline").c_str(), &normalizedTime, 0.0f, 1.0f, "%.3f"))
-		{
-			mPlayAnimation = false;
-			if (clip.duration > 0.0f)
-			{
-				mAnimationProgress = std::clamp(normalizedTime, 0.0f, 1.0f);
-				mAnimationTimeTicks = clip.duration * mAnimationProgress;
-			}
-			else
-			{
-				mAnimationProgress = 0.0f;
-				mAnimationTimeTicks = 0.0f;
-			}
-		}
 	}
 
 	void AssetPreviewPanel::DrawSkeletonDetailsSection()
@@ -1482,6 +1715,9 @@ namespace HEngine
 
 		mAnimationProgress = duration > 0.0f ? std::clamp(mAnimationTimeTicks / duration, 0.0f, 1.0f) : 0.0f;
 		animatorComponent.mProgress = mAnimationProgress;
+        ++mAutomationPoseUpdates;
+        if (mAutomationFramesRemaining > 0 && static_cast<float>(ts) > 0.0f && --mAutomationFramesRemaining == 0)
+            mPlayAnimation = false;
 		UpdatePreviewEntityPlacement();
 	}
 

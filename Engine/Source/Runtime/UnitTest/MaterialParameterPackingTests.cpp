@@ -3,6 +3,7 @@
 #include "Runtime/UnitTest/MaterialParameterPackingTests.h"
 
 #include "Runtime/Graphics/Material/MaterialParameterPacking.h"
+#include "Runtime/Graphics/Material/MaterialParameterPackingCache.h"
 #include "Runtime/Graphics/Material/MaterialPipelineKey.h"
 
 #include <bit>
@@ -173,6 +174,7 @@ namespace HEngine::Tests
                     .StableId = "albedo-id",
                     .Type = MaterialShaderPropertyType::Texture2D,
                     .TexturePath = "Assets\\Textures\\Custom.png",
+                    .TextureUvSet = 1,
                 },
             };
         }
@@ -184,6 +186,49 @@ namespace HEngine::Tests
         const std::vector<MaterialParameterValue> values = MakeValues();
         const MaterialParameterPackingResult packed = PackMaterialParameters(manifest, values);
         Require(packed.Succeeded(), "Valid typed material parameters failed to pack.");
+        {
+            MaterialParameterPackingCache cache;
+            auto owner = std::make_shared<int>(1);
+            auto replacementOwner = std::make_shared<int>(2);
+            MaterialShaderProgramIdentity identity{ "test", "source-v1", 1, "layout-v1", "artifact-v1" };
+            cache.Store(7, owner, 1, identity, 1, packed);
+            Require(cache.Find(7, owner.get(), 1, identity, 1) != nullptr,
+                "Unchanged material revision/program did not hit packing cache.");
+            Require(cache.Find(7, replacementOwner.get(), 1, identity, 1) == nullptr &&
+                    cache.Find(7, owner.get(), 2, identity, 1) == nullptr &&
+                    cache.Find(7, owner.get(), 1, identity, 2) == nullptr &&
+                    cache.Find(7, owner.get(), 0, identity, 1) == nullptr,
+                "Packing cache reused a changed owner, revision, program generation or unversioned snapshot.");
+            for (uint32_t field = 0; field < 5; ++field)
+            {
+                auto changed = identity;
+                if (field == 0) changed.SourcePath += "changed";
+                if (field == 1) changed.RecursiveContentHash += "changed";
+                if (field == 2) ++changed.MaterialAbiVersion;
+                if (field == 3) changed.BindingSignatureHash += "changed";
+                if (field == 4) changed.ArtifactIdentityHash += "changed";
+                Require(cache.Find(7, owner.get(), 1, changed, 1) == nullptr,
+                    "Packing cache ignored a component of complete program identity.");
+            }
+            auto fixedUp = *cache.Find(7, owner.get(), 1, identity, 1);
+            fixedUp.PackedFloat4Rows.front()[0] = -123.0f;
+            Require(cache.Find(7, owner.get(), 1, identity, 1)->PackedFloat4Rows.front()[0] != -123.0f,
+                "Per-frame descriptor fixup contaminated cached raw packing.");
+            auto failed = packed;
+            failed.Diagnostics.push_back({ .Severity = MaterialShaderDiagnosticSeverity::Error,
+                .Code = "test.invalid", .Message = "Rejected update" });
+            cache.Store(7, owner, 2, identity, 1, failed);
+            Require(cache.Find(7, owner.get(), 1, identity, 1) != nullptr &&
+                    cache.Find(7, owner.get(), 2, identity, 1) == nullptr,
+                "Failed packing replaced a valid cache entry.");
+            cache.Retain({});
+            Require(cache.Find(7, owner.get(), 1, identity, 1) == nullptr,
+                "Removed material retained stale packing.");
+            cache.Store(7, owner, 1, identity, 1, packed);
+            cache.Clear();
+            Require(cache.Find(7, owner.get(), 1, identity, 1) == nullptr,
+                "Scene reset retained stale material packing.");
+        }
         Require(packed.PackedBytes.size() == manifest.ParameterBlock.ByteSize,
             "Packed byte size did not equal manifest ParameterBlock.ByteSize.");
         Require(packed.PackedFloat4Rows.size() * sizeof(MaterialParameterFloat4Row) ==
@@ -213,11 +258,11 @@ namespace HEngine::Tests
             Require(ReadUint32(packed.PackedBytes, offset) == 0,
                 "Material parameter row padding was not deterministic zero.");
         }
-        for (std::size_t offset = 96; offset < 112; offset += sizeof(std::uint32_t))
-        {
-            Require(ReadUint32(packed.PackedBytes, offset) == 0,
-                "Texture2D parameter row was not initialized to a zero descriptor placeholder.");
-        }
+        Require(ReadUint32(packed.PackedBytes, 96) == 0 &&
+                ReadUint32(packed.PackedBytes, 100) == 0 &&
+                ReadUint32(packed.PackedBytes, 104) == 1 &&
+                ReadUint32(packed.PackedBytes, 108) == 0,
+            "Texture row lost its descriptor placeholder or authored UV set.");
 
         Require(packed.TextureFixups.size() == 1,
             "Texture2D parameter did not produce exactly one descriptor fixup.");
@@ -261,6 +306,14 @@ namespace HEngine::Tests
                 textureInstance.PackedBytes == packed.PackedBytes &&
                 textureInstance.PackedDataHash != packed.PackedDataHash,
             "Texture fixup identity was omitted from the packed-data hash.");
+        textureValues = values;
+        textureValues.back().TextureUvSet = 0;
+        const MaterialParameterPackingResult uv0Instance =
+            PackMaterialParameters(manifest, textureValues);
+        Require(uv0Instance.Succeeded() &&
+                ReadUint32(uv0Instance.PackedBytes, 104) == 0 &&
+                uv0Instance.PackedDataHash != packed.PackedDataHash,
+            "Per-instance texture UV selection was not packed or hashed.");
 
         const MaterialPipelineDesc pipelineDesc{
             .Program = {
@@ -357,5 +410,8 @@ namespace HEngine::Tests
             },
         };
         RequireFailure(PackMaterialParameters(manifest, unsafeTexture), "Packing.TexturePath");
+        unsafeTexture.front().TexturePath = "Assets/Textures/Custom.png";
+        unsafeTexture.front().TextureUvSet = 2;
+        RequireFailure(PackMaterialParameters(manifest, unsafeTexture), "Packing.TextureUvSet");
     }
 }

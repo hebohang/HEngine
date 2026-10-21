@@ -40,6 +40,8 @@ namespace HEngine
 
 		[[nodiscard]] bool IsVisible(const glm::mat4& transform, const glm::mat4& viewProjection) const;
 
+		void EnsureUniqueDeformation();
+		void UpdateMorphWeights(const std::map<std::string, float>& weights, bool resetHistory = false);
 		auto& GetBoneInfoMap() { return mBoneInfoMap; }
 		int& GetBoneCount() { return mBoneCounter; }
 #if WITH_EDITOR
@@ -63,6 +65,7 @@ public:
 		bool bUseExternalBoneMatrices = false;
 		std::vector<glm::mat4> mExternalBoneMatrices;
 		std::string mSkeletonPath;
+        std::vector<glm::mat4> mBindBoneMatrices;
 
 		std::vector<Ref<Material>> mMaterial;
 		std::vector<Ref<SubMesh>> mSubMeshes;
@@ -71,6 +74,7 @@ private:
 		void InvalidateEditorPickData();
 #endif
 
+		const Mesh* mDeformationOwner = nullptr;
 		std::string mDirectory;
 
 #if WITH_EDITOR

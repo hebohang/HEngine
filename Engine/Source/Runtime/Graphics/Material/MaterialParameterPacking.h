@@ -20,6 +20,7 @@ namespace HEngine
         bool Boolean = false;
         std::int64_t Integer = 0;
         std::string TexturePath;
+        int TextureUvSet = 0;
     };
 
     using MaterialParameterFloat4Row = std::array<float, 4>;

@@ -1,0 +1,3 @@
+# Offline UE EXR -> HE HDR conversion only; not required by the HEngine runtime.
+numpy>=1.26,<3
+OpenEXR==3.5.0

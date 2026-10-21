@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <GeneratedApiDir Condition="'$(GeneratedApiDir)' == ''">$(MSBuildThisFileDirectory)obj/Api</GeneratedApiDir>
+  </PropertyGroup>
+  <ItemGroup><Compile Include="$(GeneratedApiDir)/ScriptApi.cs" /></ItemGroup>
+</Project>

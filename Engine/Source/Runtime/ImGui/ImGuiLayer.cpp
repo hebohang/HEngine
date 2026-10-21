@@ -4,6 +4,7 @@
 #include "Runtime/ImGui/NvrhiImGuiLayer.h"
 
 #include "Runtime/Core/Log/Log.h"
+#include "Runtime/Core/AppFramework/Application.h"
 #include "Runtime/Resource/ConfigManager/ConfigManager.h"
 #include "Runtime/Utils/PathUtils/PathUtils.h"
 
@@ -14,6 +15,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <limits>
 #include <memory>
@@ -312,6 +314,18 @@ namespace HEngine
 
     void ImGuiLayer::ApplyUIScale(float dpiScale)
     {
+#if WITH_EDITOR
+        // Bounded capture only: exercise the same layout/font scale path as monitor DPI,
+        // without modifying OS DPI or user preferences.
+        if (Application::GetInstance().GetRunOptions().ExitAfterFrames > 0)
+            if (const char* scale = std::getenv("HE_EDITOR_CAPTURE_UI_SCALE"))
+            {
+                char* end = nullptr;
+                const float requestedScale = std::strtof(scale, &end);
+                if (end != scale && *end == '\0' && std::isfinite(requestedScale) && requestedScale >= 1.0f && requestedScale <= 2.5f)
+                    dpiScale = requestedScale;
+            }
+#endif
         dpiScale = std::clamp(dpiScale, 0.75f, 3.0f);
         if (std::abs(dpiScale - mCurrentDpiScale) < 0.01f)
             return;

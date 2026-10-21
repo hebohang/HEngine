@@ -41,6 +41,12 @@ namespace HEngine
             case GlobalIlluminationDebugView::Confidence: return "Confidence";
             case GlobalIlluminationDebugView::Coverage: return "Coverage / Invalid";
             case GlobalIlluminationDebugView::Variance: return "Variance";
+            case GlobalIlluminationDebugView::SourceLighting: return "Source Lighting (HDR)";
+            case GlobalIlluminationDebugView::TemporalDiffuseIllumination: return "Temporal Illumination (HDR)";
+            case GlobalIlluminationDebugView::ViewDepth: return "View Depth (log)";
+            case GlobalIlluminationDebugView::ScreenHitCoverage: return "Screen Hit Coverage";
+            case GlobalIlluminationDebugView::TraceTermination: return "SSGI Trace Termination (first ray)";
+            case GlobalIlluminationDebugView::TraceHitLocation: return "SSGI First Hit UV / Source Luminance";
             }
             return "Unknown";
         }
@@ -90,7 +96,8 @@ namespace HEngine
         settings.GlobalIllumination = mPending;
         std::vector<RenderSettingDiagnostic> diagnostics;
         settings = ApplyRenderSettingsFlatValues(settings,
-            GetGlobalIlluminationQualityPresetPatch(selected), diagnostics);
+            GetGlobalIlluminationQualityPresetPatch(selected, mPending.Technique),
+            diagnostics);
         mPending = settings.GlobalIllumination;
         bDirty = true;
     }

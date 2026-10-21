@@ -1,0 +1,13 @@
+{
+  "Game": {
+    "Name": "First Person Range",
+    "DefaultScene": "Assets/Scenes/Main.he"
+  },
+  "Cook": {
+    "RootFiles": [
+      "Assets/Scenes/Main.he",
+      "Assets/UI/StarterHud.rml"
+    ],
+    "IncludeDirectories": []
+  }
+}

@@ -84,6 +84,27 @@ namespace HEngine
         return localAppData;
     }
 
+    std::filesystem::path PlatformPaths::GetPowerShellExecutable()
+    {
+        std::vector<wchar_t> buffer(32768);
+        const UINT length = ::GetSystemDirectoryW(buffer.data(), static_cast<UINT>(buffer.size()));
+        if (!length || length >= buffer.size())
+            throw std::runtime_error("Could not locate Windows PowerShell.");
+        return std::filesystem::path(buffer.data(), buffer.data() + length) / "WindowsPowerShell/v1.0/powershell.exe";
+    }
+
+    std::filesystem::path PlatformPaths::ToFileIoPath(const std::filesystem::path& path)
+    {
+        // CRT streams do not automatically opt into long paths. Normalize before
+        // applying the extended prefix, whose Win32 semantics disable dot parsing.
+        const std::wstring nativePath = std::filesystem::absolute(path).lexically_normal().make_preferred().native();
+        if (nativePath.starts_with(L"\\\\?\\"))
+            return nativePath;
+        if (nativePath.starts_with(L"\\\\"))
+            return L"\\\\?\\UNC\\" + nativePath.substr(2);
+        return L"\\\\?\\" + nativePath;
+    }
+
     void PlatformPaths::ShowFatalDialog(std::string_view title, std::string_view message) noexcept
     {
         try
@@ -100,8 +121,8 @@ namespace HEngine
         {
             ::MessageBoxW(
                 nullptr,
-                L"The HEngine application could not start.",
-                L"HEngine",
+                L"Starbloom Survivor could not start.",
+                L"Starbloom Survivor",
                 MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TASKMODAL);
         }
     }

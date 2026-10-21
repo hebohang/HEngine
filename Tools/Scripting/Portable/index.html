@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HEngine · C# Touch Sample</title>
+<style>
+body{margin:0;background:#10151b;color:#dce5ed;font:15px system-ui,sans-serif}main{max-width:1100px;margin:24px auto;padding:0 18px}h1{font-size:24px;margin:0 0 8px}p{color:#9eb0c0}canvas{width:100%;aspect-ratio:16/9;background:#000;display:block;touch-action:none;border:1px solid #354858;border-radius:8px}nav{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}button{border:1px solid #486174;border-radius:5px;background:#203442;color:#e7f1fa;padding:9px 14px;cursor:pointer}button:disabled{opacity:.4;cursor:default}pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto;background:#0b1015;padding:12px;border-radius:6px;font-size:12px}#identity{font-size:12px}#status{color:#83dfad}a{color:#86c6fd}
+</style></head><body><main>
+<h1>HEngine · C# Touch Sample</h1><p>WASD / 方向键移动；按住画布可跟随指针。点击或触摸会变色、计分并存档。</p>
+<p id="status">正在加载游戏…</p><canvas id="game" width="1280" height="720" tabindex="0" aria-label="HEngine 游戏画布"></canvas>
+<nav><button id="save" disabled>保存并重新加载</button><button id="restart" disabled>重新进入场景</button><button id="enable" disabled>禁用脚本</button><button id="destroy" disabled>销毁实体</button><button id="fault" disabled>触发脚本异常</button><button id="collect" disabled>执行 GC</button></nav>
+<p id="identity"></p><pre id="logs" aria-label="脚本运行日志"></pre></main>
+<script src="hegame.js"></script><script type="module" src="main.js"></script></body></html>

@@ -94,8 +94,8 @@ stage/variants compile at their 6.0 defaults.
 Development and packaged games support:
 
 ```powershell
-HEngineDemo.exe --dx12-probe --output GraphicsCaps.json
-HEngineDemo.exe --graphics-probe --graphics-api=vulkan --output VulkanCaps.json
+StarbloomSurvivor.exe --dx12-probe --output GraphicsCaps.json
+StarbloomSurvivor.exe --graphics-probe --graphics-api=vulkan --output VulkanCaps.json
 ```
 
 `--dx12-probe` is the compatibility alias for the generic probe. It runs before

@@ -1,0 +1,6 @@
+Saved/
+Dist/
+Config/EditorLayout.ini
+HEngine.workspace.local.json*
+*.pyc
+__pycache__/

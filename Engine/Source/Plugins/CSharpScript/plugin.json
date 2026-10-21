@@ -1,0 +1,20 @@
+{
+  "SchemaVersion": 1,
+  "Id": "he.script.csharp",
+  "DisplayName": "C# Scripting",
+  "Version": "1.0.0",
+  "ApiVersion": 1,
+  "RequiredHostApiVersion": 1,
+  "ModuleName": "CSharpScript",
+  "EntrySymbol": "HEngineCreateCSharpScriptPluginModule",
+  "Dependencies": [],
+  "OptionalDependencies": [],
+  "LoadPhase": "PreDevice",
+  "SupportedHosts": ["Editor", "DevGame", "Game", "Tests"],
+  "Distribution": "Runtime",
+  "PackagePolicy": "ProjectSelectable",
+  "ShaderRoots": [],
+  "ContentRoots": [],
+  "Platforms": ["Windows", "Web", "WeChat", "Android", "macOS"],
+  "Configurations": ["Debug", "Release", "RelWithDebInfo", "MinSizeRel"]
+}

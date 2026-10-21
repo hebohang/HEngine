@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
+    <DefineConstants Condition="'$(HEEditorHost)' == 'true'">$(DefineConstants);HE_SCRIPT_EDITOR</DefineConstants>
+    <GameScriptsProject Condition="'$(GameScriptsProject)' == ''">$(MSBuildThisFileDirectory)../../../Project/Scripts/CSharp/GameScripts.csproj</GameScriptsProject>
+    <ScriptRegistryDir Condition="'$(ScriptRegistryDir)' == ''">$(MSBuildThisFileDirectory)../../../out/agent/scripting/registry</ScriptRegistryDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../HEngine.ScriptCore/HEngine.ScriptCore.csproj" />
+    <ProjectReference Include="$(GameScriptsProject)" />
+    <Compile Include="$(ScriptRegistryDir)/*.Registry.g.cs" />
+  </ItemGroup>
+  <Import Project="$(ModuleReferencesFile)" Condition="'$(ModuleReferencesFile)' != ''" />
+  <Target Name="RequireScriptRegistry" BeforeTargets="BeforeCompile">
+    <Error Condition="!Exists('$(ScriptRegistryDir)/GameScripts.Registry.g.cs')" Text="Run the HEngine scripting build pipeline to generate the script registry before building the runtime." />
+  </Target>
+</Project>

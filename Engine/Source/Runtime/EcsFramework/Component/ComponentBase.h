@@ -1,18 +1,38 @@
 #pragma once
+#include "Runtime/Core/BuildFeatures.h"
 #include "Runtime/Core/Meta/Json.h"
 #include "Runtime/Core/Meta/Reflection/Reflection.h"
 
 #include <concepts>
+#include <memory>
 #include <type_traits>
-#include <pybind11/embed.h>
 
 namespace HEngine
 {
     class ComponentBase
     {
     public:
+        static constexpr BuildFeature RequiredBuildFeature = BuildFeature::None;
         ComponentBase() = default;
+        ComponentBase(const ComponentBase&) {}
+        ComponentBase& operator=(const ComponentBase& other)
+        {
+            if (this != &other) mReferenceLifetime.reset();
+            return *this;
+        }
+        ComponentBase(ComponentBase&&) noexcept = default;
+        ComponentBase& operator=(ComponentBase&&) noexcept = default;
         virtual ~ComponentBase() {}
+
+        // Allocated only when a guarded external reference is first requested.
+        // Moves preserve component identity; copies/replacement create a new identity.
+        std::weak_ptr<const unsigned char> ReferenceLifetime() const
+        {
+            if (!mReferenceLifetime) mReferenceLifetime = std::make_shared<const unsigned char>(0);
+            return mReferenceLifetime;
+        }
+    private:
+        mutable std::shared_ptr<const unsigned char> mReferenceLifetime;
     };
 
     inline void to_json(Json& json, const ComponentBase& obj) {}
@@ -27,7 +47,7 @@ namespace HEngine
         static const int size = sizeof...(C);
     };
 
-    enum { MaxComponentNum = 30 };
+    enum { MaxComponentNum = 64 };
 
     template <int N>
     struct Rank : Rank<N - 1> {};
@@ -55,8 +75,5 @@ namespace HEngine
         return {};                                                       \
     }                                                                    
 
-#define REFLECTION_COMPONENT_BODY(Type)         \
-    REFLECTION_BODY(Type)                       \
-public:                                         \
-    static void PyBinding(pybind11::module_& HEngineModule);
+#define REFLECTION_COMPONENT_BODY(Type) REFLECTION_BODY(Type)
 }

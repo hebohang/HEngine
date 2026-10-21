@@ -1,6 +1,7 @@
 #include "Hepch.h"
 
 #include "Runtime/Graphics/Scene/PostProcessResolver.h"
+#include "Runtime/Graphics/Settings/RenderSettings.h"
 
 #include <algorithm>
 #include <array>
@@ -83,7 +84,39 @@ namespace HEngine
         const PostProcessResolveInput& input)
     {
         RenderPostProcessSettings result = input.ProjectDefaults;
-        result.Exposure = SanitizeExposure(result.Exposure, 0.8f);
+        static const auto* bloomDescriptor = FindRenderSettingDescriptor(RenderSettingIds::BloomIntensity);
+        static const auto* contrastDescriptor = FindRenderSettingDescriptor(RenderSettingIds::ColorContrast);
+        static const auto* saturationDescriptor = FindRenderSettingDescriptor(RenderSettingIds::ColorSaturation);
+        static const auto* temperatureDescriptor = FindRenderSettingDescriptor(RenderSettingIds::ColorTemperature);
+        const auto normalize = [](float value, float fallback, const RenderSettingDescriptor* descriptor)
+        {
+            if (!std::isfinite(value)) return fallback;
+            if (descriptor && descriptor->Minimum) value = std::max(value, static_cast<float>(*descriptor->Minimum));
+            if (descriptor && descriptor->Maximum) value = std::min(value, static_cast<float>(*descriptor->Maximum));
+            return value;
+        };
+        const auto normalizeColor = [](glm::vec3 value, glm::vec3 fallback, float minimum, float maximum)
+        {
+            for (int channel = 0; channel < 3; ++channel)
+                value[channel] = std::isfinite(value[channel])
+                    ? std::clamp(value[channel], minimum, maximum) : fallback[channel];
+            return value;
+        };
+        result.BloomIntensity = normalize(result.BloomIntensity, 0.05f, bloomDescriptor);
+        result.Contrast = normalize(result.Contrast, 1.0f, contrastDescriptor);
+        result.Saturation = normalize(result.Saturation, 1.0f, saturationDescriptor);
+        result.Temperature = normalize(result.Temperature, 0.0f, temperatureDescriptor);
+        result.VignetteIntensity = std::clamp(std::isfinite(result.VignetteIntensity)
+            ? result.VignetteIntensity : 0.0f, 0.0f, 1.0f);
+        result.ColorGain = normalizeColor(result.ColorGain, glm::vec3(1.0f), 0.0f, 2.0f);
+        result.ColorOffset = normalizeColor(result.ColorOffset, glm::vec3(0.0f), -0.25f, 0.25f);
+        result.BloomBaseWeight = result.ContrastBaseWeight = result.SaturationBaseWeight =
+            result.TemperatureBaseWeight = result.VignetteBaseWeight = 1.0f;
+        result.BloomContribution = result.ContrastContribution = result.SaturationContribution =
+            result.TemperatureContribution = result.VignetteContribution = 0.0f;
+        result.ColorGainBaseWeight = result.ColorOffsetBaseWeight = 1.0f;
+        result.ColorGainContribution = result.ColorOffsetContribution = glm::vec3(0.0f);
+        result.Exposure = SanitizeExposure(result.Exposure, 1.0f / 16384.0f);
         if (input.EnvironmentExposureOverride)
         {
             result.Exposure = SanitizeExposure(
@@ -110,8 +143,6 @@ namespace HEngine
 
         for (const PostProcessVolumeSnapshot* volume : sortedVolumes)
         {
-            if (!volume->bOverrideExposure)
-                continue;
             const float influence = ComputePostProcessVolumeInfluence(
                 *volume,
                 input.CameraPosition);
@@ -119,12 +150,43 @@ namespace HEngine
                 ? std::clamp(volume->BlendWeight, 0.0f, 1.0f)
                 : 0.0f;
             const float weight = influence * blendWeight;
-            if (weight <= 0.0f || !std::isfinite(volume->Settings.Exposure))
-                continue;
-            const float targetExposure = std::max(
-                volume->Settings.Exposure,
-                0.0f);
-            result.Exposure += (targetExposure - result.Exposure) * weight;
+            if (weight <= 0.0f) continue;
+            if (volume->bOverrideExposure && std::isfinite(volume->Settings.Exposure))
+                result.Exposure += (std::max(volume->Settings.Exposure, 0.0f) - result.Exposure) * weight;
+            const auto blend = [&](bool enabled, float target, float& value, float& baseWeight,
+                float& contribution, const RenderSettingDescriptor* descriptor)
+            {
+                if (!enabled || !std::isfinite(target)) return;
+                target = normalize(target, value, descriptor);
+                value += (target - value) * weight;
+                baseWeight *= 1.0f - weight;
+                contribution += (target - contribution) * weight;
+            };
+            blend(volume->bOverrideBloomIntensity, volume->Settings.BloomIntensity, result.BloomIntensity,
+                result.BloomBaseWeight, result.BloomContribution, bloomDescriptor);
+            blend(volume->bOverrideContrast, volume->Settings.Contrast, result.Contrast,
+                result.ContrastBaseWeight, result.ContrastContribution, contrastDescriptor);
+            blend(volume->bOverrideSaturation, volume->Settings.Saturation, result.Saturation,
+                result.SaturationBaseWeight, result.SaturationContribution, saturationDescriptor);
+            blend(volume->bOverrideTemperature, volume->Settings.Temperature, result.Temperature,
+                result.TemperatureBaseWeight, result.TemperatureContribution, temperatureDescriptor);
+            blend(volume->bOverrideVignetteIntensity,
+                std::clamp(volume->Settings.VignetteIntensity, 0.0f, 1.0f), result.VignetteIntensity,
+                result.VignetteBaseWeight, result.VignetteContribution, nullptr);
+            const auto blendColor = [&](bool enabled, glm::vec3 target, glm::vec3& value,
+                float& baseWeight, glm::vec3& contribution, float minimum, float maximum)
+            {
+                if (!enabled || !std::isfinite(target.x) || !std::isfinite(target.y) ||
+                    !std::isfinite(target.z)) return;
+                target = normalizeColor(target, value, minimum, maximum);
+                value += (target - value) * weight;
+                baseWeight *= 1.0f - weight;
+                contribution += (target - contribution) * weight;
+            };
+            blendColor(volume->bOverrideColorGain, volume->Settings.ColorGain, result.ColorGain,
+                result.ColorGainBaseWeight, result.ColorGainContribution, 0.0f, 2.0f);
+            blendColor(volume->bOverrideColorOffset, volume->Settings.ColorOffset, result.ColorOffset,
+                result.ColorOffsetBaseWeight, result.ColorOffsetContribution, -0.25f, 0.25f);
         }
 
         if (input.CameraExposureOverride)

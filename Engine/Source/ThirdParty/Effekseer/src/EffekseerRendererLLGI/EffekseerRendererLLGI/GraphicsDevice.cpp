@@ -3,6 +3,7 @@
 #include <LLGI.Texture.h>
 #include <algorithm>
 #include <assert.h>
+#include <stdexcept>
 
 namespace EffekseerRendererLLGI
 {
@@ -559,8 +560,11 @@ UniformBuffer::~UniformBuffer()
 
 bool UniformBuffer::Init(int32_t size, const void* initialData)
 {
+	contents_.resize(size);
 	buffer_ = LLGI::CreateSharedPtr(graphicsDevice_->GetGraphics()->CreateBuffer(
 		LLGI::BufferUsageType::Constant | LLGI::BufferUsageType::MapWrite, size));
+	if (buffer_)
+		snapshots_.push_back(buffer_);
 
 	if (initialData)
 	{
@@ -572,13 +576,37 @@ bool UniformBuffer::Init(int32_t size, const void* initialData)
 
 void UniformBuffer::UpdateData(const void* src, int32_t size, int32_t offset)
 {
-	if (buffer_)
+	if (src == nullptr || size < 0 || offset < 0 || offset > static_cast<int32_t>(contents_.size()) - size)
+		throw std::invalid_argument("Effekseer uniform buffer update is out of bounds");
+	// Every recorded dispatch/draw retains its backing buffer through LLGI's
+	// referencedObjects. Never overwrite bytes that an in-flight command reads.
+	std::shared_ptr<LLGI::Buffer> replacement;
+	for (const auto& snapshot : snapshots_)
 	{
-		void* dst = buffer_->Lock(offset, size);
-		assert(dst != nullptr);
-		memcpy(dst, src, size);
-		buffer_->Unlock();
+		// One intrusive reference is owned by this shared_ptr pool. LLGI
+		// command lists release their references only when their bank retires.
+		if (snapshot->GetRef() == 1)
+		{
+			replacement = snapshot;
+			break;
+		}
 	}
+	if (!replacement)
+	{
+		replacement = LLGI::CreateSharedPtr(graphicsDevice_->GetGraphics()->CreateBuffer(
+			LLGI::BufferUsageType::Constant | LLGI::BufferUsageType::MapWrite, static_cast<int32_t>(contents_.size())));
+		if (replacement)
+			snapshots_.push_back(replacement);
+	}
+	if (!replacement)
+		throw std::runtime_error("Effekseer uniform buffer snapshot allocation failed");
+	void* dst = replacement->Lock();
+	if (dst == nullptr)
+		throw std::runtime_error("Effekseer uniform buffer snapshot mapping failed");
+	memcpy(contents_.data() + offset, src, size);
+	memcpy(dst, contents_.data(), contents_.size());
+	replacement->Unlock();
+	buffer_ = std::move(replacement);
 }
 
 StorageBuffer::StorageBuffer(GraphicsDevice* graphicsDevice)
@@ -890,6 +918,44 @@ void GraphicsDevice::FlushPendingBufferUploads()
 	}
 
 	pendingBufferUploads_.clear();
+}
+
+BufferPoolStats GetBufferPoolStats(const Effekseer::Backend::GraphicsDevice* graphicsDevice)
+{
+	const auto* llgi = dynamic_cast<const GraphicsDevice*>(graphicsDevice);
+	return llgi ? llgi->GetBufferPoolStats() : BufferPoolStats{};
+}
+
+BufferPoolStats GraphicsDevice::GetBufferPoolStats() const
+{
+	BufferPoolStats stats;
+	stats.Available = true;
+	std::set<LLGI::Buffer*> buffers;
+	std::set<LLGI::Buffer*> snapshots;
+	const auto add = [&](LLGI::Buffer* buffer, uint64_t& count, uint64_t& bytes)
+	{
+		if (buffer && buffers.insert(buffer).second)
+		{
+			++count;
+			bytes += static_cast<uint64_t>(std::max(buffer->GetSize(), 0));
+		}
+	};
+	for (auto* object : objects_)
+	{
+		if (const auto* storage = dynamic_cast<const StorageBuffer*>(object))
+			add(storage->GetBuffer(), stats.StorageBufferCount, stats.StorageLogicalBytes);
+		else if (const auto* uniform = dynamic_cast<const UniformBuffer*>(object))
+		{
+			add(uniform->GetBuffer(), stats.UniformBufferCount, stats.UniformLogicalBytes);
+			for (const auto& snapshot : uniform->snapshots_)
+			{
+				add(snapshot.get(), stats.UniformBufferCount, stats.UniformLogicalBytes);
+				if (snapshot && snapshots.insert(snapshot.get()).second)
+					++stats.UniformSnapshotCount;
+			}
+		}
+	}
+	return stats;
 }
 
 void GraphicsDevice::Register(DeviceObject* deviceObject)

@@ -18,6 +18,12 @@ namespace HEngine
 		bool bEnableInputMethod;
 		bool bVisible;
 		bool bVSync;
+		// Automation requires the requested client extent, including when it
+		// exceeds the desktop work area. Ordinary windows retain platform sizing.
+		bool bExactClientSize = false;
+        // Desktop-sized borderless window; never switches the monitor mode.
+        bool bFullscreen = false;
+        bool bLockFullscreen = false; // Explicit CLI mode overrides later preference application.
 
 		WindowProps(const std::string& title = "HEngine",
 			uint32_t width = 1600,
@@ -44,6 +50,10 @@ namespace HEngine
 		virtual ~Window() {}
 
 		virtual void OnUpdate() = 0;
+        // Mobile hosts may block without advancing the simulation while paused
+        // or without a drawable surface. False requests an orderly shutdown.
+        [[nodiscard]] virtual bool WaitForFrame() { return true; }
+        [[nodiscard]] virtual bool ConsumeResume() { return false; }
 
 		virtual void Shutdown() {}
 
@@ -51,6 +61,9 @@ namespace HEngine
 
 		[[nodiscard]] virtual uint32_t GetWidth() const = 0;
 		[[nodiscard]] virtual uint32_t GetHeight() const = 0;
+		// Exact client extent; platform implementation reports failure instead of
+		// accepting desktop work-area clipping. Render resize events may be deferred.
+		virtual void SetClientSize(uint32_t width, uint32_t height) = 0;
 
 		// Window attributes
 		virtual void SetEventCallback(const EventCallbackFn& callback) = 0;

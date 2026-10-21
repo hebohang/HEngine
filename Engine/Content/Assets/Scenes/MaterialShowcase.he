@@ -301,9 +301,10 @@
     },
     "5dfd3b5f-f7b7-57b5-9bfa-de4eb0a59abc": {
         "EnvironmentLightComponent": {
-            "Exposure": 0.82,
             "HdrTexturePath": "Assets/Textures/Hdr/Default.hdr",
-            "IBLIntensity": 1.15
+            "IBLIntensity": 1.15,
+            "ExposureEV100": 0.2863041851566411,
+            "ExposureCompensation": 0.0
         },
         "TagComponent": {
             "Tag": "Material Showcase Environment"
@@ -359,14 +360,14 @@
     },
     "630a87cd-4c6a-5511-bec8-4d6a94cc990b": {
         "PointLightComponent": {
-            "FalloffExponent": 2.0,
             "Intensity": 5.0,
             "LightColor": [
                 0.38,
                 0.72,
                 1.0
             ],
-            "Radius": 28.0
+            "Radius": 28.0,
+            "IntensityUnits": 1
         },
         "TagComponent": {
             "Tag": "Material Showcase Fill Light"
@@ -463,7 +464,9 @@
                 "mProjectionType": 0
             },
             "FixedAspectRatio": false,
-            "Primary": true
+            "Primary": true,
+            "ExposureEV100": 14.0,
+            "ExposureCompensation": 0.0
         },
         "TagComponent": {
             "Tag": "Material Showcase Camera"

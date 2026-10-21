@@ -169,7 +169,8 @@ def _make_hengine_scene(manifest: dict[str, Any]) -> bytes:
         },
         "95c55b69-a4df-560f-8d1d-f1cdbd35b152": {
             "EnvironmentLightComponent": {
-                "Exposure": 1.0,
+                "ExposureEV100": 0.0,
+                "ExposureCompensation": 0.0,
                 "HdrTexturePath": "",
                 "IBLIntensity": 0.0,
             },

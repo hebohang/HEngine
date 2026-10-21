@@ -16,8 +16,7 @@ namespace HEngine
 
         void OnUpdateRuntime(Timestep ts) override;
         [[nodiscard]] bool ShouldUpdateWhenRuntimePaused() const override { return true; }
-#if WITH_EDITOR
-        void OnUpdateEditor(Timestep ts, EditorCamera& camera) override;
-#endif
+        // Follow motion belongs to the runtime scene copy. Editing must retain
+        // the authored camera transform, including during zero-time warmup.
     };
 }

@@ -2,8 +2,51 @@
 
 #include "SimulationClock.h"
 
+#include <algorithm>
+#include <cmath>
+#include <stdexcept>
+
 namespace HEngine
 {
+    FixedSimulationStepper::FixedSimulationStepper(double tickHz, uint32_t maximumTicks)
+        : mTickSeconds(1.0 / tickHz), mMaximumTicks(maximumTicks)
+    {
+        if (!std::isfinite(tickHz) || tickHz <= 0.0 || maximumTicks == 0)
+            throw std::invalid_argument("Fixed simulation tick configuration is invalid");
+    }
+
+    uint32_t FixedSimulationStepper::Advance(double frameSeconds, bool bPaused) noexcept
+    {
+        if (bPaused)
+        {
+            // Preserve the fractional presentation phase. Dropping it makes an
+            // interpolated character jump backwards when pausing or resuming.
+            // Paused wall time is never added to the accumulator.
+            return 0;
+        }
+        if (!std::isfinite(frameSeconds) || frameSeconds <= 0.0) return 0;
+        mAccumulated += frameSeconds;
+        const double maximumAccumulated = mTickSeconds * mMaximumTicks;
+        if (mAccumulated > maximumAccumulated)
+        {
+            mDroppedSeconds += mAccumulated - maximumAccumulated;
+            mAccumulated = maximumAccumulated;
+        }
+        const uint32_t ticks = std::min(mMaximumTicks,
+            static_cast<uint32_t>((mAccumulated + 1e-9) / mTickSeconds));
+        mAccumulated -= ticks * mTickSeconds;
+        if (mAccumulated < 0.0) mAccumulated = 0.0;
+        mTickCount += ticks;
+        return ticks;
+    }
+
+    void FixedSimulationStepper::Reset() noexcept
+    {
+        mAccumulated = 0.0;
+        mDroppedSeconds = 0.0;
+        mTickCount = 0;
+    }
+
 	SimulationClock& SimulationClock::GetInstance()
 	{
 		static SimulationClock instance;
@@ -16,6 +59,9 @@ namespace HEngine
 		mFrameNumber = 0;
 		mCompletedFrameCount = 0;
 		mElapsedSeconds = 0.0;
+        mFixedElapsedSeconds = 0.0;
+        mDroppedSimulationSeconds = 0.0;
+        mFixedTickCount = 0;
 		bFirstFrame = true;
 		bFrameInProgress = false;
 		mPaused = false;
@@ -55,4 +101,12 @@ namespace HEngine
 		mCompletedFrameCount = mFrameNumber;
 		bFrameInProgress = false;
 	}
+
+    void SimulationClock::RecordFixedTicks(
+        uint32_t count, double tickSeconds, double droppedSeconds) noexcept
+    {
+        mFixedTickCount += count;
+        mFixedElapsedSeconds += count * tickSeconds;
+        mDroppedSimulationSeconds += droppedSeconds;
+    }
 }

@@ -7,6 +7,8 @@
 #include "../Effekseer.Vector2D.h"
 #include "../Effekseer.Vector3D.h"
 
+#include <mutex>
+
 namespace Effekseer
 {
 
@@ -395,6 +397,40 @@ using GpuParticleFactoryRef = RefPtr<GpuParticleFactory>;
 class GpuParticleSystem : public ReferenceObject
 {
 public:
+	// CPU allocator ownership, not live GPU particles or fence-retired bytes.
+	struct AllocationStats
+	{
+		uint64_t EmitterSlotFailureCount = 0;
+		uint64_t ParticleBlockFailureCount = 0;
+		uint64_t TrailBlockFailureCount = 0;
+		uint64_t AllocatedEmitterCount = 0;
+		uint64_t ReservedParticleCount = 0;
+		uint64_t ReservedTrailCount = 0;
+	};
+
+protected:
+	mutable std::mutex allocationStatsMutex_;
+	AllocationStats allocationStats_;
+	uint64_t dispatchRequestCount_ = 0;
+	uint64_t drawRequestCount_ = 0;
+	uint64_t vertexRequestCount_ = 0;
+
+public:
+	AllocationStats GetAllocationStats() const
+	{
+		std::lock_guard<std::mutex> lock(allocationStatsMutex_);
+		return allocationStats_;
+	}
+	uint64_t GetEmitterSlotFailureCount() const { return GetAllocationStats().EmitterSlotFailureCount; }
+	uint64_t GetParticleBlockFailureCount() const { return GetAllocationStats().ParticleBlockFailureCount; }
+	uint64_t GetTrailBlockFailureCount() const { return GetAllocationStats().TrailBlockFailureCount; }
+
+	// Monotonic submission requests, independently checked against native command
+	// recording counters. Particle count remains a CPU-side estimate.
+	uint64_t GetDispatchRequestCount() const { return dispatchRequestCount_; }
+	uint64_t GetDrawRequestCount() const { return drawRequestCount_; }
+	uint64_t GetVertexRequestCount() const { return vertexRequestCount_; }
+
 	struct Settings
 	{
 		uint32_t EmitterMaxCount = 256;

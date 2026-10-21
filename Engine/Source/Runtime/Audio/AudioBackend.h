@@ -19,6 +19,7 @@ namespace HEngine
         virtual bool Initialize() = 0;
         virtual void Shutdown() = 0;
         virtual void Update() = 0;
+        virtual void SetSuspended(bool suspended) {}
 
         [[nodiscard]] virtual bool IsInitialized() const = 0;
         [[nodiscard]] virtual bool IsDeviceAvailable() const = 0;

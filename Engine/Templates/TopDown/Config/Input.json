@@ -1,0 +1,111 @@
+{
+  "Version": 1,
+  "Actions": [
+    {
+      "Name": "Move",
+      "Context": "Gameplay",
+      "Type": "Vector2",
+      "DeadZone": 0,
+      "HoldSeconds": 0.4,
+      "DoubleTapSeconds": 0.25,
+      "Bindings": [
+        {
+          "Device": "Key",
+          "Code": 65,
+          "Axis": 0,
+          "Scale": -1
+        },
+        {
+          "Device": "Key",
+          "Code": 68,
+          "Axis": 0,
+          "Scale": 1
+        },
+        {
+          "Device": "Key",
+          "Code": 87,
+          "Axis": 1,
+          "Scale": 1
+        },
+        {
+          "Device": "Key",
+          "Code": 83,
+          "Axis": 1,
+          "Scale": -1
+        }
+      ]
+    },
+    {
+      "Name": "Fire",
+      "Context": "Gameplay",
+      "Type": "Button",
+      "DeadZone": 0,
+      "HoldSeconds": 0.4,
+      "DoubleTapSeconds": 0.25,
+      "Bindings": [
+        {
+          "Device": "MouseButton",
+          "Code": 0,
+          "Axis": 0,
+          "Scale": 1
+        },
+        {
+          "Device": "Key",
+          "Code": 32,
+          "Axis": 0,
+          "Scale": 1
+        }
+      ]
+    },
+    {
+      "Name": "Reset",
+      "Context": "Gameplay",
+      "Type": "Button",
+      "DeadZone": 0,
+      "HoldSeconds": 0.4,
+      "DoubleTapSeconds": 0.25,
+      "Bindings": [
+        {
+          "Device": "Key",
+          "Code": 82,
+          "Axis": 0,
+          "Scale": 1
+        }
+      ]
+    },
+    {
+      "Name": "Aim",
+      "Context": "Gameplay",
+      "Type": "Vector2",
+      "DeadZone": 0,
+      "HoldSeconds": 0.4,
+      "DoubleTapSeconds": 0.25,
+      "Bindings": [
+        {
+          "Device": "Key",
+          "Code": 263,
+          "Axis": 0,
+          "Scale": -1
+        },
+        {
+          "Device": "Key",
+          "Code": 262,
+          "Axis": 0,
+          "Scale": 1
+        },
+        {
+          "Device": "Key",
+          "Code": 265,
+          "Axis": 1,
+          "Scale": 1
+        },
+        {
+          "Device": "Key",
+          "Code": 264,
+          "Axis": 1,
+          "Scale": -1
+        }
+      ]
+    }
+  ]
+}

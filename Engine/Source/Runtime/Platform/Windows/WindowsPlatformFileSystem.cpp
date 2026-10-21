@@ -12,6 +12,31 @@
 
 namespace HEngine
 {
+    bool PlatformFileSystem::ReadSharedTextTail(const std::filesystem::path& path,
+        std::size_t maxBytes, std::string& outText) noexcept
+    {
+        if (maxBytes == 0 || maxBytes > 1024 * 1024) return false;
+        const HANDLE file = ::CreateFileW(path.c_str(), GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (file == INVALID_HANDLE_VALUE) return false;
+        struct CloseFile { HANDLE File; ~CloseFile() { ::CloseHandle(File); } } close{file};
+        try
+        {
+            LARGE_INTEGER size{}, offset{};
+            if (!::GetFileSizeEx(file, &size)) return false;
+            offset.QuadPart = size.QuadPart > static_cast<LONGLONG>(maxBytes) ? size.QuadPart - maxBytes : 0;
+            if (!::SetFilePointerEx(file, offset, nullptr, FILE_BEGIN)) return false;
+            std::string text(maxBytes, '\0'); DWORD read = 0;
+            if (!::ReadFile(file, text.data(), static_cast<DWORD>(maxBytes), &read, nullptr)) return false;
+            text.resize(read);
+            if (text.starts_with("\xef\xbb\xbf")) text.erase(0, 3);
+            while (!text.empty() && (static_cast<unsigned char>(text.front()) & 0xc0) == 0x80) text.erase(0, 1);
+            outText = std::move(text); return true;
+        }
+        catch (...) { return false; }
+    }
+
     struct PlatformStableFileReadLease::State final
     {
         ~State()

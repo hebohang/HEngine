@@ -34,7 +34,7 @@ namespace HEngine
         }
 
         int w, h, c;
-        stbi_set_flip_vertically_on_load(static_cast<int>(flip));
+        stbi_set_flip_vertically_on_load_thread(static_cast<int>(flip));
         void* data;
         const int desiredChannels = STBI_rgb_alpha;
         const int byteCount = static_cast<int>(fileBytes.size());
@@ -60,15 +60,25 @@ namespace HEngine
 			return;
 		}
 
-        width = w;
-        height = h;
-        const uint32_t elementSize = format == EResourceFormat::R32G32B32A32_FLOAT ? sizeof(float) : sizeof(stbi_uc);
-        buffer.Move(data, width * height * c * elementSize);
+        const uint64_t elementSize = format == EResourceFormat::R32G32B32A32_FLOAT
+            ? sizeof(float) : sizeof(stbi_uc);
+        const uint64_t pixels = w > 0 && h > 0 ? uint64_t(w) * uint64_t(h) : 0;
+        const uint64_t bytesPerPixel = uint64_t(desiredChannels) * elementSize;
+        if (pixels == 0 || pixels > std::numeric_limits<uint32_t>::max() / bytesPerPixel)
+        {
+            stbi_image_free(data);
+            format = EResourceFormat::UNKNOWN;
+            HE_CORE_ERROR("Image dimensions exceed Buffer capacity: {}", Utils::PathToUtf8(path));
+            return;
+        }
+        width = static_cast<uint32_t>(w);
+        height = static_cast<uint32_t>(h);
+        buffer = Buffer::Adopt(data, static_cast<uint32_t>(pixels * bytesPerPixel),
+            [](void* pixels) noexcept { stbi_image_free(pixels); });
     }
 
     Image::~Image()
     {
-        stbi_image_free(buffer.GetRawBuffer());
-        buffer.Reset();
+        // Buffer owns the stb allocation and calls stbi_image_free.
     }
 } 

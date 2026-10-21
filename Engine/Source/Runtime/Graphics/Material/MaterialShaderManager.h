@@ -106,6 +106,31 @@ namespace HEngine
         [[nodiscard]] bool Succeeded() const noexcept;
     };
 
+    // The engine-owned surface ABI has no user vertex deformation hook.
+    // Coverage-changing and skinned materials keep conservative geometry.
+    struct MaterialGeometryCapabilities
+    {
+        bool bAuthoredLod = false;
+        bool bGpuInstances = false;
+        const char* FallbackReason = "Unsupported material ABI";
+    };
+
+    [[nodiscard]] inline MaterialGeometryCapabilities ResolveMaterialGeometryCapabilities(
+        const CompiledMaterialShader& program, MaterialShaderDescriptorMode descriptorMode, bool bSkinned)
+    {
+        if (program.GetManifest().MaterialAbiVersion != MaterialShaderAbiVersion)
+            return {};
+        if (bSkinned)
+            return { false, false, "Skinning requires CPU submission and conservative full geometry" };
+        if (program.GetManifest().BlendMode != MaterialShaderBlendMode::Opaque)
+            return { false, false, "Alpha coverage and transparent ordering require CPU submission" };
+        for (const auto pass : { MaterialShaderPass::Forward, MaterialShaderPass::GBuffer })
+            for (const auto stage : { MaterialProgramShaderStage::Vertex, MaterialProgramShaderStage::Pixel })
+                if (!program.HasShader({ pass, MaterialShaderVertexPath::GpuDriven, descriptorMode, stage }))
+                    return { true, false, "GPU instance shader artifacts are missing; recompile the material" };
+        return { true, true, "" };
+    }
+
     class MaterialShaderManager final
     {
     public:

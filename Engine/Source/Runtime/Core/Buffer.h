@@ -2,88 +2,113 @@
 
 #include "Base/Base.h"
 
-#include <span>
 #include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <span>
+#include <stdexcept>
+#include <utility>
 
 namespace HEngine
 {
-	struct Buffer
-	{
-		std::byte* Data = nullptr;
-		uint32_t Size = 0;
+    // Owns bytes through the deleter supplied at adoption. Borrowed memory is
+    // represented by std::span, never by Buffer.
+    class Buffer
+    {
+    public:
+        using Deleter = void(*)(void*) noexcept;
 
-		Buffer() = default;
-		Buffer(const Buffer&) = delete;
-		Buffer& operator=(const Buffer&) = delete;
-		Buffer(Buffer&& buffer) noexcept
-			: Data(buffer.Data), Size(buffer.Size)
-		{
-			buffer.Reset();
-		}
-		Buffer& operator=(Buffer&& buffer) noexcept
-		{
-			Data = buffer.Data;
-			Size = buffer.Size;
-			buffer.Reset();
-			return *this;
-		}
-		Buffer(void* _Data, uint32_t _Size)
-			: Data(reinterpret_cast<std::byte*>(_Data)), Size(_Size)
-		{
-		}
-		~Buffer() = default;
+        Buffer() = default;
+        Buffer(const Buffer&) = delete;
+        Buffer& operator=(const Buffer&) = delete;
+        Buffer(Buffer&& other) noexcept { Swap(other); }
+        Buffer& operator=(Buffer&& other) noexcept
+        {
+            if (this != &other)
+            {
+                Release();
+                Swap(other);
+            }
+            return *this;
+        }
+        ~Buffer() { Release(); }
 
-		operator std::span<const std::byte>() const 
-		{ 
-			return std::as_bytes(std::span{ reinterpret_cast<const std::byte*>(Data), Size });
-		}
+        static Buffer Adopt(void* data, uint32_t size, Deleter deleter)
+        {
+            if ((data == nullptr) != (size == 0) || (data && !deleter))
+                throw std::invalid_argument("Buffer adoption requires bytes and a deleter");
+            Buffer result;
+            result.mData = static_cast<std::byte*>(data);
+            result.mSize = size;
+            result.mDeleter = deleter;
+            return result;
+        }
 
-		void Release()
-		{
-			delete[] Data;
-			Data = nullptr;
-			Size = 0;
-		}
+        static Buffer Allocate(uint32_t size)
+        {
+            if (size == 0) return {};
+            auto* data = new std::byte[size];
+            return Adopt(data, size, [](void* pointer) noexcept
+                { delete[] static_cast<std::byte*>(pointer); });
+        }
 
-		// must ensure the data has been deleted
-		void Reset()
-		{
-			Data = nullptr;
-			Size = 0;
-		}
+        void Release() noexcept
+        {
+            if (mData) mDeleter(mData);
+            mData = nullptr;
+            mSize = 0;
+            mDeleter = nullptr;
+        }
 
-		std::byte& operator[](uint32_t index) { return Data[index]; }
-		std::byte operator[](uint32_t index) const { return Data[index]; }
+        [[nodiscard]] std::span<std::byte> View() noexcept { return {mData, mSize}; }
+        [[nodiscard]] std::span<const std::byte> View() const noexcept { return {mData, mSize}; }
+        operator std::span<const std::byte>() const noexcept { return View(); }
+        [[nodiscard]] uint32_t Size() const noexcept { return mSize; }
+        [[nodiscard]] std::byte* Data() noexcept { return mData; }
+        [[nodiscard]] const std::byte* Data() const noexcept { return mData; }
+        [[nodiscard]] void* GetRawBuffer() noexcept { return mData; }
 
-		template<typename T>
-		T& Get(uint32_t index = 0)
-		{
-			HE_CORE_ASSERT(sizeof(T) * (index + 1) <= sizeof(std::byte) * Size);
-			return ((T*)Data)[index];
-		}
+        std::byte& operator[](uint32_t index)
+        {
+            if (index >= mSize) throw std::out_of_range("Buffer index out of range");
+            return mData[index];
+        }
+        std::byte operator[](uint32_t index) const
+        {
+            if (index >= mSize) throw std::out_of_range("Buffer index out of range");
+            return mData[index];
+        }
 
-		void Write(void* data, uint32_t size, uint32_t offset = 0)
-		{
-			HE_CORE_ASSERT(offset + size <= Size);
-			std::memcpy(Data + offset, data, size);
-		}
+        template<typename T>
+        T& Get(uint32_t index = 0)
+        {
+            if (sizeof(T) > mSize ||
+                size_t(index) > (size_t(mSize) - sizeof(T)) / sizeof(T))
+                throw std::out_of_range("Buffer::Get out of range");
+            const size_t offset = size_t(index) * sizeof(T);
+            return *reinterpret_cast<T*>(mData + offset);
+        }
 
-		void Move(void* data, uint32_t size)
-		{
-			Data = reinterpret_cast<std::byte*>(data);
-			Size = size;
-			data = nullptr;
-		}
+        void Write(const void* data, uint32_t size, uint32_t offset = 0)
+        {
+            if (offset > mSize || size > mSize - offset || (size && !data))
+                throw std::out_of_range("Buffer::Write out of range");
+            if (size) std::memcpy(mData + offset, data, size);
+        }
 
-		template<typename T>
-		T* As()
-		{
-			return (T*)Data;
-		}
+        template<typename T>
+        T* As() noexcept { return reinterpret_cast<T*>(mData); }
 
-		void* GetRawBuffer()
-		{
-			return (void*)Data;
-		}
-	};
+    private:
+        void Swap(Buffer& other) noexcept
+        {
+            std::swap(mData, other.mData);
+            std::swap(mSize, other.mSize);
+            std::swap(mDeleter, other.mDeleter);
+        }
+
+        std::byte* mData = nullptr;
+        uint32_t mSize = 0;
+        Deleter mDeleter = nullptr;
+    };
 }

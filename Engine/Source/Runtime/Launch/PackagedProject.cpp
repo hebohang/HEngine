@@ -1,12 +1,16 @@
 #include "Hepch.h"
 
 #include "PackagedProject.h"
+#include "ProjectIdentity.h"
 
 #include "Runtime/Platform/PlatformPaths.h"
 #include "Runtime/Resource/RuntimeResourceCatalog/RuntimeResourceCatalog.h"
 #include "Runtime/Utils/PathUtils/PathUtils.h"
 
 #include <HEngine/ProjectBuildConfig.h>
+#if HE_PORTABLE_PLAYER
+#include <HEngine/PlayerBuildConfig.h>
+#endif
 
 #if defined(HE_PACKAGED_GAME)
 #include <nlohmann/json.hpp>
@@ -109,6 +113,13 @@ namespace HEngine
 
         struct PackageManifest
         {
+            ProjectIdentity project{
+                .ProjectId = HE_PROJECT_ID,
+                .DisplayName = HE_PROJECT_DISPLAY_NAME,
+                .ExecutableName = HE_PROJECT_EXECUTABLE_NAME,
+                .GameConfig = HE_PROJECT_GAME_CONFIG,
+                .LegacySavedDirectory = HE_PROJECT_LEGACY_SAVED_DIRECTORY,
+            };
             std::filesystem::path pakPath;
             std::uint64_t pakSize = 0;
             std::string contentVersion;
@@ -383,7 +394,7 @@ namespace HEngine
             if (size > maximumSize)
                 throw std::runtime_error("Required file is unexpectedly large: " + Utils::PathToUtf8(path));
 
-            std::ifstream stream(path, std::ios::binary);
+            std::ifstream stream(PlatformPaths::ToFileIoPath(path), std::ios::binary);
             if (!stream)
                 throw std::runtime_error("Could not open required file: " + Utils::PathToUtf8(path));
             std::string content(static_cast<std::size_t>(size), '\0');
@@ -394,7 +405,7 @@ namespace HEngine
 
         static void WriteTextFile(const std::filesystem::path& path, std::string_view content)
         {
-            std::ofstream stream(path, std::ios::binary | std::ios::trunc);
+            std::ofstream stream(PlatformPaths::ToFileIoPath(path), std::ios::binary | std::ios::trunc);
             if (!stream)
                 throw std::runtime_error("Could not create package marker: " + Utils::PathToUtf8(path));
             stream.write(content.data(), static_cast<std::streamsize>(content.size()));
@@ -612,6 +623,10 @@ namespace HEngine
                     throw std::runtime_error("Game.manifest.json is missing game identity fields.");
 
                 PackageManifest manifest;
+#if HE_PORTABLE_PLAYER
+                manifest.project = ReadPlayerIdentity(json.at("Player"),
+                    HE_PROJECT_ENGINE_VERSION, HE_PLAYER_RUNTIME_FINGERPRINT);
+#endif
                 manifest.pakPath = executableDirectory / "Game.pak";
                 manifest.pakSize = json.at("PakSize").get<std::uint64_t>();
                 manifest.contentVersion = NormalizeContentVersion(json.at("ContentVersion").get<std::string>());
@@ -715,6 +730,11 @@ namespace HEngine
                 }
 
                 nlohmann::ordered_json markerJson;
+#if HE_PORTABLE_PLAYER
+                if (!manifest.fileIndices.contains(manifest.project.GameConfig))
+                    throw std::runtime_error("Player GameConfig is not included in the cooked package.");
+                markerJson["Player"] = json.at("Player");
+#endif
                 markerJson["ContentVersion"] = manifest.contentVersion;
                 markerJson["ContentHash"] = manifest.contentHash;
                 if (!manifest.registryHash.empty())
@@ -731,7 +751,7 @@ namespace HEngine
         struct ArchiveStream
         {
             explicit ArchiveStream(const std::filesystem::path& path)
-                : stream(path, std::ios::binary)
+                : stream(PlatformPaths::ToFileIoPath(path), std::ios::binary)
             {
             }
 
@@ -936,7 +956,7 @@ namespace HEngine
                 if (!error && std::filesystem::exists(outputStatus))
                     throw std::runtime_error("Game.pak contains colliding output paths: " + archivePath.key);
 
-                std::ofstream output(outputPath, std::ios::binary | std::ios::trunc);
+                std::ofstream output(PlatformPaths::ToFileIoPath(outputPath), std::ios::binary | std::ios::trunc);
                 if (!output)
                     throw std::runtime_error("Could not create cooked game file: " + archivePath.key);
 
@@ -985,7 +1005,7 @@ namespace HEngine
                 contentHash.UpdateUint64LittleEndian(static_cast<std::uint64_t>(file.path.key.size()));
                 contentHash.Update(file.path.key);
                 contentHash.UpdateUint64LittleEndian(file.storedSize);
-                std::ifstream input(stagingRoot / file.path.relativePath, std::ios::binary);
+                std::ifstream input(PlatformPaths::ToFileIoPath(stagingRoot / file.path.relativePath), std::ios::binary);
                 if (!input)
                     throw std::runtime_error("Could not verify cooked game file: " + file.path.key);
                 while (input)
@@ -1033,7 +1053,7 @@ namespace HEngine
         (void)packageCheckId;
         throw std::logic_error("PackagedProject is only available in packaged game builds.");
 #else
-        const std::filesystem::path executableDirectory = PlatformPaths::GetExecutableDirectory();
+        const std::filesystem::path executableDirectory = PlatformPaths::GetApplicationContentDirectory();
         const PackageManifest manifest = LoadManifest(executableDirectory);
 
         std::error_code error;
@@ -1064,14 +1084,14 @@ namespace HEngine
             const std::filesystem::path localAppData =
                 PlatformPaths::GetLocalAppDataDirectory();
             engineRoot = localAppData / "HEngine";
-            productRoot = engineRoot / "Projects" / HE_PROJECT_ID;
+            productRoot = engineRoot / "Projects" / manifest.project.ProjectId;
         }
         const std::string contentDirectoryName =
             "Content-v" + manifest.contentVersion + "-" + manifest.contentHash;
         const std::filesystem::path contentRoot = productRoot / contentDirectoryName;
         std::filesystem::path savedRoot = productRoot / "Saved";
         const std::string legacySavedDirectory =
-            HE_PROJECT_LEGACY_SAVED_DIRECTORY;
+            manifest.project.LegacySavedDirectory;
         if (!bPackageCheck && !legacySavedDirectory.empty())
         {
             const std::filesystem::path legacySavedRoot =
@@ -1091,11 +1111,11 @@ namespace HEngine
         EnsureDirectory(savedRoot);
 
         if (HasMatchingMarker(contentRoot, manifest.marker))
-            return { contentRoot, savedRoot, manifest.resourceCatalog };
+            return { contentRoot, savedRoot, manifest.resourceCatalog, manifest.project.GameConfig };
 
         PackageLock packageLock = AcquirePackageLock(lockPath, productRoot);
         if (HasMatchingMarker(contentRoot, manifest.marker))
-            return { contentRoot, savedRoot, manifest.resourceCatalog };
+            return { contentRoot, savedRoot, manifest.resourceCatalog, manifest.project.GameConfig };
 
         RemoveScopedDirectory(stagingRoot, productRoot);
         if (IsExistingDirectory(contentRoot))
@@ -1114,7 +1134,7 @@ namespace HEngine
                 if (HasMatchingMarker(contentRoot, manifest.marker))
                 {
                     RemoveScopedDirectory(stagingRoot, productRoot);
-                    return { contentRoot, savedRoot, manifest.resourceCatalog };
+                    return { contentRoot, savedRoot, manifest.resourceCatalog, manifest.project.GameConfig };
                 }
                 throw std::runtime_error("Could not activate the extracted packaged game content.");
             }
@@ -1131,7 +1151,7 @@ namespace HEngine
             throw;
         }
 
-        return { contentRoot, savedRoot, manifest.resourceCatalog };
+        return { contentRoot, savedRoot, manifest.resourceCatalog, manifest.project.GameConfig };
 #endif
     }
 }

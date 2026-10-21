@@ -67,6 +67,7 @@ namespace HEngine
         [[nodiscard]] float GetBusVolume(AudioBus bus) const;
         void StopBus(AudioBus bus);
         void SetGameplayPaused(bool bPaused);
+        void SetSuspended(bool suspended);
         [[nodiscard]] bool IsGameplayPaused() const;
 
         bool SetListener(uint32_t index, const AudioListener& listener);

@@ -61,6 +61,16 @@ namespace HEngine
         std::vector<float> offsetMatrix; // 16 floats, column-major GLM mat4
     };
 
+    REFLECTION_TYPE(AnimEventRes)
+    STRUCT(AnimEventRes, Fields)
+    {
+        REFLECTION_BODY(AnimEventRes);
+        std::string id;
+        float timeStamp = 0.0f; // Clip ticks, in [0, duration).
+        std::string name;
+        std::string payload; // Application-defined JSON or asset identifier.
+    };
+
     REFLECTION_TYPE(AnimClipRes)
     STRUCT(AnimClipRes, Fields)
     {
@@ -69,6 +79,7 @@ namespace HEngine
         float                            duration        = 0.0f;
         float                            ticksPerSecond  = 24.0f;
         std::vector<AnimBoneChannelRes>  channels;
+        std::vector<AnimEventRes> events;
     };
 
     REFLECTION_TYPE(AnimRes)

@@ -11,6 +11,7 @@ namespace HEngine
     {
         ForwardOpaque,
         ForwardTransparent,
+        GBuffer,
         Depth,
         Shadow,
         Outline,

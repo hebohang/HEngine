@@ -13,7 +13,10 @@ namespace HEngine::Cooker
 		std::filesystem::path ConfigPath = "Config/Game.json";
 		std::filesystem::path EngineConfigPath;
 		std::filesystem::path ReportPath;
+		std::filesystem::path CSharpMetadataPath;
 		std::string RunId;
+		bool PythonPluginEnabled = true;
+		bool CSharpPluginEnabled = true;
 		std::vector<std::filesystem::path> ForbiddenRoots;
 	};
 

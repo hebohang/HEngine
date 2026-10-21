@@ -143,13 +143,13 @@ function(he_overlay_copy_content_tree sourceDirectory destinationDirectory descr
             message(FATAL_ERROR
                 "${description} file conflicts with an existing directory: ${relativeFile}")
         endif()
-        execute_process(
-            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-                "${sourceFile}" "${destinationFile}"
-            RESULT_VARIABLE copyResult)
-        if(NOT copyResult EQUAL 0)
+        # Keep the content comparison without spawning one cmake process for
+        # every asset in the isolated snapshot (large projects contain thousands).
+        file(COPY_FILE "${sourceFile}" "${destinationFile}"
+            ONLY_IF_DIFFERENT RESULT copyResult)
+        if(NOT copyResult STREQUAL "0")
             message(FATAL_ERROR
-                "Could not overlay ${description} file: ${relativeFile}")
+                "Could not overlay ${description} file: ${relativeFile}: ${copyResult}")
         endif()
     endforeach()
 endfunction()
@@ -173,6 +173,10 @@ foreach(contentRoot IN ITEMS Assets Config Scripts Shaders)
         "Project content ${contentRoot}")
     set(engineExcludedPrefixes "DevOnly")
     set(generatedExcludedPrefixes "DevOnly")
+    if(contentRoot STREQUAL "Scripts" AND DEFINED PYTHON_PLUGIN_ENABLED AND NOT PYTHON_PLUGIN_ENABLED)
+        list(APPEND engineExcludedPrefixes "Lib")
+        list(APPEND generatedExcludedPrefixes "Lib")
+    endif()
     if(contentRoot STREQUAL "Config")
         # User settings are never shipping content. Generated content also
         # cannot replace the immutable Engine-owned product default.

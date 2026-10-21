@@ -1,7 +1,9 @@
 RUNTIME_ADD_SOURCE(
+    InputMap.h
+    NavigationSettings.h
     Material.h
     BasePbrMaterialBuilder.h BasePbrMaterialBuilder.cpp
-    Texture.h
+    Texture.h TextureSampling.h
     Mesh.h
     Skeleton.h Skeleton.cpp
     AnimController.h AnimController.cpp

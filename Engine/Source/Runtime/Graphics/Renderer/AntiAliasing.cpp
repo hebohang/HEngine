@@ -17,7 +17,7 @@ namespace HEngine
         constexpr float c_MaxTaaSharpness = 1.0f;
         constexpr uint32_t c_MaxSmaaSearchSteps = 32;
         constexpr uint32_t c_MaxSmaaDiagonalSearchSteps = 16;
-        constexpr std::array<std::string_view, 12> c_SettingFields = {
+        constexpr std::array<std::string_view, 14> c_SettingFields = {
             "Mode",
             "MsaaSamples",
             "FxaaEdgeThreshold",
@@ -29,6 +29,8 @@ namespace HEngine
             "SmaaCornerRounding",
             "TaaHistoryWeight",
             "TaaSharpness",
+            "TaaOptimizedHistoryGather",
+            "TaaSharedNeighborhood",
             "CaptureSupersampleScale",
         };
 
@@ -413,6 +415,8 @@ namespace HEngine
             { "SmaaCornerRounding", persistentSettings.SmaaCornerRounding },
             { "TaaHistoryWeight", persistentSettings.TaaHistoryWeight },
             { "TaaSharpness", persistentSettings.TaaSharpness },
+            { "TaaOptimizedHistoryGather", persistentSettings.bTaaOptimizedHistoryGather },
+            { "TaaSharedNeighborhood", persistentSettings.bTaaSharedNeighborhood },
         };
     }
 
@@ -511,6 +515,18 @@ namespace HEngine
             iterator != json.end())
         {
             result.TaaSharpness = ReadFloatField(*iterator, "TaaSharpness");
+        }
+        if (const auto iterator = json.find("TaaOptimizedHistoryGather"); iterator != json.end())
+        {
+            if (!iterator->is_boolean())
+                throw std::invalid_argument("TaaOptimizedHistoryGather must be a boolean");
+            result.bTaaOptimizedHistoryGather = iterator->get<bool>();
+        }
+        if (const auto iterator = json.find("TaaSharedNeighborhood"); iterator != json.end())
+        {
+            if (!iterator->is_boolean())
+                throw std::invalid_argument("TaaSharedNeighborhood must be a boolean");
+            result.bTaaSharedNeighborhood = iterator->get<bool>();
         }
         if (const auto iterator = json.find("CaptureSupersampleScale");
             iterator != json.end())

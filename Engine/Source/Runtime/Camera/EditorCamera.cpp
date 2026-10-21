@@ -5,7 +5,6 @@
 #include "Runtime/Core/Input/MouseCodes.h"
 #include "Runtime/Camera/EditorCamera.h"
 
-#include <glfw/glfw3.h>
 #include <glm/gtx/quaternion.hpp>
 
 namespace HEngine 
@@ -191,9 +190,13 @@ namespace HEngine
 
 	void EditorCamera::SetOrientation(const glm::quat& orientation)
 	{
-		const glm::vec3 eulerAngles = glm::eulerAngles(glm::normalize(orientation));
-		mPitch = -eulerAngles.x;
-		mYaw = -eulerAngles.y;
+		// The orbit camera has no roll. Recover its angles from the viewing
+		// direction instead of dropping the roll from an arbitrary Euler branch
+		// (imported cameras can represent an upright view with a pi roll).
+		const glm::vec3 forward = glm::rotate(glm::normalize(orientation),
+			glm::vec3(0.0f, 0.0f, -1.0f));
+		mPitch = -glm::asin(glm::clamp(forward.y, -1.0f, 1.0f));
+		mYaw = glm::atan(forward.x, -forward.z);
 		UpdateView();
 	}
 }

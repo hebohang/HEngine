@@ -4,40 +4,22 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set(CMAKE_FOLDER ${ProgramsFolder})
 set(ProgramsOutDir "${BINARY_ROOT_DIR}/Programs")
 
-function(ADD_PROGRAM TARGET_NAME)
-    if(NOT TARGET ${TARGET_NAME})
-        add_executable(${TARGET_NAME})
-        set_target_properties(${TARGET_NAME} PROPERTIES FOLDER "Programs/${TARGET_NAME}") 
-        if(PACK_GAME AND "${TARGET_NAME}" STREQUAL "HCooker")
-            set_target_properties(${TARGET_NAME} PROPERTIES
-                RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/Programs/${TARGET_NAME}/$<CONFIG>"
-            )
-        else()
-            set_target_properties(${TARGET_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY         "${ProgramsOutDir}/${TARGET_NAME}")
-            set_target_properties(${TARGET_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY_DEBUG   "${ProgramsOutDir}/${TARGET_NAME}")
-            set_target_properties(${TARGET_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY_RELEASE "${ProgramsOutDir}/${TARGET_NAME}")
-        endif()
+include("${CMAKE_SOURCE_DIR}/CMake/Programs.cmake")
 
-        if (WIN32 AND CMAKE_SIZEOF_VOID_P EQUAL 8)
-            target_link_directories(${TARGET_NAME} PRIVATE
-                "$ENV{VCToolsInstallDir}/ATLMFC/lib/x64"
-                "$ENV{VCToolsInstallDir}/lib/x64"
-                "$ENV{UniversalCRTSdkDir}/Lib/$ENV{UCRTVersion}/ucrt/x64"
-                "$ENV{WindowsSdkDir}/Lib/$ENV{WindowsSDKVersion}/um/x64"
-            )
-        endif()
-
-        set(TARGET_NAME ${TARGET_NAME} PARENT_SCOPE)
-    endif()
-endfunction()
-
-add_subdirectory(HEngineParser)
+if(NOT HE_CODEGEN_PARSER_EXECUTABLE)
+    add_subdirectory(HEngineParser)
+endif()
 add_subdirectory(HShaderCompiler)
-if(NOT PACK_GAME)
+if(HE_BUILD_RENDER_SMOKES AND NOT PACK_GAME)
+    add_subdirectory(HEngineFsrSmoke)
+endif()
+if(HE_BUILD_ASSET_TOOLS AND NOT PACK_GAME)
     add_subdirectory(HAssetImporter)
 endif()
-add_subdirectory(HCooker)
-if(NOT PACK_GAME)
+if(HE_BUILD_ASSET_TOOLS OR PACK_GAME)
+    add_subdirectory(HCooker)
+endif()
+if(HE_BUILD_RENDER_SMOKES AND NOT PACK_GAME AND HE_RENDER_DX12)
     add_subdirectory(HEngineDX12Smoke)
     add_subdirectory(HEngineDX12SceneSmoke)
     add_subdirectory(HEffekseerDX12InteropSmoke)

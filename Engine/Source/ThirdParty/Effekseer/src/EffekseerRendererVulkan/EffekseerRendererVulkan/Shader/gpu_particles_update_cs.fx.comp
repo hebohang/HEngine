@@ -1,0 +1,567 @@
+// Recovered losslessly via SPIRV-Cross from the bundled 1.80.6 update SPIR-V.
+// HEngine zero-delta patch mirrors DX11/DX12: presentation color only.
+#version 450
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+struct EmitterData
+{
+    uint FlagBits;
+    uint Seed;
+    uint ParticleHead;
+    uint ParticleSize;
+    uint TrailHead;
+    uint TrailSize;
+    uint TrailPhase;
+    uint NextEmitCount;
+    uint TotalEmitCount;
+    uint EmitPointCount;
+    float TimeCount;
+    float TimeStopped;
+    uint Reserved0;
+    uint Reserved1;
+    float DeltaTime;
+    uint Color;
+    mat4x3 Transform;
+};
+
+struct ParticleData
+{
+    uint FlagBits;
+    uint Seed;
+    float LifeAge;
+    uint InheritColor;
+    uint Color;
+    uint Direction;
+    uvec2 Velocity;
+    mat4x3 Transform;
+};
+
+struct ParameterData
+{
+    int EmitCount;
+    int EmitPerFrame;
+    float EmitOffset;
+    uint Padding0;
+    vec2 LifeTime;
+    uint EmitShapeType;
+    uint EmitRotationApplied;
+    vec4 EmitShapeData[2];
+    vec3 Direction;
+    float Spread;
+    vec2 InitialSpeed;
+    vec2 Damping;
+    vec4 AngularOffset[2];
+    vec4 AngularVelocity[2];
+    vec4 ScaleData1[2];
+    vec4 ScaleData2[2];
+    vec3 ScaleEasing;
+    uint ScaleFlags;
+    vec3 Gravity;
+    uint Padding2;
+    vec3 VortexCenter;
+    float VortexRotation;
+    vec3 VortexAxis;
+    float VortexAttraction;
+    float TurbulencePower;
+    uint TurbulenceSeed;
+    float TurbulenceScale;
+    float TurbulenceOctave;
+    uint RenderState;
+    uint ShapeType;
+    uint ShapeData;
+    float ShapeSize;
+    float Emissive;
+    float FadeIn;
+    float FadeOut;
+    uint MaterialType;
+    uvec4 ColorData;
+    vec3 ColorEasing;
+    uint ColorFlags;
+};
+
+struct TrailData
+{
+    vec3 Position;
+    uint Direction;
+};
+
+struct ComputeConstants
+{
+    uint CoordinateReversed;
+    float Reserved0;
+    float Reserved1;
+    float Reserved2;
+};
+
+layout(set = 0, binding = 2, std140) uniform cb2
+{
+    layout(row_major) EmitterData emitter;
+} _RESERVED_IDENTIFIER_FIXUP_620;
+
+layout(set = 2, binding = 0, std430) buffer Particles
+{
+    layout(row_major) ParticleData _data[];
+} Particles_1;
+
+layout(set = 0, binding = 1, std140) uniform cb1
+{
+    ParameterData paramData;
+} _RESERVED_IDENTIFIER_FIXUP_687;
+
+layout(set = 2, binding = 1, std430) buffer Trails
+{
+    TrailData _data[];
+} Trails_1;
+
+layout(set = 0, binding = 0, std140) uniform cb0
+{
+    ComputeConstants constants;
+} _RESERVED_IDENTIFIER_FIXUP_1224;
+
+layout(set = 1, binding = 2) uniform sampler3D Sampler_NoiseSamp;
+layout(set = 1, binding = 4) uniform sampler2D Sampler_GradientSamp;
+
+uint RandomUint(inout uint seed)
+{
+    uint state = seed;
+    seed = (seed * 747796405u) + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+float RandomFloat(inout uint seed)
+{
+    uint param = seed;
+    uint param_1 = param;
+    uint _131 = RandomUint(param_1);
+    param = param_1;
+    uint _RESERVED_IDENTIFIER_FIXUP_461 = _131;
+    seed = param;
+    return float(_RESERVED_IDENTIFIER_FIXUP_461) / 4294967296.0;
+}
+
+float RandomFloatRange(inout uint seed, vec2 maxmin)
+{
+    uint param = seed;
+    uint param_1 = param;
+    float _145 = RandomFloat(param_1);
+    param = param_1;
+    float _RESERVED_IDENTIFIER_FIXUP_474 = _145;
+    seed = param;
+    return mix(maxmin.y, maxmin.x, _RESERVED_IDENTIFIER_FIXUP_474);
+}
+
+vec4 RandomFloat4Range(inout uint seed, vec4 maxmin[2])
+{
+    uint param = seed;
+    uint param_1 = param;
+    float _163 = RandomFloat(param_1);
+    param = param_1;
+    float _RESERVED_IDENTIFIER_FIXUP_485 = _163;
+    seed = param;
+    return mix(maxmin[1], maxmin[0], vec4(_RESERVED_IDENTIFIER_FIXUP_485));
+}
+
+vec3 UnpackNormalizedFloat3(uint bits)
+{
+    vec3 v = vec3(uvec3(bits, bits >> 10u, bits >> 20u) & uvec3(1023u));
+    return ((v / vec3(1023.0)) * 2.0) - vec3(1.0);
+}
+
+vec4 UnpackFloat4(uvec2 bits)
+{
+    return vec4(unpackHalf2x16(uvec4(bits.x, bits.x >> 16u, bits.y, bits.y >> 16u).x).x, unpackHalf2x16(uvec4(bits.x, bits.x >> 16u, bits.y, bits.y >> 16u).y).x, unpackHalf2x16(uvec4(bits.x, bits.x >> 16u, bits.y, bits.y >> 16u).z).x, unpackHalf2x16(uvec4(bits.x, bits.x >> 16u, bits.y, bits.y >> 16u).w).x);
+}
+
+uint PackNormalizedFloat3(vec3 v)
+{
+    uvec3 i = uvec3(((v + vec3(1.0)) * 0.5) * 1023.0);
+    return (i.x | (i.y << 10u)) | (i.z << 20u);
+}
+
+vec3 Vortex(float rotation, float attraction, inout vec3 center, inout vec3 axis, vec3 position, mat4x3 transform)
+{
+    center = transform[3] + center;
+    axis = normalize(transform * vec4(axis, 0.0));
+    vec3 localPos = position - center;
+    vec3 axisToPos = localPos - (axis * dot(axis, localPos));
+    float _distance = length(axisToPos);
+    if (_distance < 9.9999997473787516355514526367188e-05)
+    {
+        return vec3(0.0);
+    }
+    vec3 radial = normalize(axisToPos);
+    vec3 tangent = cross(axis, radial);
+    return (tangent * rotation) - (radial * attraction);
+}
+
+float EasingSpeed(float t, vec3 params)
+{
+    return ((((params.x * t) * t) * t) + ((params.y * t) * t)) + (params.z * t);
+}
+
+vec4 UnpackColor(uint color32)
+{
+    return vec4(float(color32 & 255u), float((color32 >> 8u) & 255u), float((color32 >> 16u) & 255u), float((color32 >> 24u) & 255u)) / vec4(255.0);
+}
+
+vec4 RandomColorRange(inout uint seed, uvec2 maxmin)
+{
+    uint param = maxmin.y;
+    uint param_1 = maxmin.x;
+    uint param_2 = seed;
+    uint param_3 = param_2;
+    float _393 = RandomFloat(param_3);
+    param_2 = param_3;
+    float _RESERVED_IDENTIFIER_FIXUP_501 = _393;
+    seed = param_2;
+    uint param_4 = param;
+    uint param_5 = param_1;
+    return mix(UnpackColor(param_4), UnpackColor(param_5), vec4(_RESERVED_IDENTIFIER_FIXUP_501));
+}
+
+vec3 HSV2RGB(vec3 c)
+{
+    vec4 k = vec4(1.0, 0.666666686534881591796875, 0.3333333432674407958984375, 3.0);
+    vec3 p = abs((fract(c.xxx + k.xyz) * 6.0) - k.www);
+    return mix(k.xxx, clamp(p - k.xxx, vec3(0.0), vec3(1.0)), vec3(c.y)) * c.z;
+}
+
+mat4x3 TRSMatrix(vec3 translation, vec3 rotation, vec3 scale)
+{
+    vec3 s = sin(rotation);
+    vec3 c = cos(rotation);
+    mat4x3 m;
+    m[0].x = scale.x * ((c.z * c.y) + ((s.z * s.x) * s.y));
+    m[1].x = scale.y * (s.z * c.x);
+    m[2].x = scale.z * ((c.z * (-s.y)) + ((s.z * s.x) * c.y));
+    m[3].x = translation.x;
+    m[0].y = scale.x * (((-s.z) * c.y) + ((c.z * s.x) * s.y));
+    m[1].y = scale.y * (c.z * c.x);
+    m[2].y = scale.z * (((-s.z) * (-s.y)) + ((c.z * s.x) * c.y));
+    m[3].y = translation.y;
+    m[0].z = scale.x * (c.x * s.y);
+    m[1].z = scale.y * (-s.x);
+    m[2].z = scale.z * (c.x * c.y);
+    m[3].z = translation.z;
+    return m;
+}
+
+uvec2 PackFloat4(vec4 v)
+{
+    uvec4 v16 = uvec4(packHalf2x16(vec2(v.x, 0.0)), packHalf2x16(vec2(v.y, 0.0)), packHalf2x16(vec2(v.z, 0.0)), packHalf2x16(vec2(v.w, 0.0)));
+    return uvec2(v16.x | (v16.y << 16u), v16.z | (v16.w << 16u));
+}
+
+uint PackColor(vec4 color)
+{
+    uvec4 colori = uvec4(clamp(color * 255.0, vec4(0.0), vec4(255.0)));
+    return ((colori.x | (colori.y << 8u)) | (colori.z << 16u)) | (colori.w << 24u);
+}
+
+void _main(uvec3 dtid)
+{
+    uint particleID = _RESERVED_IDENTIFIER_FIXUP_620.emitter.ParticleHead + dtid.x;
+    ParticleData particle;
+    particle.FlagBits = Particles_1._data[particleID].FlagBits;
+    particle.Seed = Particles_1._data[particleID].Seed;
+    particle.LifeAge = Particles_1._data[particleID].LifeAge;
+    particle.InheritColor = Particles_1._data[particleID].InheritColor;
+    particle.Color = Particles_1._data[particleID].Color;
+    particle.Direction = Particles_1._data[particleID].Direction;
+    particle.Velocity = Particles_1._data[particleID].Velocity;
+    particle.Transform = Particles_1._data[particleID].Transform;
+    if ((particle.FlagBits & 1u) != 0u)
+    {
+        uint updateCount = (particle.FlagBits >> 1u) & 255u;
+        float deltaTime = _RESERVED_IDENTIFIER_FIXUP_620.emitter.DeltaTime;
+        uint seed = particle.Seed;
+        uint param = seed;
+        vec2 param_1 = _RESERVED_IDENTIFIER_FIXUP_687.paramData.LifeTime;
+        uint param_2 = param;
+        vec2 param_3 = param_1;
+        float _732 = RandomFloatRange(param_2, param_3);
+        param = param_2;
+        float _RESERVED_IDENTIFIER_FIXUP_694 = _732;
+        seed = param;
+        float lifeTime = _RESERVED_IDENTIFIER_FIXUP_694;
+        float lifeRatio = particle.LifeAge / lifeTime;
+        uint param_2_1 = seed;
+        vec2 param_3_1 = _RESERVED_IDENTIFIER_FIXUP_687.paramData.Damping;
+        uint param_4 = param_2_1;
+        vec2 param_5 = param_3_1;
+        float _753 = RandomFloatRange(param_4, param_5);
+        param_2_1 = param_4;
+        float _RESERVED_IDENTIFIER_FIXUP_708 = _753;
+        seed = param_2_1;
+        float damping = _RESERVED_IDENTIFIER_FIXUP_708 * 0.00999999977648258209228515625;
+        uint param_4_1 = seed;
+        vec4 param_5_1[2];
+        param_5_1[0] = _RESERVED_IDENTIFIER_FIXUP_687.paramData.AngularOffset[0];
+        param_5_1[1] = _RESERVED_IDENTIFIER_FIXUP_687.paramData.AngularOffset[1];
+        uint param_6 = param_4_1;
+        vec4 param_7[2] = param_5_1;
+        vec4 _776 = RandomFloat4Range(param_6, param_7);
+        param_4_1 = param_6;
+        vec4 _RESERVED_IDENTIFIER_FIXUP_724 = _776;
+        seed = param_4_1;
+        vec4 angularOffset = _RESERVED_IDENTIFIER_FIXUP_724;
+        uint param_6_1 = seed;
+        vec4 param_7_1[2];
+        param_7_1[0] = _RESERVED_IDENTIFIER_FIXUP_687.paramData.AngularVelocity[0];
+        param_7_1[1] = _RESERVED_IDENTIFIER_FIXUP_687.paramData.AngularVelocity[1];
+        uint param_8 = param_6_1;
+        vec4 param_9[2] = param_7_1;
+        vec4 _796 = RandomFloat4Range(param_8, param_9);
+        param_6_1 = param_8;
+        vec4 _RESERVED_IDENTIFIER_FIXUP_738 = _796;
+        seed = param_6_1;
+        vec4 angularVelocity = _RESERVED_IDENTIFIER_FIXUP_738;
+        vec3 position = particle.Transform[3];
+        vec3 lastPosition = position;
+        uint param_8_1 = particle.Direction;
+        uint param_10 = param_8_1;
+        vec3 direction = normalize(UnpackNormalizedFloat3(param_10));
+        uvec2 param_9_1 = particle.Velocity;
+        uvec2 param_11 = param_9_1;
+        vec3 velocity = UnpackFloat4(param_11).xyz;
+        if (deltaTime > 0.0 && _RESERVED_IDENTIFIER_FIXUP_620.emitter.TrailSize > 0u)
+        {
+            uint trailID = (_RESERVED_IDENTIFIER_FIXUP_620.emitter.TrailHead + (dtid.x * _RESERVED_IDENTIFIER_FIXUP_687.paramData.ShapeData)) + _RESERVED_IDENTIFIER_FIXUP_620.emitter.TrailPhase;
+            TrailData trail;
+            trail.Position = position;
+            vec3 param_10_1 = direction;
+            vec3 param_12 = param_10_1;
+            trail.Direction = PackNormalizedFloat3(param_12);
+            Trails_1._data[trailID].Position = trail.Position;
+            Trails_1._data[trailID].Direction = trail.Direction;
+        }
+        particle.FlagBits &= 4294966785u;
+        particle.FlagBits |= (clamp(updateCount + 1u, 0u, 255u) << 1u);
+        particle.LifeAge += deltaTime;
+        if (particle.LifeAge >= lifeTime)
+        {
+            particle.FlagBits &= 4294967294u;
+        }
+        velocity += (_RESERVED_IDENTIFIER_FIXUP_687.paramData.Gravity * deltaTime);
+        float speed = length(velocity);
+        if (speed > 0.0)
+        {
+            float newSpeed = max(0.0, speed - (damping * deltaTime));
+            velocity *= (newSpeed / speed);
+        }
+        position += (velocity * deltaTime);
+        bool _928 = _RESERVED_IDENTIFIER_FIXUP_687.paramData.VortexRotation != 0.0;
+        bool _936;
+        if (!_928)
+        {
+            _936 = _RESERVED_IDENTIFIER_FIXUP_687.paramData.VortexAttraction != 0.0;
+        }
+        else
+        {
+            _936 = _928;
+        }
+        if (_936)
+        {
+            float param_11_1 = _RESERVED_IDENTIFIER_FIXUP_687.paramData.VortexRotation;
+            float param_12_1 = _RESERVED_IDENTIFIER_FIXUP_687.paramData.VortexAttraction;
+            vec3 param_13 = _RESERVED_IDENTIFIER_FIXUP_687.paramData.VortexCenter;
+            vec3 param_14 = _RESERVED_IDENTIFIER_FIXUP_687.paramData.VortexAxis;
+            vec3 param_15 = position;
+            mat4x3 param_16 = _RESERVED_IDENTIFIER_FIXUP_620.emitter.Transform;
+            float param_17 = param_11_1;
+            float param_18 = param_12_1;
+            vec3 param_19 = param_13;
+            vec3 param_20 = param_14;
+            vec3 param_21 = param_15;
+            mat4x3 param_22 = param_16;
+            vec3 _972 = Vortex(param_17, param_18, param_19, param_20, param_21, param_22);
+            param_13 = param_19;
+            param_14 = param_20;
+            vec3 _RESERVED_IDENTIFIER_FIXUP_888 = _972;
+            position += (_RESERVED_IDENTIFIER_FIXUP_888 * deltaTime);
+        }
+        if (_RESERVED_IDENTIFIER_FIXUP_687.paramData.TurbulencePower != 0.0)
+        {
+            vec4 vfTexel = textureLod(Sampler_NoiseSamp, (position * _RESERVED_IDENTIFIER_FIXUP_687.paramData.TurbulenceScale) + vec3(0.5), 0.0);
+            position += ((((vfTexel.xyz * 2.0) - vec3(1.0)) * _RESERVED_IDENTIFIER_FIXUP_687.paramData.TurbulencePower) * deltaTime);
+        }
+        vec3 diff = position - lastPosition;
+        if (length(diff) > 9.9999997473787516355514526367188e-05)
+        {
+            direction = normalize(diff);
+        }
+        vec3 rotation = angularOffset.xyz + (angularVelocity.xyz * particle.LifeAge);
+        vec4 scale = vec4(1.0);
+        uint scaleMode = _RESERVED_IDENTIFIER_FIXUP_687.paramData.ScaleFlags & 7u;
+        if (scaleMode == 0u)
+        {
+            uint param_17_1 = seed;
+            vec4 param_18_1[2];
+            param_18_1[0] = _RESERVED_IDENTIFIER_FIXUP_687.paramData.ScaleData1[0];
+            param_18_1[1] = _RESERVED_IDENTIFIER_FIXUP_687.paramData.ScaleData1[1];
+            uint param_23 = param_17_1;
+            vec4 param_24[2] = param_18_1;
+            vec4 _1057 = RandomFloat4Range(param_23, param_24);
+            param_17_1 = param_23;
+            vec4 _RESERVED_IDENTIFIER_FIXUP_971 = _1057;
+            seed = param_17_1;
+            scale = _RESERVED_IDENTIFIER_FIXUP_971;
+        }
+        else
+        {
+            if (scaleMode == 2u)
+            {
+                uint param_19_1 = seed;
+                vec4 param_20_1[2];
+                param_20_1[0] = _RESERVED_IDENTIFIER_FIXUP_687.paramData.ScaleData1[0];
+                param_20_1[1] = _RESERVED_IDENTIFIER_FIXUP_687.paramData.ScaleData1[1];
+                uint param_25 = param_19_1;
+                vec4 param_26[2] = param_20_1;
+                vec4 _1080 = RandomFloat4Range(param_25, param_26);
+                param_19_1 = param_25;
+                vec4 _RESERVED_IDENTIFIER_FIXUP_988 = _1080;
+                seed = param_19_1;
+                vec4 scale1 = _RESERVED_IDENTIFIER_FIXUP_988;
+                uint param_21_1 = seed;
+                vec4 param_22_1[2];
+                param_22_1[0] = _RESERVED_IDENTIFIER_FIXUP_687.paramData.ScaleData2[0];
+                param_22_1[1] = _RESERVED_IDENTIFIER_FIXUP_687.paramData.ScaleData2[1];
+                uint param_27 = param_21_1;
+                vec4 param_28[2] = param_22_1;
+                vec4 _1100 = RandomFloat4Range(param_27, param_28);
+                param_21_1 = param_27;
+                vec4 _RESERVED_IDENTIFIER_FIXUP_1002 = _1100;
+                seed = param_21_1;
+                vec4 scale2 = _RESERVED_IDENTIFIER_FIXUP_1002;
+                float param_23_1 = lifeRatio;
+                vec3 param_24_1 = _RESERVED_IDENTIFIER_FIXUP_687.paramData.ScaleEasing;
+                float param_29 = param_23_1;
+                vec3 param_30 = param_24_1;
+                scale = mix(scale1, scale2, vec4(EasingSpeed(param_29, param_30)));
+            }
+        }
+        uint colorMode = _RESERVED_IDENTIFIER_FIXUP_687.paramData.ColorFlags & 7u;
+        vec4 color = vec4(1.0);
+        if (colorMode == 0u)
+        {
+            uint param_25_1 = _RESERVED_IDENTIFIER_FIXUP_687.paramData.ColorData.x;
+            uint param_31 = param_25_1;
+            color = UnpackColor(param_31);
+        }
+        else
+        {
+            if (colorMode == 1u)
+            {
+                uint param_26_1 = seed;
+                uvec2 param_27_1 = _RESERVED_IDENTIFIER_FIXUP_687.paramData.ColorData.xy;
+                uint param_32 = param_26_1;
+                uvec2 param_33 = param_27_1;
+                vec4 _1153 = RandomColorRange(param_32, param_33);
+                param_26_1 = param_32;
+                vec4 _RESERVED_IDENTIFIER_FIXUP_1041 = _1153;
+                seed = param_26_1;
+                color = _RESERVED_IDENTIFIER_FIXUP_1041;
+            }
+            else
+            {
+                if (colorMode == 2u)
+                {
+                    uint param_28_1 = seed;
+                    uvec2 param_29_1 = _RESERVED_IDENTIFIER_FIXUP_687.paramData.ColorData.xy;
+                    uint param_34 = param_28_1;
+                    uvec2 param_35 = param_29_1;
+                    vec4 _1173 = RandomColorRange(param_34, param_35);
+                    param_28_1 = param_34;
+                    vec4 _RESERVED_IDENTIFIER_FIXUP_1055 = _1173;
+                    seed = param_28_1;
+                    vec4 colorStart = _RESERVED_IDENTIFIER_FIXUP_1055;
+                    uint param_30_1 = seed;
+                    uvec2 param_31_1 = _RESERVED_IDENTIFIER_FIXUP_687.paramData.ColorData.zw;
+                    uint param_36 = param_30_1;
+                    uvec2 param_37 = param_31_1;
+                    vec4 _1189 = RandomColorRange(param_36, param_37);
+                    param_30_1 = param_36;
+                    vec4 _RESERVED_IDENTIFIER_FIXUP_1064 = _1189;
+                    seed = param_30_1;
+                    vec4 colorEnd = _RESERVED_IDENTIFIER_FIXUP_1064;
+                    float param_32_1 = lifeRatio;
+                    vec3 param_33_1 = _RESERVED_IDENTIFIER_FIXUP_687.paramData.ColorEasing;
+                    float param_38 = param_32_1;
+                    vec3 param_39 = param_33_1;
+                    color = mix(colorStart, colorEnd, vec4(EasingSpeed(param_38, param_39)));
+                }
+                else
+                {
+                    if ((colorMode == 3u) || (colorMode == 4u))
+                    {
+                        color = textureLod(Sampler_GradientSamp, vec2(lifeRatio, 0.0), 0.0);
+                    }
+                }
+            }
+        }
+        if (((_RESERVED_IDENTIFIER_FIXUP_687.paramData.ColorFlags >> 5u) & 1u) != 0u)
+        {
+            vec3 param_34_1 = color.xyz;
+            vec3 param_40 = param_34_1;
+            vec3 _RESERVED_IDENTIFIER_FIXUP_1106 = HSV2RGB(param_40);
+            color.x = _RESERVED_IDENTIFIER_FIXUP_1106.x;
+            color.y = _RESERVED_IDENTIFIER_FIXUP_1106.y;
+            color.z = _RESERVED_IDENTIFIER_FIXUP_1106.z;
+        }
+        uint colorInherit = (_RESERVED_IDENTIFIER_FIXUP_687.paramData.ColorFlags >> 3u) & 3u;
+        if ((colorInherit == 2u) || (colorInherit == 3u))
+        {
+            uint param_35_1 = _RESERVED_IDENTIFIER_FIXUP_620.emitter.Color;
+            uint param_41 = param_35_1;
+            color *= UnpackColor(param_41);
+        }
+        else
+        {
+            uint param_36_1 = particle.InheritColor;
+            uint param_42 = param_36_1;
+            color *= UnpackColor(param_42);
+        }
+        color.w *= clamp(particle.LifeAge / _RESERVED_IDENTIFIER_FIXUP_687.paramData.FadeIn, 0.0, 1.0);
+        color.w *= clamp((lifeTime - particle.LifeAge) / _RESERVED_IDENTIFIER_FIXUP_687.paramData.FadeOut, 0.0, 1.0);
+        vec3 param_37_1 = position;
+        vec3 param_38_1 = rotation;
+        vec3 param_39_1 = (scale.xyz * scale.w) * _RESERVED_IDENTIFIER_FIXUP_687.paramData.ShapeSize;
+        vec3 param_43 = param_37_1;
+        vec3 param_44 = param_38_1;
+        vec3 param_45 = param_39_1;
+        particle.Transform = TRSMatrix(param_43, param_44, param_45);
+        vec4 param_40_1 = vec4(velocity, 0.0);
+        vec4 param_46 = param_40_1;
+        particle.Velocity = PackFloat4(param_46);
+        vec3 param_41_1 = direction;
+        vec3 param_47 = param_41_1;
+        particle.Direction = PackNormalizedFloat3(param_47);
+        vec4 param_42_1 = color;
+        vec4 param_48 = param_42_1;
+        particle.Color = PackColor(param_48);
+        // Zero time publishes presentation color only, preserving GPU history.
+        if (deltaTime == 0.0)
+        {
+            Particles_1._data[particleID].Color = particle.Color;
+            return;
+        }
+        Particles_1._data[particleID].FlagBits = particle.FlagBits;
+        Particles_1._data[particleID].Seed = particle.Seed;
+        Particles_1._data[particleID].LifeAge = particle.LifeAge;
+        Particles_1._data[particleID].InheritColor = particle.InheritColor;
+        Particles_1._data[particleID].Color = particle.Color;
+        Particles_1._data[particleID].Direction = particle.Direction;
+        Particles_1._data[particleID].Velocity = particle.Velocity;
+        Particles_1._data[particleID].Transform = particle.Transform;
+    }
+}
+
+void main()
+{
+    uvec3 dtid = gl_GlobalInvocationID;
+    uvec3 param = dtid;
+    uvec3 param_1 = param;
+    _main(param_1);
+}
+

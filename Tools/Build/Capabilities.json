@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "engineVersion": "1.1.0",
+  "scope": "Standard binary SDK; an implementation capability is not a device validation result. Features absent from this catalog are unclassified.",
+  "platforms": {
+    "Windows": {"player": "Selected by HEngine.distribution.json Platform", "architectures": {"x64": "validated", "arm64": "integration-pending"}, "nativeEngineCompilation": false, "projectTools": ["dotnet-sdk", "HCooker", "HShaderCompiler"]},
+    "Android": {"player": "Android-arm64", "nativeEngineCompilation": false, "projectTools": ["dotnet-sdk", "android-workload", "jdk", "android-sdk", "HCooker", "HShaderCompiler"]},
+    "Web": {"player": "Managed WebAssembly host", "nativeEngineCompilation": false, "projectTools": ["dotnet-sdk", "wasm-tools", "python", "node"]},
+    "WeChat": {"player": "Managed WebAssembly WeChat host", "nativeEngineCompilation": false, "projectTools": ["dotnet-sdk", "wasm-tools", "python", "node", "wechat-developer-tools"]}
+  },
+  "features": {
+    "render.portable-view": {
+      "description": "Bounded 2D rectangular sprites, text/actions and audio cues from PortableView state. Native Sprite and Canvas hosts share the same C# rules, without native 3D feature parity.",
+      "implementation": "Engine/Managed/Portable/PortableView.cs",
+      "support": {"Windows": "supported", "Android": "supported", "Web": "supported", "WeChat": "supported"}
+    },
+    "game.shared-session": {
+      "description": "Shared C# IGameSession rules; presentation and platform services are provided by adapters.",
+      "implementation": "Engine/Managed/Shared/IGameSession.cs",
+      "support": {"Windows": "supported", "Android": "supported", "Web": "supported", "WeChat": "supported"}
+    },
+    "script.scene-behaviour": {
+      "description": "C# ScriptBehaviour attached to a native scene. Portable hosts do not execute the native scene graph.",
+      "support": {"Windows": "supported", "Android": "supported", "Web": "unsupported", "WeChat": "unsupported"}
+    },
+    "audio.native-control": {
+      "description": "Native 2D/spatial playback, bus gain, pause/resume, seek and listener controls. PortableView audio cues have a separate adapter contract. Device availability must be checked at runtime.",
+      "support": {"Windows": "supported", "Android": "supported", "Web": "unsupported", "WeChat": "unsupported"}
+    },
+    "render.native-scene": {
+      "description": "Native scene renderer; Web and WeChat require a separate presentation adapter.",
+      "support": {"Windows": "supported", "Android": "supported", "Web": "unsupported", "WeChat": "unsupported"}
+    },
+    "game.project-adapter": {
+      "description": "Project-supplied presentation/export adapter. Its existence does not prove feature parity or device correctness.",
+      "support": {"Windows": "adapter", "Android": "adapter", "Web": "adapter", "WeChat": "adapter"}
+    },
+    "script.custom-native": {
+      "description": "Project C++ or extra native plugins require a separately built matching player, outside the standard binary SDK.",
+      "support": {"Windows": "unsupported", "Android": "unsupported", "Web": "unsupported", "WeChat": "unsupported"}
+    },
+    "ai.development-session": {
+      "description": "Isolated native development player with input, frame stepping, inspection and capture; excluded from Shipping.",
+      "support": {"Windows": "supported", "Android": "unsupported", "Web": "unsupported", "WeChat": "unsupported"}
+    }
+  },
+  "portableNativeComponents": ["Rigidbody3DComponent", "Rigidbody2DComponent", "BoxCollider2DComponent", "CircleCollider2DComponent", "CharacterMovementComponent", "BehaviorTreeComponent", "PythonScriptComponent", "NativeScriptComponent"]
+}

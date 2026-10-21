@@ -286,16 +286,16 @@ namespace HEngine
             const std::string lowered = ToLowerCopy(original);
             if (lowered.rfind("rgba", 0) == 0)
             {
-                sprintf_s(buffer, sizeof(buffer), "rgba(%d, %d, %d, %d)", r, g, b, a);
+                std::snprintf(buffer, sizeof(buffer), "rgba(%d, %d, %d, %d)", r, g, b, a);
                 return buffer;
             }
             if (lowered.rfind("rgb", 0) == 0)
             {
-                sprintf_s(buffer, sizeof(buffer), "rgb(%d, %d, %d)", r, g, b);
+                std::snprintf(buffer, sizeof(buffer), "rgb(%d, %d, %d)", r, g, b);
                 return buffer;
             }
 
-            sprintf_s(buffer, sizeof(buffer), "#%02x%02x%02x%02x", r, g, b, a);
+            std::snprintf(buffer, sizeof(buffer), "#%02x%02x%02x%02x", r, g, b, a);
             return buffer;
         }
 
@@ -424,17 +424,21 @@ namespace HEngine
             node.Layout.AnchorMax = sanitizedAnchorMax;
             node.Layout.Pivot = SanitizePivot(pivot);
 
-            if (NearlyEqual(node.Layout.AnchorMin, node.Layout.AnchorMax))
+            for (int axis = 0; axis < 2; ++axis)
             {
-                node.Layout.OffsetMax = glm::max(relativeRect.Size, glm::vec2(0.0f, 0.0f));
-                node.Layout.OffsetMin = relativeRect.Position - parentSize * node.Layout.AnchorMin + node.Layout.Pivot * node.Layout.OffsetMax;
-                return;
+                if (node.Layout.AnchorMin[axis] == node.Layout.AnchorMax[axis])
+                {
+                    node.Layout.OffsetMax[axis] = std::max(relativeRect.Size[axis], 0.0f);
+                    node.Layout.OffsetMin[axis] = relativeRect.Position[axis] - parentSize[axis] * node.Layout.AnchorMin[axis]
+                        + node.Layout.Pivot[axis] * node.Layout.OffsetMax[axis];
+                }
+                else
+                {
+                    node.Layout.OffsetMin[axis] = relativeRect.Position[axis] - parentSize[axis] * node.Layout.AnchorMin[axis];
+                    node.Layout.OffsetMax[axis] = relativeRect.Position[axis] + relativeRect.Size[axis]
+                        - parentSize[axis] * node.Layout.AnchorMax[axis];
+                }
             }
-
-            const glm::vec2 anchorMinPx = parentSize * node.Layout.AnchorMin;
-            const glm::vec2 anchorMaxPx = parentSize * node.Layout.AnchorMax;
-            node.Layout.OffsetMin = relativeRect.Position - anchorMinPx;
-            node.Layout.OffsetMax = (relativeRect.Position + relativeRect.Size) - anchorMaxPx;
         }
 
         static void DrawCheckerboard(ImDrawList* drawList,
@@ -608,7 +612,7 @@ namespace HEngine
         static PreviewNodeState MakePreviewNodeState(const UINodeRes& node, const UILayoutRect& parentRect, const ImVec2& canvasOrigin, float canvasScale)
         {
             PreviewNodeState state;
-            if (node.Type == UIWidgetType::Canvas)
+            if (node.Type == UIWidgetType::Canvas && node.ParentId < 0)
             {
                 state.LocalRect = parentRect;
             }
@@ -1251,7 +1255,7 @@ namespace HEngine
         auto drawPathProperty = [&](const char* label, std::string& value, const std::string& filter)
         {
             char buffer[260] = {};
-            strcpy_s(buffer, sizeof(buffer), value.c_str());
+            std::snprintf(buffer, sizeof(buffer), "%s", value.c_str());
             ImGuiWrapper::PropertyRow(EditorLayer::GetText(label), [&]()
             {
                 ImGui::PushID(label);
@@ -1277,11 +1281,11 @@ namespace HEngine
         };
 
         char nameBuffer[256] = {};
-        strcpy_s(nameBuffer, sizeof(nameBuffer), node->Name.c_str());
+        std::snprintf(nameBuffer, sizeof(nameBuffer), "%s", node->Name.c_str());
         ImGuiWrapper::PropertyRow(EditorLayer::GetText("Name"), [&]() { if (ImGui::InputText("##Name", nameBuffer, sizeof(nameBuffer))) { node->Name = nameBuffer; CaptureHistory("Rename UI Widget"); } });
 
         char idBuffer[256] = {};
-        strcpy_s(idBuffer, sizeof(idBuffer), node->ElementId.c_str());
+        std::snprintf(idBuffer, sizeof(idBuffer), "%s", node->ElementId.c_str());
         ImGuiWrapper::PropertyRow(EditorLayer::GetText("Element Id"), [&]() { if (ImGui::InputText("##ElementId", idBuffer, sizeof(idBuffer))) { node->ElementId = idBuffer; CaptureHistory("Change Element Id"); } });
 
         ImGuiWrapper::PropertyRow(EditorLayer::GetText("Type"), [&]() { ImGui::TextUnformatted(EditorLayer::GetText(WidgetTypeName(node->Type))); });
@@ -1386,8 +1390,8 @@ namespace HEngine
         {
             if (AdjustVector2(node->Layout.OffsetMax, 1.0f, 0.0f, 0.0f, "%.0f"))
             {
-                if (!bStretchX || !bStretchY)
-                    node->Layout.OffsetMax = glm::max(node->Layout.OffsetMax, glm::vec2(kMinNodeSize, kMinNodeSize));
+                if (!bStretchX) node->Layout.OffsetMax.x = std::max(node->Layout.OffsetMax.x, kMinNodeSize);
+                if (!bStretchY) node->Layout.OffsetMax.y = std::max(node->Layout.OffsetMax.y, kMinNodeSize);
                 CaptureHistory("Edit Size", true);
             }
         });
@@ -1396,7 +1400,7 @@ namespace HEngine
         ImGui::TextUnformatted(EditorLayer::GetText("Content"));
 
         char textBuffer[512] = {};
-        strcpy_s(textBuffer, sizeof(textBuffer), node->Text.c_str());
+        std::snprintf(textBuffer, sizeof(textBuffer), "%s", node->Text.c_str());
         ImGuiWrapper::PropertyRow(EditorLayer::GetText("Text"), [&]()
         {
             if (ImGui::InputTextMultiline("##Text", textBuffer, sizeof(textBuffer), ImVec2(-FLT_MIN, ImGuiWrapper::S(90.0f))))
@@ -1411,7 +1415,7 @@ namespace HEngine
         drawPathProperty("Image", node->ImagePath, imageFilter);
 
         char classBuffer[256] = {};
-        strcpy_s(classBuffer, sizeof(classBuffer), node->Style.ClassName.c_str());
+        std::snprintf(classBuffer, sizeof(classBuffer), "%s", node->Style.ClassName.c_str());
         ImGuiWrapper::PropertyRow(EditorLayer::GetText("Class"), [&]() { if (ImGui::InputText("##Class", classBuffer, sizeof(classBuffer))) { node->Style.ClassName = classBuffer; CaptureHistory("Edit UI Class"); } });
 
         ImGui::Separator();
@@ -1428,7 +1432,7 @@ namespace HEngine
         ImGuiWrapper::PropertyRow(EditorLayer::GetText("Border Width"), [&]() { if (ImGui::DragFloat("##BorderWidth", &node->Style.BorderWidth, 1.0f, 0.0f, 100.0f, "%.0f")) CaptureHistory("Edit Border Width", true); });
 
         char extraStyleBuffer[512] = {};
-        strcpy_s(extraStyleBuffer, sizeof(extraStyleBuffer), node->Style.ExtraStyle.c_str());
+        std::snprintf(extraStyleBuffer, sizeof(extraStyleBuffer), "%s", node->Style.ExtraStyle.c_str());
         ImGuiWrapper::PropertyRow(EditorLayer::GetText("Extra Style"), [&]()
         {
             if (ImGui::InputTextMultiline("##ExtraStyle", extraStyleBuffer, sizeof(extraStyleBuffer), ImVec2(-FLT_MIN, ImGuiWrapper::S(80.0f))))

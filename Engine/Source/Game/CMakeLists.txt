@@ -16,8 +16,11 @@ endmacro(GAME_ADD_SOURCE)
 
 set(GameHeaderFiles "")
 set(ProjectGameSourceDir "${ProjectRootDir}/Source/Game")
+if(HE_PORTABLE_PLAYER)
+    set(ProjectGameSourceDir "${CMAKE_CURRENT_SOURCE_DIR}/Portable")
+endif()
 if(NOT EXISTS "${ProjectGameSourceDir}/Game.cpp" OR
-   NOT EXISTS "${ProjectGameSourceDir}/GameLayer/CMakeLists.txt")
+   (NOT HE_PORTABLE_PLAYER AND NOT EXISTS "${ProjectGameSourceDir}/GameLayer/CMakeLists.txt"))
 	message(FATAL_ERROR "Project game sources are missing: ${ProjectGameSourceDir}")
 endif()
 set(GameSourceFiles "${ProjectGameSourceDir}/Game.cpp")
@@ -27,7 +30,9 @@ if(WIN32 AND EXISTS "${ProjectRootDir}/Resources/Windows/Game.rc")
 	list(APPEND GameResourceFiles "${ProjectRootDir}/Resources/Windows/Game.rc")
 endif()
 
-add_subdirectory("${ProjectGameSourceDir}/GameLayer" "${CMAKE_CURRENT_BINARY_DIR}/ProjectGameLayer")
+if(NOT HE_PORTABLE_PLAYER)
+    add_subdirectory("${ProjectGameSourceDir}/GameLayer" "${CMAKE_CURRENT_BINARY_DIR}/ProjectGameLayer")
+endif()
 
 if(HE_BUILD_DEV_GAME AND NOT PACK_GAME AND HE_ENABLE_GM)
 	add_subdirectory(AgentRuntime)
@@ -35,11 +40,26 @@ endif()
 
 source_group(TREE "${ProjectGameSourceDir}" FILES ${GameHeaderFiles} ${GameSourceFiles})
 source_group("Resources" FILES ${GameResourceFiles})
+# Shared scene lifecycle and Agent support are engine-owned, compiled per host.
+list(APPEND GameSourceFiles
+    "${CMAKE_CURRENT_SOURCE_DIR}/Runtime/GameBootstrap.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Runtime/RuntimeGameLayer.cpp")
+if(HE_BUILD_DEV_GAME AND NOT PACK_GAME AND HE_ENABLE_GM)
+    list(APPEND GameSourceFiles "${CMAKE_CURRENT_SOURCE_DIR}/Runtime/InputReplayController.cpp")
+endif()
+source_group("Engine Runtime" FILES
+    "${CMAKE_CURRENT_SOURCE_DIR}/Runtime/GameBootstrap.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Runtime/RuntimeGameLayer.cpp")
 
-add_executable(HGame ${GameSourceFiles} ${GameResourceFiles})
+if(ANDROID)
+    add_library(HGame SHARED ${GameSourceFiles})
+else()
+    add_executable(HGame ${GameSourceFiles} ${GameResourceFiles})
+endif()
 add_dependencies(HGame HEngineRuntimeShaders)
+he_deploy_fsr31(HGame)
 
-if(WIN32)
+if(WIN32 AND HE_RENDER_DX12)
 	he_enable_d3d12_agility(HGame)
 endif()
 
@@ -68,6 +88,14 @@ if(PACK_GAME)
 else()
 	he_attach_static_plugins(HGame DevGame)
 endif()
+get_target_property(HE_GAME_PLUGIN_IDS HGame HE_STATIC_PLUGIN_IDS)
+if(HE_PORTABLE_PLAYER)
+    include("${RootDir}/CMake/PlayerTemplate.cmake")
+endif()
+set(HE_GAME_PYTHON_ENABLED OFF)
+if("he.script.python" IN_LIST HE_GAME_PLUGIN_IDS)
+    set(HE_GAME_PYTHON_ENABLED ON)
+endif()
 
 if(HE_BUILD_DEV_GAME AND NOT PACK_GAME AND HE_ENABLE_GM)
 	target_link_libraries(HGame PRIVATE HEngineDevAgentRuntime)
@@ -79,10 +107,9 @@ target_include_directories(HGame PRIVATE
 	"${EngineRuntimeDir}"
 )
 
-target_compile_definitions(HGame PRIVATE
-	HE_PLATFORM_WINDOWS
-	_CRT_SECURE_NO_WARNINGS
-)
+if(WIN32)
+    target_compile_definitions(HGame PRIVATE HE_PLATFORM_WINDOWS _CRT_SECURE_NO_WARNINGS)
+endif()
 
 set_target_properties(HGame PROPERTIES
 	FOLDER "Game"
@@ -91,6 +118,15 @@ set_target_properties(HGame PROPERTIES
 )
 
 set_property(TARGET HEngineRuntime PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+
+if(ANDROID)
+    include("${RootDir}/CMake/AndroidGame.cmake")
+    return()
+endif()
+if(APPLE)
+    include("${RootDir}/CMake/MacOSGame.cmake")
+    return()
+endif()
 
 if(MSVC)
 	# The project RC file embeds the application manifest.
@@ -170,6 +206,8 @@ he_resolve_owned_project_file(
 # with the same project identity cannot replace each other's package.
 set(HE_PACKAGE_OUTPUT_KEY "" CACHE STRING
 	"Sixteen lowercase hex characters used to namespace an external project package.")
+set(HE_PACKAGE_DISTRIBUTION_ROOT "${RootDir}/dist" CACHE PATH
+    "Root for owned package outputs; project hash namespaces and staging guards remain enabled.")
 file(REAL_PATH "${RootDir}/Project" HE_DEFAULT_PROJECT_CANONICAL_ROOT)
 if(WIN32)
 	string(TOLOWER "${HE_PROJECT_CANONICAL_ROOT}" HE_PROJECT_CANONICAL_KEY)
@@ -178,11 +216,11 @@ else()
 	set(HE_PROJECT_CANONICAL_KEY "${HE_PROJECT_CANONICAL_ROOT}")
 	set(HE_DEFAULT_PROJECT_CANONICAL_KEY "${HE_DEFAULT_PROJECT_CANONICAL_ROOT}")
 endif()
-if(HE_PROJECT_CANONICAL_KEY STREQUAL HE_DEFAULT_PROJECT_CANONICAL_KEY)
+if(HE_PROJECT_CANONICAL_KEY STREQUAL HE_DEFAULT_PROJECT_CANONICAL_KEY AND HE_PACKAGE_GAME_CONFIG STREQUAL "" AND HE_PLUGIN_CONFIG STREQUAL "" AND NOT HE_PORTABLE_PLAYER)
 	if(NOT HE_PACKAGE_OUTPUT_KEY STREQUAL "")
 		message(FATAL_ERROR "The default project package must not use an external output key")
 	endif()
-	set(HE_GAME_PACKAGE_OUTPUT_ROOT "${RootDir}/dist")
+	set(HE_GAME_PACKAGE_OUTPUT_ROOT "${HE_PACKAGE_DISTRIBUTION_ROOT}")
 else()
 	string(LENGTH "${HE_PACKAGE_OUTPUT_KEY}" HE_PACKAGE_OUTPUT_KEY_LENGTH)
 	if(NOT HE_PACKAGE_OUTPUT_KEY_LENGTH EQUAL 16 OR
@@ -190,7 +228,7 @@ else()
 		message(FATAL_ERROR
 			"External PackageGame builds require HE_PACKAGE_OUTPUT_KEY as sixteen lowercase hex characters; use hectl package -Project")
 	endif()
-	set(HE_GAME_PACKAGE_OUTPUT_ROOT "${RootDir}/dist/projects/${HE_PACKAGE_OUTPUT_KEY}")
+	set(HE_GAME_PACKAGE_OUTPUT_ROOT "${HE_PACKAGE_DISTRIBUTION_ROOT}/projects/${HE_PACKAGE_OUTPUT_KEY}")
 endif()
 get_filename_component(HE_GAME_PACKAGE_OUTPUT_ROOT
 	"${HE_GAME_PACKAGE_OUTPUT_ROOT}" ABSOLUTE)
@@ -199,6 +237,9 @@ set(HE_GAME_PACKAGE_DIR
 string(RANDOM LENGTH 12 ALPHABET 0123456789abcdef HE_GAME_PACKAGE_NONCE)
 set(HE_GAME_PACKAGE_STAGING_DIR "${HE_GAME_PACKAGE_DIR}.staging-${HE_GAME_PACKAGE_NONCE}")
 set(HE_GAME_COOK_INPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/CookInput-${HE_GAME_PACKAGE_NONCE}")
+# Exact nonce paths for the owning PowerShell lifecycle; never discover inputs by glob.
+file(WRITE "${CMAKE_BINARY_DIR}/PackageStoragePaths.txt"
+    "${HE_GAME_COOK_INPUT_DIR}\n${HE_GAME_PACKAGE_STAGING_DIR}\n")
 set(HE_GAME_COOK_REPORT "${CMAKE_CURRENT_BINARY_DIR}/CookReport.json")
 set(HE_GAME_PACKAGE_MARKER "${CMAKE_CURRENT_BINARY_DIR}/PackageRoot.marker")
 set(HE_GAME_PACKAGE_README "${CMAKE_CURRENT_BINARY_DIR}/PackageREADME.txt")
@@ -209,60 +250,9 @@ configure_file(
 	@ONLY)
 file(WRITE "${CMAKE_BINARY_DIR}/GamePackage.directory" "${HE_GAME_PACKAGE_DIR}\n")
 
-if(NOT MSVC)
-	message(FATAL_ERROR "PackageGame requires the supported MSVC v143 toolchain")
-endif()
-set(HE_VC_REDIST_X64_DIR "" CACHE PATH
-	"Optional fixed Visual Studio v143 x64 CRT redistributable directory.")
-if(NOT HE_VC_REDIST_X64_DIR)
-	if(DEFINED ENV{VCToolsRedistDir} AND NOT "$ENV{VCToolsRedistDir}" STREQUAL "")
-		file(TO_CMAKE_PATH "$ENV{VCToolsRedistDir}" HE_VC_REDIST_ROOT)
-		set(HE_VC_REDIST_X64_DIR
-			"${HE_VC_REDIST_ROOT}/x64/Microsoft.VC143.CRT")
-	elseif(CMAKE_GENERATOR_INSTANCE)
-		get_filename_component(HE_MSVC_COMPILER_BIN "${CMAKE_CXX_COMPILER}" DIRECTORY)
-		get_filename_component(HE_MSVC_COMPILER_HOST "${HE_MSVC_COMPILER_BIN}" DIRECTORY)
-		get_filename_component(HE_MSVC_COMPILER_BIN_ROOT "${HE_MSVC_COMPILER_HOST}" DIRECTORY)
-		get_filename_component(HE_MSVC_TOOLSET_ROOT "${HE_MSVC_COMPILER_BIN_ROOT}" DIRECTORY)
-		get_filename_component(HE_MSVC_TOOLSET_VERSION "${HE_MSVC_TOOLSET_ROOT}" NAME)
-		string(REGEX MATCH "^[0-9]+[.][0-9]+" HE_MSVC_TOOLSET_FAMILY
-			"${HE_MSVC_TOOLSET_VERSION}")
-		file(GLOB HE_VC_REDIST_VERSION_DIRS LIST_DIRECTORIES TRUE
-			"${CMAKE_GENERATOR_INSTANCE}/VC/Redist/MSVC/${HE_MSVC_TOOLSET_FAMILY}.*")
-		list(SORT HE_VC_REDIST_VERSION_DIRS COMPARE NATURAL ORDER DESCENDING)
-		foreach(HE_VC_REDIST_VERSION_DIR IN LISTS HE_VC_REDIST_VERSION_DIRS)
-			set(HE_VC_REDIST_CANDIDATE
-				"${HE_VC_REDIST_VERSION_DIR}/x64/Microsoft.VC143.CRT")
-			if(EXISTS "${HE_VC_REDIST_CANDIDATE}/vcruntime140.dll")
-				set(HE_VC_REDIST_X64_DIR "${HE_VC_REDIST_CANDIDATE}")
-				break()
-			endif()
-		endforeach()
-	endif()
-endif()
-if(NOT HE_VC_REDIST_X64_DIR)
-	message(FATAL_ERROR
-		"Could not locate the Visual Studio v143 redistributable matching "
-		"${CMAKE_CXX_COMPILER}. Set HE_VC_REDIST_X64_DIR to the licensed "
-		"x64/Microsoft.VC143.CRT directory.")
-endif()
-get_filename_component(HE_VC_REDIST_X64_DIR "${HE_VC_REDIST_X64_DIR}" ABSOLUTE)
-set(HE_VC_REDIST_X64_DIR "${HE_VC_REDIST_X64_DIR}" CACHE PATH
-	"Fixed Visual Studio v143 x64 CRT redistributable directory." FORCE)
+include("${RootDir}/CMake/WindowsVendorRuntime.cmake")
+he_resolve_vendor_crt()
 set(HE_PACKAGE_VCRUNTIME "${HE_VC_REDIST_X64_DIR}/vcruntime140.dll")
-if(NOT EXISTS "${HE_PACKAGE_VCRUNTIME}" OR IS_DIRECTORY "${HE_PACKAGE_VCRUNTIME}")
-	message(FATAL_ERROR
-		"The official Visual Studio v143 x64 redistributable is missing vcruntime140.dll: "
-		"${HE_PACKAGE_VCRUNTIME}")
-endif()
-file(TO_CMAKE_PATH "$ENV{SystemRoot}/System32" HE_WINDOWS_SYSTEM32_DIR)
-string(TOLOWER "${HE_PACKAGE_VCRUNTIME}" HE_PACKAGE_VCRUNTIME_KEY)
-string(TOLOWER "${HE_WINDOWS_SYSTEM32_DIR}/" HE_WINDOWS_SYSTEM32_KEY)
-string(FIND "${HE_PACKAGE_VCRUNTIME_KEY}" "${HE_WINDOWS_SYSTEM32_KEY}" HE_SYSTEM32_RUNTIME_POSITION)
-if(HE_SYSTEM32_RUNTIME_POSITION EQUAL 0)
-	message(FATAL_ERROR "PackageGame must never source VC runtime files from System32")
-endif()
-message(STATUS "Package VC runtime source: ${HE_PACKAGE_VCRUNTIME}")
 find_program(HE_WINDOWS_POWERSHELL_EXECUTABLE NAMES powershell.exe
 	HINTS "$ENV{SystemRoot}/System32/WindowsPowerShell/v1.0"
 	REQUIRED)
@@ -282,7 +272,34 @@ set(HE_PREPARE_COOK_INPUT_COMMAND
 		-DCOOK_INPUT_DIR=${HE_GAME_COOK_INPUT_DIR}
 		-DCOOK_INPUT_PARENT=${CMAKE_CURRENT_BINARY_DIR}
 		-DPROJECT_ID=${HE_PROJECT_ID}
+		-DPYTHON_PLUGIN_ENABLED=${HE_GAME_PYTHON_ENABLED}
 		-P "${RootDir}/CMake/PrepareCookInput.cmake")
+set(HE_PACKAGE_PYTHON_COMMANDS "")
+set(HE_PACKAGE_PYTHON_MODE disabled)
+if(HE_GAME_PYTHON_ENABLED)
+    set(HE_PACKAGE_PYTHON_MODE enabled)
+    list(APPEND HE_PACKAGE_PYTHON_COMMANDS
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${ThirdPartyDir}/Python/dlls/python311.dll"
+            "${HE_GAME_PACKAGE_STAGING_DIR}/python311.dll"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${HE_PACKAGE_VCRUNTIME}" "${HE_GAME_PACKAGE_STAGING_DIR}/vcruntime140.dll")
+endif()
+set(HE_PACKAGE_CSHARP_COMMANDS "")
+set(HE_PACKAGE_CSHARP_MODE disabled)
+set(HE_PACKAGE_CSHARP_COOK_ARGUMENTS "")
+if(TARGET CSharpScript)
+    set(HE_PACKAGE_CSHARP_MODE enabled)
+    # Staging verifies real directories and refuses junctions. Resolve the
+    # build root before passing an otherwise trusted producer path to it.
+    file(REAL_PATH "${BINARY_ROOT_DIR}" HE_PACKAGE_SCRIPT_BINARY_ROOT)
+    list(APPEND HE_PACKAGE_CSHARP_COOK_ARGUMENTS --csharp-metadata "${BINARY_ROOT_DIR}/Scripting/CSharp/GameScripts.metadata.json")
+    list(APPEND HE_PACKAGE_CSHARP_COMMANDS
+        COMMAND "${HE_WINDOWS_POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -ExecutionPolicy Bypass
+            -File "${RootDir}/Tools/Scripting/StageRuntime.ps1"
+            -SourceDirectory "${HE_PACKAGE_SCRIPT_BINARY_ROOT}/Scripting/CSharp"
+            -DestinationDirectory "${HE_GAME_PACKAGE_STAGING_DIR}/Scripting/CSharp")
+endif()
 set(HE_PACKAGE_SHADER_COMMANDS
 	COMMAND ${CMAKE_COMMAND}
 		-DGENERATED_CONTENT_DIR=${EngineGeneratedContentDir}
@@ -321,6 +338,17 @@ list(APPEND HE_PACKAGE_SHADER_COMMANDS
 	COMMAND ${CMAKE_COMMAND} -E touch
 		"${EngineGeneratedContentDir}/.runtime-shaders.stamp")
 
+set(HE_PACKAGE_PLAYER_COMMANDS "")
+if(HE_PORTABLE_PLAYER)
+    list(APPEND HE_PACKAGE_PLAYER_COMMANDS
+        COMMAND "${HE_WINDOWS_POWERSHELL_EXECUTABLE}" -NoProfile -NonInteractive -ExecutionPolicy Bypass
+            -File "${RootDir}/Tools/Packaging/Set-PlayerManifest.ps1"
+            -Project "${ProjectRootDir}"
+            -GameConfig "${HE_PROJECT_GAME_CONFIG}"
+            -TemplateContract "${CMAKE_BINARY_DIR}/PlayerTemplate-$<CONFIG>.json"
+            -Manifest "${HE_GAME_PACKAGE_STAGING_DIR}/Game.manifest.json")
+endif()
+
 add_custom_target(PackageGame
 	COMMAND ${CMAKE_COMMAND}
 		-DBUILD_CONFIG=$<CONFIG>
@@ -343,6 +371,9 @@ add_custom_target(PackageGame
 	COMMAND $<TARGET_FILE:HCooker>
 		--project "${HE_GAME_COOK_INPUT_DIR}"
 		--engine-config "${EngineContentDir}/Config/EngineCook.json"
+		--python-plugin ${HE_PACKAGE_PYTHON_MODE}
+		--csharp-plugin ${HE_PACKAGE_CSHARP_MODE}
+		${HE_PACKAGE_CSHARP_COOK_ARGUMENTS}
 		--forbid-root "${ProjectRootDir}"
 		--forbid-root "${EngineContentDir}"
 		--forbid-root "${EngineGeneratedContentDir}"
@@ -350,15 +381,15 @@ add_custom_target(PackageGame
 		--output "${HE_GAME_PACKAGE_STAGING_DIR}"
 		--report "${HE_GAME_COOK_REPORT}"
 		--run-id "${HE_GAME_PACKAGE_NONCE}"
+	${HE_PACKAGE_PLAYER_COMMANDS}
 	COMMAND ${CMAKE_COMMAND} -E copy_if_different
 		$<TARGET_FILE:HGame>
 		"${HE_GAME_PACKAGE_STAGING_DIR}/${HE_PROJECT_EXECUTABLE_NAME}.exe"
 	COMMAND ${CMAKE_COMMAND} -E copy_if_different
-		"${ThirdPartyDir}/Python/dlls/python311.dll"
-		"${HE_GAME_PACKAGE_STAGING_DIR}/python311.dll"
-	COMMAND ${CMAKE_COMMAND} -E copy_if_different
-		"${HE_PACKAGE_VCRUNTIME}"
-		"${HE_GAME_PACKAGE_STAGING_DIR}/vcruntime140.dll"
+		"$<TARGET_FILE_DIR:HGame>/HEngine.Runtime.json"
+		"${HE_GAME_PACKAGE_STAGING_DIR}/HEngine.Runtime.json"
+	${HE_PACKAGE_PYTHON_COMMANDS}
+	${HE_PACKAGE_CSHARP_COMMANDS}
 	COMMAND ${CMAKE_COMMAND} -E make_directory
 		"${HE_GAME_PACKAGE_STAGING_DIR}/D3D12"
 	COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -401,6 +432,29 @@ function(he_package_license sourcePath outputName)
 endfunction()
 
 set(HE_GAME_PACKAGE_LICENSE_FILES "")
+if(HE_FSR31)
+    foreach(runtimeName msvcp140.dll vcruntime140.dll vcruntime140_1.dll)
+        if(HE_WINDOWS_ARCH STREQUAL "arm64" AND runtimeName STREQUAL "vcruntime140_1.dll" AND
+           NOT EXISTS "${HE_VC_REDIST_X64_DIR}/${runtimeName}")
+            continue()
+        endif()
+        add_custom_command(TARGET PackageGame POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${HE_VC_REDIST_X64_DIR}/${runtimeName}"
+                "${HE_GAME_PACKAGE_STAGING_DIR}/${runtimeName}" VERBATIM)
+    endforeach()
+    foreach(fsrBackend IN ITEMS dx12 vk)
+        if((fsrBackend STREQUAL "dx12" AND HE_FSR31_DX12) OR
+           (fsrBackend STREQUAL "vk" AND HE_FSR31_VULKAN))
+            add_custom_command(TARGET PackageGame POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${HE_FSR31_RUNTIME_DIR}/amd_fidelityfx_${fsrBackend}.dll"
+                    "${HE_GAME_PACKAGE_STAGING_DIR}/amd_fidelityfx_${fsrBackend}.dll"
+                VERBATIM)
+        endif()
+    endforeach()
+    he_package_license("${HE_FSR31_ROOT}/sdk/LICENSE.txt" "FidelityFX.txt")
+endif()
 he_package_license("${ThirdPartyDir}/GLFW/LICENSE.md" "GLFW.txt")
 he_package_license("${ThirdPartyDir}/glm/copying.txt" "GLM.txt")
 he_package_license("${ThirdPartyDir}/imgui/LICENSE.txt" "DearImGui.txt")
@@ -409,7 +463,9 @@ he_package_license("${ThirdPartyDir}/spdlog/include/spdlog/fmt/bundled/fmt.licen
 he_package_license("${ThirdPartyDir}/Box2D/LICENSE" "Box2D.txt")
 he_package_license("${EngineResourcesDir}/Licenses/stb.txt" "stb.txt")
 he_package_license("${ThirdPartyDir}/JoltPhysics/LICENSE" "JoltPhysics.txt")
-he_package_license("${ThirdPartyDir}/pybind11/LICENSE" "pybind11.txt")
+if(HE_GAME_PYTHON_ENABLED)
+    he_package_license("${ThirdPartyDir}/pybind11/LICENSE" "pybind11.txt")
+endif()
 he_package_license("${ThirdPartyDir}/json/LICENSE.MIT" "nlohmann-json.txt")
 he_package_license("${ThirdPartyDir}/magic_enum/LICENSE" "magic-enum.txt")
 he_package_license("${ThirdPartyDir}/entt/LICENSE" "EnTT.txt")
@@ -441,7 +497,9 @@ he_package_license("${ThirdPartyDir}/freetype2/docs/FTL.TXT" "FreeType.txt")
 he_package_license("${ThirdPartyDir}/assimp/contrib/zlib/LICENSE" "zlib.txt")
 he_package_license("${ThirdPartyDir}/assimp/contrib/unzip/MiniZip64_info.txt" "MiniZip.txt")
 he_package_license("${ThirdPartyDir}/assimp/contrib/zip/UNLICENSE" "kuba-zip.txt")
-he_package_license("${EngineResourcesDir}/Licenses/Python-3.11.txt" "Python-3.11.txt")
+if(HE_GAME_PYTHON_ENABLED)
+    he_package_license("${EngineResourcesDir}/Licenses/Python-3.11.txt" "Python-3.11.txt")
+endif()
 he_package_license("${EngineContentAssetsDir}/Fonts/opensans/LICENSE.txt" "OpenSans.txt")
 he_package_license("${EngineContentAssetsDir}/Fonts/Noto_Sans_SC/OFL.txt" "NotoSansSC.txt")
 he_package_license(
@@ -505,12 +563,15 @@ add_custom_command(TARGET PackageGame POST_BUILD
 		-DPACKAGE_EXECUTABLE_NAME=${HE_PROJECT_EXECUTABLE_NAME}
 		-DPACKAGE_PROJECT_ID=${HE_PROJECT_ID}
 		-DPACKAGE_LICENSE_LIST_FILE=${HE_GAME_PACKAGE_LICENSE_LIST_FILE}
+		-DPACKAGE_PYTHON_PLUGIN=${HE_PACKAGE_PYTHON_MODE}
+		-DPACKAGE_CSHARP_PLUGIN=${HE_PACKAGE_CSHARP_MODE}
 		-P "${RootDir}/CMake/VerifyGamePackage.cmake"
 	COMMAND "${HE_WINDOWS_POWERSHELL_EXECUTABLE}"
 		-NoProfile
 		-NonInteractive
 		-ExecutionPolicy Bypass
 		-File "${RootDir}/Tools/Packaging/Verify-WindowsPackage.ps1"
+		-Architecture "${HE_WINDOWS_ARCH}"
 		-PackageDir "${HE_GAME_PACKAGE_STAGING_DIR}"
 		-ExecutableName "${HE_PROJECT_EXECUTABLE_NAME}"
 		-ExpectedD3D12SDKVersion "${HE_D3D12_AGILITY_SDK_VERSION}"
@@ -518,6 +579,8 @@ add_custom_command(TARGET PackageGame POST_BUILD
 		-TargetGraphPath "${HE_PACKAGE_TARGET_GRAPH}"
 		-LinkMapPath "${HE_PACKAGE_LINK_MAP}"
 		-RequireTargetGraphAndLinkMap
+		-PythonPlugin ${HE_PACKAGE_PYTHON_MODE}
+		-CSharpPlugin ${HE_PACKAGE_CSHARP_MODE}
 	COMMAND "${HE_WINDOWS_POWERSHELL_EXECUTABLE}"
 		-NoProfile
 		-NonInteractive

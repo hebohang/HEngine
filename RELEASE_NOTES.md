@@ -1,70 +1,32 @@
-# HEngine 1.0.0
+# HEngine 1.1.0
 
-发布日期：2026-09-03
+公开下载：[HEngine 1.1.0](https://github.com/hebohang/HEngine/releases/tag/v1.1.0)。附件、源码快照与二进制来源差异见 [公开发布记录](Docs/Release/1.1.0-publication.md)。平台工作流见 [README](README.md#支持范围)，包括 macOS Apple Silicon 的源码开发与打包。
 
-HEngine 1.0.0 是项目的首个正式公开版本。本次发布聚焦一套可从源码复现的 Windows x64 引擎工作流：使用 HEngineEditor 创建内容，以 HGame 运行项目，并通过统一工具完成代码生成、构建、运行检查、Cook 与打包验证。
+1.1.0 将引擎发行包与示例工程分开：Windows 用户解压引擎后，通过 `ProjectManager.exe` 创建工程，或导入 [小树保卫者独立工程](https://github.com/hebohang/StarbloomSurvivor)。引擎 `main` 不包含游戏 `Project/`，默认使用 Blank 模板。
 
-## 发布内容
+## 本次变化
 
-- HEngine Runtime 与 HEngineEditor 源码。
-- 面向项目的 HGame 开发构建和 Release 打包流程。
-- 轻量的 HEngine Showcase，默认场景为 `Assets/Scenes/Physics3DTest.he`。
-- Windows 构建、无窗口逻辑/序列化测试、确定性抓帧和发布包检查入口。
-- 引擎内建内容、项目内容覆盖规则及相应的第三方许可证集合。
+- 通用 Editor 从所选工程读取身份、场景、资源和 C# 程序集；原生 C++ 扩展仍使用源码构建。
+- 项目管理器提供新建、导入、最近项目、启动就绪检查和错误恢复。
+- 小树保卫者保留 Python 与 C# 两套实现，共用运行资源。Python 使用 `MainMenu.he` 和 `MainGame.he`；C# 使用含菜单的 `MainGameCSharp.he`。
+- 运行资源从约 2148 MiB 缩减为约 40 MiB，原始素材、RenderBench 和其他测试归入开发仓库的 `Examples/RenderingTests`，不随本次精简公开源码分发。许可证保留在独立工程中。
+- 修复独立工程的 C# 引擎引用与 Web 内容导出路径；提供预编译 C# 示例和随包 .NET/Python 运行时。
+- 修复编辑器首次布局、运行时场景切换；F6 运行、F8 停止，并恢复原编辑场景。
+- 提供独立项目导出与 Windows Editor 发行包构建脚本。
+- 二进制 SDK 提供 Windows Shipping / Development Player 和 Android arm64 预编译模板，以及 Web/微信 Wasm 导出工具；SharedArena 模板包含四端配置。
+- 发行依赖检查覆盖动态加载的 FSR、OIDN、CRT、许可证和完整依赖闭包。
+- 改善方向光级联阴影的稳定性、级联交界与偏移；可播放的动画入口按条件执行状态转换。
+- 改善导航几何顶点复用，并扩展 C# 的碰撞体启停、射线排除和足部接触权重接口。
+- 开发模板排除历史图形诊断程序，保证发行文件清单与实际 SDK 内容一致。
 
-## 核心能力
+## 使用和构建
 
-- **编辑器**：场景层级、属性检查器、内容浏览器、资源预览，以及材质、动画控制器和运行时 UI 工具。
-- **渲染**：基于 RenderGraph 与 NVRHI 的统一渲染路径；同一套 Game/Editor 支持 DirectX 12 与 Vulkan 1.3，并默认使用 DX12。
-- **材质与动画**：PBR、Shader 驱动材质、骨骼动画与动画状态机。
-- **3D 物理**：基于 Jolt Physics 的刚体、常用碰撞体、角色移动、空间查询与调试绘制。
-- **脚本与反射**：原生 C++ Game 模块、Python 运行时脚本、构建图内反射代码生成和资源序列化。
-- **资源管线**：Scene、Prefab、Mesh、Material、Texture、Audio 与 UI 资源管理，以及 glTF/Mesh 导入流程。
-- **运行时集成**：RmlUi、Effekseer 和引擎音频抽象具有统一的启动、更新与清理边界。
-- **Cook 与 Package**：依赖闭包、路径约束、manifest/hash、单 `Game.pak` 与真实启动检查共同组成发布验证流程。
+Windows x64 为本次原生验收平台；默认 DirectX 12，也包含 Vulkan 1.3 后端。所需图形能力与降级策略见 [Windows 图形兼容性](Docs/WindowsGraphicsCompatibility.md)。本轮游戏交互验收使用 DX12，不代表所有显卡或驱动均已实测。
 
-## 默认展示项目
+普通用户打开预编译示例不需要 VS 或系统 .NET。修改 C# 需要 .NET SDK 10.0.302；小树保卫者的内容生成还使用 Python 3.11 和 Node.js。Web 导出需要 .NET wasm-tools。
 
-1.0.0 将仓库内 `Project/` 定位为通用的 **HEngine Showcase**，不再以完整游戏作为默认内容。`Physics3DTest.he` 提供可直接打开、运行和修改的基础场景，用于展示 3D 刚体、碰撞、光照、材质和资源序列化；通用 Python、运行时 UI 与自定义 Shader 示例作为可选起点一并保留。
+Windows 与 Android 脚本游戏导出复用 SDK 的预编译原生模板，无需 VS 或重新编译引擎；仍需编译游戏 C#、cook 资源，以及平台组装和签名工具。SDK 锁定依赖由 `hectl deps check -Profile SDK` 检查。源码构建优先 VS2026 v145（可回退 VS2022 v143）、CMake 4.2+；原生 C++ 扩展需要匹配模板，不提供跨版本稳定二进制 ABI。
 
-展示项目只承担最小示例和开发验证职责。实际游戏可以放在仓库外，并通过 `hectl ... -Project <path>` 选择；不同项目拥有隔离的构建缓存、生成代码、运行产物和存档目录。
+本次使用可解压发行包；历史 `Installer.nsi` 不作为 1.1.0 安装入口。
 
-## 支持范围
-
-| 项目 | 1.0.0 支持状态 |
-| --- | --- |
-| 操作系统 | Windows 10 1909（18363.1350+）或 Windows 11 x64 |
-| 工具链 | Visual Studio 2022 v143、CMake 3.20+、C++20 |
-| 图形后端 | DirectX 12（默认）与 Vulkan 1.3 |
-| 开发产物 | HEngineEditor 与读取 loose project 内容的 HGame |
-| 发布产物 | `PACK_GAME=ON` 生成并验证的 Cooked Game 包 |
-| SDK / ABI | 源码优先；不承诺跨编译器或跨版本稳定二进制 ABI |
-
-Vulkan 运行需要显卡驱动提供 Vulkan 1.3 loader。DX12/Vulkan 的设备选择、能力降级和 Shader 产物规则见 `Docs/WindowsGraphicsCompatibility.md`。
-
-## 构建与发布验证
-
-```powershell
-./hectl.bat codegen run
-./hectl.bat game check
-./hectl.bat editor check
-./hectl.bat game capture
-./hectl.bat package
-```
-
-- `codegen run` 只在生成内容变化时发布新的反射产物。
-- `game check` 与 `editor check` 是会自动回收进程的有界运行检查。
-- `game capture` 用于生成确定性的运行画面，属于运行时观察证据。
-- `package` 执行 Release 构建、Cook、manifest/pak 校验和打包后启动检查。
-
-构建、运行观察和自动测试属于不同证据类型；发布记录应分别报告其命令与结果。
-
-## 已知边界
-
-- 1.0.0 的正式支持平台是 Windows x64，尚未提供其他桌面或移动平台发布承诺。
-- Vulkan 由系统显卡驱动提供 loader；发布包不会携带 Vulkan SDK、验证层或开发工具。
-- HEngineRuntime 当前作为源码级静态库参与同一工具链构建，不是可独立分发的稳定二进制 SDK。
-- 可选的高级图形能力会按设备能力启用或降级；基础光栅路径不要求硬件光线追踪。
-- `Installer.nsi` 是旧式开发辅助脚本，不属于 1.0.0 的发布或安装验证证据。
-
-更多使用方式与边界说明见根目录中英文 README 及 `Docs/`。
+四端导出支持面及实际验收见 [独立 SDK 与四端导出](Docs/ReleaseSDK-1.1.0.md)；较早的记录见 [1.1.0 发布与验收](Docs/Release-1.1.0.md)。四端主路径为 C#，Web/微信使用便携视图适配，不承诺完整原生渲染功能；Android/微信手机及商店审核需要项目发布者另行验收。

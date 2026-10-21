@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Runtime/Core/Base/Base.h"
+#include "Runtime/Core/Meta/Json.h"
 #include "Runtime/Core/Templates/PublicSingleton.h"
 #include "Runtime/Core/Window/Window.h"
 #include "Runtime/Core/AppFramework/Layer/LayerStack.h"
@@ -11,6 +12,7 @@
 #include "Runtime/Graphics/RHI/RenderBackend.h"
 #include "Runtime/ImGui/ImGuiLayer.h"
 #include "Runtime/Graphics/RHI/TextureReadback.h"
+#include "Runtime/Graphics/RHI/FrameCaptureSource.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -26,12 +28,18 @@ namespace HEngine
 {
 	class NvrhiImGuiLayer;
 	class RuntimeRenderer;
+	struct SceneRendererStats;
+    struct RenderMemoryBudget;
 	class RuntimeProjectResourceWarmup;
 	struct RuntimeUiTextureRegistry;
 	struct RenderWorld;
+#if defined(HE_DEV_AGENT_RUNTIME)
+	struct ManagedTextureHandle;
+#endif
 	struct RuntimeOffscreenOutput;
 	struct RuntimeOffscreenViewHandle;
 	struct RuntimeEnvironmentPreparation;
+    struct RuntimeConfigurationPreparationStats;
 	struct MaterialShaderRefreshResult;
 	struct AntiAliasingSettings;
 	struct AntiAliasingSelection;
@@ -60,7 +68,13 @@ namespace HEngine
 	{
 		RuntimeFrameCaptureState State = RuntimeFrameCaptureState::Idle;
 		std::filesystem::path OutputPath;
+        FrameCaptureSource Source = FrameCaptureSource::Automatic;
 		std::string Error;
+		std::uint64_t RenderFrame = 0;
+		std::uint64_t Submission = 0;
+        std::uint64_t RenderWorldFrame = 0; // Extraction sequence, not SimulationClock.
+		double SimulationTime = 0.0;
+        std::uint64_t SimulationStep = 0;
 	};
 
 	struct ApplicationRunOptions
@@ -70,14 +84,22 @@ namespace HEngine
 		float FixedDeltaSeconds = 0.0f;
 		std::uint32_t WindowWidth = 0;
 		std::uint32_t WindowHeight = 0;
+        std::optional<bool> FullscreenOverride;
 		std::filesystem::path CapturePath;
 		std::filesystem::path ProjectRoot;
+		std::string ProjectGameConfig;
 		std::filesystem::path SavedRoot;
-		std::string StartupScene;
+		std::filesystem::path RenderStatsPath;
+		std::filesystem::path RenderSettingsPath;
+		std::uint64_t PerformanceWarmupFrames = 30;
+        std::string StartupScene;
+        std::string StartupViewportMode;
 		std::string PackageCheckId;
 		std::optional<RenderBackend> GraphicsApiOverride;
+		std::optional<std::string> RenderingPathOverride;
 #if defined(HE_DEV_AGENT_RUNTIME)
 		std::filesystem::path AgentSessionDirectory;
+		std::filesystem::path InputReplayPath;
 		std::string AgentToken;
 #endif
 		bool bNoCursorCapture = false;
@@ -108,6 +130,38 @@ namespace HEngine
 #endif
 	};
 
+#if defined(HE_DEV_AGENT_RUNTIME)
+    struct TextureMipReadbackProbe
+    {
+        uint32_t Width = 0;
+        uint32_t Height = 0;
+        uint64_t Hash = 0;
+        uint32_t CoveredPixels = 0;
+    };
+
+    struct TextureReadyProbeResult
+    {
+        bool SharedHandle = false;
+        uint32_t Width = 0;
+        uint32_t Height = 0;
+        uint32_t MipLevels = 0;
+        std::string FormatName;
+        std::vector<TextureMipReadbackProbe> MipReadback;
+    };
+    struct TextureBurstProbeResult
+    {
+        uint32_t Requested = 0;
+        uint32_t Ready = 0;
+        uint32_t Shared = 0;
+    };
+    struct TextureStreamingProbeResult
+    {
+        uint32_t Requested = 0;
+        uint32_t Ready = 0;
+        uint32_t Pending = 0;
+    };
+#endif
+
 	class Application : public PublicSingleton<Application>
 	{
 		friend int ::main(int argc, char** argv);
@@ -127,6 +181,8 @@ namespace HEngine
 		// Layers explicitly submit immutable snapshots after ECS extraction. The
 		// Application never reaches into a Level or registry to obtain render data.
 		void SubmitRenderWorld(Ref<const RenderWorld> world);
+		[[nodiscard]] Ref<const RenderWorld> GetLastSubmittedRenderWorld() const noexcept;
+        [[nodiscard]] RuntimeConfigurationPreparationStats GetConfigurationPreparationStats() const noexcept;
 		[[nodiscard]] MaterialShaderRefreshResult RefreshMaterialShaderAtFrameBoundary(
 			std::string_view sourcePath);
 		[[nodiscard]] RuntimeEnvironmentPreparation PrepareRenderEnvironment(
@@ -175,6 +231,25 @@ namespace HEngine
 			bool bSrgb = true,
 			uint32_t maximumDimension = 0);
 		void ReleaseImGuiTexture(ImGuiTextureHandle handle);
+		[[nodiscard]] size_t RequestTextureReload(std::string_view assetPath);
+#if defined(HE_DEV_AGENT_RUNTIME)
+        // One-shot failure for bounded Agent validation; absent from shipping.
+        bool InjectUpscalingFailureForValidation(bool duringDispatch);
+		// Agent validation only: request an asset asynchronously, then require it
+		// ready through the same cache key and release both temporary leases.
+		[[nodiscard]] TextureReadyProbeResult ProbeTextureReady(
+			std::string_view assetPath, uint32_t maximumDimension,
+			bool bSrgb, bool bGenerateMipmaps,
+			bool bPreserveAlphaCoverage, float alphaCoverageCutoff,
+			bool bReadbackMips = false);
+		[[nodiscard]] TextureBurstProbeResult ProbeTextureBurst(
+			std::string_view assetPath, uint32_t count);
+		[[nodiscard]] TextureStreamingProbeResult BeginTextureStreamingProbe(
+			std::string_view assetPath, uint32_t count,
+			uint32_t baseDimension);
+		[[nodiscard]] TextureStreamingProbeResult InspectTextureStreamingProbe(
+			bool bRelease);
+#endif
 		[[nodiscard]] RuntimeOffscreenViewHandle CreateOffscreenView(
 			std::uint32_t width,
 			std::uint32_t height,
@@ -188,6 +263,9 @@ namespace HEngine
 			Ref<const RenderWorld> world);
 		[[nodiscard]] RuntimeOffscreenOutput GetOffscreenOutput(
 			RuntimeOffscreenViewHandle handle) const;
+		[[nodiscard]] const SceneRendererStats& GetOffscreenSceneStats(RuntimeOffscreenViewHandle handle) const;
+        [[nodiscard]] const SceneRendererStats& GetMainSceneStats() const;
+        [[nodiscard]] RenderMemoryBudget GetRenderMemoryBudget() const;
 		[[nodiscard]] TextureReadbackHandle RequestOffscreenCapture(
 			RuntimeOffscreenViewHandle handle,
 			std::filesystem::path outputPath);
@@ -202,7 +280,16 @@ namespace HEngine
 		void UnregisterImGuiTexture(ImGuiTextureHandle handle);
 		void EnableMainOffscreenOutput();
 		[[nodiscard]] RuntimeOffscreenOutput GetMainOffscreenOutput() const;
-		[[nodiscard]] bool RequestFrameCapture(std::filesystem::path outputPath);
+		[[nodiscard]] bool RequestFrameCapture(std::filesystem::path outputPath,
+            FrameCaptureSource source = FrameCaptureSource::Automatic);
+        [[nodiscard]] bool RequestFrameCaptureSequence(std::vector<std::filesystem::path> paths, bool bCameraCut = false, uint32_t settleFrames = 0,
+            FrameCaptureSource source = FrameCaptureSource::Automatic);
+        [[nodiscard]] bool CanAdvanceCaptureSequence() const;
+        [[nodiscard]] const Json& GetCaptureSequenceHistory() const { return mSequenceHistory; }
+        [[nodiscard]] const std::vector<RuntimeFrameCaptureProgress>& GetFrameCaptureSequence() const { return mSequenceCaptures; }
+        void CancelFrameCaptureSequence();
+        void SetCaptureSimulationStep(std::uint64_t step) { mCaptureSimulationStep = step; }
+        [[nodiscard]] bool IsFrameCaptureSourceAvailable(FrameCaptureSource source) const;
 		[[nodiscard]] const RuntimeFrameCaptureProgress& GetFrameCaptureProgress() const
 		{
 			return mFrameCaptureProgress;
@@ -223,8 +310,8 @@ namespace HEngine
 		void CancelRuntimeStartup() noexcept;
 		// Runtime scripts enqueue scene changes while their current Level is still
 		// executing. GameLayer consumes the request at the next safe frame boundary.
-		[[nodiscard]] bool RequestRuntimeScene(std::string scenePath);
-		[[nodiscard]] std::optional<std::string> ConsumeRuntimeSceneRequest();
+		[[nodiscard]] bool RequestRuntimeScene(std::string scenePath, bool bForceReload = false);
+		[[nodiscard]] std::optional<std::string> ConsumeRuntimeSceneRequest(bool* forceReload = nullptr);
 		void ClearRuntimeSceneRequest() noexcept;
 		[[nodiscard]] bool HasRuntimeSceneRequest() const noexcept
 		{
@@ -240,6 +327,9 @@ namespace HEngine
 		[[nodiscard]] double GetSimulationTimeSeconds() const;
 		[[nodiscard]] bool IsMinimized() const { return bMinimized; }
 		[[nodiscard]] bool IsRuntimeStartupPending() const noexcept { return bRuntimeStartupPending; }
+        void SetRuntimeSceneLoading(bool bLoading) noexcept { bRuntimeSceneLoading = bLoading; }
+        [[nodiscard]] bool IsRuntimeSceneLoading() const noexcept
+        { return bRuntimeStartupPending || bRuntimeSceneLoading; }
 		[[nodiscard]] bool HasRuntimeStartupPresentedFrame() const noexcept
 		{
 			return bRuntimeStartupPending && bRuntimeStartupFirstPresented;
@@ -266,17 +356,30 @@ namespace HEngine
 		NvrhiImGuiLayer* mNvrhiImGuiLayer = nullptr;
 		TextureReadbackHandle mFrameCaptureHandle;
 		RuntimeFrameCaptureProgress mFrameCaptureProgress;
+        std::vector<RuntimeFrameCaptureProgress> mSequenceCaptures;
+        bool bSequenceCameraCut = false;
+        uint32_t mSequenceSettleRemaining = 0;
+        uint64_t mSequenceSettleSimulationStep = 0;
+        Json mSequenceHistory = Json::array();
+        std::vector<TextureReadbackHandle> mSequenceHandles;
+        size_t mSequenceRecorded = 0;
+        std::uint64_t mCaptureSimulationStep = 0;
 		std::uint32_t mLastFrameSlot = 0;
 		std::uint64_t mLastSubmission = 0;
+#if defined(HE_DEV_AGENT_RUNTIME)
+		std::vector<ManagedTextureHandle> mTextureStreamingProbe;
+#endif
 		bool bRunning = true;
 		bool bMinimized = false;
 		bool bCleaned = true;
 		bool bRestartRequested = false;
 		bool bRuntimeStartupPending = false;
+        bool bRuntimeSceneLoading = false;
 		bool bRuntimeStartupFirstPresented = false;
 		bool bRuntimeStartupGameplayPresentRequested = false;
 		bool bRuntimeStartupGameplayPresented = false;
 		std::optional<std::string> mRuntimeSceneRequest;
+		bool bForceRuntimeSceneReload = false;
 		LayerStack mLayerStack;
 		ApplicationRunOptions mRunOptions;
 	};

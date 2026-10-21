@@ -1,5 +1,6 @@
 #include "Hepch.h"
 #include "Runtime/Utils/PlatformUtils.h"
+#include "Runtime/Profile/CpuExecutionTimes.h"
 #include "Runtime/Utils/StringUtils/StringUtils.h"
 #include "Runtime/Platform/GLFW/CommonWindow.h"
 
@@ -8,6 +9,8 @@
 #include <shlobj.h>
 #include <shobjidl.h>
 #include <objbase.h>
+#include <wrl/client.h>
+#include <future>
 #include <mutex>
 #include <system_error>
 #include <thread>
@@ -20,6 +23,24 @@
 
 namespace HEngine 
 {
+    CpuExecutionTimes QueryCpuExecutionTimes() noexcept
+    {
+        FILETIME created{}, exited{}, threadKernel{}, threadUser{};
+        FILETIME processKernel{}, processUser{};
+        if (!GetThreadTimes(GetCurrentThread(), &created, &exited,
+                &threadKernel, &threadUser) ||
+            !GetProcessTimes(GetCurrentProcess(), &created, &exited,
+                &processKernel, &processUser))
+            return {};
+        const auto ticks = [](const FILETIME& value) noexcept -> uint64_t
+        {
+            return (uint64_t(value.dwHighDateTime) << 32u) | value.dwLowDateTime;
+        };
+        return { uint64_t(GetCurrentThreadId()),
+            ticks(threadKernel) + ticks(threadUser),
+            ticks(processKernel) + ticks(processUser), true };
+    }
+
 	namespace
 	{
 		[[nodiscard]] std::mutex& GetExternalApplicationStateMutex()
@@ -33,6 +54,69 @@ namespace HEngine
 			auto* window = dynamic_cast<CommonWindow*>(&Application::GetWindow());
 			return window ? glfwGetWin32Window(window->GetGlfwWindow()) : nullptr;
 		}
+
+        std::filesystem::path PickFolder(const std::string& initialDir, HWND owner)
+        {
+            const HRESULT initialized = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+            if (FAILED(initialized)) return {};
+            struct ApartmentScope
+            {
+                bool bUninitialize;
+                ~ApartmentScope() { if (bUninitialize) CoUninitialize(); }
+            } apartment{SUCCEEDED(initialized)};
+            Microsoft::WRL::ComPtr<IFileOpenDialog> dialog;
+            if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return {};
+            DWORD options = 0;
+            if (FAILED(dialog->GetOptions(&options)) || FAILED(dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_NOCHANGEDIR))) return {};
+            dialog->SetTitle(L"选择目录 / Select Folder");
+            if (!initialDir.empty())
+            {
+                auto initialPath = std::filesystem::absolute(std::filesystem::u8path(initialDir)).lexically_normal();
+                std::error_code error;
+                while (!initialPath.empty() && !std::filesystem::is_directory(initialPath, error))
+                {
+                    const auto parent = initialPath.parent_path();
+                    if (parent == initialPath) break;
+                    initialPath = parent;
+                }
+                Microsoft::WRL::ComPtr<IShellItem> folder;
+                if (!initialPath.empty() && SUCCEEDED(SHCreateItemFromParsingName(initialPath.c_str(), nullptr, IID_PPV_ARGS(&folder))))
+                    dialog->SetFolder(folder.Get());
+            }
+            const HRESULT shown = dialog->Show(owner);
+            if (FAILED(shown))
+            {
+                if (shown != HRESULT_FROM_WIN32(ERROR_CANCELLED))
+                    HE_CORE_WARN("Folder picker failed: HRESULT {}", static_cast<unsigned long>(shown));
+                return {};
+            }
+            Microsoft::WRL::ComPtr<IShellItem> selected;
+            if (FAILED(dialog->GetResult(&selected))) return {};
+            PWSTR path = nullptr;
+            if (FAILED(selected->GetDisplayName(SIGDN_FILESYSPATH, &path))) return {};
+            const std::filesystem::path result(path);
+            CoTaskMemFree(path);
+            return result;
+        }
+
+        std::filesystem::path SelectFolderOnSta(const std::string& initialDir)
+        {
+            // Audio middleware may initialize the main thread as MTA. Shell
+            // dialogs require STA; pump owner messages while the dialog is modal.
+            const HWND owner = GetDialogOwnerWindow();
+            auto result = std::async(std::launch::async, [initialDir, owner] { return PickFolder(initialDir, owner); });
+            while (result.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
+            {
+                MsgWaitForMultipleObjectsEx(0, nullptr, 10, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+                MSG message{};
+                while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE))
+                {
+                    TranslateMessage(&message);
+                    DispatchMessageW(&message);
+                }
+            }
+            return result.get();
+        }
 
 		[[nodiscard]] bool CopyStateFile(
 			const std::filesystem::path& source,
@@ -180,27 +264,7 @@ namespace HEngine
 
 	std::filesystem::path FileDialogs::SelectFolder(std::string initialDir)
 	{
-		Utils::Replace(initialDir, '/', '\\');
-
-		OPENFILENAME ofn;
-		CHAR szFile[260] = { 0 };
-		strcpy_s(szFile, "SelectFolder");
-		ZeroMemory(&ofn, sizeof(OPENFILENAME));
-		ofn.lStructSize = sizeof(OPENFILENAME);
-		ofn.hwndOwner = GetDialogOwnerWindow();
-		ofn.lpstrFile = szFile;
-		ofn.nMaxFile = sizeof(szFile);
-		ofn.lpstrFilter = "All Files\0*.*\0\0";
-		ofn.lpstrInitialDir = initialDir.c_str();
-		ofn.lpstrTitle = "Select Folder";
-		ofn.nFilterIndex = 1;
-		ofn.Flags = OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_NOVALIDATE;
-		if (GetSaveFileNameA(&ofn) == TRUE)
-		{
-			std::filesystem::path result(ofn.lpstrFile);
-			return result.parent_path();
-		}
-		return std::filesystem::path();
+        return SelectFolderOnSta(initialDir);
 	}
 
 	std::filesystem::path FileDialogs::SaveFile(const char* filter, std::string initialDir)
@@ -237,15 +301,16 @@ namespace HEngine
 
 	void FileDialogs::OpenInExplorer(std::string filePath)
 	{
-		Utils::Replace(filePath, '/', '\\');
-		if (std::filesystem::is_directory(filePath))
+        const auto path = std::filesystem::u8path(filePath).make_preferred();
+        std::error_code error;
+		if (std::filesystem::is_directory(path, error))
 		{
-			::ShellExecuteA(NULL, "explore", filePath.c_str(), NULL, NULL, SW_SHOWNORMAL);
+			::ShellExecuteW(nullptr, L"explore", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 		}
 		else
 		{
-			filePath = "/select," + filePath;
-			::ShellExecuteA(NULL, "open", "explorer.exe", filePath.c_str(), NULL, SW_SHOWNORMAL);
+            const std::wstring arguments = L"/select,\"" + path.wstring() + L"\"";
+			::ShellExecuteW(nullptr, L"open", L"explorer.exe", arguments.c_str(), nullptr, SW_SHOWNORMAL);
 		}
 	}
 #else
@@ -305,33 +370,16 @@ namespace HEngine
 
 	std::filesystem::path FileDialogs::SelectFolder(std::string initialDir)
 	{
-		Utils::Replace(initialDir, '/', '\\');
-
-		std::wstring wInitialDir = Utils::AnsiToWString(initialDir);
-		std::wstring wTitle = L"Select Folder";
-		std::wstring wFilter = L"All Files\0*.*\0\0";
-
-		OPENFILENAME ofn;
-		WCHAR szFile[260] = { 0 };
-		wcscpy_s(szFile, L"SelectFolder");
-		ZeroMemory(&ofn, sizeof(OPENFILENAME));
-		ofn.lStructSize = sizeof(OPENFILENAME);
-		ofn.hwndOwner = GetDialogOwnerWindow();
-		ofn.lpstrFile = szFile;
-		ofn.nMaxFile = sizeof(szFile) / sizeof(WCHAR);
-		ofn.lpstrFilter = wFilter.c_str();
-		ofn.lpstrInitialDir = wInitialDir.c_str();
-		ofn.lpstrTitle = wTitle.c_str();
-		ofn.nFilterIndex = 1;
-		ofn.Flags = OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_NOVALIDATE;
-		if (GetSaveFileNameW(&ofn) == TRUE)
-		{
-			std::filesystem::path result(ofn.lpstrFile);
-			return result.parent_path();
-		}
-		return std::filesystem::path();
+        return SelectFolderOnSta(initialDir);
 	}
 #endif
+
+    bool FileDialogs::OpenWebUrl(std::string_view url)
+    {
+        if (!url.starts_with("https://") && !url.starts_with("http://")) return false;
+        const auto wideUrl = std::filesystem::u8path(url).wstring();
+        return reinterpret_cast<INT_PTR>(::ShellExecuteW(nullptr, L"open", wideUrl.c_str(), nullptr, nullptr, SW_SHOWNORMAL)) > 32;
+    }
 
 	bool FileDialogs::OpenFileWithApplication(const std::filesystem::path& applicationPath,
 	                                          const std::filesystem::path& filePath)

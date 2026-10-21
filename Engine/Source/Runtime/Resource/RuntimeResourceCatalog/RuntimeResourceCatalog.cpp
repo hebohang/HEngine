@@ -21,7 +21,7 @@ namespace HEngine
         bool IsValid(RuntimeCatalogResourceType type) noexcept
         {
             return static_cast<uint8_t>(type) <=
-                static_cast<uint8_t>(RuntimeCatalogResourceType::Data);
+                static_cast<uint8_t>(RuntimeCatalogResourceType::Collision);
         }
 
         bool IsValid(RuntimeCatalogDependencyKind kind) noexcept
@@ -138,6 +138,7 @@ namespace HEngine
         case RuntimeCatalogResourceType::Config: return "Config";
         case RuntimeCatalogResourceType::Binary: return "Binary";
         case RuntimeCatalogResourceType::Data: return "Data";
+        case RuntimeCatalogResourceType::Collision: return "Collision";
         }
         return "Data";
     }
@@ -191,6 +192,7 @@ namespace HEngine
         HE_TRY_PARSE_CATALOG_TYPE(Config)
         HE_TRY_PARSE_CATALOG_TYPE(Binary)
         HE_TRY_PARSE_CATALOG_TYPE(Data)
+        HE_TRY_PARSE_CATALOG_TYPE(Collision)
 #undef HE_TRY_PARSE_CATALOG_TYPE
         return false;
     }
@@ -469,7 +471,7 @@ namespace HEngine
     {
         if (!snapshot)
             snapshot = RuntimeResourceCatalogSnapshot::Empty();
-        mSnapshot.store(std::move(snapshot), std::memory_order_release);
+        std::atomic_store_explicit(&mSnapshot, std::move(snapshot), std::memory_order_release);
     }
 
     void RuntimeResourceCatalog::Clear() noexcept
@@ -479,6 +481,6 @@ namespace HEngine
 
     std::shared_ptr<const RuntimeResourceCatalogSnapshot> RuntimeResourceCatalog::GetSnapshot() const noexcept
     {
-        return mSnapshot.load(std::memory_order_acquire);
+        return std::atomic_load_explicit(&mSnapshot, std::memory_order_acquire);
     }
 }

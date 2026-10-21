@@ -495,6 +495,8 @@ namespace HEngine::Tests
             Require(ClassifyRayTracingGeometry(object, section) ==
                     RayTracingGeometrySupport::AlphaMask,
                 "Alpha-mask geometry did not select the documented raster fallback.");
+            Require(ClassifyRayTracingGeometry(object, section, true) == RayTracingGeometrySupport::SupportedStaticOpaque,
+                "BasePBR-capable provider did not admit masked geometry.");
             section.AlphaMode = RenderMaterialAlphaMode::Opaque;
             section.MaterialInstance.bCustomSurface = true;
             Require(ClassifyRayTracingGeometry(object, section) ==
@@ -505,12 +507,19 @@ namespace HEngine::Tests
             Require(ClassifyRayTracingGeometry(object, section) ==
                     RayTracingGeometrySupport::TexturedMaterial,
                 "Textured BasePBR geometry was silently admitted without hit-shader texture sampling.");
+            Require(ClassifyRayTracingGeometry(object, section, true) == RayTracingGeometrySupport::SupportedStaticOpaque,
+                "BasePBR-capable provider did not admit textured geometry.");
             section.MaterialInstance.LegacyTextures[0].bEnabled = false;
             mesh->mStaticVertices[0].Normal = glm::normalize(
                 glm::vec3(1.0f, 1.0f, 0.0f));
             Require(ClassifyRayTracingGeometry(object, section) ==
                     RayTracingGeometrySupport::SmoothShadingNormals,
                 "Smooth shading normals were silently admitted without a shading-normal correction.");
+            Require(ClassifyRayTracingGeometry(object, section, true) == RayTracingGeometrySupport::SupportedStaticOpaque,
+                "BasePBR-capable provider did not admit smooth normals.");
+            section.AlphaMode = RenderMaterialAlphaMode::Blend;
+            Require(ClassifyRayTracingGeometry(object, section, true) == RayTracingGeometrySupport::AlphaBlend,
+                "BasePBR support incorrectly admitted optical transmission/alpha blend.");
         }
 
         void TestStableInstanceMapping()
@@ -991,13 +1000,17 @@ namespace HEngine::Tests
             settings.ScreenSpaceThickness = 0.075f;
             settings.ScreenSpaceEdgeFade = 0.125f;
             settings.ScreenSpaceTemporalWeight = 0.987f;
+            settings.bSsgiEnvironmentMis = true;
             const Json serialized = SerializeGlobalIlluminationSettings(settings);
+            Require(serialized.at("SsgiEnvironmentMis").get<bool>(),
+                "GI JSON omitted enabled environment MIS.");
             Require(!serialized.contains("DebugView") &&
                     !serialized.contains("DirectOnly"),
                 "GI JSON persisted diagnostic-only settings.");
             const GlobalIlluminationSettings restored =
                 DeserializeGlobalIlluminationSettings(serialized);
-            Require(restored.Technique == settings.Technique &&
+            Require(restored.bSsgiEnvironmentMis &&
+                    restored.Technique == settings.Technique &&
                     restored.Denoiser == settings.Denoiser &&
                     restored.UnsupportedFallback == settings.UnsupportedFallback &&
                     restored.DebugView == GlobalIlluminationDebugView::Composite &&
@@ -1031,7 +1044,17 @@ namespace HEngine::Tests
                     legacyRestored.bDirectOnly,
                 "Legacy GI JSON no longer imports diagnostic settings.");
 
+            Require(DeserializeGlobalIlluminationSettings(Json::object()).bSsgiEnvironmentMis,
+                "Missing GI JSON fields must retain default-on environment MIS.");
             GlobalIlluminationSettings customDefaults;
+            customDefaults.bSsgiEnvironmentMis = true;
+            Require(DeserializeGlobalIlluminationSettings(Json::object(), customDefaults).bSsgiEnvironmentMis &&
+                    !DeserializeGlobalIlluminationSettings(Json{ { "SsgiEnvironmentMis", false } }, customDefaults).bSsgiEnvironmentMis,
+                "GI JSON lost caller MIS defaults or ignored an explicit false value.");
+            customDefaults.bSsgiEnvironmentMis = false;
+            Require(!DeserializeGlobalIlluminationSettings(Json::object(), customDefaults).bSsgiEnvironmentMis &&
+                    DeserializeGlobalIlluminationSettings(Json{ { "SsgiEnvironmentMis", true } }, customDefaults).bSsgiEnvironmentMis,
+                "GI JSON lost caller-disabled MIS defaults or ignored an explicit true value.");
             customDefaults.Technique =
                 GlobalIlluminationTechniqueKind::HardwareRayTracing;
             customDefaults.Denoiser = GlobalIlluminationDenoiserKind::Nrd;

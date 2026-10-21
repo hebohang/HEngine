@@ -40,6 +40,7 @@ set(ownedRootEntries
     msvcp140.dll
     python311.dll
     README.txt
+    Scripting
     ${PACKAGE_EXECUTABLE_NAME}.exe
     THIRD_PARTY_NOTICES.txt
     vcruntime140.dll
@@ -79,6 +80,21 @@ foreach(entry IN LISTS actualRootEntries)
                 message(FATAL_ERROR "Owned package contains an unsafe D3D12 entry: ${agilityEntry}")
             endif()
         endforeach()
+    elseif(entry STREQUAL "Scripting")
+        file(GLOB scriptEntries RELATIVE "${entryPath}" "${entryPath}/*")
+        if(NOT IS_DIRECTORY "${entryPath}" OR NOT scriptEntries STREQUAL "CSharp" OR
+           NOT IS_DIRECTORY "${entryPath}/CSharp" OR IS_SYMLINK "${entryPath}/CSharp")
+            message(FATAL_ERROR "Owned package has unexpected scripting contents")
+        endif()
+        find_program(scriptVerifierShell NAMES powershell.exe pwsh REQUIRED)
+        execute_process(
+            COMMAND "${scriptVerifierShell}" -NoProfile -NonInteractive -ExecutionPolicy Bypass
+                -File "${CMAKE_CURRENT_LIST_DIR}/../Tools/Scripting/VerifyPackageRuntime.ps1"
+                -Directory "${entryPath}/CSharp"
+            RESULT_VARIABLE scriptValidationResult)
+        if(NOT scriptValidationResult EQUAL 0)
+            message(FATAL_ERROR "Owned C# package failed its runtime/build manifest verification")
+        endif()
     elseif(IS_DIRECTORY "${entryPath}")
         message(FATAL_ERROR "Owned package contains an unexpected directory: ${entry}")
     endif()

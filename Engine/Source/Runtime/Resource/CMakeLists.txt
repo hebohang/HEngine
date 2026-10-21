@@ -6,5 +6,6 @@ add_subdirectory(RuntimeResourceCatalog)
 add_subdirectory(RuntimeResourceRegistry)
 
 RUNTIME_ADD_SOURCE(
+    AssetReadAhead.h AssetReadAhead.cpp
     RuntimeProjectResourceWarmup.h RuntimeProjectResourceWarmup.cpp
 )

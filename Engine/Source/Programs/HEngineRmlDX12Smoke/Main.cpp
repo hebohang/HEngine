@@ -81,8 +81,8 @@ body { width: 100%; height: 100%; margin: 0px; }
     <div id="panel"><div id="clip"><div id="wide"></div></div></div>
     <div id="filtered-panel"><div id="filtered-panel-child"></div></div>
     <div id="event-target"></div>
-    <lottie id="smoke-lottie" src="showcase-burst.lottie.json"></lottie>
-    <svg id="smoke-svg" src="showcase-starburst.svg"></svg>
+    <lottie id="smoke-lottie" src="starbloom-burst.lottie.json"></lottie>
+    <svg id="smoke-svg" src="starbloom-starburst.svg"></svg>
 </body>
 </rml>
 )";
@@ -269,7 +269,7 @@ body { width: 100%; height: 100%; margin: 0px; }
         const Rml::CompiledShaderHandle shader = renderInterface.CompileShader(
             "shader",
             Rml::Dictionary{
-                { "value", Rml::Variant(Rml::String("he-sheen")) },
+                { "value", Rml::Variant(Rml::String("starbloom-sheen")) },
                 { "dimensions", Rml::Variant(Rml::Vector2f(220.f, 132.f)) },
             });
         if (!shader)

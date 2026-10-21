@@ -44,6 +44,35 @@ namespace HEngine::ImGuiWrapper
         ImGui::SetNextWindowSizeConstraints(S(minSize), S(maxSize));
     }
 
+    void ConstrainNextWindowToWorkArea(const char* name, const ImVec2& defaultSize, const ImVec2& minSize)
+    {
+        ImGuiWindow* window = ImGui::FindWindowByName(name);
+        if (window && window->DockId != 0)
+            return;
+        const ImGuiViewport* viewport = window && window->Viewport
+            ? window->Viewport : ImGui::GetMainViewport();
+        // WorkPos/WorkSize are already pixels. Only design dimensions use S().
+        const ImVec2 margin = S(12.0f, 12.0f);
+        const ImVec2 inset(ImMin(margin.x, viewport->WorkSize.x * 0.25f),
+            ImMin(margin.y, viewport->WorkSize.y * 0.25f));
+        const ImVec2 origin(viewport->WorkPos.x + inset.x, viewport->WorkPos.y + inset.y);
+        const ImVec2 maximum(ImMax(1.0f, viewport->WorkSize.x - inset.x * 2.0f),
+            ImMax(1.0f, viewport->WorkSize.y - inset.y * 2.0f));
+        const ImVec2 scaledMin = S(minSize);
+        const ImVec2 minimum(ImMin(scaledMin.x, maximum.x), ImMin(scaledMin.y, maximum.y));
+        ImGui::SetNextWindowSizeConstraints(minimum, maximum);
+        const ImVec2 desired = window ? window->SizeFull : S(defaultSize);
+        const ImVec2 size(ImClamp(desired.x, minimum.x, maximum.x),
+            ImClamp(desired.y, minimum.y, maximum.y));
+        if (!window || size.x != desired.x || size.y != desired.y)
+            ImGui::SetNextWindowSize(size, ImGuiCond_Always);
+        const ImVec2 desiredPos = window ? window->Pos : origin;
+        const ImVec2 position(ImClamp(desiredPos.x, origin.x, origin.x + maximum.x - size.x),
+            ImClamp(desiredPos.y, origin.y, origin.y + maximum.y - size.y));
+        if (!window || position.x != desiredPos.x || position.y != desiredPos.y)
+            ImGui::SetNextWindowPos(position, ImGuiCond_Always);
+    }
+
     void SameLine(float offsetFromStartX, float spacing)
     {
         if (spacing >= 0.0f)

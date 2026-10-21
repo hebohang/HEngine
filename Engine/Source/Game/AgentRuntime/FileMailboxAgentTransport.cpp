@@ -4,9 +4,11 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cstring>
 #include <fstream>
 #include <system_error>
 #include <thread>
+#include <vector>
 
 namespace HEngine
 {
@@ -67,6 +69,63 @@ namespace HEngine
 		}
 	}
 
+	// Coupled to vendored nlohmann 3.12.0 detail serializer; review on library upgrades.
+	static_assert(NLOHMANN_JSON_VERSION_MAJOR == 3 && NLOHMANN_JSON_VERSION_MINOR == 12 &&
+		NLOHMANN_JSON_VERSION_PATCH == 0, "Review bounded response serializer for JSON upgrade");
+
+	struct FileMailboxAgentTransport::ResponseWriter
+	{
+		struct LimitExceeded {};
+		struct Buffer final : nlohmann::detail::output_adapter_protocol<char>
+		{
+			explicit Buffer(std::size_t capacity) : mBytes(capacity) {}
+			void write_character(char value) override { write_characters(&value, 1); }
+			void write_characters(const char* values, std::size_t count) override
+			{
+				if (count > mLimit - mSize)
+					throw LimitExceeded{};
+				if (count != 0)
+					std::memcpy(mBytes.data() + mSize, values, count);
+				mSize += count;
+			}
+			std::vector<char> mBytes;
+			std::size_t mSize = 0;
+			std::size_t mLimit = 0;
+		};
+
+		explicit ResponseWriter(std::size_t limit)
+			: mError(AgentCommandRegistry::MakeError(nullptr, "response_too_large",
+				"Response exceeds the session byte limit.").dump()),
+			  mOutput(CreateRef<Buffer>(std::max(limit, mError.size()))),
+			  mSerializer(mOutput, ' ', Json::error_handler_t::replace)
+		{}
+
+		std::string_view Encode(const Json& response, std::size_t limit)
+		{
+			mOutput->mSize = 0;
+			mOutput->mLimit = limit;
+			try
+			{
+				mSerializer.dump(response, false, false, 0);
+			}
+			catch (const LimitExceeded&)
+			{
+				// Preserve the existing tiny-budget exception: the fixed error may exceed limit.
+				mOutput->mSize = 0;
+				mOutput->mLimit = mOutput->mBytes.size();
+				mOutput->write_characters(mError.data(), mError.size());
+			}
+			return {mOutput->mBytes.data(), mOutput->mSize};
+		}
+
+		std::string mError;
+		Ref<Buffer> mOutput;
+		nlohmann::detail::serializer<Json> mSerializer;
+	};
+
+	FileMailboxAgentTransport::FileMailboxAgentTransport() = default;
+	FileMailboxAgentTransport::~FileMailboxAgentTransport() = default;
+
 	bool FileMailboxAgentTransport::Start(const AgentTransportConfig& config, const Json& sessionDescriptor)
 	{
 		if (mStarted || config.SessionDirectory.empty() || !config.SessionDirectory.is_absolute())
@@ -125,6 +184,7 @@ namespace HEngine
 		if (error)
 			return false;
 
+		auto responseWriter = CreateScope<ResponseWriter>(mConfig.MaxResponseBytes);
 		const std::string descriptor = sessionDescriptor.dump(
 			-1, ' ', false, Json::error_handler_t::replace);
 		if (descriptor.size() > mConfig.MaxResponseBytes ||
@@ -133,6 +193,7 @@ namespace HEngine
 			return false;
 		}
 
+		mResponseWriter = std::move(responseWriter);
 		mRequestReadFailures.clear();
 		mStarted = true;
 		return true;
@@ -144,6 +205,7 @@ namespace HEngine
 			return;
 		(void)PublishStatus(finalStatus);
 		mStarted = false;
+		mResponseWriter.reset();
 	}
 
 	std::vector<AgentTransportMessage> FileMailboxAgentTransport::Poll(std::size_t maxMessages)
@@ -277,14 +339,7 @@ namespace HEngine
 		if (!mStarted || !IsSafeHandle(message.Handle))
 			return false;
 
-		std::string contents = response.dump(-1, ' ', false, Json::error_handler_t::replace);
-		if (contents.size() > mConfig.MaxResponseBytes)
-		{
-			contents = AgentCommandRegistry::MakeError(
-				nullptr,
-				"response_too_large",
-				"Response exceeds the session byte limit.").dump();
-		}
+		const std::string_view contents = mResponseWriter->Encode(response, mConfig.MaxResponseBytes);
 
 		const std::filesystem::path responsePath = mResponsesDirectory / (message.Handle + ".response.json");
 		if (!WriteAtomically(responsePath, contents, false))

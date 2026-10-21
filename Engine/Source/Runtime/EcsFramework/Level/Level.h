@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Runtime/Core/Timestep.h"
+#include "Runtime/Core/SimulationClock.h"
 #include "Runtime/Core/UUID.h"
 #include "Runtime/Core/Base/Base.h"
 #include "Runtime/Camera/EditorCamera.h"
@@ -30,6 +31,7 @@ namespace HEngine
 {
     class Entity;
     class RuntimeResourceCatalogSnapshot;
+	struct PrefabDocument;
 	class MeshComponent;
 	class PythonScriptComponent;
 	class RenderPrimitiveCollector;
@@ -57,6 +59,7 @@ namespace HEngine
         void OnUpdateRuntime(Timestep ts);
 		void SetRuntimePaused(bool bPaused);
 		[[nodiscard]] bool IsRuntimePaused() const { return mRuntimePaused; }
+        [[nodiscard]] double GetFixedInterpolationAlpha() const noexcept { return mFixedSimulation.GetInterpolationAlpha(); }
         void OnImGuiRender();
 #if WITH_EDITOR
         void OnUpdateEditor(Timestep ts, EditorCamera& camera);
@@ -96,6 +99,19 @@ namespace HEngine
         Entity InstantiatePrefab(const std::string& prefabPath, const glm::vec3& position, const glm::vec3& rotation);
 
 		Entity GetPrimaryCameraEntity();
+		RuntimeResourceRegistry* GetRuntimeResourceRegistry() const noexcept { return mRuntimeResourceRegistry; }
+		RuntimeResourceGroup* GetOrCreateRuntimeResourceGroup()
+		{
+			if (!mRuntimeResourceRegistry || !mRuntimeResourceRegistry->IsInitialized())
+				return nullptr;
+			if (!mRuntimeResources)
+				mRuntimeResources = mRuntimeResourceRegistry->CreateGroup();
+			return &mRuntimeResources;
+		}
+		template<typename T> void PinRuntimeResource(const RuntimeResourceHandle<T>& handle)
+		{
+			if (mRuntimeResources) (void)mRuntimeResources.Pin(handle);
+		}
 		Entity TryGetEntityByUUID(const UUID& uuid);
 		template<typename T>
 		T* TryGetSystem();
@@ -122,13 +138,19 @@ namespace HEngine
 		std::filesystem::path mRuntimeResourceProjectRoot;
 		std::shared_ptr<const RuntimeResourceCatalogSnapshot> mRuntimeResourceCatalog;
         RuntimeResourceGroup mRuntimeResources;
+		// Non-nested prefab preparation is scoped to this Level, full path, and resource generation.
+		std::unordered_map<std::string, std::pair<uint64_t, std::shared_ptr<const PrefabDocument>>> mPreparedPrefabs;
     public:
         Registry mRegistry;
     private:
+        // Destroyed after systems stop, but before the registry is released.
+        std::shared_ptr<const unsigned char> mEntityLifetime = std::make_shared<const unsigned char>(0);
         std::vector<Scope<class System>> mSystems;
 		Scope<RenderPrimitiveCollector> mRenderPrimitiveCollector;
 		size_t mRuntimeSystemCount = 0;
 		bool mRuntimePaused = false;
+        FixedSimulationStepper mFixedSimulation;
+		std::unordered_map<std::string, EntityHandle> mEntityByUuidLookup;
 #if WITH_EDITOR
 		std::unordered_map<std::string, EntityHandle> mEditorEntityByUuid;
 		std::unordered_map<uint32_t, bool> mEditorEffectiveVisibility;
@@ -154,4 +176,45 @@ namespace HEngine
 		}
 		return nullptr;
 	}
+}
+
+// Declare custom initialization before any Entity template instantiates it.
+namespace HEngine
+{
+    class IDComponent;
+    template<> void Level::OnComponentAdded<IDComponent>(Entity entity, IDComponent& component);
+    class TransformComponent;
+    template<> void Level::OnComponentAdded<TransformComponent>(Entity entity, TransformComponent& component);
+    class CameraComponent;
+    template<> void Level::OnComponentAdded<CameraComponent>(Entity entity, CameraComponent& component);
+    class FollowCameraComponent;
+    template<> void Level::OnComponentAdded<FollowCameraComponent>(Entity entity, FollowCameraComponent& component);
+    class SpringArmComponent;
+    template<> void Level::OnComponentAdded<SpringArmComponent>(Entity entity, SpringArmComponent& component);
+    class CharacterMovementComponent;
+    template<> void Level::OnComponentAdded<CharacterMovementComponent>(Entity entity, CharacterMovementComponent& component);
+    class SpriteRendererComponent;
+    template<> void Level::OnComponentAdded<SpriteRendererComponent>(Entity entity, SpriteRendererComponent& component);
+    class CircleRendererComponent;
+    template<> void Level::OnComponentAdded<CircleRendererComponent>(Entity entity, CircleRendererComponent& component);
+    class TagComponent;
+    template<> void Level::OnComponentAdded<TagComponent>(Entity entity, TagComponent& component);
+    class NativeScriptComponent;
+    template<> void Level::OnComponentAdded<NativeScriptComponent>(Entity entity, NativeScriptComponent& component);
+    class ScriptComponent;
+    template<> void Level::OnComponentAdded<ScriptComponent>(Entity entity, ScriptComponent& component);
+    class PythonScriptComponent;
+    template<> void Level::OnComponentAdded<PythonScriptComponent>(Entity entity, PythonScriptComponent& component);
+    class Rigidbody2DComponent;
+    template<> void Level::OnComponentAdded<Rigidbody2DComponent>(Entity entity, Rigidbody2DComponent& component);
+    class Rigidbody3DComponent;
+    template<> void Level::OnComponentAdded<Rigidbody3DComponent>(Entity entity, Rigidbody3DComponent& component);
+    class BoxCollider2DComponent;
+    template<> void Level::OnComponentAdded<BoxCollider2DComponent>(Entity entity, BoxCollider2DComponent& component);
+    class CircleCollider2DComponent;
+    template<> void Level::OnComponentAdded<CircleCollider2DComponent>(Entity entity, CircleCollider2DComponent& component);
+    class CapsuleCollider3DComponent;
+    template<> void Level::OnComponentAdded<CapsuleCollider3DComponent>(Entity entity, CapsuleCollider3DComponent& component);
+    class MeshComponent;
+    template<> void Level::OnComponentAdded<MeshComponent>(Entity entity, MeshComponent& component);
 }

@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 2,
+  "root": "root",
+  "nested": [],
+  "entities": {
+    "root": {
+      "TagComponent": {
+        "Tag": "Cover"
+      },
+      "TransformComponent": {
+        "Translation": [
+          0,
+          1,
+          0
+        ],
+        "Rotation": [
+          0,
+          0,
+          0
+        ],
+        "Scale": [
+          1,
+          1,
+          1
+        ],
+        "ParentUuid": ""
+      },
+      "MeshComponent": {
+        "Path": "Assets/Models/Box/Box.hmesh",
+        "MaterialOverrides": [
+          "Assets/StarterContent/Materials/Cover.hmat"
+        ]
+      }
+    }
+  }
+}

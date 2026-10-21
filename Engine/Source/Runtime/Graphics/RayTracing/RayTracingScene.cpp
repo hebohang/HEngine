@@ -1,12 +1,14 @@
 #include "Hepch.h"
 
 #include "Runtime/Graphics/RayTracing/RayTracingScene.h"
+#include "Runtime/Graphics/RHI/TextureManager.h"
 
 #include <glm/gtc/matrix_inverse.hpp>
 
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <stdexcept>
 #include <unordered_map>
@@ -111,6 +113,24 @@ namespace HEngine
             HashValue(hash, snapshot.Roughness);
             HashValue(hash, snapshot.AlphaMode);
             HashValue(hash, snapshot.bDoubleSided);
+            HashValue(hash, snapshot.NormalScale);
+            HashValue(hash, snapshot.AlphaCutoff);
+            for (const auto& texture : snapshot.LegacyTextures)
+            {
+                HashString(hash, texture.AssetPath);
+                HashValue(hash, texture.bEnabled);
+                HashValue(hash, texture.Sampling.useAffine); HashValue(hash, texture.Sampling.affineRow0); HashValue(hash, texture.Sampling.affineRow1);
+                HashValue(hash, texture.Sampling.texCoord); HashValue(hash, texture.Sampling.offset);
+                HashValue(hash, texture.Sampling.scale); HashValue(hash, texture.Sampling.rotation);
+                HashValue(hash, texture.Sampling.wrapS); HashValue(hash, texture.Sampling.wrapT);
+                HashValue(hash, texture.Sampling.minFilter); HashValue(hash, texture.Sampling.magFilter);
+            }
+            for (const auto& parameter : snapshot.ParameterValues)
+            {
+                HashString(hash, parameter.Name);
+                HashString(hash, parameter.TexturePath);
+                HashValue(hash, parameter.Numeric);
+            }
             return hash == 0 ? 1 : hash;
         }
 
@@ -129,6 +149,7 @@ namespace HEngine
 
         struct SceneTableUploadPassData
         {
+            BufferHandle AnalyticLights;
             BufferHandle Vertices;
             BufferHandle Indices;
             BufferHandle Geometries;
@@ -166,6 +187,8 @@ namespace HEngine
             , FramesInFlight(desc.FramesInFlight)
             , InitialInstanceCapacity(desc.InitialInstanceCapacity)
             , bCreateAccelerationStructures(desc.bCreateAccelerationStructures)
+            , bBasePbrMaterials(desc.bBasePbrMaterials)
+            , Textures(desc.Textures)
         {
             if (!Device)
                 throw std::invalid_argument("RayTracingScene requires a valid NVRHI device");
@@ -173,6 +196,135 @@ namespace HEngine
                 throw std::invalid_argument("RayTracingScene requires at least one frame in flight");
             if (InitialInstanceCapacity == 0)
                 throw std::invalid_argument("RayTracingScene initial instance capacity must be non-zero");
+        }
+
+        ~Impl()
+        {
+            ReleaseMaterialTextures();
+        }
+
+        void ReleaseMaterialTextures()
+        {
+            if (Textures)
+                for (const ManagedTextureHandle handle : TextureLeases)
+                    if (Textures->IsValid(handle))
+                        Textures->ReleaseTexture(handle, LastSubmittedSubmission);
+            if (!MaterialTextures.empty())
+            {
+                ++MaterialTextureGeneration;
+                bGraphRebuildRequested = true;
+            }
+            TextureLeases.clear();
+            MaterialTextures.clear();
+            TextureIndices.clear();
+            bMaterialTextureChanged = false;
+        }
+
+        uint32_t ResolveTexture(const std::string& path, bool bSrgb)
+        {
+            if (path.empty()) return InvalidRayTracingSceneIndex;
+            if (!Textures) throw std::runtime_error("BasePBR ray tracing requires the shared texture service");
+            const std::string key = path + (bSrgb ? "#srgb" : "#linear");
+            if (const auto it = TextureIndices.find(key); it != TextureIndices.end()) return it->second;
+            if (MaterialTextures.size() >= 512) throw std::runtime_error("Ray tracing material texture table exceeds 512 entries");
+            nvrhi::TextureHandle texture;
+            ManagedTextureHandle lease;
+            if (const auto* fallback = Textures->FindDefaultTexture(path)) texture = fallback->Texture;
+            else
+            {
+                lease = Textures->LoadTexture(TextureLoadDesc{
+                    .AssetPath = path, .ColorSpace = bSrgb ? TextureColorSpace::SRgb : TextureColorSpace::Linear,
+                    .bCreateBindlessDescriptor = Textures->GetTextureDescriptorTable() != nullptr,
+                    .bRequireReady = false,
+                    .DebugName = "Ray tracing material: " + path});
+                texture = Textures->GetTexture(lease).Texture;
+            }
+            const auto index = static_cast<uint32_t>(MaterialTextures.size());
+            try
+            {
+                MaterialTextures.push_back(texture);
+                TextureLeases.push_back(lease);
+                if (!TextureIndices.emplace(key, index).second)
+                    throw std::logic_error("Ray tracing texture key was inserted twice");
+            }
+            catch (...)
+            {
+                if (TextureLeases.size() > index) TextureLeases.pop_back();
+                if (MaterialTextures.size() > index) MaterialTextures.pop_back();
+                if (Textures->IsValid(lease))
+                    Textures->ReleaseTexture(lease, LastSubmittedSubmission);
+                throw;
+            }
+            ++MaterialTextureGeneration;
+            bGraphRebuildRequested = true;
+            return index;
+        }
+
+        void RefreshPublishedTextures()
+        {
+            if (!Textures) return;
+            size_t changed = 0;
+            for (size_t index = 0; index < TextureLeases.size(); ++index)
+            {
+                const ManagedTextureHandle lease = TextureLeases[index];
+                if (!Textures->IsValid(lease)) continue;
+                const nvrhi::TextureHandle current = Textures->GetTexture(lease).Texture;
+                if (MaterialTextures[index] == current) continue;
+                MaterialTextures[index] = current;
+                ++MaterialTextureGeneration;
+                ++changed;
+                bMaterialTextureChanged = true;
+                bGraphRebuildRequested = true;
+            }
+            static const bool bLogPublications = []
+            {
+                const char* value = std::getenv("HE_RT_TEXTURE_PUBLICATIONS");
+                return value && value[0] == '1' && value[1] == '\0';
+            }();
+            if (bLogPublications && changed != 0)
+                HE_CORE_INFO("[RayTracingScene] material textures published={} generation={}",
+                    changed, MaterialTextureGeneration);
+        }
+
+        RayTracingMaterialRecord ResolveMaterial(const RenderMeshSection::MaterialInstanceSnapshot& snapshot)
+        {
+            auto record = MakeMaterialRecord(snapshot);
+            for (size_t i = 0; i < 5; ++i) record.Sampling[i] = PackTextureSampling(snapshot.LegacyTextures[i].Sampling);
+            if (!bBasePbrMaterials) return record;
+            record.Surface = {snapshot.NormalScale, snapshot.BaseColor.a, snapshot.AlphaCutoff,
+                snapshot.AlphaMode == RenderMaterialAlphaMode::Mask ? 1.f : 0.f};
+            std::array<std::string, 7> paths;
+            for (size_t i = 0; i < 5; ++i)
+                if (snapshot.LegacyTextures[i].bEnabled) paths[i] = snapshot.LegacyTextures[i].AssetPath;
+            constexpr std::array<std::string_view, 7> names = {"g_AlbedoMap", "g_NormalMap", "g_MetallicRoughnessMap", "g_AoMap", "g_EmissiveMap", "g_MetallicMap", "g_RoughnessMap"};
+            for (const auto& parameter : snapshot.ParameterValues)
+                for (size_t i = 0; i < names.size(); ++i)
+                    if (parameter.Name == names[i] && !parameter.TexturePath.empty()) paths[i] = parameter.TexturePath;
+            for (size_t i = 0; i < paths.size(); ++i)
+            {
+                const auto texture = ResolveTexture(paths[i], i == 0 || i == 4);
+                if (i < 4) record.Textures0[static_cast<int>(i)] = texture;
+                else record.Textures1[static_cast<int>(i - 4)] = texture;
+            }
+            record.Textures1.w = record.Textures0.y != InvalidRayTracingSceneIndex &&
+                MaterialTextures[record.Textures0.y]->getDesc().format == nvrhi::Format::BC5_UNORM ? 1u : 0u;
+            return record;
+        }
+
+        void BuildAnalyticLights(const RenderWorld& world)
+        {
+            AnalyticLights.assign(1, {}); // First record stores the active count.
+            if (bBasePbrMaterials)
+            {
+                for (const auto& light : world.DirectionalLights)
+                    if (light.Intensity > 0) AnalyticLights.push_back({{}, {light.Direction, 0.f}, {light.Color * light.Intensity, 0.f}, {}});
+                for (const auto& light : world.PointLights)
+                    if (light.Intensity > 0) AnalyticLights.push_back({{light.Position, 1.f}, {0.f, 0.f, 0.f, light.Radius}, {light.Color * light.Intensity, 0.f}, {}});
+                for (const auto& light : world.SpotLights)
+                    if (light.Intensity > 0) AnalyticLights.push_back({{light.Position, 2.f}, {light.Direction, light.Radius}, {light.Color * light.Intensity, 0.f}, {light.InnerConeCosine, light.OuterConeCosine, 0.f, 0.f}});
+            }
+            if (AnalyticLights.size() > 257) throw std::runtime_error("Ray tracing supports up to 256 analytic lights");
+            AnalyticLights[0].PositionType.x = static_cast<float>(AnalyticLights.size() - 1);
         }
 
         [[nodiscard]] uint32_t GetOrCreateStableInstanceId(
@@ -285,6 +437,8 @@ namespace HEngine
                 "Hardware RT Emissive Triangle Table",
                 false,
                 false);
+            CreateBuffer(GpuResources.AnalyticLights, 257 * sizeof(RayTracingAnalyticLight),
+                sizeof(RayTracingAnalyticLight), "Hardware RT Analytic Lights", false, false);
 
             for (GeometryEntry& geometry : Geometries)
             {
@@ -312,7 +466,7 @@ namespace HEngine
                     .setIndexFormat(nvrhi::Format::R32_UINT);
                 geometry.Geometry = nvrhi::rt::GeometryDesc()
                     .setTriangles(triangles)
-                    .setFlags(nvrhi::rt::GeometryFlags::Opaque);
+                    .setFlags(geometry.Key.bOpaque ? nvrhi::rt::GeometryFlags::Opaque : nvrhi::rt::GeometryFlags::None);
                 nvrhi::rt::AccelStructDesc blasDesc;
                 blasDesc.addBottomLevelGeometry(geometry.Geometry)
                     .setBuildFlags(nvrhi::rt::AccelStructBuildFlags::PreferFastTrace)
@@ -350,7 +504,7 @@ namespace HEngine
             bGraphRebuildRequested = true;
             Stats.GeometryContentBytes = vertexBytes + indexBytes;
             Stats.SceneTableBytes =
-                geometryBytes + materialBytes + instanceBytes + lightBytes;
+                geometryBytes + materialBytes + instanceBytes + lightBytes + 257 * sizeof(RayTracingAnalyticLight);
             Stats.ActiveBufferAllocationRequirementBytes = 0;
             for (const nvrhi::BufferHandle& buffer : {
                 GpuResources.Vertices,
@@ -359,6 +513,7 @@ namespace HEngine
                 GpuResources.Materials,
                 GpuResources.Instances,
                 GpuResources.EmissiveTriangles,
+                GpuResources.AnalyticLights,
             })
             {
                 Stats.ActiveBufferAllocationRequirementBytes +=
@@ -383,13 +538,19 @@ namespace HEngine
             const RenderWorld& world,
             const RayTracingSceneRevisions& revisions)
         {
+            if (!bHasPreparedScene || revisions.Light != Revisions.Light)
+            {
+                BuildAnalyticLights(world);
+                bSceneBufferUploadRequired = true;
+            }
             const bool bTransformChanged = !bHasPreparedScene ||
                 revisions.Transform != Revisions.Transform;
             const bool bSceneTablesUnchanged = bHasPreparedScene &&
                 revisions.Scene == Revisions.Scene &&
                 revisions.GeometryTopology == Revisions.GeometryTopology &&
                 !bTransformChanged &&
-                revisions.Material == Revisions.Material;
+                revisions.Material == Revisions.Material &&
+                !bMaterialTextureChanged;
             if (bSceneTablesUnchanged)
             {
                 // Point, directional and environment lights are consumed by
@@ -426,7 +587,7 @@ namespace HEngine
                 {
                     const RenderMeshSection& section = object.Sections[sectionIndex];
                     const RayTracingGeometrySupport support =
-                        ClassifyRayTracingGeometry(object, section);
+                        ClassifyRayTracingGeometry(object, section, bBasePbrMaterials);
                     if (support !=
                         RayTracingGeometrySupport::SupportedStaticOpaque)
                     {
@@ -457,7 +618,7 @@ namespace HEngine
                             subMesh,
                             contentRevision,
                             section.AlphaMode,
-                            true,
+                            section.AlphaMode != RenderMaterialAlphaMode::Mask,
                             section.bDoubleSided);
                     nextGeometryKeys.push_back(key);
                     candidates.push_back(Candidate{
@@ -535,6 +696,10 @@ namespace HEngine
                         Vertices.push_back(RayTracingVertex{
                             .Position = glm::vec4(vertex.Pos, 1.0f),
                             .Normal = glm::vec4(vertex.Normal, 0.0f),
+                            .TexCoord = glm::vec4(vertex.TexCoord, vertex.TexCoord1),
+                            .Tangent = glm::vec4(vertex.Tangent, 0.0f),
+                            .Bitangent = glm::vec4(vertex.Bitangent, 0.0f),
+                            .Color = vertex.Color,
                         });
                     }
                     Indices.insert(
@@ -575,7 +740,7 @@ namespace HEngine
                     throw std::logic_error("RayTracingScene lost an active geometry key");
                 const uint32_t geometryIndex = geometryIt->second;
                 const uint64_t materialKey =
-                    MaterialFingerprint(candidate.Section->MaterialInstance);
+                    MaterialFingerprint(candidate.Section->GetMaterialInstance());
                 uint32_t materialIndex = 0;
                 const auto existingMaterial = materialLookup.find(materialKey);
                 if (existingMaterial == materialLookup.end())
@@ -583,7 +748,7 @@ namespace HEngine
                     materialIndex = static_cast<uint32_t>(MaterialRecords.size());
                     materialLookup.emplace(materialKey, materialIndex);
                     MaterialRecords.push_back(
-                        MakeMaterialRecord(candidate.Section->MaterialInstance));
+                        ResolveMaterial(candidate.Section->GetMaterialInstance()));
                 }
                 else
                 {
@@ -642,7 +807,8 @@ namespace HEngine
                     .setInstanceMask(0xff)
                     .setBLAS(Geometries[geometryIndex].Blas);
                 nvrhi::rt::InstanceFlags instanceFlags =
-                    nvrhi::rt::InstanceFlags::ForceOpaque;
+                    candidate.Section->AlphaMode == RenderMaterialAlphaMode::Mask
+                        ? nvrhi::rt::InstanceFlags::None : nvrhi::rt::InstanceFlags::ForceOpaque;
                 if (candidate.Section->bDoubleSided)
                     instanceFlags = instanceFlags |
                         nvrhi::rt::InstanceFlags::TriangleCullDisable;
@@ -697,6 +863,14 @@ namespace HEngine
                 }
             }
 
+            // Keep identity order as well as a monotonic CDF. Hit-PDF lookup
+            // can then use a binary search without another per-triangle table.
+            std::ranges::sort(EmissiveTriangles, [](const auto& left, const auto& right)
+            {
+                if (left.Identity.x != right.Identity.x) return left.Identity.x < right.Identity.x;
+                if (left.Identity.y != right.Identity.y) return left.Identity.y < right.Identity.y;
+                return left.Identity.z < right.Identity.z;
+            });
             (void)BuildRayTracingEmissiveTriangleDistribution(EmissiveTriangles);
 
             const uint32_t requiredInstanceCapacity = RoundCapacity(std::max(
@@ -746,6 +920,7 @@ namespace HEngine
             Revisions.GeometryTopology = revisions.GeometryTopology;
             Revisions.Transform = revisions.Transform;
             Revisions.Material = revisions.Material;
+            bMaterialTextureChanged = false;
             Revisions.Light = revisions.Light;
             Revisions.GeometryContentRevisions.clear();
             bHasPreparedScene = true;
@@ -776,6 +951,13 @@ namespace HEngine
         uint32_t FramesInFlight = 0;
         uint32_t InitialInstanceCapacity = 0;
         bool bCreateAccelerationStructures = true;
+        bool bBasePbrMaterials = false;
+        TextureManager* Textures = nullptr;
+        std::vector<ManagedTextureHandle> TextureLeases;
+        std::vector<nvrhi::TextureHandle> MaterialTextures;
+        std::unordered_map<std::string, uint32_t> TextureIndices;
+        uint64_t MaterialTextureGeneration = 0;
+        std::vector<RayTracingAnalyticLight> AnalyticLights;
         uint32_t InstanceCapacity = 0;
         uint32_t MaterialCapacity = 0;
         uint32_t EmissiveTriangleCapacity = 0;
@@ -807,6 +989,7 @@ namespace HEngine
         bool bTlasBuildRequired = true;
         bool bHasPreparedScene = false;
         bool bGraphRebuildRequested = true;
+        bool bMaterialTextureChanged = false;
         std::vector<uint32_t> BlasBuiltThisRecording;
         uint32_t BlasBuildCountThisRecording = 0;
         uint32_t TlasBuildCountThisRecording = 0;
@@ -866,6 +1049,10 @@ namespace HEngine
         uint64_t completedSubmission)
     {
         Collect(completedSubmission);
+        if (!mImpl->bHasPreparedScene || revisions.Scene != mImpl->Revisions.Scene)
+            mImpl->ReleaseMaterialTextures();
+        else
+            mImpl->RefreshPublishedTextures();
         mImpl->BuildCpuScene(world, revisions);
     }
 
@@ -880,6 +1067,9 @@ namespace HEngine
             mImpl->bSceneBuffersUploaded
             ? nvrhi::ResourceStates::ShaderResource
             : nvrhi::ResourceStates::Common;
+        resources.AnalyticLights = renderGraph.ImportBuffer(
+            mImpl->BufferGraphDesc(mImpl->GpuResources.AnalyticLights), mImpl->GpuResources.AnalyticLights,
+            inputInitialState, nvrhi::ResourceStates::ShaderResource);
         resources.Vertices = renderGraph.ImportBuffer(
             mImpl->BufferGraphDesc(mImpl->GpuResources.Vertices),
             mImpl->GpuResources.Vertices,
@@ -918,6 +1108,7 @@ namespace HEngine
             RenderGraphQueue::Graphics,
             [&resources](RenderGraphBuilder& builder, SceneTableUploadPassData& data)
             {
+                data.AnalyticLights = builder.CopyDest(resources.AnalyticLights);
                 data.Vertices = builder.CopyDest(resources.Vertices);
                 data.Indices = builder.CopyDest(resources.Indices);
                 data.Geometries = builder.CopyDest(resources.Geometries);
@@ -948,6 +1139,9 @@ namespace HEngine
                     data.EmissiveTriangles,
                     RenderGraphAccess::Write);
                 nvrhi::ICommandList* commandList = context.GetCommandList();
+                (void)context.GetBuffer(data.AnalyticLights, RenderGraphAccess::Write);
+                commandList->writeBuffer(impl->GpuResources.AnalyticLights, impl->AnalyticLights.data(),
+                    impl->AnalyticLights.size() * sizeof(RayTracingAnalyticLight));
                 if (!impl->Vertices.empty())
                 {
                     commandList->writeBuffer(
@@ -1152,6 +1346,7 @@ namespace HEngine
             mImpl->GpuResources.Geometries);
         renderGraph.SetBufferResource(resources.Materials, mImpl->GpuResources.Materials);
         renderGraph.SetBufferResource(resources.Instances, mImpl->GpuResources.Instances);
+        renderGraph.SetBufferResource(resources.AnalyticLights, mImpl->GpuResources.AnalyticLights);
         renderGraph.SetBufferResource(
             resources.EmissiveTriangles,
             mImpl->GpuResources.EmissiveTriangles);
@@ -1168,6 +1363,10 @@ namespace HEngine
             (!mImpl->bCreateAccelerationStructures ||
                 mImpl->GpuResources.SceneTlas);
     }
+
+    std::span<const nvrhi::TextureHandle> RayTracingScene::GetMaterialTextures() const noexcept { return mImpl->MaterialTextures; }
+    uint64_t RayTracingScene::GetMaterialTextureGeneration() const noexcept { return mImpl->MaterialTextureGeneration; }
+    bool RayTracingScene::UsesBasePbrMaterials() const noexcept { return mImpl->bBasePbrMaterials; }
 
     uint64_t RayTracingScene::GetResourceGeneration() const noexcept
     {
@@ -1273,6 +1472,7 @@ namespace HEngine
     void RayTracingScene::Clear(uint64_t completedSubmission)
     {
         Collect(completedSubmission);
+        mImpl->ReleaseMaterialTextures();
         mImpl->RetireCurrentResources();
         mImpl->Vertices.clear();
         mImpl->Indices.clear();

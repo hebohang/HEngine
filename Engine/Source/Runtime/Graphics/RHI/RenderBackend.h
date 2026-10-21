@@ -77,6 +77,11 @@ namespace HEngine
         // RGBA16_FLOAT scene color and D32 scene depth pair. Bit 1 is always set.
         uint32_t SupportedMsaaSampleMask = 1u << 1u;
 
+        // GPU Scene uses first-instance addressing and optional counted batches.
+        bool bDrawIndirectFirstInstance = false;
+        bool bMultiDrawIndirect = false;
+        bool bDrawIndirectCount = false;
+
         // Backend-neutral NVRHI feature observations. Native API feature
         // levels and tier diagnostics remain inside the platform backend.
         bool bNvrhiRayTracingAccelStruct = false;
@@ -114,6 +119,12 @@ namespace HEngine
         bool bValidationLayer = false;
         uint32_t FramesInFlight = 0;
     };
+
+    [[nodiscard]] inline bool SupportsCountedIndirectDraws(const RenderCapabilities& capabilities) noexcept
+    {
+        return capabilities.bDrawIndirectFirstInstance && capabilities.bMultiDrawIndirect &&
+            capabilities.bDrawIndirectCount;
+    }
 
     // Pure policy resolution for synthetic/headless capability contracts.
     // Hardware-ray-tracing readiness is reported independently until a

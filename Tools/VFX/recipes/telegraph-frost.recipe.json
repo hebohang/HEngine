@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "id": "telegraph-frost",
+  "template": "telegraph",
+  "semantic": {
+    "purpose": "telegraph presentation",
+    "style": "frost broad"
+  },
+  "compile": {
+    "color": [
+      80,
+      205,
+      255,
+      230
+    ],
+    "radius_m": 1.3,
+    "attack_s": 0.3,
+    "sustain_s": 0.6,
+    "decay_s": 0.7,
+    "particles": 1,
+    "direction": [
+      0,
+      1,
+      0
+    ],
+    "seed": 1806,
+    "simulation": "cpu",
+    "quality": "High"
+  },
+  "playback": {
+    "scale": 1,
+    "speed": 1,
+    "intensity": 1
+  },
+  "budget": {
+    "max_particles": 1
+  },
+  "requirements": {
+    "backends": [
+      "DX12",
+      "Vulkan"
+    ],
+    "fallback_recipe": null
+  },
+  "dependencies": []
+}

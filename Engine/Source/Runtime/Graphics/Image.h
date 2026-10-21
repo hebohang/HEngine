@@ -17,9 +17,8 @@ namespace HEngine
     public:
         [[nodiscard]] std::span<const std::byte> GetData() const
         {
-            return { buffer.Data, buffer.Size };
+            return buffer.View();
         }
-        [[nodiscard]] Buffer& GetBuffer() { return buffer; }
         [[nodiscard]] const Buffer& GetBuffer() const { return buffer; }
         [[nodiscard]] uint32_t GetWidth() const { return width; }
         [[nodiscard]] uint32_t GetHeight() const { return height; }

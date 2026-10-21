@@ -300,6 +300,14 @@ namespace HEngine::Tests
 
         first.Release();
         second.Release();
+        auto obsolete = registry.Register(MakeProvider(std::string(FirstId), "Old", 10, true));
+        registry.Unregister(FirstId);
+        auto sameIdReplacement = registry.Register(MakeProvider(std::string(FirstId), "Replacement", 10, true));
+        Require(!obsolete, "An old registration became valid after same-ID replacement.");
+        obsolete.Release();
+        Require(registry.Contains(FirstId) && sameIdReplacement,
+            "An obsolete registration drained its replacement.");
+        sameIdReplacement.Release();
         Require(!registry.Contains(FirstId) && !registry.Contains(SecondId),
             "Viewport provider RAII handles did not fully unregister modes.");
 

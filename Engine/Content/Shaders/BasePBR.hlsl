@@ -23,7 +23,7 @@ namespace Properties
 #pragma property g_NormalStrength        "Normal Strength"    float    default(1.0)     range(0.0, 2.0)  group("Normals")
 
 #pragma property g_EmissiveMap           "Emissive Map"       texture  default(black)   group("Emission")
-#pragma property g_EmissiveFactor        "Emissive"           color    default(0,0,0,1) group("Emission")
+#pragma property g_EmissiveFactor        "Emissive (cd/m2)"   color    default(0,0,0,1) group("Emission")
 
 #pragma property g_AlphaClip             "Alpha Clip"         float    default(0.0)     range(0.0, 1.0)  group("Advanced")
 #pragma property g_AlphaCutoff           "Alpha Cutoff"       float    default(0.5)     range(0.0, 1.0)  group("Advanced")
@@ -50,14 +50,13 @@ namespace Properties
     }
 }
 
-float ComputePointLightAttenuation(float distanceToLight, float radius, float falloffExponent)
+float ComputePointLightAttenuation(float distanceToLight, float radius)
 {
     const float safeRadius = max(radius, 1e-3f);
     const float safeDistance = max(distanceToLight, 1e-2f);
-    const float safeExponent = clamp(falloffExponent, 0.0f, 8.0f);
     const float normalizedDistance = distanceToLight / safeRadius;
     const float falloff = saturate(1.0f - normalizedDistance * normalizedDistance * normalizedDistance * normalizedDistance);
-    return (falloff * falloff) / max(pow(safeDistance, safeExponent), 1e-4f);
+    return (falloff * falloff) / (safeDistance * safeDistance);
 }
 
 int SelectDirectionalShadowCascade(float3 positionWS)
@@ -230,14 +229,15 @@ float4 PS(SurfaceVaryings input, bool bIsFrontFace : SV_IsFrontFace) : SV_Target
     surface.Emissive = SRGBToLinear(Properties::g_EmissiveMap.Sample(g_LinearWrapSampler, input.TexCoord).rgb) * g_EmissiveFactor.rgb;
     surface.Alpha = alpha;
 
+    float normalMipVariance;
     const float3 normalWS = SampleNormalTexture(
         Properties::g_NormalMap,
         input.TexCoord,
         geometricNormalWS,
         input.TangentWS,
         input.BitangentWS * faceSign,
-        g_NormalStrength);
-    surface.Roughness = ApplySpecularAntiAliasing(surface.Roughness, normalWS);
+        g_NormalStrength, normalMipVariance);
+    surface.Roughness = ApplySpecularAntiAliasing(surface.Roughness, normalWS, normalMipVariance);
 
     const float3 viewWS = SafeNormalize(g_CameraPos - input.PositionWS);
     const float3 F0 = lerp(float3(0.04f, 0.04f, 0.04f), surface.BaseColor, surface.Metallic);
@@ -267,8 +267,7 @@ float4 PS(SurfaceVaryings input, bool bIsFrontFace : SV_IsFrontFace) : SV_Target
                 const float3 lightWS = toLight / max(distanceToLight, 1e-4f);
                 const float attenuation = ComputePointLightAttenuation(
                     distanceToLight,
-                    g_PointLight[i].radius,
-                    g_PointLight[i].falloffExponent);
+                    g_PointLight[i].radius);
                 const float3 radiance = g_PointLight[i].color * g_PointLight[i].intensity * attenuation;
                 directLighting += EvaluateDirectBRDF(surface, normalWS, viewWS, lightWS, radiance, F0);
             }

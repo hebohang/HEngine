@@ -1,5 +1,5 @@
 ; Legacy developer convenience only.
-; This script is not invoked by the HEngine 1.0 release gate.
+; This script is not invoked by the HEngine 2.0 source-first release gate.
 ; Installer.nsi and any HEngineInstaller.exe it produces are not release
 ; artifacts and must not be used as build, test, package, or install evidence.
 
@@ -14,7 +14,7 @@
   !define NAME "HEngine"
   !define EXENAME HEngineEditor
   !define APPFILE "HEngineEditor.exe"
-  !define VERSION "1.0.0"
+  !define VERSION "1.1.0"
   !define SLUG "${NAME} v${VERSION}"
 
 ;--------------------------------

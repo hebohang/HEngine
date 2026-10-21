@@ -58,8 +58,8 @@ namespace nvrhi
         constexpr ObjectType D3D12_Resource                         = 0x00020004;
         constexpr ObjectType D3D12_RenderTargetViewDescriptor       = 0x00020005;
         constexpr ObjectType D3D12_DepthStencilViewDescriptor       = 0x00020006;
-        constexpr ObjectType D3D12_ShaderResourceViewGpuDescripror  = 0x00020007;
-        constexpr ObjectType D3D12_UnorderedAccessViewGpuDescripror = 0x00020008;
+        constexpr ObjectType D3D12_ShaderResourceViewGpuDescriptor  = 0x00020007;
+        constexpr ObjectType D3D12_UnorderedAccessViewGpuDescriptor = 0x00020008;
         constexpr ObjectType D3D12_RootSignature                    = 0x00020009;
         constexpr ObjectType D3D12_PipelineState                    = 0x0002000a;
         constexpr ObjectType D3D12_CommandAllocator                 = 0x0002000b;
@@ -102,6 +102,8 @@ namespace nvrhi
         template<typename T> operator T* () const { return static_cast<T*>(pointer); }
     };
 
+    struct MemoryRequirements;
+
     class IResource
     {
     protected:
@@ -117,6 +119,10 @@ namespace nvrhi
         // Does *not* AddRef the returned interface.
         virtual Object getNativeObject(ObjectType objectType) { (void)objectType; return nullptr; }
         
+        // Optional backing-memory query. Returns false without changing output when unavailable.
+        // See doc/memory-queries.md for supported resources and accounting limitations.
+        virtual bool queryMemoryRequirements(MemoryRequirements& outRequirements) { (void)outRequirements; return false; }
+
         // Non-copyable and non-movable
         IResource(const IResource&) = delete;
         IResource(const IResource&&) = delete;

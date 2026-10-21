@@ -37,6 +37,7 @@ namespace HEngine
 		std::unordered_map<UUID, Binding> Bindings;
 		std::unordered_map<std::uint32_t, UUID> InstanceOwners;
 		std::uint64_t ContextGeneration = 0;
+		bool bInitialSynchronizationPending = true;
 	};
 
 	namespace
@@ -134,12 +135,18 @@ namespace HEngine
 
 	void EmbreeSystem::OnUpdateEditor(Timestep ts, EditorCamera& camera)
 	{
-		HE_PROFILE;
 		(void)ts;
 		(void)camera;
+		if (mEditorState && mEditorState->bInitialSynchronizationPending)
+			(void)SynchronizeEditorPickScene();
+	}
+
+	bool EmbreeSystem::SynchronizeEditorPickScene()
+	{
+		HE_PROFILE;
 
 		if (!mEditorState || !mLevel || !EditorEmbreeContext::IsInitialized())
-			return;
+			return false;
 
 		bool bSceneChanged = false;
 		const std::uint64_t contextGeneration = EditorEmbreeContext::GetGeneration();
@@ -287,7 +294,12 @@ namespace HEngine
 		}
 
 		if (bSceneChanged && !EditorEmbreeContext::Commit())
+		{
 			HE_CORE_ERROR("Failed to commit the editor Embree pick scene.");
+			return false;
+		}
+		mEditorState->bInitialSynchronizationPending = false;
+		return true;
 	}
 
 	std::optional<EmbreeEditorPickHit> EmbreeSystem::Raycast(
@@ -296,6 +308,10 @@ namespace HEngine
 		float nearDistance,
 		float farDistance)
 	{
+		// The author scene may have changed since the last click. Refresh the
+		// pick acceleration structure only when a pick actually needs it.
+		if (!SynchronizeEditorPickScene())
+			return std::nullopt;
 		if (!mEditorState || !mLevel || !EditorEmbreeContext::IsInitialized() ||
 			mEditorState->ContextGeneration != EditorEmbreeContext::GetGeneration())
 		{

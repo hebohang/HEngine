@@ -8,7 +8,7 @@
 #include <map>
 #include <unordered_map>
 #include <glm/glm.hpp>
-#if !defined(HE_PACKAGED_GAME)
+#if HE_RUNTIME_ASSET_IMPORT
 #include <assimp/scene.h>
 #endif
 #include <functional>
@@ -17,7 +17,7 @@ namespace HEngine
 {
 	namespace Utils
 	{
-#if !defined(HE_PACKAGED_GAME)
+#if HE_RUNTIME_ASSET_IMPORT
 		static glm::mat4 ConvertMatrixToGLMFormat(const aiMatrix4x4& from)
 		{
 			glm::mat4 to;
@@ -34,6 +34,7 @@ namespace HEngine
 	struct AssimpNodeData
 	{
 		glm::mat4 transformation = glm::mat4(1.0f);
+		LocalPose bindPose;
 		std::string name;
 		int childrenCount = 0;
 		std::vector<AssimpNodeData> children;
@@ -45,7 +46,7 @@ namespace HEngine
 		Animation() = default;
 		Animation(const Animation&) = default;
 
-#if !defined(HE_PACKAGED_GAME)
+#if HE_RUNTIME_ASSET_IMPORT
 		Animation(const std::string& animationPath, class Mesh* model);
 #endif
 
@@ -66,17 +67,18 @@ namespace HEngine
 		}
 
 
+		inline const std::vector<AnimEventRes>& GetEvents() const { return mEvents; }
 		inline float GetTicksPerSecond() { return mTicksPerSecond; }
 		inline float GetDuration() { return mDuration; }
-		inline const AssimpNodeData& GetRootNode() { return mRootNode; }
-		inline const std::map<std::string, BoneInfo>& GetBoneIDMap()
+		inline const AssimpNodeData& GetRootNode() const { return mRootNode; }
+		inline const std::map<std::string, BoneInfo>& GetBoneIDMap() const
 		{
 			return mBoneInfoMap;
 		}
 
 	private:
 		// important
-#if !defined(HE_PACKAGED_GAME)
+#if HE_RUNTIME_ASSET_IMPORT
 		void ReadMissingBones(const aiAnimation* animation, class Mesh& model);
 
 		void ReadHeirarchyData(AssimpNodeData& dest, const aiNode* src);
@@ -86,8 +88,9 @@ namespace HEngine
 
 		void RebuildBoneLookup();
 
-		float mDuration;
-		int mTicksPerSecond;
+		float mDuration = 0.0f;
+		float mTicksPerSecond = 24.0f;
+        std::vector<AnimEventRes> mEvents;
 		std::vector<Bone> mBones;
 		AssimpNodeData mRootNode;
 		std::map<std::string, BoneInfo> mBoneInfoMap;

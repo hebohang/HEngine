@@ -77,10 +77,13 @@ function Assert-RegularPolicyFile {
     if ([string]::IsNullOrWhiteSpace($Path)) {
         throw "$Description path is empty."
     }
-    $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
-    if ($item.PSIsContainer -or
+    $fileIoPath = if ($Path.StartsWith('\\?\')) { $Path } else {
+        '\\?\' + [IO.Path]::GetFullPath($Path)
+    }
+    $item = [IO.FileInfo]::new($fileIoPath)
+    if (-not $item.Exists -or
         ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-        throw "$Description must be a regular file: $($item.FullName)"
+        throw "$Description must be a regular file: $Path"
     }
     if (-not $AllowEmpty -and $item.Length -eq 0) {
         throw "$Description must not be empty: $($item.FullName)"
@@ -256,7 +259,7 @@ function Read-StructuredPolicyJson {
 
     $resolved = Assert-RegularPolicyFile -Path $Path -Description $Description
     try {
-        $json = Get-Content -LiteralPath $resolved -Raw | ConvertFrom-Json
+        $json = Get-Content -LiteralPath $resolved -Raw -Encoding UTF8 | ConvertFrom-Json
     }
     catch {
         throw "$Description is not valid JSON: $resolved. $($_.Exception.Message)"
@@ -317,17 +320,27 @@ function Assert-DirectoryPolicy {
     )
 
     $root = Assert-RegularPolicyDirectory -Path $Path -Description $Description
-    foreach ($entry in @(Get-ChildItem -LiteralPath $root -Force -Recurse)) {
-        if (($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-            throw "$Description contains a symbolic link or junction: $($entry.FullName)"
-        }
-        $relativePath = $entry.FullName.Substring($root.Length).TrimStart('\', '/')
-        Assert-PolicyPath -Value $relativePath -Context "$Description path"
-        if ($ScanContents -and -not $entry.PSIsContainer) {
-            Assert-PolicyFileContent `
-                -Path $entry.FullName `
-                -Description "$Description file '$relativePath'" `
-                -AllowEmpty
+    $ioRoot = if ($root.StartsWith('\\?\')) { $root } else {
+        '\\?\' + [IO.Path]::GetFullPath($root)
+    }
+    $pending = [Collections.Generic.Stack[IO.DirectoryInfo]]::new()
+    $pending.Push([IO.DirectoryInfo]::new($ioRoot))
+    while ($pending.Count -gt 0) {
+        foreach ($entry in $pending.Pop().EnumerateFileSystemInfos()) {
+            if (($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "$Description contains a symbolic link or junction: $($entry.FullName)"
+            }
+            $relativePath = $entry.FullName.Substring($ioRoot.Length).TrimStart('\', '/')
+            Assert-PolicyPath -Value $relativePath -Context "$Description path"
+            if (($entry.Attributes -band [IO.FileAttributes]::Directory) -ne 0) {
+                $pending.Push([IO.DirectoryInfo]$entry)
+            }
+            elseif ($ScanContents) {
+                Assert-PolicyFileContent `
+                    -Path $entry.FullName `
+                    -Description "$Description file '$relativePath'" `
+                    -AllowEmpty
+            }
         }
     }
 }

@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <span>
 #include <vector>
 
@@ -41,6 +42,11 @@ namespace HEngine
         ShaderManager* SharedShaderManager = nullptr;
         std::filesystem::path ShaderArtifactCacheRoot;
         RenderBackend Backend = RenderBackend::DX12;
+        // GI retains minimum reduction at native base resolution. Occlusion
+        // evidence requires MAX (background=1), optionally starting at 1/2 or
+        // 1/4 dimensions with complete source-footprint coverage.
+        bool bMaximumReduction = false;
+        uint32_t BaseDownsample = 1;
     };
 
     struct DepthPyramidOutputs
@@ -75,6 +81,7 @@ namespace HEngine
             uint32_t height);
 
         void ClearCaches();
+        [[nodiscard]] std::function<void()> CaptureGraphState();
 
     private:
         struct Impl;

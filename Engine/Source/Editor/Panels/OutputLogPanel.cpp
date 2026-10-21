@@ -1,3 +1,4 @@
+#include "Runtime/Scripting/ScriptEngine.h"
 #include "OutputLogPanel.h"
 #include "Editor/EditorLayer.h"
 #include "Editor/ImGuiWrapper/ImGuiWrapper.h"
@@ -5,6 +6,8 @@
 
 #include <spdlog/spdlog.h>
 #include <imgui/imgui_internal.h>
+
+#include <algorithm>
 
 namespace HEngine
 {
@@ -86,9 +89,11 @@ namespace HEngine
         // Options, Filter
         if (ImGui::Button(EditorLayer::GetText("Filters")))
             ImGui::OpenPopup("Filters");
-        ImGui::SameLine();
+        ImGuiWrapper::SameLine(0.0f);
 
-        ImGui::SetNextItemWidth(380.0);
+        const char* settingsLabel = EditorLayer::GetText("Settings");
+        const float settingsButtonWidth = ImGui::CalcTextSize(settingsLabel).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+        ImGui::SetNextItemWidth(std::max(ImGuiWrapper::S(60), ImGui::GetContentRegionAvail().x - settingsButtonWidth - ImGui::GetStyle().ItemSpacing.x));
         bool value_changed = ImGui::InputTextWithHint("##SearchLog", EditorLayer::GetText("Search Log"), Filter.InputBuf, IM_ARRAYSIZE(Filter.InputBuf));
         if (value_changed)
         {
@@ -96,12 +101,10 @@ namespace HEngine
 			bVisibleLogTextCacheDirty = true;
 		}
 
-        const char* settingsLabel = EditorLayer::GetText("Settings");
-
         static float logFontScale = 1.0f;
         if (ImGui::BeginPopup("Settings"))
         {
-            ImGui::PushItemWidth(100.0f);
+            ImGui::PushItemWidth(ImGuiWrapper::S(100.0f));
 
             ImGui::Text("%s", EditorLayer::GetText("Auto-scroll"));
             ImGuiWrapper::SameLine(100.0f);
@@ -121,9 +124,7 @@ namespace HEngine
             ImGui::EndPopup();
         }
 
-        // TODO: add setting Icon
-        const float settingsButtonWidth = ImGui::CalcTextSize(settingsLabel).x + ImGui::GetStyle().FramePadding.x * 2.0f;
-        ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - settingsButtonWidth);
+        ImGuiWrapper::SameLine(0.0f);
         if (ImGui::Button(settingsLabel))
             ImGui::OpenPopup("Settings");
 
@@ -139,7 +140,7 @@ namespace HEngine
             ImGui::EndPopup();
 		}
 
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4, 1)); // Tighten spacing
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImGuiWrapper::S(4, 1)); // Tighten spacing
         auto IsVisibleLog = [&](const char* item)
         {
             if (!Filter.PassFilter(item))
@@ -379,9 +380,9 @@ namespace HEngine
     {
         try
         {
-            pybind11::exec(command_line);
+            ScriptEngine::Execute(command_line);
         }
-        catch (pybind11::error_already_set& e)
+        catch (const std::exception& e)
         {
             AddLog("[error] %s \n", e.what());
         }

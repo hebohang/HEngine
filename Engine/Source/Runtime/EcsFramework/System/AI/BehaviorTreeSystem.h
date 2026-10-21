@@ -4,6 +4,11 @@
 
 namespace HEngine
 {
+    // Returns the simulated interval to deliver to a tree, or zero when its
+    // authored cadence has not elapsed. The remainder stays in accumulator.
+    [[nodiscard]] float AdvanceBehaviorTreeTickCadence(
+        float& accumulator, float fixedDt, float tickInterval) noexcept;
+
     class BehaviorTreeSystem : public System
     {
     public:

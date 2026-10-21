@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework><RuntimeFrameworkVersion>10.0.10</RuntimeFrameworkVersion>
+    <OutputType>Exe</OutputType><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../../../Engine/Templates/SharedArena/Scripts/CSharp/Rules/GameSession.cs" />
+    <Compile Include="../../../../Engine/Managed/Portable/PortableView.cs" />
+    <Compile Include="../../../../Engine/Managed/Shared/IGameSession.cs" />
+  </ItemGroup>
+</Project>

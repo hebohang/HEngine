@@ -17,6 +17,30 @@ _visited_objects = []
 # A list of function docstring pre-processing hooks
 function_docstring_preprocessing_hooks: List[Callable[[str], str]] = []
 
+# pybind11 prints unregistered C++ types verbatim. Keep these explicit in the
+# generation report instead of emitting invalid Python or inventing a binding.
+unresolved_cpp_types = set()
+
+
+def normalize_cpp_types(text):
+    # py::handle accepts any Python object. Its unqualified docstring spelling
+    # is a pybind implementation type, not a Python symbol or parameter name.
+    text = re.sub(r"(?<=: )handle\b|^handle$", "object", text)
+    def replace(match):
+        name = match.group(0)
+        if name.startswith(('"', "'")):
+            return name
+        qualified = name.replace("::", ".")
+        if name.startswith("HEngine::"):
+            value = sys.modules.get("HEngine")
+            for part in qualified.split(".")[1:]:
+                value = getattr(value, part, None)
+            if value is not None:
+                return qualified
+        unresolved_cpp_types.add(name)
+        return "typing.Any"
+    return re.sub(r'''"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b\w+(?:::\w+)+(?:\s*<[^<>]*>)?''', replace, text)
+
 
 def _find_str_end(s, start):
     for i in range(start + 1, len(s)):
@@ -105,8 +129,8 @@ class FunctionSignature(object):
 
     def __init__(self, name, args="*args, **kwargs", rtype="None", validate=True):
         self.name = name
-        self.args = args
-        self.rtype = rtype
+        self.args = normalize_cpp_types(args)
+        self.rtype = normalize_cpp_types(rtype)
 
         if validate:
             invalid_defaults, self.args = replace_default_pybind11_repr(self.args)
@@ -307,6 +331,7 @@ class StubsGenerator(object):
 
     @staticmethod
     def apply_classname_replacements(s):  # type: (str) -> Any
+        s = normalize_cpp_types(s)
         for k, v in StubsGenerator.GLOBAL_CLASSNAME_REPLACEMENTS.items():
             s = k.sub(v, s)
         return s
@@ -316,11 +341,16 @@ class StubsGenerator(object):
         name, func, module_name
     ):  # type: (str, Any, str) -> List[FunctionSignature]
         try:
+            # Dynamically attached py::cpp_function methods have an empty or
+            # different __name__; the attribute name is still the public API.
+            runtime_name = getattr(func, "__name__", name)
+            names = {name, runtime_name if isinstance(runtime_name, str) else name}
+            name_pattern = "(?:" + "|".join(re.escape(item) for item in sorted(names)) + ")"
             signature_regex = (
                 r"(\s*(?P<overload_number>\d+).)"
                 r"?\s*{name}\s*\((?P<args>{balanced_parentheses})\)"
                 r"\s*->\s*"
-                r"(?P<rtype>[^\(\)]+)\s*".format(name=name, balanced_parentheses=".*")
+                r"(?P<rtype>[^\(\)]+)\s*".format(name=name_pattern, balanced_parentheses=".*")
             )
             docstring = func.__doc__
 
@@ -927,6 +957,9 @@ class ModuleStubsGenerator(StubsGenerator):
 
         # import everything from typing
         result += ["import typing"]
+
+        for module in self.submodules:
+            result.append("from . import {0} as {0}".format(module.short_name))
 
         for name, class_ in self.imported_classes.items():
             class_name = getattr(class_, "__qualname__", class_.__name__)

@@ -5,7 +5,9 @@
 #include "Runtime/Resource/ConfigManager/ConfigManager.h"
 
 #include <array>
+#include <chrono>
 #include <filesystem>
+#include <mutex>
 #include <string>
 
 namespace HEngine
@@ -46,6 +48,24 @@ namespace HEngine
                     "Hardware ray-tracing acceleration structures and pipelines are unavailable.",
                 };
             }
+            struct CachedSupport
+            {
+                std::filesystem::path Root;
+                std::chrono::steady_clock::time_point Checked{};
+                OfflineViewportRendererSupport Support;
+            };
+            static std::mutex cacheMutex;
+            static std::array<CachedSupport, 2> cached;
+            const std::scoped_lock lock(cacheMutex);
+            auto& cache = cached[capabilities.Backend == RenderBackend::Vulkan ? 1 : 0];
+            const auto now = std::chrono::steady_clock::now();
+            if (cache.Root == shaderArtifactCacheRoot && now - cache.Checked < std::chrono::seconds(1))
+                return cache.Support;
+            const auto remember = [&](OfflineViewportRendererSupport support)
+            {
+                cache = {shaderArtifactCacheRoot, now, support};
+                return support;
+            };
             constexpr std::array requiredArtifacts = {
                 "HardwareRayTracingReference__lib_6_5.lib",
                 "OfflineReferencePreview_FLOAT4.cs",
@@ -53,8 +73,8 @@ namespace HEngine
                 "OfflineReferencePreview_UINT.cs",
                 "OfflineReferencePreview_TONEMAP.cs",
             };
-            const std::filesystem::path dxilDirectory =
-                shaderArtifactCacheRoot / "DXIL";
+            const std::filesystem::path dxilDirectory = shaderArtifactCacheRoot /
+                (capabilities.Backend == RenderBackend::Vulkan ? "SPIRV" : "DXIL");
             for (const char* artifactName : requiredArtifacts)
             {
                 const std::filesystem::path artifactPath =
@@ -63,21 +83,21 @@ namespace HEngine
                     !std::filesystem::is_regular_file(
                         MakeShaderCacheKeyPath(artifactPath)))
                 {
-                    return {
+                    return remember({
                         false,
                         "Offline Reference Renderer shader artifact is missing: " +
                             std::string(artifactName),
-                    };
+                    });
                 }
             }
-            return {
+            return remember({
                 true,
-                "Available for static opaque triangles with constant Base Color, "
-                "Metalness diffuse suppression, Emissive, interpolated vertex normals, "
-                "and scene-environment miss lighting. Roughness/GGX specular, material "
-                "textures and normal maps, Mask/Blend alpha, skinned meshes, VFX, "
-                "volumes, and motion blur are not reference-supported yet.",
-            };
+                "Static opaque/masked BasePBR triangles, smooth normals, base color/normal/metallic/roughness/emission textures, "
+                "GGX reflection, directional/point/spot lights, emissive mesh and environment NEE/MIS. "
+                "Alpha blend, transmission, custom shaders, skinning, VFX and volumes remain unsupported. "
+                "Up to 512 material textures and 256 analytic lights; reference textures use mip zero. "
+                "Denoising availability is reported by the session.",
+            });
         }
 
         class OfflineReferenceRendererPluginModule final : public IPluginModule
@@ -98,6 +118,7 @@ namespace HEngine
                 mProviderRegistration =
                     OfflineViewportRendererProviderRegistry::Get().Register(
                         OfflineViewportRendererProviderDescriptor{
+                            .bBasePbrMaterials = true,
                             .Id = c_OfflineReferenceProviderId,
                             .DisplayName = "Path Tracing",
                             .OwnerPluginId = "he.offline-reference-renderer",

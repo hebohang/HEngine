@@ -1,0 +1,8 @@
+{
+  "successCount": 5,
+  "failureDays": 7,
+  "budgetBytes": 5368709120,
+  "wechatBackups": 1,
+  "autoIntervalSeconds": 300,
+  "autoEnabled": false
+}

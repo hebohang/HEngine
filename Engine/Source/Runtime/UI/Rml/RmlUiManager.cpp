@@ -1,4 +1,5 @@
 #include "Hepch.h"
+#include "RmlBuildFeatures.h"
 
 #include "Runtime/UI/Rml/RmlUiManager.h"
 
@@ -38,6 +39,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <exception>
 #include <fstream>
 #include <stdexcept>
@@ -49,6 +51,12 @@ namespace HEngine
 {
     namespace
     {
+        bool TraceUiInput()
+        {
+            static const bool enabled = [] { const char* value = std::getenv("HE_TRACE_UI_INPUT"); return value && std::string_view(value) == "1"; }();
+            return enabled;
+        }
+
         constexpr const char* kRmlContextName = "HEngineRuntimeUI";
         constexpr float kReferenceUiWidth = 1280.0f;
         constexpr float kReferenceUiHeight = 720.0f;
@@ -512,6 +520,10 @@ namespace HEngine
                     data.MouseButton = event.GetParameter<int>("button", 0);
                     data.bHasMouseButton = true;
                 }
+                if (TraceUiInput() && (data.Type == "mousedown" || data.Type == "mouseup" || data.Type == "click"))
+                    HE_CORE_INFO("[UIInput] DOM event={} target={} current={} legacy={} mouse={},{} button={}",
+                        data.Type, data.TargetElementId, data.CurrentElementId, data.LegacySourceId,
+                        data.MouseX, data.MouseY, data.MouseButton);
                 mCallback(data);
             }
 
@@ -667,6 +679,7 @@ namespace HEngine
             if (!Rml::Initialise())
                 throw std::runtime_error("Failed to initialize RmlUi");
             mRmlInitialized = true;
+            RegisterUnsupportedUiElements();
 
             mImpl->Context = Rml::CreateContext(kRmlContextName, Rml::Vector2i(1280, 720));
             if (!mImpl->Context)
@@ -800,6 +813,7 @@ namespace HEngine
         mDocumentOrder.clear();
         mOwnerToDocuments.clear();
         mActiveDocumentId.clear();
+        mOverlayDocumentId.clear();
 
         if (mImpl && mImpl->Context)
         {
@@ -860,6 +874,7 @@ namespace HEngine
         float renderHeight)
     {
 		HE_PROFILE;
+        mFrameRenderingSuppressed = false;
 
         if (!mInitialized || !mImpl || !mImpl->Context)
             return;
@@ -944,7 +959,8 @@ namespace HEngine
 
     void RmlUiManager::Render()
     {
-		HE_PROFILE;
+        if (mFrameRenderingSuppressed) return;
+		HE_PROFILE_SECTION("RmlUi::Render");
 
         if (!mInitialized || !mImpl || !mImpl->Context)
             return;
@@ -1043,7 +1059,9 @@ namespace HEngine
 
     RuntimeUiTransitionParameters RmlUiManager::GetRuntimeUiTransition() const noexcept
     {
-        return mRuntimeUiTransition;
+        // A system overlay must not inherit a gameplay menu's partial wipe or
+        // fade. Preserve the requested transition for when the overlay closes.
+        return mOverlayDocumentId.empty() ? mRuntimeUiTransition : RuntimeUiTransitionParameters{};
     }
 
     bool RmlUiManager::OnEvent(Event& e)
@@ -1059,6 +1077,8 @@ namespace HEngine
 		{
 			const int modifiers = GetRmlKeyModifiers();
 			EventDispatcher dispatcher(e);
+
+        static glm::vec2 lastMouseMoveEvent{-1.0f, -1.0f};
 
         const auto processMousePosition = [&](float mouseX, float mouseY, bool& bWithinViewport)
         {
@@ -1077,8 +1097,37 @@ namespace HEngine
                 modifiers);
         };
 
+        const auto traceMouse = [&](const char* phase, const glm::vec2& raw, bool within)
+        {
+            if (!TraceUiInput()) return;
+            const auto dimensions = mImpl->Context->GetDimensions();
+            auto* hovered = mImpl->Context->GetHoverElement();
+            HE_CORE_INFO("[UIInput] Rml {} raw={},{} rect={},{},{},{} context={}x{} density={} within={} hoverTag={} hoverId={} overlay={}",
+                phase, raw.x, raw.y, mViewportX, mViewportY, mViewportW, mViewportH,
+                dimensions.x, dimensions.y, mUIScale, within,
+                hovered ? hovered->GetTagName().c_str() : "<none>",
+                hovered ? hovered->GetId().c_str() : "<none>", mOverlayDocumentId);
+            HE_CORE_INFO("[UIInput] last MouseMoved event={},{}", lastMouseMoveEvent.x, lastMouseMoveEvent.y);
+            if (const char* elementId = std::getenv("HE_TRACE_UI_ELEMENT"); elementId && *elementId)
+            {
+                for (const auto& [id, state] : mDocuments)
+                {
+                    if (!state || !state->Document) continue;
+                    if (auto* element = state->Document->GetElementById(elementId))
+                    {
+                        const auto offset = element->GetAbsoluteOffset(Rml::BoxArea::Border);
+                        const auto size = element->GetBox().GetSize(Rml::BoxArea::Border);
+                        HE_CORE_INFO("[UIInput] element={} document={} shown={} visible={} tag={} bounds={},{},{},{}",
+                            elementId, id, state->bVisible, element->IsVisible(true),
+                            element->GetTagName().c_str(), offset.x, offset.y, size.x, size.y);
+                    }
+                }
+            }
+        };
+
         dispatcher.Dispatch<MouseMovedEvent>([&](MouseMovedEvent& mouseEvent)
         {
+            lastMouseMoveEvent = {mouseEvent.GetX(), mouseEvent.GetY()};
             bool bWithinViewport = false;
             const bool bMouseMoveUnconsumed = processMousePosition(mouseEvent.GetX(), mouseEvent.GetY(), bWithinViewport);
             if (!bWithinViewport)
@@ -1092,6 +1141,7 @@ namespace HEngine
             const glm::vec2 mousePosition = Input::GetMousePosition();
             bool bWithinViewport = false;
             processMousePosition(mousePosition.x, mousePosition.y, bWithinViewport);
+            traceMouse("down", mousePosition, bWithinViewport);
             if (!bWithinViewport)
                 return false;
 
@@ -1103,6 +1153,7 @@ namespace HEngine
             const glm::vec2 mousePosition = Input::GetMousePosition();
             bool bWithinViewport = false;
             processMousePosition(mousePosition.x, mousePosition.y, bWithinViewport);
+            traceMouse("up", mousePosition, bWithinViewport);
             if (!bWithinViewport)
                 return false;
 
@@ -1317,6 +1368,10 @@ namespace HEngine
             if (event.LegacySourceId.empty() && event.TargetElementId.empty())
                 return;
 
+            if (TraceUiInput() && event.Type == "click")
+                HE_CORE_INFO("[UIInput] dispatch document={} nativeHandler={} owner={} source={} target={}",
+                    docId, it->second && static_cast<bool>(it->second->NativeEventHandler),
+                    ownerId, event.LegacySourceId, event.TargetElementId);
             if (it->second && it->second->NativeEventHandler)
             {
                 it->second->NativeEventHandler(RmlUiNativeEvent{
@@ -1331,25 +1386,7 @@ namespace HEngine
             const UUID scriptUuid(ownerId);
             if (!ScriptEngine::IsClassRegistered(scriptUuid))
                 return;
-            pybind11::gil_scoped_acquire acquire;
             ScopedCurrentScriptOwner currentOwner(scriptUuid);
-            auto& pyClass = ScriptEngine::GetPyClass(scriptUuid);
-
-            if (pybind11::hasattr(pyClass, "OnUIEvent"))
-            {
-                try
-                {
-                    pyClass.attr("OnUIEvent")(docId, event.LegacySourceId, event.Type);
-                }
-                catch (pybind11::error_already_set& ex)
-                {
-                    HE_CORE_ERROR("[RmlUi] OnUIEvent failed: {0}", ex.what());
-                }
-            }
-
-            if (pybind11::hasattr(pyClass, "OnUIEventEx"))
-            {
-                pybind11::dict payload;
                 RmlUiEventPayloadData payloadData;
                 payloadData.DocumentId = docId;
                 payloadData.EventType = event.Type;
@@ -1368,22 +1405,10 @@ namespace HEngine
                     payloadData.WheelDelta = event.WheelDelta;
                 if (event.bHasMouseButton)
                     payloadData.MouseButton = event.MouseButton;
-                for (const auto& [name, value] :
-                    BuildRmlUiEventPayloadFields(payloadData))
-                {
-                    std::visit([&payload, &name](const auto& fieldValue)
-                    {
-                        payload[pybind11::str(name)] = fieldValue;
-                    }, value);
-                }
-                try
-                {
-                    pyClass.attr("OnUIEventEx")(docId, event.TargetElementId, event.Type, std::move(payload));
-                }
-                catch (pybind11::error_already_set& ex)
-                {
-                    HE_CORE_ERROR("[RmlUi] OnUIEventEx failed: {0}", ex.what());
-                }
+            try { ScriptEngine::DispatchUI(scriptUuid, event.LegacySourceId, payloadData); }
+            catch (const std::exception& error)
+            {
+                HE_CORE_ERROR("[RmlUi] OnUIEventEx failed: {0}", error.what());
             }
         });
 
@@ -1443,7 +1468,7 @@ namespace HEngine
         return true;
     }
 
-    bool RmlUiManager::ShowDocument(const std::string& documentId)
+    bool RmlUiManager::ShowDocument(const std::string& documentId, bool bFocus)
     {
         if (DocumentState* state = FindDocument(documentId))
         {
@@ -1452,7 +1477,7 @@ namespace HEngine
 			try
 			{
 				state->bVisible = true;
-				state->Document->Show();
+				state->Document->Show(Rml::ModalFlag::None, bFocus ? Rml::FocusFlag::Auto : Rml::FocusFlag::None);
 			}
 			catch (...)
 			{
@@ -1480,6 +1505,25 @@ namespace HEngine
         return false;
     }
 
+    bool RmlUiManager::ShowOverlayDocument(const std::string& documentId)
+    {
+        if (!FindDocument(documentId))
+            return false;
+        if (mOverlayDocumentId == documentId)
+            return true;
+        if (!mOverlayDocumentId.empty())
+            HideDocument(mOverlayDocumentId);
+        if (!ShowDocument(documentId, false))
+            return false;
+        auto* state = FindDocument(documentId);
+        if (!state)
+            return false;
+        mOverlayDocumentId = documentId;
+        state->Document->SetProperty("z-index", "2147483646");
+        HE_CORE_INFO("RmlUi overlay shown: {0}; active gameplay document preserved: {1}", documentId, mActiveDocumentId);
+        return true;
+    }
+
     bool RmlUiManager::HideDocument(const std::string& documentId)
     {
         if (DocumentState* state = FindDocument(documentId))
@@ -1492,6 +1536,11 @@ namespace HEngine
 				state->Document->Hide();
 				if (mActiveDocumentId == documentId)
 					mActiveDocumentId.clear();
+                if (mOverlayDocumentId == documentId)
+                {
+                    HE_CORE_INFO("RmlUi overlay hidden: {0}; active gameplay document preserved: {1}", documentId, mActiveDocumentId);
+                    mOverlayDocumentId.clear();
+                }
 			}
 			catch (...)
 			{
@@ -1712,6 +1761,8 @@ namespace HEngine
         mDocumentOrder.erase(std::remove(mDocumentOrder.begin(), mDocumentOrder.end(), documentId), mDocumentOrder.end());
         if (mActiveDocumentId == documentId)
             mActiveDocumentId.clear();
+        if (mOverlayDocumentId == documentId)
+            mOverlayDocumentId.clear();
 
         for (auto ownerIt = mOwnerToDocuments.begin(); ownerIt != mOwnerToDocuments.end();)
         {
@@ -1758,7 +1809,7 @@ namespace HEngine
 						state->Document->Show(Rml::ModalFlag::None, Rml::FocusFlag::Auto);
 						HE_CORE_INFO("RmlUi active document: {0}", documentId);
 					}
-					else
+					else if (id != mOverlayDocumentId)
 					{
 						state->bVisible = false;
 						state->Document->Hide();
@@ -1950,6 +2001,19 @@ namespace HEngine
         return false;
     }
 
+    bool RmlUiManager::ScrollElementIntoView(const std::string& documentId, const std::string& elementId)
+    {
+        DocumentState* state = FindDocument(documentId);
+        if (!state || !state->Document || !state->bVisible) return false;
+        // Scripted menus can insert/show a list and scroll it in the same callback.
+        // Resolve its current box before scrolling; the old layout may be empty.
+        state->Document->UpdateDocument();
+        Rml::Element* element = state->Document->GetElementById(elementId);
+        if (!element || !element->IsVisible()) return false;
+        element->ScrollIntoView(Rml::ScrollAlignment::Nearest);
+        return true;
+    }
+
     bool RmlUiManager::FocusElement(
         const std::string& documentId,
         const std::string& elementId)
@@ -2008,6 +2072,18 @@ namespace HEngine
         return false;
     }
 
+    bool RmlUiManager::GetActiveElementRect(const std::string& elementId, std::array<float, 4>& rect) const
+    {
+        const auto* state = FindDocument(mActiveDocumentId);
+        if (!state || !state->Document) return false;
+        auto* element = state->Document->GetElementById(elementId);
+        if (!element || !element->IsVisible()) return false;
+        const auto position = element->GetAbsoluteOffset(Rml::BoxArea::Border);
+        const auto size = element->GetBox().GetSize(Rml::BoxArea::Border);
+        rect = {position.x, position.y, size.x, size.y};
+        return size.x > 0 && size.y > 0;
+    }
+
     bool RmlUiManager::GetElementStyle(
         const std::string& documentId,
         const std::string& elementId,
@@ -2064,6 +2140,13 @@ namespace HEngine
         mUserScale = std::clamp(scale, 0.8f, 1.3f);
     }
 
+    void RmlUiManager::SetMouseCursorEnabled(bool bEnabled)
+    {
+        if (mMouseCursorEnabled == bEnabled) return;
+        mMouseCursorEnabled = bEnabled;
+        RefreshMouseCursor();
+    }
+
     void RmlUiManager::RefreshMouseCursor()
     {
         const DocumentState* cursorState = nullptr;
@@ -2077,7 +2160,7 @@ namespace HEngine
             }
         }
 
-        if (!cursorState || cursorState->MouseCursorAssetPath.empty())
+        if (!mMouseCursorEnabled || !cursorState || cursorState->MouseCursorAssetPath.empty())
         {
             if (mCustomCursorApplied && mCursorWindow)
             {

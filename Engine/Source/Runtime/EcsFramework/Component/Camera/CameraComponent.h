@@ -11,10 +11,13 @@ namespace HEngine
         REFLECTION_COMPONENT_BODY(CameraComponent);
     public:
         SceneCamera Camera;
+        PROPERTY(NoPython)
+        Json RenderOverrides = Json::object();
         bool Primary = true; // TODO: think about moving to Scene
         bool FixedAspectRatio = false;
         bool bOverrideExposure = false;
-        float Exposure = 0.8f;
+        float ExposureEV100 = 14.0f;
+        float ExposureCompensation = 0.0f;
 
         CameraComponent() = default;
         CameraComponent(const CameraComponent&) = default;

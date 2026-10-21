@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "architecture": "arm64",
+  "packages": [
+    {
+      "type": "zip",
+      "version": "1.1.4",
+      "name": "fsr",
+      "sha256": "0216556bfb0e243cec30004a2a98d38f4e3f7406cb7938e3c1b85c758e95d952",
+      "url": "https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/releases/download/v1.1.4/FidelityFX-SDK-v1.1.4.zip",
+      "includePrefixes": ["sdk/", "ffx-api/"]
+    },
+    {
+      "type": "zip",
+      "version": "1.619.5",
+      "name": "agility",
+      "sha256": "0e9bcf32aac9a79343ede9b21e4864950ee54577e3d8e19bfcdf002bb4e9bfd6",
+      "url": "https://api.nuget.org/v3-flatcontainer/microsoft.direct3d.d3d12/1.619.5/microsoft.direct3d.d3d12.1.619.5.nupkg"
+    },
+    {
+      "type": "zip",
+      "version": "1.8.2505.32",
+      "name": "dxc",
+      "sha256": "c6e82b70c14552f1dd58e4a79c93eeab1567eeb0a9ee63a51564c410429bce3e",
+      "url": "https://api.nuget.org/v3-flatcontainer/microsoft.direct3d.dxc/1.8.2505.32/microsoft.direct3d.dxc.1.8.2505.32.nupkg"
+    },
+    {
+      "type": "zip",
+      "version": "3.11.9",
+      "name": "python",
+      "sha256": "2f5b3bee38850fdde1b44227a23b8130d329839558376d2eb11099ce2b2cc33c",
+      "url": "https://api.nuget.org/v3-flatcontainer/pythonarm64/3.11.9/pythonarm64.3.11.9.nupkg"
+    },
+    {
+      "version": "1.4.352",
+      "type": "file",
+      "name": "vulkan-def",
+      "sha256": "9ba339b7f5ee2df28487698a6840ecf095fac58b415c2c89ad9f161e9d316378",
+      "url": "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Loader/ebc06b83174f6b5200eb21de3e83fc0d03ddcd18/loader/vulkan-1.def"
+    },
+    {
+      "type": "git",
+      "version": "4.4.0",
+      "commit": "ff9381774dc99fea81a932ad276677aad6a3d4dd",
+      "name": "embree",
+      "url": "https://github.com/RenderKit/embree.git"
+    }
+  ]
+}

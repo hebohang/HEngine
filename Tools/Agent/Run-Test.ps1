@@ -3,6 +3,9 @@ param(
 
     [switch]$List,
 
+    [string]$Project = "",
+    [string]$PluginConfig = "",
+
     [ValidateSet("Debug", "RelWithDebInfo")]
     [string]$Configuration = "Debug",
 
@@ -27,26 +30,31 @@ if ($Name -and $Name -notmatch "^[A-Za-z0-9_-]+$") {
 }
 
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+. (Join-Path $PSScriptRoot "Project.ps1")
+$projectInfo = Resolve-HEProject -ProjectPath $Project -RepositoryRoot $repositoryRoot
 $buildScript = Join-Path $PSScriptRoot "Build.ps1"
-& $buildScript -Target HEngineTests -Configuration $Configuration -Parallel $Parallel
+& $buildScript -Target HEngineTests -Configuration $Configuration -Parallel $Parallel -Project $projectInfo.Root -PluginConfig $PluginConfig
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
 $configurationName = $Configuration.ToLowerInvariant()
-$artifact = Join-Path $repositoryRoot "out\agent\tests-$configurationName\bin\HEngineTests.exe"
+$bDefaultProject = [string]::Equals($projectInfo.Root.TrimEnd('\','/'), (Join-Path $repositoryRoot 'Project'), [StringComparison]::OrdinalIgnoreCase)
+$agentRoot = if ($bDefaultProject) { Join-Path $repositoryRoot 'out/agent' } else { Join-Path $repositoryRoot "out/agent/projects/$($projectInfo.CacheKey)" }
+$buildRoot = Join-Path $agentRoot "tests-$configurationName"
+$artifact = Join-Path $buildRoot "bin\HEngineTests.exe"
 if (-not (Test-Path -LiteralPath $artifact)) {
     throw "HEngineTests artifact was not found: $artifact"
 }
 
-$logRoot = Join-Path $repositoryRoot "out\agent\logs"
+$logRoot = Join-Path $agentRoot 'logs'
 $testLabel = if ($List) { "list" } else { $Name }
 $runId = "{0}-{1}" -f (Get-Date -Format "yyyyMMdd-HHmmss-fff"), $PID
 $stdoutLog = Join-Path $logRoot ("test-{0}-{1}-{2}.stdout.log" -f $configurationName, $testLabel, $runId)
 $stderrLog = Join-Path $logRoot ("test-{0}-{1}-{2}.stderr.log" -f $configurationName, $testLabel, $runId)
 
 $arguments = if ($List) { @("--list") } else { @("--run", $Name) }
-$executionLockPath = Join-Path $repositoryRoot "out\agent\tests-$configurationName\.agent-execution.lock"
+$executionLockPath = Join-Path $buildRoot '.agent-execution.lock'
 $executionLock = $null
 $process = $null
 $processJob = $null
@@ -63,12 +71,21 @@ try {
     }
 
     $processJob = New-AgentProcessJob
-    $process = Start-Process -FilePath $artifact -ArgumentList $arguments -WorkingDirectory $repositoryRoot `
+    $process = Start-Process -FilePath $artifact -ArgumentList $arguments -WorkingDirectory $repositoryRoot -WindowStyle Hidden `
         -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog -PassThru
     # Windows PowerShell 5.1 can lose ExitCode for very short-lived child processes
     # unless the native process handle is materialized before it exits.
     $null = $process.Handle
-    Add-AgentProcessToJob -Job $processJob -Process $process
+    try {
+        Add-AgentProcessToJob -Job $processJob -Process $process
+    }
+    catch {
+        # A bounded logic test can finish between Start-Process and Job
+        # assignment. Its exit code remains authoritative; live-process
+        # assignment failures must still abort and enter the cleanup path.
+        $process.Refresh()
+        if (-not $process.HasExited) { throw }
+    }
 
     if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
         Stop-AgentOwnedProcess -Process $process -Description "HEngineTests"
@@ -78,6 +95,10 @@ try {
     }
     $process.WaitForExit()
     $process.Refresh()
+
+    if ($null -eq $process.ExitCode) {
+        throw "HEngineTests exited without an observable exit code: $testLabel"
+    }
 
     Get-Content -LiteralPath $stdoutLog -ErrorAction SilentlyContinue
     if ($process.ExitCode -ne 0) {

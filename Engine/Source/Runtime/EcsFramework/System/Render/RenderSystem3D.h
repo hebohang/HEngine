@@ -6,6 +6,8 @@
 #include "Runtime/Graphics/Scene/RenderWorldSubmission.h"
 
 #include <cstdint>
+#include <string>
+#include <vector>
 
 namespace HEngine
 {
@@ -19,6 +21,10 @@ namespace HEngine
 		[[nodiscard]] bool ShouldUpdateWhenRuntimePaused() const override { return true; }
 		void OnRuntiemStart() override;
 		void OnRuntimeStop() override;
+        [[nodiscard]] Ref<RenderResourceWarmupRequest> PrepareMeshResources(const Ref<Mesh>& mesh);
+        // Loading-only residency for already-loaded level meshes, including
+        // collapsed/culled instances. Keep leases until GPU warmup is complete.
+        [[nodiscard]] std::vector<Ref<RenderResourceWarmupRequest>> PrepareLevelMeshResources();
 		[[nodiscard]] Ref<const RenderWorld> AcquireLatestRenderWorld() const
 		{
 			return mRenderWorldSubmission.AcquireLatest();
@@ -49,6 +55,14 @@ namespace HEngine
 			std::optional<double> materialTimeSeconds);
 #endif
 
+        struct WarmupSnapshot
+        {
+            std::weak_ptr<RenderResourceWarmupRequest> Request;
+            Ref<const RenderObject> Object;
+            uint64_t SceneGeneration = 0;
+        };
+        std::vector<WarmupSnapshot> mResourceWarmups;
+
 		RenderWorldExtractor mRenderWorldExtractor;
 		RenderWorldSubmission mRenderWorldSubmission;
 		uint64_t mRenderFrameNumber = 0;
@@ -58,5 +72,7 @@ namespace HEngine
 		glm::mat4 mPreviousProjection{ 1.0f };
 		bool bHasPreviousProjection = false;
 		bool bPendingCameraCut = true;
+		std::string mLastExtractionError;
+		std::vector<RenderPrimitive2D> mPendingPrimitives2D;
 	};
 }

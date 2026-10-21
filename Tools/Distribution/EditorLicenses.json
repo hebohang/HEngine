@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "files": {
+    "Assimp.txt": "Engine/Source/ThirdParty/assimp/LICENSE",
+    "Assimp-pugixml.txt": "Engine/Source/ThirdParty/assimp/contrib/pugixml/LICENSE.md",
+    "Assimp-earcut.txt": "Engine/Source/ThirdParty/assimp/contrib/earcut-hpp/LICENSE",
+    "Assimp-poly2tri.txt": "Engine/Source/ThirdParty/assimp/contrib/poly2tri/LICENSE",
+    "Assimp-rapidjson.txt": "Engine/Source/ThirdParty/assimp/contrib/rapidjson/license.txt",
+    "Assimp-openddlparser.txt": "Engine/Source/ThirdParty/assimp/contrib/openddlparser/LICENSE",
+    "Assimp-utf8cpp.txt": "Engine/Source/ThirdParty/assimp/contrib/utf8cpp/doc/LICENSE",
+    "Assimp-draco.txt": "Engine/Source/ThirdParty/assimp/contrib/draco/LICENSE",
+    "Embree.txt": "Engine/Source/ThirdParty/embree/doc/LICENSE.txt",
+    "Embree-third-party.txt": "Engine/Source/ThirdParty/embree/doc/third-party-programs.txt",
+    "Embree-TBB.txt": "Engine/Source/ThirdParty/embree/doc/third-party-programs-TBB.txt",
+    "ImGuizmo.txt": "Engine/Source/ThirdParty/ImGuizmo/LICENSE",
+    "ImGuizmoQuat.txt": "Engine/Source/ThirdParty/ImGuizmoQuat/license.txt",
+    "imgui-node-editor.txt": "Engine/Source/ThirdParty/imgui-node-editor/LICENSE",
+    "cgltf.txt": "Engine/Source/ThirdParty/cgltf/LICENSE",
+    "Tracy.txt": "Engine/Source/ThirdParty/Tracy/LICENSE",
+    "SPIRV-Tools.txt": "Engine/Source/ThirdParty/SPIRV-Tools/LICENSE",
+    "SPIRV-Headers.txt": "Engine/Source/ThirdParty/SPIRV-Headers/LICENSE",
+    "DXC-MS.txt": "Engine/Source/Programs/HShaderCompiler/ThirdParty/dxc/LICENSE-MS.txt",
+    "DXC-MIT.txt": "Engine/Source/Programs/HShaderCompiler/ThirdParty/dxc/LICENSE-MIT.txt",
+    "DXC-LLVM.txt": "Engine/Source/Programs/HShaderCompiler/ThirdParty/dxc/LICENSE-LLVM.txt",
+    "cmdline.txt": "Engine/Source/Programs/HShaderCompiler/ThirdParty/cmdline/LICENSE",
+    "libclang.txt": "Engine/Source/Programs/HEngineParser/3rd_party/LLVM/Win64/LICENSE.txt",
+    "pybind11.txt": "Engine/Source/ThirdParty/pybind11/LICENSE",
+    "Python-3.11.txt": "Engine/Resources/Licenses/Python-3.11.txt"
+  }
+}

@@ -25,6 +25,8 @@ namespace HEngine
 #endif
 
         static bool IsKeyPressed(KeyCode key);
+        // Optional mobile controls. Returns false on hosts without touch UI.
+        static bool SetTouchControlsEnabled(bool enabled);
 
         static bool IsMouseButtonPressed(MouseCode button);
         static bool IsMouseButtonReleased(MouseCode button);
@@ -44,6 +46,8 @@ namespace HEngine
         static void ClearSyntheticKeys();
         [[nodiscard]] static SyntheticKeyQuery QuerySyntheticKey(KeyCode key);
         static void SetSyntheticPointerPosition(glm::vec2 position);
+        static void SetSyntheticRightMouseButton(bool held);
+        [[nodiscard]] static SyntheticKeyQuery QuerySyntheticMouseButton(MouseCode button);
         static void ClearSyntheticPointerPosition();
         [[nodiscard]] static bool TryGetSyntheticPointerPosition(glm::vec2& position);
         [[nodiscard]] static bool IsSyntheticInputSessionActive();

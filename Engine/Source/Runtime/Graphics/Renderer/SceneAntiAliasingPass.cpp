@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <fstream>
 #include <stdexcept>
 #include <string>
@@ -43,7 +44,9 @@ namespace HEngine
             uint32_t HasTemporalGiConfidence = 0;
             float LuminanceReactiveScale = 4.0f;
             float TemporalGiHistoryCeiling = 0.90f;
-            float Padding = 0.0f;
+            uint32_t OptimizedHistoryGather = 0;
+            uint32_t SharedNeighborhood = 0;
+            uint32_t Padding[3]{};
         };
 
         struct alignas(16) SmaaConstants
@@ -57,8 +60,16 @@ namespace HEngine
             float Padding = 0.0f;
         };
 
+        struct alignas(16) TaaReconstructConstants
+        {
+            glm::uvec2 Dimensions{ 0u };
+            glm::vec2 JitterPixels{ 0.0f };
+        };
+        static_assert(sizeof(TaaReconstructConstants) == 16);
+
         static_assert(sizeof(FxaaConstants) == 32);
-        static_assert(sizeof(TaaConstants) == 48);
+        static_assert(sizeof(TaaConstants) == 64);
+        static_assert(offsetof(TaaConstants, SharedNeighborhood) == 48);
         static_assert(sizeof(SmaaConstants) == 32);
 
         enum class SmaaStage : uint8_t
@@ -209,6 +220,19 @@ namespace HEngine
                     "' has an incompatible format");
             }
         }
+
+        void RequireLdrColorFormat(
+            const RenderGraphTextureDesc& desc,
+            std::string_view name)
+        {
+            // Both formats expose logical RGBA channels to the shaders. Keep
+            // this display-referred path UNORM: an sRGB view would introduce an
+            // extra transfer-function conversion around the spatial AA filter.
+            if (desc.Format != nvrhi::Format::RGBA8_UNORM &&
+                desc.Format != nvrhi::Format::BGRA8_UNORM)
+                throw RenderGraphValidationError("Scene AA texture '" + std::string(name) +
+                    "' requires RGBA8_UNORM or BGRA8_UNORM display-referred color");
+        }
     }
 
     struct SceneAntiAliasingPass::Impl
@@ -219,6 +243,7 @@ namespace HEngine
             nvrhi::TextureHandle ViewDepth;
             nvrhi::TextureHandle NormalLength;
             nvrhi::TextureHandle SurfaceId;
+            bool bHasSubmittedState = false;
         };
 
         struct RetiredHistory
@@ -383,6 +408,20 @@ namespace HEngine
             taaPipelineDesc.setComputeShader(TaaComputeShader)
                 .addBindingLayout(TaaBindingLayout);
             TaaPipeline = Device->createComputePipeline(taaPipelineDesc);
+            const auto reconstructShader = LoadShader(
+                "Modern/SceneTaaReconstruct.hlsl", "SceneTaaReconstruct.cs",
+                nvrhi::ShaderType::Compute, "CS", "cs_6_0", "Scene TAA reconstruct CS");
+            nvrhi::BindingLayoutDesc reconstructLayout;
+            reconstructLayout.setVisibility(nvrhi::ShaderType::Compute)
+                .setRegisterSpaceAndDescriptorSet(3)
+                .addItem(nvrhi::BindingLayoutItem::PushConstants(0, sizeof(TaaReconstructConstants)))
+                .addItem(nvrhi::BindingLayoutItem::Texture_SRV(0))
+                .addItem(nvrhi::BindingLayoutItem::Texture_UAV(0))
+                .addItem(nvrhi::BindingLayoutItem::Sampler(0));
+            TaaReconstructLayout = Device->createBindingLayout(reconstructLayout);
+            nvrhi::ComputePipelineDesc reconstructPipeline;
+            reconstructPipeline.setComputeShader(reconstructShader).addBindingLayout(TaaReconstructLayout);
+            TaaReconstructPipeline = Device->createComputePipeline(reconstructPipeline);
             if (!FxaaVertexShader || !FxaaPixelShader || !TaaComputeShader ||
                 !SmaaVertexShader ||
                 std::ranges::any_of(
@@ -392,7 +431,8 @@ namespace HEngine
                         return !shader;
                     }) ||
                 !FxaaBindingLayout || !SmaaBindingLayout ||
-                !TaaBindingLayout || !LinearClampSampler || !TaaPipeline)
+                !TaaBindingLayout || !LinearClampSampler || !TaaPipeline ||
+                !TaaReconstructLayout || !TaaReconstructPipeline)
             {
                 throw std::runtime_error(
                     "NVRHI failed to create scene anti-aliasing immutable state");
@@ -408,7 +448,7 @@ namespace HEngine
                 .setHeight(Height)
                 .setFormat(format)
                 .setIsUAV(true)
-                .setInitialState(nvrhi::ResourceStates::ShaderResource)
+                .setInitialState(nvrhi::ResourceStates::Common)
                 .setDebugName(std::move(debugName));
             nvrhi::TextureHandle texture = Device->createTexture(desc);
             if (!texture)
@@ -526,7 +566,7 @@ namespace HEngine
 
         [[nodiscard]] TextureHandle ImportHistoryTexture(
             RenderGraph& renderGraph,
-            const nvrhi::TextureHandle& texture)
+            const nvrhi::TextureHandle& texture, bool bHasSubmittedState)
         {
             const nvrhi::TextureDesc& desc = texture->getDesc();
             return renderGraph.ImportTexture(
@@ -539,7 +579,7 @@ namespace HEngine
                     .Dimension = desc.dimension,
                 },
                 texture,
-                nvrhi::ResourceStates::ShaderResource,
+                bHasSubmittedState ? nvrhi::ResourceStates::ShaderResource : nvrhi::ResourceStates::Common,
                 nvrhi::ResourceStates::ShaderResource);
         }
 
@@ -548,12 +588,12 @@ namespace HEngine
             const HistorySet& set)
         {
             return {
-                .Color = ImportHistoryTexture(renderGraph, set.Color),
-                .ViewDepth = ImportHistoryTexture(renderGraph, set.ViewDepth),
+                .Color = ImportHistoryTexture(renderGraph, set.Color, set.bHasSubmittedState),
+                .ViewDepth = ImportHistoryTexture(renderGraph, set.ViewDepth, set.bHasSubmittedState),
                 .NormalLength = ImportHistoryTexture(
                     renderGraph,
-                    set.NormalLength),
-                .SurfaceId = ImportHistoryTexture(renderGraph, set.SurfaceId),
+                    set.NormalLength, set.bHasSubmittedState),
+                .SurfaceId = ImportHistoryTexture(renderGraph, set.SurfaceId, set.bHasSubmittedState),
             };
         }
 
@@ -562,12 +602,16 @@ namespace HEngine
             const TaaHistoryHandles& handles,
             const HistorySet& set)
         {
-            renderGraph.SetTextureResource(handles.Color, set.Color);
-            renderGraph.SetTextureResource(handles.ViewDepth, set.ViewDepth);
+            renderGraph.SetTextureResource(handles.Color, set.Color,
+                set.bHasSubmittedState ? nvrhi::ResourceStates::ShaderResource : nvrhi::ResourceStates::Common);
+            renderGraph.SetTextureResource(handles.ViewDepth, set.ViewDepth,
+                set.bHasSubmittedState ? nvrhi::ResourceStates::ShaderResource : nvrhi::ResourceStates::Common);
             renderGraph.SetTextureResource(
                 handles.NormalLength,
-                set.NormalLength);
-            renderGraph.SetTextureResource(handles.SurfaceId, set.SurfaceId);
+                set.NormalLength,
+                set.bHasSubmittedState ? nvrhi::ResourceStates::ShaderResource : nvrhi::ResourceStates::Common);
+            renderGraph.SetTextureResource(handles.SurfaceId, set.SurfaceId,
+                set.bHasSubmittedState ? nvrhi::ResourceStates::ShaderResource : nvrhi::ResourceStates::Common);
         }
 
         [[nodiscard]] nvrhi::IBindingSet* GetTaaBindingSet(
@@ -678,8 +722,9 @@ namespace HEngine
         [[nodiscard]] nvrhi::IGraphicsPipeline* GetFxaaPipeline(
             nvrhi::IFramebuffer* framebuffer)
         {
-            if (FxaaPipeline)
-                return FxaaPipeline;
+            const auto format = framebuffer->getFramebufferInfo().colorFormats[0];
+            if (const auto existing = FxaaPipelines.find(format); existing != FxaaPipelines.end())
+                return existing->second;
             nvrhi::GraphicsPipelineDesc desc;
             desc.setPrimType(nvrhi::PrimitiveType::TriangleList)
                 .setVertexShader(FxaaVertexShader)
@@ -687,12 +732,12 @@ namespace HEngine
                 .addBindingLayout(FxaaBindingLayout);
             desc.renderState.depthStencilState.disableDepthTest().disableDepthWrite();
             desc.renderState.rasterState.setCullNone().enableDepthClip();
-            FxaaPipeline = Device->createGraphicsPipeline(
+            auto pipeline = Device->createGraphicsPipeline(
                 desc,
                 framebuffer->getFramebufferInfo());
-            if (!FxaaPipeline)
+            if (!pipeline)
                 throw std::runtime_error("NVRHI failed to create an FXAA pipeline");
-            return FxaaPipeline;
+            return FxaaPipelines.emplace(format, std::move(pipeline)).first->second;
         }
 
         [[nodiscard]] nvrhi::IGraphicsPipeline* GetSmaaPipeline(
@@ -702,8 +747,10 @@ namespace HEngine
             const size_t stageIndex = ToIndex(stage);
             if (stageIndex >= ToIndex(SmaaStage::Count))
                 throw std::invalid_argument("Scene SMAA stage is invalid");
-            if (SmaaPipelines[stageIndex])
-                return SmaaPipelines[stageIndex];
+            const auto format = framebuffer->getFramebufferInfo().colorFormats[0];
+            auto& pipelines = SmaaPipelines[stageIndex];
+            if (const auto existing = pipelines.find(format); existing != pipelines.end())
+                return existing->second;
             nvrhi::GraphicsPipelineDesc desc;
             desc.setPrimType(nvrhi::PrimitiveType::TriangleList)
                 .setVertexShader(SmaaVertexShader)
@@ -711,12 +758,12 @@ namespace HEngine
                 .addBindingLayout(SmaaBindingLayout);
             desc.renderState.depthStencilState.disableDepthTest().disableDepthWrite();
             desc.renderState.rasterState.setCullNone().enableDepthClip();
-            SmaaPipelines[stageIndex] = Device->createGraphicsPipeline(
+            auto pipeline = Device->createGraphicsPipeline(
                 desc,
                 framebuffer->getFramebufferInfo());
-            if (!SmaaPipelines[stageIndex])
+            if (!pipeline)
                 throw std::runtime_error("NVRHI failed to create an SMAA pipeline");
-            return SmaaPipelines[stageIndex];
+            return pipelines.emplace(format, std::move(pipeline)).first->second;
         }
 
         void RecordTaa(
@@ -776,6 +823,8 @@ namespace HEngine
                 .ResetHistory = bResetThisFrame ? 1u : 0u,
                 .HasTemporalGiConfidence =
                     data.bHasTemporalGiConfidence ? 1u : 0u,
+                .OptimizedHistoryGather = PreparedSettings.bTaaOptimizedHistoryGather ? 1u : 0u,
+                .SharedNeighborhood = PreparedSettings.bTaaSharedNeighborhood ? 1u : 0u,
             };
             nvrhi::ComputeState state;
             state.setPipeline(TaaPipeline).addBindingSet(GetTaaBindingSet(key));
@@ -784,6 +833,34 @@ namespace HEngine
             commandList->setPushConstants(&constants, sizeof(constants));
             commandList->dispatch(DispatchCount(Width), DispatchCount(Height));
             bFrameRecorded = true;
+        }
+
+        void RecordTaaReconstruction(RenderGraphContext& context, const FxaaPassData& data)
+        {
+            // Sparse keys cannot collide with the sixteen-texture accumulation
+            // bindings. Sharing the cache also shares retirement and rollback.
+            const TaaBindingKey key{ .Textures = {
+                context.GetTexture(data.Source, RenderGraphAccess::Read),
+                context.GetTexture(data.Target, RenderGraphAccess::Write) } };
+            auto binding = TaaBindings.find(key);
+            if (binding == TaaBindings.end())
+            {
+                nvrhi::BindingSetDesc desc;
+                desc.addItem(nvrhi::BindingSetItem::PushConstants(0, sizeof(TaaReconstructConstants)))
+                    .addItem(nvrhi::BindingSetItem::Texture_SRV(0, key.Textures[0]))
+                    .addItem(nvrhi::BindingSetItem::Texture_UAV(0, key.Textures[1]))
+                    .addItem(nvrhi::BindingSetItem::Sampler(0, LinearClampSampler));
+                auto created = Device->createBindingSet(desc, TaaReconstructLayout);
+                if (!created) throw std::runtime_error("Failed to create TAA reconstruction bindings");
+                binding = TaaBindings.emplace(key, std::move(created)).first;
+            }
+            const TaaReconstructConstants constants{ { Width, Height }, JitterPixels };
+            nvrhi::ComputeState state;
+            state.setPipeline(TaaReconstructPipeline).addBindingSet(binding->second);
+            auto* commandList = context.GetCommandList();
+            commandList->setComputeState(state);
+            commandList->setPushConstants(&constants, sizeof(constants));
+            commandList->dispatch(DispatchCount(Width), DispatchCount(Height));
         }
 
         void RecordFxaa(
@@ -878,11 +955,13 @@ namespace HEngine
         nvrhi::BindingLayoutHandle SmaaBindingLayout;
         nvrhi::BindingLayoutHandle TaaBindingLayout;
         nvrhi::SamplerHandle LinearClampSampler;
-        nvrhi::GraphicsPipelineHandle FxaaPipeline;
+        std::unordered_map<nvrhi::Format, nvrhi::GraphicsPipelineHandle> FxaaPipelines;
         std::array<
-            nvrhi::GraphicsPipelineHandle,
+            std::unordered_map<nvrhi::Format, nvrhi::GraphicsPipelineHandle>,
             ToIndex(SmaaStage::Count)> SmaaPipelines;
         nvrhi::ComputePipelineHandle TaaPipeline;
+        nvrhi::BindingLayoutHandle TaaReconstructLayout;
+        nvrhi::ComputePipelineHandle TaaReconstructPipeline;
         std::unordered_map<nvrhi::ITexture*, nvrhi::BindingSetHandle> FxaaBindings;
         std::unordered_map<nvrhi::ITexture*, nvrhi::FramebufferHandle> FxaaFramebuffers;
         std::unordered_map<
@@ -899,6 +978,7 @@ namespace HEngine
         TaaHistoryHandles PreviousGraphHandles;
         TaaHistoryHandles CurrentGraphHandles;
         AntiAliasingSettings PreparedSettings;
+        glm::vec2 JitterPixels{ 0.0f };
         uint64_t LastSubmittedSubmission = 0;
         uint32_t Width = 0;
         uint32_t Height = 0;
@@ -922,12 +1002,52 @@ namespace HEngine
 
     SceneAntiAliasingPass::~SceneAntiAliasingPass() = default;
 
+    std::function<void()> SceneAntiAliasingPass::CaptureGraphState()
+    {
+        return [impl = mImpl.get(), fxaa = mImpl->FxaaBindings,
+            fxaaFrames = mImpl->FxaaFramebuffers, smaa = mImpl->SmaaBindings,
+            smaaFrames = mImpl->SmaaFramebuffers, taa = mImpl->TaaBindings,
+            retired = mImpl->RetiredGpuResources,
+            history = mImpl->History, retiredHistory = mImpl->RetiredHistories,
+            settings = mImpl->PreparedSettings, jitter = mImpl->JitterPixels,
+            width = mImpl->Width, height = mImpl->Height,
+            previousIndex = mImpl->PreviousIndex, currentIndex = mImpl->CurrentIndex,
+            sequence = mImpl->TemporalFrameSequence, convergence = mImpl->ConvergenceFrameCount,
+            bPrepared = mImpl->bPrepared, bResetPending = mImpl->bResetPending,
+            bResetFrame = mImpl->bResetThisFrame,
+            previous = mImpl->PreviousGraphHandles, current = mImpl->CurrentGraphHandles,
+            bValid = mImpl->bGraphHandlesValid, bRebuild = mImpl->bGraphRebuildRequested]() mutable noexcept
+        {
+            using std::swap;
+            swap(impl->FxaaBindings, fxaa); swap(impl->FxaaFramebuffers, fxaaFrames);
+            swap(impl->SmaaBindings, smaa); swap(impl->SmaaFramebuffers, smaaFrames);
+            swap(impl->TaaBindings, taa); swap(impl->RetiredGpuResources, retired);
+            swap(impl->History, history); swap(impl->RetiredHistories, retiredHistory);
+            swap(impl->PreparedSettings, settings); swap(impl->Width, width); swap(impl->Height, height);
+            swap(impl->JitterPixels, jitter);
+            swap(impl->PreviousIndex, previousIndex); swap(impl->CurrentIndex, currentIndex);
+            swap(impl->TemporalFrameSequence, sequence); swap(impl->ConvergenceFrameCount, convergence);
+            swap(impl->bPrepared, bPrepared); swap(impl->bResetPending, bResetPending);
+            swap(impl->bResetThisFrame, bResetFrame);
+            swap(impl->PreviousGraphHandles, previous); swap(impl->CurrentGraphHandles, current);
+            swap(impl->bGraphHandlesValid, bValid); swap(impl->bGraphRebuildRequested, bRebuild);
+        };
+    }
+
+    void SceneAntiAliasingPass::ClearGraphResourceCaches() noexcept
+    {
+        mImpl->FxaaBindings.clear(); mImpl->FxaaFramebuffers.clear();
+        mImpl->SmaaBindings.clear(); mImpl->SmaaFramebuffers.clear();
+        mImpl->TaaBindings.clear(); mImpl->RetiredGpuResources.clear();
+    }
+
     void SceneAntiAliasingPass::PrepareFrame(
         const AntiAliasingSettings& settings,
         uint32_t width,
         uint32_t height,
         uint64_t completedSubmission,
-        bool bCameraReset)
+        bool bCameraReset,
+        glm::vec2 jitterPixels)
     {
         ValidateAntiAliasingSettings(settings);
         if (width == 0 || height == 0)
@@ -942,6 +1062,7 @@ namespace HEngine
         const bool bModeChanged = mImpl->bPrepared &&
             mImpl->PreparedSettings.Mode != settings.Mode;
         mImpl->PreparedSettings = settings;
+        mImpl->JitterPixels = jitterPixels;
         mImpl->bPrepared = true;
 
         if (mImpl->Width != width || mImpl->Height != height)
@@ -1011,11 +1132,12 @@ namespace HEngine
         mImpl->Height = height;
         mImpl->bResetThisFrame = true;
         mImpl->bGraphRebuildRequested = true;
-        if (mImpl->bPrepared &&
-            mImpl->PreparedSettings.Mode == AntiAliasingMode::Taa)
-        {
-            mImpl->AllocateHistory();
-        }
+        // PrepareFrame allocates history at the final scene extent. A window
+        // resize can report the native display size before the render cap is
+        // resolved; allocating here would briefly create two sets of history.
+        // Swap-chain resize may follow immediately. Release caches whose last
+        // submission is already complete so they cannot retain old backbuffers.
+        Collect(completedSubmission);
     }
 
     void SceneAntiAliasingPass::ResetHistory() noexcept
@@ -1167,7 +1289,10 @@ namespace HEngine
                     inputs.CurrentHdrColor);
                 data.Inputs.MotionVectors = builder.ShaderResource(
                     inputs.MotionVectors);
-                data.Inputs.CurrentDepth = builder.DepthRead(inputs.CurrentDepth);
+                // TAA reads depth through an SRV in compute, never a DSV. The
+                // optional-confidence fallback may name this same texture;
+                // both declarations must request the identical shader state.
+                data.Inputs.CurrentDepth = builder.ShaderResource(inputs.CurrentDepth);
                 data.Inputs.ViewDepth = builder.ShaderResource(inputs.ViewDepth);
                 data.Inputs.NormalRoughness = builder.ShaderResource(
                     inputs.NormalRoughness);
@@ -1204,7 +1329,23 @@ namespace HEngine
             {
                 impl->RecordTaa(context, data);
             });
-        return resolved;
+        const TextureHandle reconstructed = renderGraph.CreateTexture(
+            RenderGraphTextureDesc{
+                .DebugName = "Scene TAA Unjittered HDR",
+                .Width = mImpl->Width,
+                .Height = mImpl->Height,
+                .Format = nvrhi::Format::RGBA16_FLOAT,
+                .CapabilityUsage = RenderGraphUsage::ShaderResource | RenderGraphUsage::RenderTarget,
+            });
+        renderGraph.AddPass<FxaaPassData>("SceneTAAReconstruct", RenderGraphQueue::Compute,
+            [resolved, reconstructed](RenderGraphBuilder& builder, FxaaPassData& data) {
+                data.Source = builder.ShaderResource(resolved);
+                data.Target = builder.Write(reconstructed, RenderGraphUsage::UnorderedAccess);
+            },
+            [impl = mImpl.get()](RenderGraphContext& context, const FxaaPassData& data) {
+                impl->RecordTaaReconstruction(context, data);
+            });
+        return reconstructed;
     }
 
     TextureHandle SceneAntiAliasingPass::AddFxaaPass(
@@ -1225,13 +1366,11 @@ namespace HEngine
             throw RenderGraphValidationError(
                 "Scene FXAA source and target must be different textures");
         }
-        RequireFormat(
+        RequireLdrColorFormat(
             RequireSingleSampleTexture(renderGraph, ldrInput, "FXAA LDR source"),
-            nvrhi::Format::RGBA8_UNORM,
             "FXAA LDR source");
-        RequireFormat(
+        RequireLdrColorFormat(
             RequireSingleSampleTexture(renderGraph, ldrTarget, "FXAA LDR target"),
-            nvrhi::Format::RGBA8_UNORM,
             "FXAA LDR target");
 
         mImpl->RetireFxaaCaches();
@@ -1274,13 +1413,11 @@ namespace HEngine
             throw RenderGraphValidationError(
                 "Scene SMAA source and target must be different textures");
         }
-        RequireFormat(
+        RequireLdrColorFormat(
             RequireSingleSampleTexture(renderGraph, ldrInput, "SMAA LDR source"),
-            nvrhi::Format::RGBA8_UNORM,
             "SMAA LDR source");
-        RequireFormat(
+        RequireLdrColorFormat(
             RequireSingleSampleTexture(renderGraph, ldrTarget, "SMAA LDR target"),
-            nvrhi::Format::RGBA8_UNORM,
             "SMAA LDR target");
 
         const TextureHandle edgeTexture = renderGraph.CreateTexture(
@@ -1389,6 +1526,7 @@ namespace HEngine
             submission);
         if (!mImpl->bFrameRecorded)
             return;
+        for (auto& set : mImpl->History) set.bHasSubmittedState = true;
         mImpl->PreviousIndex = mImpl->CurrentIndex;
         mImpl->CurrentIndex = 1u - mImpl->PreviousIndex;
         mImpl->TemporalFrameSequence += 1u;

@@ -1,16 +1,24 @@
 #include "Editor/ImGuiWrapper/ImGuiWrapper.h"
 #include "Editor/EditorLayer.h"
 #include "Editor/Panels/SceneHierarchyPanel.h"
+#include "Editor/Panels/ScriptInspector.h"
+#include "Editor/Panels/SequenceInspector.h"
 #include "Editor/Manager/IconManager.h"
 #include "Runtime/Profile/Profile.h"
+#include "Runtime/Scripting/ScriptEngine.h"
+#include "Runtime/Scripting/ScriptFieldsJson.h"
+#include "Runtime/Scripting/ScriptBackendRegistry.h"
 #include "Runtime/EcsFramework/Component/ComponentGroup.h"
+#include "Runtime/EcsFramework/Component/Basic/PrefabInstanceComponent.h"
 #include "Runtime/EcsFramework/Serializer/PrefabSerializer.h"
 #include "Runtime/Graphics/Material/MaterialResourceCache.h"
+#include "Runtime/Graphics/Lighting/PhotometricUnits.h"
 #include "Runtime/Resource/ConfigManager/ConfigManager.h"
 #include "Runtime/Resource/ModeManager/ModeManager.h"
 #include "Runtime/Utils/PathUtils/PathUtils.h"
 #include "Runtime/Utils/PlatformUtils.h"
 #include "Runtime/Utils/StringUtils/StringUtils.h"
+#include "_generated/serializer/engine/Runtime/EcsFramework/Component/Script/ScriptComponent.gen.h"
 
 #include <imgui/imgui.h>
 #include <imgui/imgui_internal.h>
@@ -22,6 +30,7 @@
 #include <cmath>
 #include <cstring>
 #include <algorithm>
+#include <cstdio>
 #include <filesystem>
 #include <type_traits>
 #include <unordered_map>
@@ -32,6 +41,7 @@
 namespace HEngine
 {
 	static Entity sSelectionContext;
+    static std::vector<Entity> sScriptSelection;
 	static SceneHierarchyPanel::MeshSelectionContext sMeshSelectionContext;
 	static Entity sRenameContext;
 	static char sRenameBuffer[256] = {};
@@ -189,6 +199,26 @@ namespace HEngine
 			ImGuiWrapper::PropertyRow(EditorLayer::GetText(label), std::forward<UIFunc>(uiFunc), labelWidth);
 		}
 
+		static void DrawLightIntensity(float& intensity, int* units = nullptr, float coneAngle = 180.0f)
+		{
+			if (units)
+			{
+				DrawLabeledControl("Intensity Units", [&]()
+				{
+					const int previous = *units;
+					if (ImGui::Combo("##IntensityUnits", units, "Unitless\0Candela (cd)\0Lumen (lm)\0"))
+						intensity = Photometry::ConvertIntensity(intensity, previous, *units, Photometry::SolidAngle(coneAngle));
+				});
+			}
+			const char* label = !units ? "Intensity (lux)" : *units == 1 ? "Intensity (cd)" : *units == 2 ? "Intensity (lm)" : "Intensity (unitless)";
+			DrawLabeledControl(label, [&]()
+			{
+				// Drag range is not a physical ceiling; direct input accepts finite nonnegative values.
+				ImGui::DragFloat("##PhotometricIntensity", &intensity, std::max(0.01f, intensity * 0.01f), 0.0f, FLT_MAX, "%.6g");
+				intensity = Photometry::NonNegative(intensity);
+			});
+		}
+
 		static std::string NormalizeBackSlash(std::string path)
 		{
 			for (char& c : path)
@@ -303,12 +333,19 @@ namespace HEngine
 			return entity.GetLevel()->GetParent(entity);
 		}
 
-		static bool SetEditorHierarchyParent(Entity entity, Entity parent)
+		static bool SetEditorHierarchyParent(Entity entity, Entity parent, EditorLayer* editor)
 		{
 			if (!entity || !entity.GetLevel())
 				return false;
 
 			Level* level = entity.GetLevel();
+			if (editor && !entity.HasComponent<SceneFolderComponent>() &&
+				(!parent || !parent.HasComponent<SceneFolderComponent>()) && !level->GetEntityFolder(entity))
+			{
+				editor->QueueSceneOperations(Json::array({{{"op","reparent"},{"entity",entity.UUID().str()},
+					{"parent",parent ? parent.UUID().str() : ""},{"mode","keepWorld"}}}));
+				return true;
+			}
 			if (parent && parent.HasComponent<SceneFolderComponent>())
 				return level->SetEntityFolder(entity, parent);
 
@@ -446,6 +483,7 @@ namespace HEngine
 	void SceneHierarchyPanel::SetContext(const Ref<Level>& context)
     {
         mContext = context;
+        sScriptSelection.clear();
 		if (mContext)
 			mContext->MigrateLegacySceneFolderParents();
         sSelectionContext = {};
@@ -472,9 +510,7 @@ namespace HEngine
 			{
 				if (ImGui::MenuItem(EditorLayer::GetText("Empty Entity")))
 				{
-					SetSelectedEntity(mContext->CreateEntity(EditorLayer::GetText("Empty Entity")));
-					if (mParent)
-						mParent->MarkSceneDirty("Create Entity");
+					if (mParent) mParent->QueueSceneOperations(Json::array({{{"op","create"},{"name",EditorLayer::GetText("Empty Entity")}}}));
 				}
 				if (ImGui::MenuItem(EditorLayer::GetText("Folder")))
 					CreateFolder();
@@ -507,43 +543,7 @@ namespace HEngine
 
 			{
 				HE_PROFILE_SECTION("Hierarchy Tree");
-				if (sHierarchyFilter.IsActive() || mPendingScrollEntity)
-				{
-					for (Entity entity : mHierarchyRoots)
-						DrawEntityNode(entity);
-				}
-				else
-				{
-				size_t rootIndex = 0;
-				while (rootIndex < mHierarchyRoots.size())
-				{
-					const Entity& entity = mHierarchyRoots[rootIndex];
-					const auto childrenIt = mHierarchyChildren.find(static_cast<uint32_t>(entity));
-					if (childrenIt != mHierarchyChildren.end() && !childrenIt->second.empty())
-					{
-						DrawEntityNode(entity);
-						++rootIndex;
-						continue;
-					}
-
-					const size_t leafRunBegin = rootIndex;
-					while (rootIndex < mHierarchyRoots.size())
-					{
-						const auto leafChildrenIt = mHierarchyChildren.find(static_cast<uint32_t>(mHierarchyRoots[rootIndex]));
-						if (leafChildrenIt != mHierarchyChildren.end() && !leafChildrenIt->second.empty())
-							break;
-						++rootIndex;
-					}
-
-					ImGuiListClipper clipper;
-					clipper.Begin(static_cast<int>(rootIndex - leafRunBegin));
-					while (clipper.Step())
-					{
-						for (int visibleIndex = clipper.DisplayStart; visibleIndex < clipper.DisplayEnd; ++visibleIndex)
-							DrawEntityNode(mHierarchyRoots[leafRunBegin + static_cast<size_t>(visibleIndex)]);
-					}
-				}
-				}
+				DrawEntityList(mHierarchyRoots);
 			}
 
 			ImGuiWindow* window = ImGui::GetCurrentWindow();
@@ -560,7 +560,7 @@ namespace HEngine
 							if (TryReadEntityFromPayload(payload, payloadUuid))
 							{
 								Entity draggedEntity = mContext->TryGetEntityByUUID(payloadUuid);
-								if (draggedEntity && SetEditorHierarchyParent(draggedEntity, {}))
+								if (draggedEntity && SetEditorHierarchyParent(draggedEntity, {}, mParent))
 								{
 									if (mParent)
 										mParent->MarkSceneDirty("Reparent Entity");
@@ -589,9 +589,7 @@ namespace HEngine
 
 					if (ImGui::MenuItem(EditorLayer::GetText("Empty Entity")))
 				{
-					SetSelectedEntity(mContext->CreateEntity(EditorLayer::GetText("Empty Entity")));
-					if (mParent)
-						mParent->MarkSceneDirty("Create Entity");
+					if (mParent) mParent->QueueSceneOperations(Json::array({{{"op","create"},{"name",EditorLayer::GetText("Empty Entity")}}}));
 				}
 
 					ImGui::Separator();
@@ -600,11 +598,8 @@ namespace HEngine
 					{
 						if (ImGui::MenuItem(EditorLayer::GetText("Cube")))
 						{
-							auto entity = mContext->CreateEntity(EditorLayer::GetText("Cube"));
-							entity.AddComponent<MeshComponent>("Assets/Models/Box/Box.hmesh");
-							SetSelectedEntity(entity);
-							if (mParent)
-								mParent->MarkSceneDirty("Create Entity");
+							if (mParent) mParent->QueueSceneOperations(Json::array({{{"op","create"},{"name",EditorLayer::GetText("Cube")},
+                                {"components",{{"MeshComponent",{{"Path","Assets/Models/Cube/Cube.hmesh"}}}}}}}));
 						}
 
 						if (ImGui::MenuItem(EditorLayer::GetText("Sphere")))
@@ -634,11 +629,8 @@ namespace HEngine
 					{
 						if (ImGui::MenuItem(EditorLayer::GetText("Point Light")))
 						{
-							auto entity = mContext->CreateEntity(EditorLayer::GetText("Point Light"));
-							entity.AddComponent<PointLightComponent>();
-							SetSelectedEntity(entity);
-							if (mParent)
-								mParent->MarkSceneDirty("Create Entity");
+							if (mParent) mParent->QueueSceneOperations(Json::array({{{"op","create"},{"name",EditorLayer::GetText("Point Light")},
+                                {"components",{{"PointLightComponent",Json::object()}}}}}));
 						}
 
 						if (ImGui::MenuItem(EditorLayer::GetText("Directional Light")))
@@ -705,6 +697,8 @@ namespace HEngine
 
 	void SceneHierarchyPanel::SetSelectedEntity(Entity entity)
     {
+		sScriptSelection.clear();
+		if (entity) sScriptSelection.push_back(entity);
 		sSelectionContext = entity;
 		sMeshSelectionContext = {};
 		mPendingScrollEntity = entity;
@@ -714,12 +708,15 @@ namespace HEngine
 
 	void SceneHierarchyPanel::ClearSelection()
 	{
+		sScriptSelection.clear();
 		sSelectionContext = {};
 		sMeshSelectionContext = {};
 	}
 
 	void SceneHierarchyPanel::SetSelectedEntity(Entity entity, const MeshSelectionContext& meshSelectionContext)
 	{
+		sScriptSelection.clear();
+		if (entity) sScriptSelection.push_back(entity);
 		sSelectionContext = entity;
 		sMeshSelectionContext = meshSelectionContext;
 		mPendingScrollEntity = entity;
@@ -731,6 +728,8 @@ namespace HEngine
 	{
 		Json state;
 		state["SelectedEntity"] = sSelectionContext ? sSelectionContext.UUID().str() : std::string();
+        state["SelectedEntities"] = Json::array();
+        for (auto entity : sScriptSelection) if (entity) state["SelectedEntities"].push_back(entity.UUID().str());
 
 		Json uiStates = Json::array();
 		if (mContext)
@@ -811,6 +810,11 @@ namespace HEngine
 			if (selected)
 			{
 				SetSelectedEntity(selected);
+                for (const auto& id : state.value("SelectedEntities", Json::array()))
+                {
+                    auto other = mContext->TryGetEntityByUUID(UUID(id.get<std::string>()));
+                    if (other && other != selected && CanSelectEntity(other)) sScriptSelection.push_back(other);
+                }
 				return;
 			}
 		}
@@ -837,6 +841,11 @@ namespace HEngine
 
 	Entity SceneHierarchyPanel::DuplicateEntityHierarchy(Entity entity)
 	{
+		if (mParent && entity && !entity.HasComponent<SceneFolderComponent>())
+		{
+			mParent->QueueSceneOperations(Json::array({{{"op","duplicate"},{"entity",entity.UUID().str()},{"children","subtree"}}}));
+			return {};
+		}
 		return DuplicateEditorHierarchyEntity(mContext.get(), entity);
 	}
 
@@ -1025,6 +1034,42 @@ namespace HEngine
 		}
 	}
 
+	void SceneHierarchyPanel::DrawEntityList(const std::vector<Entity>& entities)
+	{
+		if (sHierarchyFilter.IsActive() || mPendingScrollEntity)
+		{
+			for (Entity entity : entities)
+				DrawEntityNode(entity);
+			return;
+		}
+
+		size_t index = 0;
+		while (index < entities.size())
+		{
+			const auto childrenIt = mHierarchyChildren.find(static_cast<uint32_t>(entities[index]));
+			if (childrenIt != mHierarchyChildren.end() && !childrenIt->second.empty())
+			{
+				DrawEntityNode(entities[index++]);
+				continue;
+			}
+
+			const size_t leafRunBegin = index;
+			while (index < entities.size())
+			{
+				const auto leafChildrenIt = mHierarchyChildren.find(static_cast<uint32_t>(entities[index]));
+				if (leafChildrenIt != mHierarchyChildren.end() && !leafChildrenIt->second.empty())
+					break;
+				++index;
+			}
+
+			ImGuiListClipper clipper;
+			clipper.Begin(static_cast<int>(index - leafRunBegin));
+			while (clipper.Step())
+				for (int visibleIndex = clipper.DisplayStart; visibleIndex < clipper.DisplayEnd; ++visibleIndex)
+					DrawEntityNode(entities[leafRunBegin + static_cast<size_t>(visibleIndex)]);
+		}
+	}
+
 	void SceneHierarchyPanel::DrawEntityNode(Entity entity)
 	{
 		if (!entity || !MatchesFilter(entity))
@@ -1044,7 +1089,7 @@ namespace HEngine
 			name = entity.GetComponent<TagComponent>().Tag.c_str();
 		}
 
-		ImGuiTreeNodeFlags flags = ((sSelectionContext == entity) ? ImGuiTreeNodeFlags_Selected : 0) | ImGuiTreeNodeFlags_OpenOnArrow;
+		ImGuiTreeNodeFlags flags = ((std::find(sScriptSelection.begin(), sScriptSelection.end(), entity) != sScriptSelection.end()) ? ImGuiTreeNodeFlags_Selected : 0) | ImGuiTreeNodeFlags_OpenOnArrow;
 		flags |= ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_AllowOverlap;
 		if (!bHasChildren)
 			flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
@@ -1071,7 +1116,15 @@ namespace HEngine
 			SetEntityExpandedState(entity, opened);
 		if (ImGui::IsItemClicked() && !bLocked)
 		{
-			SetSelectedEntity(entity);
+            if (ImGui::GetIO().KeyCtrl)
+            {
+                const auto selected = std::find(sScriptSelection.begin(), sScriptSelection.end(), entity);
+                if (selected == sScriptSelection.end()) sScriptSelection.push_back(entity);
+                else sScriptSelection.erase(selected);
+                sSelectionContext = sScriptSelection.empty() ? Entity{} : sScriptSelection.back();
+                sMeshSelectionContext = {};
+            }
+            else SetSelectedEntity(entity);
 		}
 
 		if (bLocked && ImGui::IsItemHovered())
@@ -1082,6 +1135,14 @@ namespace HEngine
 		bool bDetachFromParent = false;
 		if (ImGui::BeginPopupContextItem())
 		{
+            if (ImGui::MenuItem("Toggle Script Multi-Selection", nullptr, std::find(sScriptSelection.begin(), sScriptSelection.end(), entity) != sScriptSelection.end(), !bLocked))
+            {
+                const auto selected = std::find(sScriptSelection.begin(), sScriptSelection.end(), entity);
+                if (selected == sScriptSelection.end()) sScriptSelection.push_back(entity);
+                else sScriptSelection.erase(selected);
+                sSelectionContext = sScriptSelection.empty() ? Entity{} : sScriptSelection.back();
+                sMeshSelectionContext = {};
+            }
 			if (ImGui::MenuItem(EditorLayer::GetText("Duplicate Entity"), "Ctrl+D"))
 				entityDuplicate = true;
 
@@ -1139,7 +1200,7 @@ namespace HEngine
 		{
 			sRenameContext = entity;
 			memset(sRenameBuffer, 0, sizeof(sRenameBuffer));
-			strcpy_s(sRenameBuffer, sizeof(sRenameBuffer), name);
+			std::snprintf(sRenameBuffer, sizeof(sRenameBuffer), "%s", name);
 		}
 
 		const float rowHeight = ImGui::GetItemRectSize().y;
@@ -1159,7 +1220,7 @@ namespace HEngine
 			if (ImGui::InputText((std::string("##Rename") + std::to_string((uint32_t)entity)).c_str(), sRenameBuffer, sizeof(sRenameBuffer), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll))
 			{
 				if (entity.HasComponent<TagComponent>() && strlen(sRenameBuffer) > 0)
-					entity.GetComponent<TagComponent>().Tag = sRenameBuffer;
+					if (mParent) mParent->QueueSceneOperations(Json::array({{{"op","rename"},{"entity",entity.UUID().str()},{"name",sRenameBuffer}}}));
 				if (mParent)
 					mParent->MarkSceneDirty("Rename Entity");
 				sRenameContext = {};
@@ -1167,7 +1228,7 @@ namespace HEngine
 			if (ImGui::IsItemDeactivatedAfterEdit())
 			{
 				if (entity.HasComponent<TagComponent>() && strlen(sRenameBuffer) > 0)
-					entity.GetComponent<TagComponent>().Tag = sRenameBuffer;
+					if (mParent) mParent->QueueSceneOperations(Json::array({{{"op","rename"},{"entity",entity.UUID().str()},{"name",sRenameBuffer}}}));
 				if (mParent)
 					mParent->MarkSceneDirty("Rename Entity");
 				sRenameContext = {};
@@ -1233,7 +1294,7 @@ namespace HEngine
 				{
 					Entity draggedEntity = mContext->TryGetEntityByUUID(payloadUuid);
 					if (draggedEntity && draggedEntity != entity &&
-						!IsEditorHierarchyDescendantOf(entity, draggedEntity) && SetEditorHierarchyParent(draggedEntity, entity))
+						!IsEditorHierarchyDescendantOf(entity, draggedEntity) && SetEditorHierarchyParent(draggedEntity, entity, mParent))
 					{
 						SetEntityExpandedState(entity, true);
 						if (mParent)
@@ -1246,14 +1307,13 @@ namespace HEngine
 
 		if (opened && bHasChildren)
 		{
-			for (Entity child : childrenIt->second)
-				DrawEntityNode(child);
+			DrawEntityList(childrenIt->second);
 			ImGui::TreePop();
 		}
 
 		if (bDetachFromParent)
 		{
-			if (SetEditorHierarchyParent(entity, {}) && mParent)
+			if (SetEditorHierarchyParent(entity, {}, mParent) && mParent)
 				mParent->MarkSceneDirty("Reparent Entity");
 		}
 
@@ -1269,7 +1329,9 @@ namespace HEngine
 					mContext->SetEntityFolder(child, folderParent);
 			}
 			RemoveEntityUiStateRecursive(mContext, entity);
-			mContext->DestroyEntity(entity);
+			if (!bFolder && mParent)
+				mParent->QueueSceneOperations(Json::array({{{"op","delete"},{"entity",entity.UUID().str()},{"children","subtree"}}}));
+			else mContext->DestroyEntity(entity);
 			if (bDeletedSelectedEntity)
 				ClearSelection();
 			if (mParent)
@@ -1404,6 +1466,26 @@ namespace HEngine
 		bool removeComponent = false;
 		if (ImGui::BeginPopup("ComponentSettings"))
 		{
+            if constexpr (std::is_same_v<T, ScriptComponent>)
+            {
+                static std::optional<ScriptComponent> clipboard;
+                if (ImGui::MenuItem("Copy Script")) clipboard = component;
+                if (ImGui::MenuItem("Paste Script", nullptr, false, clipboard.has_value()))
+                {
+                    try
+                    {
+                        auto pasted = *clipboard;
+                        if (const auto backend = ScriptBackendRegistry::Find(pasted.Backend))
+                            if (auto* validator = dynamic_cast<IScriptEditorFields*>(backend.get()))
+                                pasted.Fields = EncodeScriptFields(validator->EditFields(pasted.Type, DecodeScriptFields(pasted.Fields), false));
+                        Json patch;
+                        Serializer::Serialize(patch, pasted);
+                        if (auto* editor = EditorLayer::GetPanel<PropertiesPanel>()->GetParent())
+                            editor->QueueSceneOperations(Json::array({{{"op", "patch"}, {"entity", entity.UUID().str()}, {"component", "ScriptComponent"}, {"patch", patch}}}));
+                    }
+                    catch (const std::exception& error) { HE_CORE_ERROR("Paste Script rejected; original fields retained: {0}", error.what()); }
+                }
+            }
 			if (ImGui::MenuItem(EditorLayer::GetText("Remove component")))
 				removeComponent = true;
 
@@ -1435,9 +1517,17 @@ namespace HEngine
 
 		if (removeComponent)
 		{
-			entity.RemoveComponent<T>();
-			if (EditorLayer* editorLayer = EditorLayer::GetPanel<PropertiesPanel>()->GetParent())
-				editorLayer->MarkSceneDirty("Remove Component");
+			EditorLayer* editorLayer = EditorLayer::GetPanel<PropertiesPanel>()->GetParent();
+			if constexpr (std::is_same_v<T,CameraComponent> || std::is_same_v<T,PointLightComponent> ||
+				std::is_same_v<T,DirectionalLightComponent> || std::is_same_v<T,MeshComponent> || std::is_same_v<T,TransformComponent> || std::is_same_v<T,ScriptComponent>)
+			{
+				if (editorLayer) editorLayer->QueueSceneOperations(Json::array({{{"op","remove"},{"entity",entity.UUID().str()},{"component",T::GetTypeName()}}}));
+			}
+			else
+			{
+				entity.RemoveComponent<T>();
+				if (editorLayer) editorLayer->MarkSceneDirty("Remove Component");
+			}
 		}
 
 		ImGui::PopStyleColor(3);
@@ -1452,11 +1542,18 @@ namespace HEngine
 		{
 			if (ImGui::BeginMenu(EditorLayer::GetText(menuName)))
 			{
-				if (ImGui::MenuItem(EditorLayer::GetText(menuItemName)))
+				if (ImGui::MenuItem(EditorLayer::GetText(menuItemName), nullptr, false, IsBuildFeatureEnabled(componentType::RequiredBuildFeature)))
 				{
-					sSelectionContext.AddComponent<componentType>();
-					if (mParent)
-						mParent->MarkSceneDirty("Add Component");
+					if constexpr (std::is_same_v<componentType,CameraComponent> || std::is_same_v<componentType,PointLightComponent> || std::is_same_v<componentType,DirectionalLightComponent>)
+					{
+						if (mParent) mParent->QueueSceneOperations(Json::array({{{"op","add"},{"entity",sSelectionContext.UUID().str()},
+							{"component",componentType::GetTypeName()},{"patch",Json::object()}}}));
+					}
+					else
+					{
+						sSelectionContext.AddComponent<componentType>();
+						if (mParent) mParent->MarkSceneDirty("Add Component");
+					}
 					ImGui::CloseCurrentPopup();
 				}
 				ImGui::EndMenu();
@@ -1464,7 +1561,69 @@ namespace HEngine
 		}
 	}
 
-	void PropertiesPanel::DrawComponents(Entity entity)
+    void PropertiesPanel::DrawPrefabInstance(Entity entity)
+    {
+        if (!entity.HasComponent<PrefabInstanceComponent>() || !mParent) return;
+        if (!ImGui::CollapsingHeader("Prefab Instance", ImGuiTreeNodeFlags_DefaultOpen)) return;
+        const auto& prefab = entity.GetComponent<PrefabInstanceComponent>();
+        ImGui::TextWrapped("Template: %s", prefab.TemplatePath.c_str());
+        ImGui::TextWrapped("Local ID: %s", prefab.LocalId.c_str());
+        ImGui::TextWrapped("Revision: %s", prefab.TemplateRevision.c_str());
+        if (!mParent->GetLastSceneEditError().empty())
+            ImGui::TextWrapped("Operation failed: %s", mParent->GetLastSceneEditError().c_str());
+        const Json paths = Json::parse(prefab.OverridePathsJson, nullptr, false);
+        if (!paths.is_array()) { ImGui::TextWrapped("Invalid override metadata; repair the scene before editing."); return; }
+        ImGui::BeginDisabled(!ModeManager::IsEditState());
+        if (ImGui::Button("Sync instance"))
+            mParent->QueueSceneOperations(Json::array({{{"op", "prefab_sync"}, {"entity", prefab.InstanceRootUuid}}}));
+        ImGui::SameLine();
+        if (ImGui::Button("Unpack instance"))
+            mParent->QueueSceneOperations(Json::array({{{"op", "prefab_unpack"}, {"entity", prefab.InstanceRootUuid}}}));
+        ImGui::TextWrapped("Sync keeps overrides. Unpack removes the template link. Both support Undo.");
+        ImGui::Text("Overrides on this entity: %zu", paths.size());
+        const std::string id = entity.UUID().str();
+        const auto clear = [&](const std::string& pointer) {
+            return Json{{"op", "prefab_override"}, {"entity", id}, {"pointer", pointer}, {"mode", "clear"}};
+        };
+        if (!paths.empty() && ImGui::Button("Revert all entity overrides"))
+        {
+            Json operations = Json::array();
+            for (const auto& path : paths)
+            {
+                if (!path.is_string()) continue;
+                const std::string pointer = path.get<std::string>();
+                bool covered = false;
+                for (const auto& other : paths)
+                    if (other.is_string() && pointer.starts_with(other.get<std::string>() + "/")) covered = true;
+                if (!covered) operations.push_back(clear(pointer));
+            }
+            if (!operations.empty()) mParent->QueueSceneOperations(std::move(operations));
+        }
+        const Json baseline = Json::parse(prefab.BaselineJson, nullptr, false);
+        for (const auto& path : paths)
+        {
+            if (!path.is_string()) continue;
+            const std::string pointer = path.get<std::string>();
+            ImGui::PushID(pointer.c_str());
+            if (ImGui::SmallButton("Revert")) mParent->QueueSceneOperations(Json::array({clear(pointer)}));
+            ImGui::SameLine();
+            ImGui::TextWrapped("%s", pointer.c_str());
+            if (ImGui::IsItemHovered() && baseline.is_object())
+            {
+                try
+                {
+                    const Json::json_pointer field(pointer);
+                    const std::string value = baseline.contains(field) ? baseline.at(field).dump().substr(0, 2048) : "<absent in template>";
+                    ImGui::SetTooltip("Template value: %s", value.c_str());
+                }
+                catch (const Json::exception&) { ImGui::SetTooltip("Invalid override path"); }
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndDisabled();
+    }
+
+    void PropertiesPanel::DrawComponents(Entity entity)
 	{
 		ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ImGuiWrapper::S(3.0f));
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImGuiWrapper::S(4.0f, 2.0f));
@@ -1482,7 +1641,7 @@ namespace HEngine
 
 			char buffer[256];
 			memset(buffer, 0, sizeof(buffer));
-			strcpy_s(buffer, sizeof(buffer), tag.c_str());
+			std::snprintf(buffer, sizeof(buffer), "%s", tag.c_str());
 			const float addButtonWidth = bFolder ? 0.0f : ImGuiWrapper::S(116.0f);
 			ImGui::SetNextItemWidth(bFolder ? -1.0f : ImMax(ImGuiWrapper::S(80.0f), ImGui::GetContentRegionAvail().x - addButtonWidth - ImGuiWrapper::S(6.0f)));
 			if (ImGui::InputText("##Tag", buffer, sizeof(buffer)))
@@ -1530,10 +1689,14 @@ namespace HEngine
 
 				if (sSelectionContext.HasComponent<MeshComponent>())
 					MenuAddComponent<AnimatorComponent>("Animation", "Animator");
+					MenuAddComponent<SequenceComponent>("Animation", "Sequence");
 
 				MenuAddComponent<PointLightComponent>("Light", "Point Light");
+				MenuAddComponent<SpotLightComponent>("Light", "Spot Light");
 				MenuAddComponent<DirectionalLightComponent>("Light", "Directional Light");
 				MenuAddComponent<EnvironmentLightComponent>("Light", "Environment Light");
+				MenuAddComponent<ReflectionProbeComponent>("Light", "Reflection Probe");
+				MenuAddComponent<BakedIrradianceVolumeComponent>("Light", "Baked Irradiance Volume");
 				MenuAddComponent<PostProcessingComponent>("Rendering", "Post Processing");
 			}
 			else
@@ -1549,6 +1712,7 @@ namespace HEngine
 			}
 
 			MenuAddComponent<PythonScriptComponent>("Script", "Python Script");
+			MenuAddComponent<ScriptComponent>("Script", "Script");
 			MenuAddComponent<SoundComponent>("Audio", "Sound");
 			MenuAddComponent<AudioListenerComponent>("Audio", "Listener");
 
@@ -1573,6 +1737,13 @@ namespace HEngine
 				mParent->MarkSceneDirty("Toggle Entity Lock");
 		}
 		ImGui::Separator();
+
+        DrawPrefabInstance(entity);
+		DrawComponent<SequenceComponent>("Sequence", entity, [this, entity](SequenceComponent& component)
+		{
+			if (DrawSequenceInspector(entity, component) && mParent)
+				mParent->MarkSceneDirty("Edit Sequence");
+		});
 
 		DrawComponent<TransformComponent>("Transform", entity, [this, entity](auto& component)
 			{
@@ -1629,11 +1800,14 @@ namespace HEngine
 							ImGui::EndDisabled();
 					});
 
-				DrawVec3Control("Location", component.Translation);
+				glm::vec3 translation = component.Translation, scale = component.Scale;
 				glm::vec3 rotation = glm::degrees(component.Rotation);
+				DrawVec3Control("Location", translation);
 				DrawVec3Control("Rotation", rotation);
-				component.Rotation = glm::radians(rotation);
-				DrawVec3Control("Scale", component.Scale, 1.0f);
+				DrawVec3Control("Scale", scale, 1.0f);
+				if (mParent && (translation != component.Translation || scale != component.Scale || rotation != glm::degrees(component.Rotation)))
+					mParent->QueueSceneOperations(Json::array({{{"op","transform"},{"entity",Entity(entity).UUID().str()},
+						{"patch",{{"Translation",translation},{"Rotation",glm::radians(rotation)},{"Scale",scale}}}}}));
 			}, "TransformCompIcon");
 
 		DrawComponent<CameraComponent>("Camera", entity, [](auto& component)
@@ -1649,8 +1823,9 @@ namespace HEngine
 					ImGui::BeginDisabled();
 				DrawLabeledControl("Exposure", [&component]()
 					{
-						ImGui::SliderFloat("##CameraExposure", &component.Exposure, 0.0f, 10.0f, "%.2f");
+						ImGui::DragFloat("##CameraExposure", &component.ExposureEV100, 0.05f, -24.0f, 32.0f, "%.2f EV100", ImGuiSliderFlags_AlwaysClamp);
 					});
+				DrawLabeledControl("Exposure Compensation", [&component]() { ImGui::DragFloat("##CameraExposureCompensation", &component.ExposureCompensation, 0.05f, -24.0f, 24.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); }, ImGuiWrapper::kWidePropertyLabelWidth);
 				if (!component.bOverrideExposure)
 					ImGui::EndDisabled();
 
@@ -1983,7 +2158,7 @@ namespace HEngine
 		const SceneHierarchyPanel::MeshSelectionContext consumedMeshSelectionContext =
 			EditorLayer::GetPanel<SceneHierarchyPanel>()->ConsumeMeshSelectionContext();
 
-		DrawComponent<MeshComponent>("Mesh Renderer", entity, [this, consumedMeshSelectionContext](MeshComponent& component)
+		DrawComponent<MeshComponent>("Mesh Renderer", entity, [this, entity, consumedMeshSelectionContext](MeshComponent& component)
 			{
 				const SceneHierarchyPanel::MeshSelectionContext& selectionContext = consumedMeshSelectionContext;
 
@@ -2128,10 +2303,8 @@ namespace HEngine
 									std::string materialPath = ToRootRelativePath(std::filesystem::path(path));
 									if (IsMaterialAssetPath(materialPath))
 									{
-										material = MaterialResourceCache::GetInstance().Get(materialPath);
-										if (component.MaterialOverrides.size() <= matIndex)
-											component.MaterialOverrides.resize(matIndex + 1);
-										component.MaterialOverrides[matIndex] = materialPath;
+										if (mParent) mParent->QueueSceneOperations(Json::array({{{"op","material"},
+                                            {"entity",Entity(entity).UUID().str()},{"slot",matIndex},{"path",materialPath}}}));
 										MarkLastItemEditedIfChanged(true);
 									}
 								}
@@ -2160,11 +2333,8 @@ namespace HEngine
 										filepath = filepath.substr(filepath.find("Assets"));
 									if (!filepath.empty())
 									{
-										material = MaterialResourceCache::GetInstance().Get(filepath);
-										if (component.MaterialOverrides.size() <= matIndex)
-											component.MaterialOverrides.resize(matIndex + 1);
-										component.MaterialOverrides[matIndex] =
-											Utils::NormalizeAssetPath(filepath);
+										if (mParent) mParent->QueueSceneOperations(Json::array({{{"op","material"},
+                                            {"entity",Entity(entity).UUID().str()},{"slot",matIndex},{"path",Utils::NormalizeAssetPath(filepath)}}}));
 										MarkLastItemEditedIfChanged(true);
 									}
 								}
@@ -2237,9 +2407,11 @@ namespace HEngine
 							{
 								DrawLabeledControl("Clip", [&]()
 									{
-										const std::string currentClipName = component.currentClipIndex >= 0
-											? component.GetClipName(component.currentClipIndex)
+										const bool bControllerOwnsClip = !component.controllerPath.empty() && component.controllerPath != "None";
+										const std::string currentClipName = component.GetCurrentClipIndex() >= 0
+											? component.GetClipName(component.GetCurrentClipIndex())
 											: std::string("None");
+										if (bControllerOwnsClip) ImGui::BeginDisabled();
 										if (ImGui::BeginCombo("##Clip", currentClipName.c_str()))
 										{
 											bool noneSelected = (component.currentClipIndex < 0);
@@ -2265,6 +2437,7 @@ namespace HEngine
 											}
 											ImGui::EndCombo();
 										}
+										if (bControllerOwnsClip) ImGui::EndDisabled();
 									});
 								ImGui::ProgressBar(component.GetProgress(), ImVec2(-1.0f, 0.0f));
 							}
@@ -2358,23 +2531,27 @@ namespace HEngine
 
 		DrawComponent<PointLightComponent>("Point Light", entity, [](auto& component)
 			{
-				DrawLabeledControl("Light Intensity", [&component = component]() { ImGui::SliderFloat("##LightIntensity", &component.Intensity, 0.0f, 10000.0f, "%.1f"); });
+				DrawLightIntensity(component.Intensity, &component.IntensityUnits);
 				
 				DrawLabeledControl("Light Color", [&component = component]() { ImGui::ColorEdit3("##LightColor", (float*)&component.LightColor); });
-				DrawLabeledControl("Radius", [&component = component]() { ImGui::SliderFloat("##PointLightRadius", &component.Radius, 0.1f, 100.0f, "%.2f"); });
-				DrawLabeledControl("Attenuation Exponent", [&component = component]()
-					{
-						ImGui::SliderFloat("##PointLightFalloffExponent", &component.FalloffExponent, 0.0f, 8.0f, "%.2f");
-						component.FalloffExponent = std::isfinite(component.FalloffExponent)
-							? std::clamp(component.FalloffExponent, 0.0f, 8.0f)
-							: 2.0f;
-					});
+				DrawLabeledControl("Radius (m)", [&component = component]() { ImGui::DragFloat("##PointLightRadius", &component.Radius, 0.1f, 0.01f, FLT_MAX, "%.3g", ImGuiSliderFlags_AlwaysClamp); });
+			}, "PointLightCompIcon");
+
+		DrawComponent<SpotLightComponent>("Spot Light", entity, [](auto& component)
+			{
+				DrawLightIntensity(component.Intensity, &component.IntensityUnits, component.OuterConeAngle);
+				DrawLabeledControl("Light Color", [&]() { ImGui::ColorEdit3("##SpotColor", glm::value_ptr(component.LightColor)); });
+				DrawLabeledControl("Radius (m)", [&]() { ImGui::DragFloat("##SpotRadius", &component.Radius, 0.1f, 0.01f, FLT_MAX, "%.3g", ImGuiSliderFlags_AlwaysClamp); });
+				DrawLabeledControl("Outer Half Angle", [&]() { ImGui::DragFloat("##SpotOuter", &component.OuterConeAngle, 0.1f, 0.1f, 89.0f, "%.2f deg", ImGuiSliderFlags_AlwaysClamp); });
+				component.InnerConeAngle = std::min(component.InnerConeAngle, component.OuterConeAngle);
+				DrawLabeledControl("Inner Half Angle", [&]() { ImGui::DragFloat("##SpotInner", &component.InnerConeAngle, 0.1f, 0.0f, component.OuterConeAngle, "%.2f deg", ImGuiSliderFlags_AlwaysClamp); });
 			}, "PointLightCompIcon");
 
 		DrawComponent<DirectionalLightComponent>("Directional Light", entity, [](auto& component)
 			{
-				DrawLabeledControl("Light Intensity", [&component = component]() { ImGui::SliderFloat("##DirLightIntensity", &component.Intensity, 0.0f, 10.0f, "%.2f"); });
+				DrawLightIntensity(component.Intensity);
 				DrawLabeledControl("Light Color", [&component = component]() { ImGui::ColorEdit3("##DirLightColor", (float*)&component.Color); });
+				DrawLabeledControl("Local Direction", [&component = component]() { ImGui::DragFloat3("##DirLightLocalDirection", glm::value_ptr(component.LocalDirection), 0.01f, -1.0f, 1.0f, "%.2f"); });
 				DrawLabeledControl("Cast Shadows", [&component = component]() { ImGui::Checkbox("##DirLightCastShadows", &component.bCastShadows); });
 				DrawLabeledControl("Cascade Count", [&component = component]()
 					{
@@ -2393,6 +2570,51 @@ namespace HEngine
 				DrawLabeledControl("Use PCF", [&component = component]() { ImGui::Checkbox("##DirLightUsePCF", &component.bUsePCF); });
 				DrawLabeledControl("PCF Radius", [&component = component]() { ImGui::SliderFloat("##DirLightPCFRadius", &component.PCFRadius, 0.0f, 4.0f, "%.2f"); });
 				DrawLabeledControl("Shadow Strength", [&component = component]() { ImGui::SliderFloat("##DirLightShadowStrength", &component.ShadowStrength, 0.0f, 1.0f, "%.2f"); });
+			}, "DirLightCompIcon");
+
+		DrawComponent<BakedIrradianceVolumeComponent>("Baked Irradiance Volume", entity, [](auto& component)
+			{
+				DrawLabeledControl("Enabled", [&]() { ImGui::Checkbox("##BakedEnabled", &component.bEnabled); });
+				DrawLabeledControl("World Bounds Min", [&]() { ImGui::DragFloat3("##BakedMin", glm::value_ptr(component.BoundsMin), 0.05f); }, ImGuiWrapper::kWidePropertyLabelWidth);
+				DrawLabeledControl("World Bounds Max", [&]() { ImGui::DragFloat3("##BakedMax", glm::value_ptr(component.BoundsMax), 0.05f); }, ImGuiWrapper::kWidePropertyLabelWidth);
+				DrawLabeledControl("Blend Distance", [&]() { ImGui::DragFloat("##BakedBlend", &component.BlendDistance, 0.05f, 0.001f, 1000.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+				DrawLabeledControl("Intensity", [&]() { ImGui::DragFloat("##BakedIntensity", &component.Intensity, 0.01f, 0.0f, 1000.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+				ImGui::TextWrapped("World-space lighting data. Moving the entity does not move or rotate the bake. Rebuild after changing geometry or lights.");
+				if (component.IrradianceSH.size() != 9 || !glm::all(glm::greaterThan(component.BoundsMax, component.BoundsMin)))
+					ImGui::TextWrapped("No valid bake: nine SH coefficients and positive bounds are required. The renderer uses environment lighting as fallback.");
+				else
+					ImGui::TextUnformatted("Baked data: 9 RGB SH coefficients");
+			}, "DirLightCompIcon");
+
+		DrawComponent<ReflectionProbeComponent>("Reflection Probe", entity, [](auto& component)
+			{
+				DrawLabeledControl("Enabled", [&]() { ImGui::Checkbox("##ProbeEnabled", &component.bEnabled); });
+				DrawLabeledControl("HDR Texture", [&]()
+					{
+						const auto name = component.HdrTexturePath.empty() ? std::string("Drop .hdr file") : FileNameFromPath(component.HdrTexturePath);
+						ImGui::Button(name.c_str(), ImVec2(-1.0f, 0.0f));
+						if (ImGui::BeginDragDropTarget())
+						{
+							if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
+							{
+								const auto candidate = ToRootRelativePath(std::filesystem::path(static_cast<const wchar_t*>(payload->Data)));
+								auto extension = std::filesystem::path(candidate).extension().string();
+								std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+								if (extension == ".hdr")
+								{
+									component.HdrTexturePath = Utils::NormalizeAssetPath(candidate);
+									MarkLastItemEditedIfChanged(true);
+								}
+							}
+							ImGui::EndDragDropTarget();
+						}
+					}, ImGuiWrapper::kWidePropertyLabelWidth);
+				DrawLabeledControl("Box Half Extents", [&]() { ImGui::DragFloat3("##ProbeExtents", glm::value_ptr(component.BoxHalfExtents), 0.05f, 0.001f, 10000.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); }, ImGuiWrapper::kWidePropertyLabelWidth);
+				DrawLabeledControl("Capture Offset", [&]() { ImGui::DragFloat3("##ProbeOffset", glm::value_ptr(component.CaptureOffset), 0.05f); });
+				DrawLabeledControl("Blend Distance", [&]() { ImGui::DragFloat("##ProbeBlend", &component.BlendDistance, 0.05f, 0.001f, 1000.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+				DrawLabeledControl("Intensity", [&]() { ImGui::DragFloat("##ProbeIntensity", &component.Intensity, 0.01f, 0.0f, 1000.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+				DrawLabeledControl("Affect Diffuse", [&]() { ImGui::Checkbox("##ProbeDiffuse", &component.bAffectDiffuse); });
+				ImGui::TextWrapped("Disable Affect Diffuse when a baked irradiance volume supplies the same region's diffuse light.");
 			}, "DirLightCompIcon");
 
 		DrawComponent<EnvironmentLightComponent>("Environment Light", entity, [](auto& component)
@@ -2445,8 +2667,50 @@ namespace HEngine
 						}
 					}, ImGuiWrapper::kWidePropertyLabelWidth);
 
-				DrawLabeledControl("Exposure", [&component = component]() { ImGui::SliderFloat("##EnvExposure", &component.Exposure, 0.0f, 10.0f, "%.2f"); });
-				DrawLabeledControl("IBL Intensity", [&component = component]() { ImGui::SliderFloat("##EnvIBLIntensity", &component.IBLIntensity, 0.0f, 10.0f, "%.2f"); });
+				DrawLabeledControl("Exposure (EV100)", [&]() { ImGui::DragFloat("##EnvExposureEV", &component.ExposureEV100, 0.05f, -24.0f, 32.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
+				DrawLabeledControl("Exposure Compensation", [&]() { ImGui::DragFloat("##EnvExposureCompensation", &component.ExposureCompensation, 0.05f, -24.0f, 24.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); }, ImGuiWrapper::kWidePropertyLabelWidth);
+				DrawLabeledControl("IBL Intensity", [&component = component]() { ImGui::DragFloat("##EnvIBLIntensity", &component.IBLIntensity, std::max(0.01f, component.IBLIntensity * 0.01f), 0.0f, FLT_MAX, "%.6g", ImGuiSliderFlags_AlwaysClamp); });
+				DrawLabeledControl("Sky Tint", [&]() { ImGui::ColorEdit3("##EnvSkyTint", &component.SkyColorTint.x, ImGuiColorEditFlags_HDR | ImGuiColorEditFlags_Float); });
+				DrawLabeledControl("Distance Fog", [&]() { ImGui::Checkbox("##EnvFogEnabled", &component.bFogEnabled); });
+				if (component.bFogEnabled)
+				{
+					DrawLabeledControl("Fog Color", [&]() { ImGui::ColorEdit3("##EnvFogColor", &component.FogColor.x, ImGuiColorEditFlags_HDR | ImGuiColorEditFlags_Float); });
+					DrawLabeledControl("Fog Density", [&]() { ImGui::DragFloat("##EnvFogDensity", &component.FogDensity, 0.0001f, 0.0f, 2.0f, "%.4f", ImGuiSliderFlags_AlwaysClamp); });
+					DrawLabeledControl("Fog Start Distance", [&]() { ImGui::DragFloat("##EnvFogStart", &component.FogStartDistance, 0.1f, 0.0f, 10000.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp); }, ImGuiWrapper::kWidePropertyLabelWidth);
+					DrawLabeledControl("Fog Base Height", [&]() { ImGui::DragFloat("##EnvFogBase", &component.FogBaseHeight, 0.1f, -10000.0f, 10000.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp); }, ImGuiWrapper::kWidePropertyLabelWidth);
+					DrawLabeledControl("Fog Height Falloff", [&]() { ImGui::DragFloat("##EnvFogFalloff", &component.FogHeightFalloff, 0.0001f, 0.0f, 10.0f, "%.4f", ImGuiSliderFlags_AlwaysClamp); }, ImGuiWrapper::kWidePropertyLabelWidth);
+					DrawLabeledControl("Fog Sunward Color", [&]() { ImGui::ColorEdit3("##EnvFogSunColor", &component.FogDirectionalColor.x, ImGuiColorEditFlags_HDR | ImGuiColorEditFlags_Float); }, ImGuiWrapper::kWidePropertyLabelWidth);
+					DrawLabeledControl("Fog Sunward Intensity", [&]() { ImGui::DragFloat("##EnvFogSunIntensity", &component.FogDirectionalIntensity, 0.01f, 0.0f, 16.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); }, ImGuiWrapper::kWidePropertyLabelWidth);
+					DrawLabeledControl("Fog Sunward Exponent", [&]() { ImGui::DragFloat("##EnvFogSunExponent", &component.FogDirectionalExponent, 0.1f, 1.0f, 64.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); }, ImGuiWrapper::kWidePropertyLabelWidth);
+				}
+				DrawLabeledControl("Secondary Fog Density", [&]() { ImGui::DragFloat("##EnvSecondaryFogDensity", &component.SecondaryFogDensity, 0.0001f, 0.0f, 2.0f, "%.4f", ImGuiSliderFlags_AlwaysClamp); }, ImGuiWrapper::kWidePropertyLabelWidth);
+				if (component.SecondaryFogDensity > 0.0f)
+				{
+					DrawLabeledControl("Secondary Fog Color", [&]() { ImGui::ColorEdit3("##EnvSecondaryFogColor", &component.SecondaryFogColor.x, ImGuiColorEditFlags_HDR | ImGuiColorEditFlags_Float); }, ImGuiWrapper::kWidePropertyLabelWidth);
+					DrawLabeledControl("Secondary Fog Start", [&]() { ImGui::DragFloat("##EnvSecondaryFogStart", &component.SecondaryFogStartDistance, 0.1f, 0.0f, 10000.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp); }, ImGuiWrapper::kWidePropertyLabelWidth);
+					DrawLabeledControl("Secondary Fog Base", [&]() { ImGui::DragFloat("##EnvSecondaryFogBase", &component.SecondaryFogBaseHeight, 0.1f, -10000.0f, 10000.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp); }, ImGuiWrapper::kWidePropertyLabelWidth);
+					DrawLabeledControl("Secondary Fog Falloff", [&]() { ImGui::DragFloat("##EnvSecondaryFogFalloff", &component.SecondaryFogHeightFalloff, 0.0001f, 0.0f, 10.0f, "%.4f", ImGuiSliderFlags_AlwaysClamp); }, ImGuiWrapper::kWidePropertyLabelWidth);
+				}
+				DrawLabeledControl("Clouds Enabled", [&]() { ImGui::Checkbox("##CloudEnabled", &component.bCloudsEnabled); });
+				if (component.bCloudsEnabled)
+				{
+					DrawLabeledControl("Cloud Bottom", [&]() { ImGui::DragFloat("##CloudBottom", &component.CloudBottom, 1.0f, -10000.0f, 10000.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+					DrawLabeledControl("Cloud Thickness", [&]() { ImGui::DragFloat("##CloudThickness", &component.CloudThickness, 1.0f, 1.0f, 2000.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+					DrawLabeledControl("Cloud MaxDistance", [&]() { ImGui::DragFloat("##CloudMaxDistance", &component.CloudMaxDistance, 10.0f, 10.0f, 20000.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+					DrawLabeledControl("Cloud Coverage", [&]() { ImGui::DragFloat("##CloudCoverage", &component.CloudCoverage, 0.01f, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+					DrawLabeledControl("Cloud Density", [&]() { ImGui::DragFloat("##CloudDensity", &component.CloudDensity, 0.001f, 0.0f, 0.2f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+					DrawLabeledControl("Cloud Scale", [&]() { ImGui::DragFloat("##CloudScale", &component.CloudScale, 1.0f, 10.0f, 4000.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+					DrawLabeledControl("Cloud Roundness", [&]() { ImGui::DragFloat("##CloudRoundness", &component.CloudRoundness, 0.01f, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+					DrawLabeledControl("Cloud Erosion", [&]() { ImGui::DragFloat("##CloudErosion", &component.CloudErosion, 0.01f, 0.0f, 0.5f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+					DrawLabeledControl("Cloud WindAngle", [&]() { ImGui::DragFloat("##CloudWindAngle", &component.CloudWindAngle, 1.0f, -360.0f, 360.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+					DrawLabeledControl("Cloud WindSpeed", [&]() { ImGui::DragFloat("##CloudWindSpeed", &component.CloudWindSpeed, 0.1f, 0.0f, 100.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+					DrawLabeledControl("Cloud EvolutionSpeed", [&]() { ImGui::DragFloat("##CloudEvolutionSpeed", &component.CloudEvolutionSpeed, 0.001f, 0.0f, 0.5f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+					DrawLabeledControl("Cloud Ambient", [&]() { ImGui::DragFloat("##CloudAmbient", &component.CloudAmbient, 0.01f, 0.0f, 2.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+					DrawLabeledControl("Cloud SilverLining", [&]() { ImGui::DragFloat("##CloudSilverLining", &component.CloudSilverLining, 0.01f, 0.0f, 2.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+					DrawLabeledControl("Cloud Seed", [&]() { ImGui::InputScalar("##CloudSeed", ImGuiDataType_U32, &component.CloudSeed); });
+					DrawLabeledControl("Cloud LitColor", [&]() { ImGui::ColorEdit3("##CloudLitColor", &component.CloudLitColor.x); });
+					DrawLabeledControl("Cloud ShadowColor", [&]() { ImGui::ColorEdit3("##CloudShadowColor", &component.CloudShadowColor.x); });
+				}
 			}, "DirLightCompIcon");
 
 		DrawComponent<PostProcessingComponent>("Post Processing", entity, [](auto& component)
@@ -2487,10 +2751,39 @@ namespace HEngine
 					ImGui::BeginDisabled();
 				DrawLabeledControl("Exposure", [&component]()
 					{
-						ImGui::SliderFloat("##PostExposure", &component.Exposure, 0.0f, 10.0f, "%.2f");
+						ImGui::DragFloat("##PostExposure", &component.ExposureEV100, 0.05f, -24.0f, 32.0f, "%.2f EV100", ImGuiSliderFlags_AlwaysClamp);
 					});
+				DrawLabeledControl("Exposure Compensation", [&component]() { ImGui::DragFloat("##PostExposureCompensation", &component.ExposureCompensation, 0.05f, -24.0f, 24.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); }, ImGuiWrapper::kWidePropertyLabelWidth);
 				if (!component.bOverrideExposure)
 					ImGui::EndDisabled();
+				DrawLabeledControl("Override Bloom", [&component]() { ImGui::Checkbox("##PostOverrideBloom", &component.bOverrideBloomIntensity); });
+				if (!component.bOverrideBloomIntensity) ImGui::BeginDisabled();
+				DrawLabeledControl("Bloom Intensity", [&component]() { ImGui::DragFloat("##PostBloom", &component.BloomIntensity, 0.01f, 0.0f, 2.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
+				if (!component.bOverrideBloomIntensity) ImGui::EndDisabled();
+				DrawLabeledControl("Override Contrast", [&component]() { ImGui::Checkbox("##PostOverrideContrast", &component.bOverrideContrast); });
+				if (!component.bOverrideContrast) ImGui::BeginDisabled();
+				DrawLabeledControl("Contrast", [&component]() { ImGui::DragFloat("##PostContrast", &component.Contrast, 0.01f, 0.1f, 3.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
+				if (!component.bOverrideContrast) ImGui::EndDisabled();
+				DrawLabeledControl("Override Saturation", [&component]() { ImGui::Checkbox("##PostOverrideSaturation", &component.bOverrideSaturation); });
+				if (!component.bOverrideSaturation) ImGui::BeginDisabled();
+				DrawLabeledControl("Saturation", [&component]() { ImGui::DragFloat("##PostSaturation", &component.Saturation, 0.01f, 0.0f, 2.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
+				if (!component.bOverrideSaturation) ImGui::EndDisabled();
+				DrawLabeledControl("Override Temperature", [&component]() { ImGui::Checkbox("##PostOverrideTemperature", &component.bOverrideTemperature); });
+				if (!component.bOverrideTemperature) ImGui::BeginDisabled();
+				DrawLabeledControl("Temperature", [&component]() { ImGui::DragFloat("##PostTemperature", &component.Temperature, 0.01f, -1.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
+				if (!component.bOverrideTemperature) ImGui::EndDisabled();
+				DrawLabeledControl("Override Vignette", [&component]() { ImGui::Checkbox("##PostOverrideVignette", &component.bOverrideVignetteIntensity); });
+				if (!component.bOverrideVignetteIntensity) ImGui::BeginDisabled();
+				DrawLabeledControl("Vignette Intensity", [&component]() { ImGui::DragFloat("##PostVignette", &component.VignetteIntensity, 0.01f, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
+				if (!component.bOverrideVignetteIntensity) ImGui::EndDisabled();
+				DrawLabeledControl("Override Color Gain", [&component]() { ImGui::Checkbox("##PostOverrideColorGain", &component.bOverrideColorGain); });
+				if (!component.bOverrideColorGain) ImGui::BeginDisabled();
+				DrawLabeledControl("Color Gain", [&component]() { ImGui::DragFloat3("##PostColorGain", &component.ColorGain.x, 0.01f, 0.0f, 2.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
+				if (!component.bOverrideColorGain) ImGui::EndDisabled();
+				DrawLabeledControl("Override Color Offset", [&component]() { ImGui::Checkbox("##PostOverrideColorOffset", &component.bOverrideColorOffset); });
+				if (!component.bOverrideColorOffset) ImGui::BeginDisabled();
+				DrawLabeledControl("Color Offset", [&component]() { ImGui::DragFloat3("##PostColorOffset", &component.ColorOffset.x, 0.001f, -0.25f, 0.25f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+				if (!component.bOverrideColorOffset) ImGui::EndDisabled();
 
 				if (component.bGlobal)
 				{
@@ -2506,14 +2799,30 @@ namespace HEngine
 				}
 			}, "DirLightCompIcon");
 
+		DrawComponent<ScriptComponent>("Script", entity, [&entity](auto& component)
+			{
+                auto edited = component;
+                if (!DrawScriptInspector(edited, entity)) return;
+                if (ModeManager::IsEditState())
+                {
+                    Json patch;
+                    Serializer::Serialize(patch, edited);
+                    if (auto* editor = EditorLayer::GetPanel<PropertiesPanel>()->GetParent())
+                        editor->QueueSceneOperations(Json::array({{{"op", "patch"}, {"entity", entity.UUID().str()}, {"component", "ScriptComponent"}, {"patch", patch}}}));
+                }
+                else component = std::move(edited);
+			}, "ScriptCompIcon");
+
 		DrawComponent<PythonScriptComponent>("Python Script", entity, [&entity](auto& component)
 			{
+				if (!ScriptEngine::IsAvailable())
+					ImGui::TextWrapped("Python plugin he.script.python is unavailable. The script binding is preserved.");
 				DrawLabeledControl("Script Name", [&]()
 					{
 						// component.Path must be end with .py
 						auto pos = component.Path.find_last_of('.', component.Path.length() - 4);
 						pos = (pos == std::string::npos ? 0 : pos + 1);
-						ImGui::Text(std::string_view(component.Path.c_str() + pos, component.Path.length()).data());
+						ImGui::TextUnformatted(component.Path.c_str() + pos);
 						if (ImGui::BeginDragDropTarget())
 						{
 							if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
@@ -2686,6 +2995,50 @@ namespace HEngine
 
 	void PropertiesPanel::OnImGuiRenderImpl()
 	{
+        std::erase_if(sScriptSelection, [](const Entity& entity) { return !entity; });
+        if (sScriptSelection.size() > 1)
+        {
+            ImGui::Text("Script selection: %zu entities", sScriptSelection.size());
+            if (!ModeManager::IsEditState()) { ImGui::TextWrapped("Stop Play to edit multiple authoring objects."); return; }
+            if (!sSelectionContext || !sSelectionContext.HasComponent<ScriptComponent>())
+            { ImGui::TextWrapped("Multi-edit requires compatible Script components on all selected entities."); return; }
+            const auto& original = sSelectionContext.GetComponent<ScriptComponent>();
+            std::vector<ScriptFields> selectedFields;
+            try
+            {
+                for (auto entity : sScriptSelection)
+                {
+                    if (!entity.HasComponent<ScriptComponent>() || EditorLayer::GetPanel<SceneHierarchyPanel>()->IsEntityLocked(entity))
+                    { ImGui::TextWrapped("Selection contains a locked entity or an entity without Script."); return; }
+                    const auto& script = entity.GetComponent<ScriptComponent>();
+                    if (script.Backend != original.Backend || script.Type != original.Type)
+                    { ImGui::TextWrapped("Selected script types/backends differ. Select matching types to edit fields together."); return; }
+                    selectedFields.push_back(DecodeScriptFields(script.Fields));
+                }
+                auto edited = original;
+                std::set<std::string> touched;
+                bool resetPerformed = false;
+                if (DrawScriptInspector(edited, sSelectionContext, selectedFields, &touched, &resetPerformed) && mParent)
+                {
+                    const auto updated = DecodeScriptFields(edited.Fields);
+                    const auto backend = ScriptBackendRegistry::Find(edited.Backend);
+                    auto* validator = backend ? dynamic_cast<IScriptEditorFields*>(backend.get()) : nullptr;
+                    Json operations = Json::array();
+                    for (std::size_t index = 0; index < sScriptSelection.size(); ++index)
+                    {
+                        auto values = selectedFields[index];
+                        for (const auto& id : touched) if (auto value = updated.find(id); value != updated.end()) values.insert_or_assign(id, value->second);
+                        if (sScriptSelection[index] == sSelectionContext) values = updated;
+                        else if (validator && !touched.empty()) values = validator->EditFields(edited.Type, values, resetPerformed);
+                        operations.push_back({{"op", "patch"}, {"entity", sScriptSelection[index].UUID().str()}, {"component", "ScriptComponent"},
+                            {"patch", {{"Backend", edited.Backend}, {"Type", edited.Type}, {"Enabled", edited.Enabled}, {"Fields", EncodeScriptFields(values)}}}});
+                    }
+                    mParent->QueueSceneOperations(std::move(operations));
+                }
+            }
+            catch (const std::exception& error) { ImGui::TextWrapped("Multi-edit rejected; no fields changed: %s", error.what()); }
+            return;
+        }
 		if (sSelectionContext)
 		{
 			ImGui::BeginGroup();

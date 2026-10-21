@@ -13,6 +13,14 @@ namespace HEngine
 {
     namespace
     {
+        thread_local const RenderSettingsService* sApplyingService = nullptr;
+        void RejectRuntimeCallbackReentry(const RenderSettingsService* service)
+        {
+            (void)service;
+            if (sApplyingService != nullptr)
+                throw std::logic_error("Runtime preparation may read published snapshots but cannot enter settings transactions or layer operations.");
+        }
+
         constexpr std::array c_MergeOrder = {
             SettingsLayer::EngineDefault,
             SettingsLayer::Project,
@@ -110,7 +118,10 @@ namespace HEngine
             }
             std::error_code error;
             std::filesystem::remove(path, error);
-            if (error)
+            // POSIX reports ENOTDIR for an absent child of a regular file.
+            // The pre-transaction state was already absence in this branch.
+            if (error && error != std::errc::no_such_file_or_directory &&
+                error != std::errc::not_a_directory)
                 throw std::runtime_error(
                     "Could not remove settings file created by failed transaction: " +
                     path.string());
@@ -174,6 +185,7 @@ namespace HEngine
     void RenderSettingsService::Initialize(
         const RenderSettingsServiceInit& init)
     {
+        RejectRuntimeCallbackReentry(this);
         std::scoped_lock lock(mMutex);
         mInit = init;
         mLayers.clear();
@@ -206,6 +218,7 @@ namespace HEngine
 
     void RenderSettingsService::Clear()
     {
+        RejectRuntimeCallbackReentry(this);
         std::scoped_lock lock(mMutex);
         mInit = {};
         mLayers.clear();
@@ -213,34 +226,35 @@ namespace HEngine
         mSnapshot = {};
         mRuntimeApply = {};
         bInitialized = false;
+        std::atomic_store(&mPublishedSnapshot, {});
     }
 
     bool RenderSettingsService::IsInitialized() const noexcept
     {
-        std::scoped_lock lock(mMutex);
-        return bInitialized;
+        return static_cast<bool>(std::atomic_load(&mPublishedSnapshot));
     }
 
     ResolvedRenderSettings RenderSettingsService::GetSnapshot() const
     {
-        std::scoped_lock lock(mMutex);
-        return mSnapshot;
+        const auto published = std::atomic_load(&mPublishedSnapshot);
+        return published ? *published : ResolvedRenderSettings{};
     }
 
     RenderSettingsDraft RenderSettingsService::CreateDraft(
         SettingsLayer targetLayer) const
     {
-        std::scoped_lock lock(mMutex);
+        const auto snapshot = GetSnapshot();
         return {
             .TargetLayer = targetLayer,
-            .BaseRevision = mSnapshot.Revision,
-            .BaseHash = mSnapshot.Hash,
+            .BaseRevision = snapshot.Revision,
+            .BaseHash = snapshot.Hash,
             .Patch = Json::object(),
         };
     }
 
     Json RenderSettingsService::GetLayerValues(SettingsLayer layer) const
     {
+        RejectRuntimeCallbackReentry(this);
         std::scoped_lock lock(mMutex);
         const auto iterator = mLayers.find(layer);
         if (iterator == mLayers.end())
@@ -255,6 +269,7 @@ namespace HEngine
         const RenderSettingsDraft& draft,
         bool bPersist)
     {
+        RejectRuntimeCallbackReentry(this);
         std::scoped_lock lock(mMutex);
         RenderSettingsApplyResult failure;
         failure.Layer = draft.TargetLayer;
@@ -330,6 +345,7 @@ namespace HEngine
     RenderSettingsApplyResult RenderSettingsService::PlanDraft(
         const RenderSettingsDraft& draft) const
     {
+        RejectRuntimeCallbackReentry(this);
         std::scoped_lock lock(mMutex);
         RenderSettingsApplyResult result;
         result.Layer = draft.TargetLayer;
@@ -425,7 +441,8 @@ namespace HEngine
     {
         Json patch = Json::object();
         {
-            std::scoped_lock lock(mMutex);
+            RejectRuntimeCallbackReentry(this);
+        std::scoped_lock lock(mMutex);
             const auto iterator = mLayers.find(layer);
             if (iterator != mLayers.end())
             {
@@ -452,7 +469,8 @@ namespace HEngine
     {
         Json patch = Json::object();
         {
-            std::scoped_lock lock(mMutex);
+            RejectRuntimeCallbackReentry(this);
+        std::scoped_lock lock(mMutex);
             const auto iterator = mLayers.find(layer);
             if (iterator != mLayers.end())
             {
@@ -474,6 +492,7 @@ namespace HEngine
         std::uint64_t expectedRevision,
         std::string_view expectedHash)
     {
+        RejectRuntimeCallbackReentry(this);
         std::scoped_lock lock(mMutex);
         RenderSettingsApplyResult failure;
         failure.Layer = SettingsLayer::Project;
@@ -506,6 +525,7 @@ namespace HEngine
         const RenderSettingsChangePlan plan =
             BuildRenderSettingsChangePlan(before, after);
         after.PendingImpact = plan;
+        const auto publication = std::make_shared<const ResolvedRenderSettings>(after);
 
         struct Backup
         {
@@ -529,7 +549,7 @@ namespace HEngine
             if (mRuntimeApply && !plan.ChangedPropertyIds.empty())
             {
                 bRuntimeApplyStarted = true;
-                mRuntimeApply(after, plan);
+                InvokeRuntimeApplyLocked(after, plan);
             }
         }
         catch (const std::exception& exception)
@@ -541,7 +561,7 @@ namespace HEngine
                     RestoreText(backup.Path, backup.bExisted, backup.Contents);
                 if (bRuntimeApplyStarted && mRuntimeApply &&
                     !plan.ChangedPropertyIds.empty())
-                    mRuntimeApply(before,
+                    InvokeRuntimeApplyLocked(before,
                         BuildRenderSettingsChangePlan(after, before));
             }
             catch (...)
@@ -558,6 +578,7 @@ namespace HEngine
 
         mLayers = std::move(candidate);
         mSnapshot = std::move(after);
+        std::atomic_store(&mPublishedSnapshot, publication);
         return {
             .bSuccess = true,
             .bSaved = true,
@@ -573,6 +594,7 @@ namespace HEngine
 
     bool RenderSettingsService::ReloadExternalLayer(SettingsLayer layer)
     {
+        RejectRuntimeCallbackReentry(this);
         std::scoped_lock lock(mMutex);
         if (!IsPersistentLayer(layer))
             return false;
@@ -598,6 +620,7 @@ namespace HEngine
         next.Revision = mSnapshot.Revision + 1;
         next.Hash = HashResolvedRenderSettings(next);
         next.PendingImpact = BuildRenderSettingsChangePlan(mSnapshot, next);
+        const auto publication = std::make_shared<const ResolvedRenderSettings>(next);
         bool bRuntimeApplyStarted = false;
         try
         {
@@ -605,7 +628,7 @@ namespace HEngine
                 !next.PendingImpact.ChangedPropertyIds.empty())
             {
                 bRuntimeApplyStarted = true;
-                mRuntimeApply(next, next.PendingImpact);
+                InvokeRuntimeApplyLocked(next, next.PendingImpact);
             }
         }
         catch (const std::exception& exception)
@@ -614,7 +637,7 @@ namespace HEngine
             {
                 try
                 {
-                    mRuntimeApply(mSnapshot,
+                    InvokeRuntimeApplyLocked(mSnapshot,
                         BuildRenderSettingsChangePlan(next, mSnapshot));
                 }
                 catch (...)
@@ -632,25 +655,28 @@ namespace HEngine
         }
         mLayers = std::move(candidate);
         mSnapshot = std::move(next);
+        std::atomic_store(&mPublishedSnapshot, publication);
         return true;
     }
 
     void RenderSettingsService::SetCapabilities(
         RenderSettingsCapabilities capabilities)
     {
+        RejectRuntimeCallbackReentry(this);
         std::scoped_lock lock(mMutex);
         mCapabilities = std::move(capabilities);
         if (bInitialized)
         {
             const std::uint64_t revision = mSnapshot.Revision + 1;
-            RefreshSnapshotLocked();
             mSnapshot.Revision = revision;
+            RefreshSnapshotLocked();
         }
     }
 
     void RenderSettingsService::SetRuntimeApplyCallback(
         RuntimeApplyCallback callback)
     {
+        RejectRuntimeCallbackReentry(this);
         std::scoped_lock lock(mMutex);
         mRuntimeApply = std::move(callback);
     }
@@ -658,6 +684,7 @@ namespace HEngine
     void RenderSettingsService::SetCommandLineOverrides(
         const Json& stableIdPatch)
     {
+        RejectRuntimeCallbackReentry(this);
         std::scoped_lock lock(mMutex);
         if (!bInitialized)
             throw std::logic_error(
@@ -684,79 +711,33 @@ namespace HEngine
                 (*values)[id] = value;
         }
         const std::uint64_t revision = mSnapshot.Revision + 1;
-        RefreshSnapshotLocked();
         mSnapshot.Revision = revision;
+        RefreshSnapshotLocked();
     }
 
     ResolvedRenderSettings RenderSettingsService::ResolveWithWorldCameraOverrides(
         const Json& worldOverrides,
         const Json& cameraOverrides) const
     {
-        std::scoped_lock lock(mMutex);
-        std::map<SettingsLayer, LayerState> layers = mLayers;
-        layers[SettingsLayer::World].RenderValues = worldOverrides;
-        layers[SettingsLayer::Camera].RenderValues = cameraOverrides;
-
-        RenderSettings requested = MakeEmergencyFallbackRenderSettings();
-        RenderDebugSettings debug;
-        RenderCaptureSettings capture;
-        ResolvedRenderSettings result;
-        for (SettingsLayer layer : { SettingsLayer::EngineDefault,
-                 SettingsLayer::Project, SettingsLayer::User,
-                 SettingsLayer::Session, SettingsLayer::World,
-                 SettingsLayer::Camera, SettingsLayer::CommandLine })
-        {
-            const auto iterator = layers.find(layer);
-            if (iterator == layers.end())
-                continue;
-            requested = ApplyRenderSettingsFlatValues(requested,
-                iterator->second.RenderValues, result.Diagnostics);
-            debug = ApplyRenderDebugFlatValues(debug,
-                iterator->second.DebugValues, result.Diagnostics);
-            capture = ApplyRenderCaptureFlatValues(capture,
-                iterator->second.CaptureValues, result.Diagnostics);
-            for (const auto& [id, value] : iterator->second.RenderValues.items())
-            {
-                (void)value;
-                result.Sources[id] = layer;
-            }
-        }
-        ResolvedRenderSettings resolved = ResolveRenderSettings(
-            requested, debug, capture, mCapabilities);
-        AppendDiagnostics(resolved.Diagnostics, result.Diagnostics);
-        resolved.Sources = std::move(result.Sources);
-        resolved.EffectiveSources = resolved.Sources;
-        const Json requestedValues =
-            RenderSettingsToFlatValues(resolved.Requested);
-        const Json effectiveValues =
-            RenderSettingsToFlatValues(resolved.Effective);
-        for (const auto& [id, value] : effectiveValues.items())
-        {
-            if (requestedValues.contains(id) && requestedValues[id] != value)
-                resolved.EffectiveSources[id] = SettingsLayer::Capability;
-        }
-        resolved.Revision = mSnapshot.Revision;
-        resolved.Hash = HashResolvedRenderSettings(resolved);
-        return resolved;
+        return ResolveRenderViewSettings(GetSnapshot(), worldOverrides, cameraOverrides);
     }
 
     GlobalIlluminationSettings
         RenderSettingsService::BuildRequestedRuntimeGlobalIllumination() const
     {
-        std::scoped_lock lock(mMutex);
-        GlobalIlluminationSettings result =
-            mSnapshot.Requested.GlobalIllumination;
-        result.DebugView = mSnapshot.Debug.GiDebugView;
-        result.bDirectOnly = mSnapshot.Debug.bGiDirectOnly;
+        const auto snapshot = GetSnapshot();
+        GlobalIlluminationSettings result = snapshot.Requested.GlobalIllumination;
+        result.DebugView = snapshot.Debug.GiDebugView;
+        result.bDirectOnly = snapshot.Debug.bGiDirectOnly;
         return result;
     }
 
     AntiAliasingSettings
         RenderSettingsService::BuildRequestedRuntimeAntiAliasing() const
     {
-        std::scoped_lock lock(mMutex);
-        AntiAliasingSettings result = mSnapshot.Requested.AntiAliasing;
-        result.CaptureSupersampleScale = mSnapshot.Capture.SupersampleScale;
+        const auto snapshot = GetSnapshot();
+        AntiAliasingSettings result = snapshot.Requested.AntiAliasing;
+        result.CaptureSupersampleScale = snapshot.Capture.SupersampleScale;
         return result;
     }
 
@@ -886,12 +867,25 @@ namespace HEngine
         return result;
     }
 
+    void RenderSettingsService::InvokeRuntimeApplyLocked(
+        const ResolvedRenderSettings& settings, const RenderSettingsChangePlan& plan)
+    {
+        struct CallbackScope
+        {
+            const RenderSettingsService* Previous = sApplyingService;
+            explicit CallbackScope(const RenderSettingsService* service) { sApplyingService = service; }
+            ~CallbackScope() { sApplyingService = Previous; }
+        } scope(this);
+        mRuntimeApply(settings, plan);
+    }
+
     void RenderSettingsService::RefreshSnapshotLocked()
     {
         const std::uint64_t revision = mSnapshot.Revision;
         mSnapshot = ResolveLocked(mLayers);
         mSnapshot.Revision = revision;
         mSnapshot.Hash = HashResolvedRenderSettings(mSnapshot);
+        std::atomic_store(&mPublishedSnapshot, std::make_shared<const ResolvedRenderSettings>(mSnapshot));
     }
 
     std::filesystem::path RenderSettingsService::GetLayerPath(
@@ -1010,6 +1004,7 @@ namespace HEngine
         next.Revision = mSnapshot.Revision + 1;
         next.Hash = HashResolvedRenderSettings(next);
         next.PendingImpact = BuildRenderSettingsChangePlan(mSnapshot, next);
+        const auto publication = std::make_shared<const ResolvedRenderSettings>(next);
         result.ChangePlan = next.PendingImpact;
         result.Diagnostics = next.Diagnostics;
         if (HasDiagnosticErrors(next.Diagnostics))
@@ -1034,7 +1029,7 @@ namespace HEngine
                 !next.PendingImpact.ChangedPropertyIds.empty())
             {
                 bRuntimeApplyStarted = true;
-                mRuntimeApply(next, next.PendingImpact);
+                InvokeRuntimeApplyLocked(next, next.PendingImpact);
             }
         }
         catch (const std::exception& exception)
@@ -1047,7 +1042,7 @@ namespace HEngine
                 if (bRuntimeApplyStarted && mRuntimeApply &&
                     !next.PendingImpact.ChangedPropertyIds.empty())
                 {
-                    mRuntimeApply(mSnapshot,
+                    InvokeRuntimeApplyLocked(mSnapshot,
                         BuildRenderSettingsChangePlan(next, mSnapshot));
                 }
             }
@@ -1065,6 +1060,7 @@ namespace HEngine
         const std::uint64_t previousRevision = mSnapshot.Revision;
         mLayers = std::move(candidateLayers);
         mSnapshot = std::move(next);
+        std::atomic_store(&mPublishedSnapshot, publication);
         result.bSuccess = true;
         result.Message = "Render settings transaction committed.";
         result.PreviousRevision = previousRevision;

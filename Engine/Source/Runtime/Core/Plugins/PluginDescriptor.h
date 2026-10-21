@@ -103,7 +103,26 @@ namespace HEngine
     {
         None = 0,
         Windows = 1u << 0u,
+        Web = 1u << 1u,
+        WeChat = 1u << 2u,
+        Android = 1u << 3u,
+        macOS = 1u << 4u,
     };
+
+    [[nodiscard]] constexpr PluginPlatform GetCurrentPluginPlatform() noexcept
+    {
+#if defined(__ANDROID__)
+        return PluginPlatform::Android;
+#elif defined(__APPLE__)
+        return PluginPlatform::macOS;
+#elif defined(__EMSCRIPTEN__) && defined(HE_WEB)
+        return PluginPlatform::Web;
+#elif defined(__EMSCRIPTEN__)
+        return PluginPlatform::WeChat;
+#else
+        return PluginPlatform::Windows;
+#endif
+    }
 
     [[nodiscard]] constexpr PluginPlatform operator|(
         PluginPlatform left,
@@ -159,7 +178,7 @@ namespace HEngine
         PluginHost Host = PluginHost::Tests;
         PluginBuildDistribution BuildDistribution =
             PluginBuildDistribution::Development;
-        PluginPlatform Platform = PluginPlatform::Windows;
+        PluginPlatform Platform = GetCurrentPluginPlatform();
         PluginConfiguration Configuration = PluginConfiguration::Debug;
         PluginApiVersion ApiVersion = c_CurrentPluginApiVersion;
     };

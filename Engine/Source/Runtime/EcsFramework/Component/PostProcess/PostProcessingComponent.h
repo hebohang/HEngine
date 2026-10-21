@@ -2,6 +2,8 @@
 
 #include "Runtime/EcsFramework/Component/ComponentBase.h"
 
+#include <glm/glm.hpp>
+
 namespace HEngine
 {
     REFLECTION_TYPE(PostProcessingComponent)
@@ -13,18 +15,32 @@ namespace HEngine
         PostProcessingComponent(const PostProcessingComponent&) = default;
 
         bool bEnabled = true;
-        // Legacy scenes used bGlobal=false as an explicit "do not apply"
-        // state. Local volume evaluation therefore requires this separate,
-        // opt-in flag instead of reinterpreting old scene data.
+        // Global exposure applies to the whole view. Local bounds are evaluated
+        // when explicitly enabled and the component has a transform.
         bool bGlobal = true;
         bool bLocalVolumeEnabled = false;
         float Priority = 0.0f;
         float BlendRadius = 0.0f;
         float BlendWeight = 1.0f;
-        // Defaults to true so a legacy enabled global component keeps its
-        // exact exposure override after reflection-driven migration.
+        // Enabled volumes override exposure unless used only as spatial metadata.
         bool bOverrideExposure = true;
-        float Exposure = 0.8f;
+        float ExposureEV100 = 14.0f;
+        float ExposureCompensation = 0.0f;
+        // Additive schema evolution: old volumes inherit these settings unchanged.
+        bool bOverrideBloomIntensity = false;
+        float BloomIntensity = 0.05f;
+        bool bOverrideContrast = false;
+        float Contrast = 1.0f;
+        bool bOverrideSaturation = false;
+        float Saturation = 1.0f;
+        bool bOverrideTemperature = false;
+        float Temperature = 0.0f;
+        bool bOverrideVignetteIntensity = false;
+        float VignetteIntensity = 0.0f;
+        bool bOverrideColorGain = false;
+        glm::vec3 ColorGain{ 1.0f };
+        bool bOverrideColorOffset = false;
+        glm::vec3 ColorOffset{ 0.0f };
     };
     REGISTER_COMPONENT_TYPE(PostProcessingComponent)
 }

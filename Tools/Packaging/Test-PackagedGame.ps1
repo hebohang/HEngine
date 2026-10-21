@@ -14,7 +14,9 @@ param(
     [ValidateSet('DX12', 'Vulkan')]
     [string]$GraphicsApi = 'DX12',
 
-    [switch]$UseWarp
+    [switch]$UseWarp,
+    [ValidateLength(0,256)][string]$RequiredLogMarker = '',
+    [switch]$MeasureMemory
 )
 
 Set-StrictMode -Version Latest
@@ -83,7 +85,22 @@ try {
         -WindowStyle Hidden `
         -PassThru
     $null = $process.Handle
-    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+    $exited = $false
+    if ($MeasureMemory) {
+        $timer = [Diagnostics.Stopwatch]::StartNew()
+        $samples = [Collections.Generic.List[object]]::new()
+        do {
+            try {
+                $process.Refresh()
+                $samples.Add([ordered]@{elapsedMs=$timer.Elapsed.TotalMilliseconds;workingSetBytes=$process.WorkingSet64;
+                    privateBytes=$process.PrivateMemorySize64;observedOsPeakWorkingSetBytes=$process.PeakWorkingSet64})
+            } catch [InvalidOperationException] { } # Process can exit between observation and read.
+            $exited = $process.WaitForExit(50)
+        } while (!$exited -and $timer.Elapsed.TotalSeconds -lt $TimeoutSeconds)
+        @{measurement='Windows process memory sampled every approximately 50ms after Start-Process returned. Includes engine, all script runtimes and active renderer. Sampled maxima/last observed OS peak may miss exit-time allocations; not managed heap size, GPU memory or first-frame timing.';
+            package=$packagePath;pid=$process.Id;graphicsApi=$GraphicsApi;warp=$UseWarp.IsPresent;samples=$samples} | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $logRoot ($runId + '.memory.json'))
+    } else { $exited = $process.WaitForExit($TimeoutSeconds * 1000) }
+    if (-not $exited) {
         Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
         $process.WaitForExit()
         Get-Content -LiteralPath $stdout -Tail 100 -ErrorAction SilentlyContinue
@@ -103,6 +120,10 @@ try {
         throw 'Packaged game exited without reaching the [Game] Ready marker.'
     }
     $backendMarker = "[Graphics] Active backend: $GraphicsApi"
+    if ($RequiredLogMarker -and !(Select-String -LiteralPath $stdout -Pattern $RequiredLogMarker -SimpleMatch -Quiet)) {
+        Get-Content -LiteralPath $stdout -Tail 40 -ErrorAction SilentlyContinue
+        throw "Packaged gameplay did not reach its required marker: $RequiredLogMarker"
+    }
     if (-not (Select-String -LiteralPath $stdout -Pattern $backendMarker -SimpleMatch -Quiet)) {
         Get-Content -LiteralPath $stdout -Tail 100 -ErrorAction SilentlyContinue
         throw "Packaged game did not confirm the requested renderer: $backendMarker"
@@ -127,7 +148,6 @@ try {
     }
     $freshContent = $contentDirectories[0].FullName
     $freshMarker = Join-Path $freshContent '.package-marker'
-    $freshPythonModule = Join-Path $freshContent 'Scripts\Lib\encodings\utf_8.py'
     $freshDiagnosticLog = Join-Path $packageCheckRoot 'Saved\Logs\HEngine.log'
     $forbiddenDevOnlyPaths = @(
         (Join-Path $freshContent 'Assets\DevOnly'),
@@ -138,8 +158,16 @@ try {
     if (-not (Test-Path -LiteralPath $freshMarker -PathType Leaf)) {
         throw "Freshly extracted package content is missing its marker: $freshMarker"
     }
-    if (-not (Test-Path -LiteralPath $freshPythonModule -PathType Leaf)) {
-        throw "Freshly extracted package content is missing an embedded Python module: $freshPythonModule"
+    # Validate this package's reachable content, including Python modules when
+    # present, rather than requiring one particular game's UI implementation.
+    $manifest = Get-Content -LiteralPath (Join-Path $packagePath 'Game.manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    foreach ($entry in $manifest.Files) {
+        $extractedFile = Join-Path $freshContent $entry.Path
+        $fileIoPath = '\\?\' + $extractedFile
+        if (-not [IO.File]::Exists($fileIoPath) -or
+            ([IO.FileInfo]::new($fileIoPath)).Length -ne $entry.StoredSize) {
+            throw "Freshly extracted package content is missing or has the wrong size: $($entry.Path)"
+        }
     }
     if (-not (Test-Path -LiteralPath $freshDiagnosticLog -PathType Leaf)) {
         throw "Packaged game did not use its isolated Unicode Saved path: $freshDiagnosticLog"
@@ -176,7 +204,9 @@ finally {
             (Split-Path -Leaf $resolvedCheckRoot) -cne $packageCheckId) {
             throw "Refusing to remove an unexpected package check root: $resolvedCheckRoot"
         }
-        Remove-Item -LiteralPath $resolvedCheckRoot -Recurse -Force
+        # Imported content can have deeply nested hashed filenames. PowerShell's
+        # ordinary path spelling fails to traverse those entries past MAX_PATH.
+        Remove-Item -LiteralPath ('\\?\' + $resolvedCheckRoot) -Recurse -Force
     }
     Remove-Item Env:PATH -ErrorAction SilentlyContinue
     Remove-Item Env:Path -ErrorAction SilentlyContinue

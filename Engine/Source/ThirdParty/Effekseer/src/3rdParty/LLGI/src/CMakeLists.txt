@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 project(LLGI)
+option(LLGI_BUILD_DX12 "Build the LLGI DirectX 12 backend." ${MSVC})
 
 file(GLOB files *.h *.cpp)
 file(GLOB files_pc PC/*.h PC/*.cpp)
@@ -18,7 +19,7 @@ else()
   list(APPEND files ${files_linux})
 endif()
 
-if(MSVC)
+if(MSVC AND LLGI_BUILD_DX12)
   file(GLOB files_dx12 DX12/*.h DX12/*.cpp)
   list(APPEND files ${files_dx12})
 
@@ -85,6 +86,7 @@ foreach(FILE ${files})
 endforeach()
 
 add_library(LLGI STATIC ${files})
+target_compile_definitions(LLGI PRIVATE LLGI_ENABLE_DX12=$<BOOL:${LLGI_BUILD_DX12}>)
 
 if(MSVC)
   target_include_directories(LLGI PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")

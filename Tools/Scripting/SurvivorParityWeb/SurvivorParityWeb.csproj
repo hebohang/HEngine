@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+  <PropertyGroup><HEPlatform>Web</HEPlatform></PropertyGroup>
+  <Import Project="../../../Engine/Managed/Platform.props" />
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RuntimeFrameworkVersion>10.0.10</RuntimeFrameworkVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <WasmMainJSPath>main.js</WasmMainJSPath>
+    <WasmEnableThreads>false</WasmEnableThreads>
+    <WasmEnableSIMD>false</WasmEnableSIMD>
+    <BlazorWebAssemblyJiterpreter>false</BlazorWebAssemblyJiterpreter>
+    <WasmBuildNative>true</WasmBuildNative>
+    <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
+    <PublishTrimmed>false</PublishTrimmed>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../../Project/Scripts/CSharp/Survivor/*.cs" Link="Survivor/%(Filename)%(Extension)" />
+    <Compile Include="../SurvivorParity/ParityRunner.cs" Link="ParityRunner.cs" />
+  </ItemGroup>
+</Project>

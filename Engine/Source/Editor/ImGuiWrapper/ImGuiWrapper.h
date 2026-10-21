@@ -27,6 +27,7 @@ namespace HEngine::ImGuiWrapper
     void SetColumnWidth(int columnIndex, float width);
     void SetNextWindowSize(const ImVec2& size, ImGuiCond cond = 0);
     void SetNextWindowSizeConstraints(const ImVec2& minSize, const ImVec2& maxSize);
+    void ConstrainNextWindowToWorkArea(const char* name, const ImVec2& defaultSize, const ImVec2& minSize);
     void SameLine(float offsetFromStartX, float spacing = -1.0f);
     bool HasScaleChanged(float& lastScale, float epsilon = 0.01f);
 

@@ -1,0 +1,20 @@
+{
+    "SchemaVersion": 1,
+    "Id": "he.script.python",
+    "DisplayName": "Python Scripting",
+    "Version": "1.0.0",
+    "ApiVersion": 1,
+    "RequiredHostApiVersion": 1,
+    "ModuleName": "PythonScript",
+    "EntrySymbol": "HEngineCreatePythonScriptPluginModule",
+    "Dependencies": [],
+    "OptionalDependencies": [],
+    "LoadPhase": "PreDevice",
+    "SupportedHosts": ["Editor", "DevGame", "Game", "Tests"],
+    "Distribution": "Runtime",
+    "PackagePolicy": "ProjectSelectable",
+    "ShaderRoots": [],
+    "ContentRoots": [],
+    "Platforms": ["Windows", "macOS"],
+    "Configurations": ["Debug", "Release", "RelWithDebInfo", "MinSizeRel"]
+}

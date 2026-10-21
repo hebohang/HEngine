@@ -18,6 +18,29 @@ namespace HEngine
         MeshLoader::LoadModel(this, path);
     }
 
+    void Mesh::EnsureUniqueDeformation()
+    {
+        if (mDeformationOwner == this) return;
+        for (auto& section : mSubMeshes)
+            if (section) section = CreateRef<SubMesh>(*section);
+        mDeformationOwner = this;
+#if WITH_EDITOR
+        InvalidateEditorPickData();
+#endif
+    }
+
+    void Mesh::UpdateMorphWeights(const std::map<std::string, float>& weights, bool resetHistory)
+    {
+        EnsureUniqueDeformation();
+        for (auto& section : mSubMeshes)
+        {
+            if (!section || !section->HasEffectiveMorphTargets()) continue;
+            section->BeginDeformation();
+            section->ApplyMorphWeights(weights);
+            section->EndDeformation(resetHistory);
+        }
+    }
+
     bool Mesh::IsVisible(const glm::mat4& transform, const glm::mat4& viewProjection) const
     {
         for (const Ref<SubMesh>& subMesh : mSubMeshes)

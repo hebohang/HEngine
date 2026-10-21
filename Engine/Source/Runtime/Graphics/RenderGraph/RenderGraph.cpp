@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <chrono>
+#include <exception>
 #include <optional>
 #include <queue>
 #include <sstream>
@@ -15,6 +17,36 @@ namespace HEngine
 {
     namespace
     {
+        class CpuPhaseScope
+        {
+        public:
+            CpuPhaseScope(IRenderGraphCpuObserver* observer, RenderGraphCpuPhase phase,
+                uint32_t index = InvalidRenderGraphIndex, std::string_view name = {}) noexcept
+                : mObserver(observer), mPhase(phase), mIndex(index), mName(name)
+            {
+                if (mObserver)
+                {
+                    mExceptions = std::uncaught_exceptions();
+                    mStart = std::chrono::steady_clock::now();
+                }
+            }
+            ~CpuPhaseScope()
+            {
+                if (mObserver)
+                    mObserver->OnCpuPhase(mPhase, mIndex, mName,
+                        std::chrono::duration<double, std::milli>(
+                            std::chrono::steady_clock::now() - mStart).count(),
+                        std::uncaught_exceptions() == mExceptions);
+            }
+        private:
+            IRenderGraphCpuObserver* mObserver;
+            RenderGraphCpuPhase mPhase;
+            uint32_t mIndex;
+            std::string_view mName;
+            int mExceptions = 0;
+            std::chrono::steady_clock::time_point mStart{};
+        };
+
         [[nodiscard]] uint64_t AllocateResourceNamespace() noexcept
         {
             static std::atomic_uint64_t sNextNamespace = 1;
@@ -134,8 +166,14 @@ namespace HEngine
 
         void ValidateAccessUsage(RenderGraphAccess access, RenderGraphUsage usage, ResourceKind kind)
         {
+            if (access != RenderGraphAccess::Read && access != RenderGraphAccess::Write &&
+                access != RenderGraphAccess::ReadWrite)
+                throw RenderGraphValidationError("RenderGraph resource access enum is invalid.");
             if (usage == RenderGraphUsage::None)
                 throw RenderGraphValidationError("RenderGraph resource access must declare a usage.");
+            constexpr uint32_t knownUsageBits = (1u << 17) - 1u;
+            if ((static_cast<uint32_t>(usage) & ~knownUsageBits) != 0)
+                throw RenderGraphValidationError("RenderGraph resource usage contains unknown flags.");
 
             constexpr RenderGraphUsage textureOnly =
                 RenderGraphUsage::RenderTarget |
@@ -188,11 +226,22 @@ namespace HEngine
                 throw RenderGraphValidationError("RenderGraph write access contains a read-only usage.");
             if (access == RenderGraphAccess::ReadWrite &&
                 usage != RenderGraphUsage::UnorderedAccess &&
+                usage != RenderGraphUsage::DepthWrite &&
                 usage != RenderGraphUsage::RenderTarget)
             {
                 throw RenderGraphValidationError(
-                    "RenderGraph ReadWrite access requires UnorderedAccess or RenderTarget usage.");
+                    "RenderGraph ReadWrite access requires UnorderedAccess, DepthWrite or RenderTarget usage.");
             }
+        }
+
+        [[nodiscard]] bool ContainsSubresource(const RenderGraphSubresourceRange& range,
+            uint32_t mip, uint32_t slice)
+        {
+            return mip >= range.BaseMipLevel && slice >= range.BaseArraySlice &&
+                (range.MipLevelCount == RenderGraphSubresourceRange::AllRemaining ||
+                    mip - range.BaseMipLevel < range.MipLevelCount) &&
+                (range.ArraySliceCount == RenderGraphSubresourceRange::AllRemaining ||
+                    slice - range.BaseArraySlice < range.ArraySliceCount);
         }
 
         [[nodiscard]] nvrhi::TextureSubresourceSet ToNvrhiSubresources(
@@ -223,6 +272,8 @@ namespace HEngine
             RenderGraphAccess Access = RenderGraphAccess::Read;
             RenderGraphUsage Usage = RenderGraphUsage::None;
             RenderGraphSubresourceRange Subresources;
+            bool bAttachment = false;
+            RenderGraphAttachmentOps AttachmentOps;
         };
 
         struct TextureRecord
@@ -268,6 +319,8 @@ namespace HEngine
 
         struct PassRecord
         {
+            std::string FeatureTypeId;
+            std::string FeatureInstanceId;
             uint32_t Generation = 0;
             std::string Name;
             RenderGraphQueue Queue = RenderGraphQueue::Graphics;
@@ -280,9 +333,13 @@ namespace HEngine
             bool bSideEffect = false;
             bool bSetupComplete = false;
             bool bCulled = true;
+            bool bHasRecordedCommands = false;
+            RenderGraphQueue RecordedQueue = RenderGraphQueue::Graphics;
         };
 
         uint32_t NextGeneration = 1;
+        std::string CurrentFeatureTypeId;
+        std::string CurrentFeatureInstanceId;
         uint64_t ResourceNamespace = AllocateResourceNamespace();
         std::vector<uint64_t> StaleResourceNamespaces;
         uint32_t Width = 1;
@@ -297,6 +354,7 @@ namespace HEngine
         std::vector<uint32_t> TopologicalOrder;
         std::vector<uint32_t> ExecutionOrder;
         std::vector<std::unordered_set<uint32_t>> Predecessors;
+        std::vector<std::unordered_set<uint32_t>> ContentPredecessors;
         std::vector<std::unordered_set<uint32_t>> Successors;
         std::vector<std::string> CompileErrors;
 
@@ -322,12 +380,15 @@ namespace HEngine
             CompileErrors.push_back(std::move(error));
         }
 
-        void AddEdge(uint32_t prerequisite, uint32_t dependent, bool bAllowSelf = false)
+        void AddEdge(uint32_t prerequisite, uint32_t dependent, bool bAllowSelf = false,
+            bool bContentsRequired = true)
         {
             if (prerequisite == dependent && !bAllowSelf)
                 return;
             if (Successors[prerequisite].insert(dependent).second)
                 Predecessors[dependent].insert(prerequisite);
+            if (bContentsRequired)
+                ContentPredecessors[dependent].insert(prerequisite);
         }
     };
 
@@ -337,6 +398,25 @@ namespace HEngine
     }
 
     RenderGraph::~RenderGraph() = default;
+
+    void RenderGraph::Swap(RenderGraph& other) noexcept
+    {
+        mImpl.swap(other.mImpl);
+    }
+
+    void RenderGraph::PrepareResources(RenderGraphResourcePool& resourcePool, uint32_t frameSlot)
+    {
+        CompileOrThrow();
+        RealizeResources(resourcePool, frameSlot);
+        ValidatePhysicalResources();
+    }
+
+    nvrhi::TextureHandle RenderGraph::GetPhysicalTexture(TextureHandle handle) const
+    {
+        if (!IsValid(handle))
+            throw RenderGraphValidationError("Physical texture lookup used a stale graph handle.");
+        return mImpl->Textures[handle.Index].Resource;
+    }
 
     TextureHandle RenderGraph::CreateTexture(
         const RenderGraphTextureDesc& desc,
@@ -495,11 +575,23 @@ namespace HEngine
         return handle;
     }
 
-    void RenderGraph::SetTextureResource(TextureHandle handle, const nvrhi::TextureHandle& texture)
+    void RenderGraph::SetTextureResource(TextureHandle handle, const nvrhi::TextureHandle& texture,
+        nvrhi::ResourceStates initialState)
     {
         if (!IsValid(handle))
             throw RenderGraphValidationError("Invalid or stale RenderGraph texture handle.");
-        mImpl->Textures[handle.Index].Resource = texture;
+        auto& record = mImpl->Textures[handle.Index];
+        if (initialState != nvrhi::ResourceStates::Unknown)
+        {
+            if (record.Lifetime != RenderGraphResourceLifetime::Imported)
+                throw RenderGraphValidationError("Only imported textures can update their externally established state.");
+            if (record.InitialState != initialState)
+            {
+                record.InitialState = initialState;
+                mImpl->MarkDirty();
+            }
+        }
+        record.Resource = texture;
     }
 
     void RenderGraph::SetBufferResource(BufferHandle handle, const nvrhi::BufferHandle& buffer)
@@ -548,6 +640,20 @@ namespace HEngine
         mImpl->MarkDirty();
     }
 
+    RenderGraphFeatureScope::RenderGraphFeatureScope(RenderGraph& graph,
+        std::string typeId, std::string instanceId)
+        : mGraph(graph), mPreviousTypeId(std::move(typeId)), mPreviousInstanceId(std::move(instanceId))
+    {
+        mPreviousTypeId.swap(mGraph.mImpl->CurrentFeatureTypeId);
+        mPreviousInstanceId.swap(mGraph.mImpl->CurrentFeatureInstanceId);
+    }
+
+    RenderGraphFeatureScope::~RenderGraphFeatureScope()
+    {
+        mPreviousTypeId.swap(mGraph.mImpl->CurrentFeatureTypeId);
+        mPreviousInstanceId.swap(mGraph.mImpl->CurrentFeatureInstanceId);
+    }
+
     RenderGraphPassHandle RenderGraph::AddPassInternal(
         std::string name,
         RenderGraphQueue queue,
@@ -561,6 +667,8 @@ namespace HEngine
         Impl::PassRecord record;
         record.Generation = mImpl->AllocateGeneration();
         record.Name = std::move(name);
+        record.FeatureTypeId = mImpl->CurrentFeatureTypeId;
+        record.FeatureInstanceId = mImpl->CurrentFeatureInstanceId;
         record.Queue = queue;
         record.Execute = std::move(execute);
         record.TextureCheckpoint = mImpl->Textures.size();
@@ -659,6 +767,30 @@ namespace HEngine
         }
 
         auto& accesses = mImpl->Passes[pass.Index].Accesses;
+        // Differently spelled ranges can overlap even when they are not equal.
+        // Reject incompatible simultaneous states before command recording.
+        const uint32_t mipEnd = subresources.MipLevelCount == RenderGraphSubresourceRange::AllRemaining
+            ? desc.MipLevels : subresources.BaseMipLevel + subresources.MipLevelCount;
+        const uint32_t sliceEnd = subresources.ArraySliceCount == RenderGraphSubresourceRange::AllRemaining
+            ? desc.ArrayLayers : subresources.BaseArraySlice + subresources.ArraySliceCount;
+        for (const auto& declaration : accesses)
+        {
+            if (declaration.Kind != ResourceKind::Texture || declaration.ResourceIndex != handle.Index)
+                continue;
+            if (declaration.bAttachment)
+                throw RenderGraphValidationError("Color attachment cannot be redeclared in the same pass.");
+            const auto& range = declaration.Subresources;
+            const uint32_t otherMipEnd = range.MipLevelCount == RenderGraphSubresourceRange::AllRemaining
+                ? desc.MipLevels : range.BaseMipLevel + range.MipLevelCount;
+            const uint32_t otherSliceEnd = range.ArraySliceCount == RenderGraphSubresourceRange::AllRemaining
+                ? desc.ArrayLayers : range.BaseArraySlice + range.ArraySliceCount;
+            if (subresources.BaseMipLevel < otherMipEnd && range.BaseMipLevel < mipEnd &&
+                subresources.BaseArraySlice < otherSliceEnd && range.BaseArraySlice < sliceEnd)
+            {
+                ValidateAccessUsage(MergeAccess(declaration.Access, access),
+                    declaration.Usage | usage, ResourceKind::Texture);
+            }
+        }
         auto existing = std::find_if(accesses.begin(), accesses.end(),
             [handle, &subresources](const Impl::AccessDeclaration& declaration)
             {
@@ -687,6 +819,36 @@ namespace HEngine
             });
         }
         mImpl->MarkDirty();
+    }
+
+    void RenderGraph::DeclareAttachment(RenderGraphPassHandle pass, TextureHandle handle,
+        const RenderGraphAttachmentOps& ops, RenderGraphSubresourceRange subresources, bool bDepth)
+    {
+        if (!IsValid(pass) || !IsValid(handle))
+            throw RenderGraphValidationError("Invalid or stale attachment handle.");
+        if ((ops.Load != RenderGraphAttachmentLoad::Load && ops.Load != RenderGraphAttachmentLoad::Clear &&
+                ops.Load != RenderGraphAttachmentLoad::Discard) ||
+            (ops.Store != RenderGraphAttachmentStore::Store && ops.Store != RenderGraphAttachmentStore::Discard))
+            throw RenderGraphValidationError("Invalid attachment load/store operation.");
+        if (ops.Load == RenderGraphAttachmentLoad::Discard &&
+            ops.Store == RenderGraphAttachmentStore::Store && !ops.bFullOverwrite)
+            throw RenderGraphValidationError("Discard/store attachment requires full overwrite.");
+        const auto format = mImpl->Textures[handle.Index].Desc.Format;
+        if (format != nvrhi::Format::UNKNOWN && nvrhi::getFormatInfo(format).hasDepth != bDepth)
+            throw RenderGraphValidationError("Attachment format does not match its color/depth usage.");
+        if (bDepth && !(ops.ClearDepth >= 0.0f && ops.ClearDepth <= 1.0f))
+            throw RenderGraphValidationError("Attachment clear depth must be finite and in [0, 1].");
+        for (const auto& existing : mImpl->Passes[pass.Index].Accesses)
+        {
+            if (existing.Kind == ResourceKind::Texture && existing.ResourceIndex == handle.Index)
+                throw RenderGraphValidationError("Attachment must be declared once per texture in a pass.");
+        }
+        DeclareTextureAccess(pass, handle,
+            ops.Load == RenderGraphAttachmentLoad::Load ? RenderGraphAccess::ReadWrite : RenderGraphAccess::Write,
+            bDepth ? RenderGraphUsage::DepthWrite : RenderGraphUsage::RenderTarget, subresources);
+        auto& declaration = mImpl->Passes[pass.Index].Accesses.back();
+        declaration.bAttachment = true;
+        declaration.AttachmentOps = ops;
     }
 
     void RenderGraph::DeclareBufferAccess(
@@ -785,9 +947,13 @@ namespace HEngine
         mImpl->TopologicalOrder.clear();
         mImpl->ExecutionOrder.clear();
         mImpl->Predecessors.assign(mImpl->Passes.size(), {});
+        mImpl->ContentPredecessors.assign(mImpl->Passes.size(), {});
         mImpl->Successors.assign(mImpl->Passes.size(), {});
         for (Impl::PassRecord& pass : mImpl->Passes)
+        {
             pass.bCulled = true;
+            pass.bHasRecordedCommands = false;
+        }
         for (Impl::TextureRecord& texture : mImpl->Textures)
         {
             texture.LifetimeInfo = {};
@@ -863,36 +1029,84 @@ namespace HEngine
         {
             uint32_t PassIndex = InvalidRenderGraphIndex;
             RenderGraphAccess Access = RenderGraphAccess::Read;
+            bool bDiscardAfter = false;
+            bool bFullOverwrite = false;
         };
 
-        auto buildResourceDependencies = [this](
+        // Index once by resource rather than rescanning every pass declaration
+        // for each resource, mip and array slice. Entries retain declaration order
+        // so same-pass merging and read-before-first-writer rules are unchanged.
+        struct IndexedAccess
+        {
+            uint32_t PassIndex;
+            const Impl::AccessDeclaration* Declaration;
+        };
+        std::vector<std::vector<IndexedAccess>> textureAccesses(mImpl->Textures.size());
+        std::vector<std::vector<IndexedAccess>> bufferAccesses(mImpl->Buffers.size());
+        std::vector<std::vector<IndexedAccess>> accelerationStructureAccesses(
+            mImpl->AccelerationStructures.size());
+        const auto resourceAccesses = [&](ResourceKind kind, uint32_t index)
+            -> std::vector<IndexedAccess>&
+        {
+            switch (kind)
+            {
+            case ResourceKind::Texture: return textureAccesses[index];
+            case ResourceKind::Buffer: return bufferAccesses[index];
+            default: return accelerationStructureAccesses[index];
+            }
+        };
+        for (uint32_t passIndex = 0; passIndex < mImpl->Passes.size(); ++passIndex)
+            for (const Impl::AccessDeclaration& declaration : mImpl->Passes[passIndex].Accesses)
+                resourceAccesses(declaration.Kind, declaration.ResourceIndex).push_back(
+                    { passIndex, &declaration });
+
+        auto buildResourceDependencies = [this, &resourceAccesses](
             ResourceKind kind,
             uint32_t resourceIndex,
             bool bInitiallyInitialized,
-            std::string_view resourceName)
+            std::string_view resourceName,
+            uint32_t mip = 0,
+            uint32_t slice = 0)
         {
             std::vector<ResourcePassAccess> accesses;
-            for (uint32_t passIndex = 0; passIndex < mImpl->Passes.size(); ++passIndex)
+            const auto& indexedAccesses = resourceAccesses(kind, resourceIndex);
+            for (size_t index = 0; index < indexedAccesses.size();)
             {
+                const uint32_t passIndex = indexedAccesses[index].PassIndex;
                 std::optional<RenderGraphAccess> merged;
-                for (const Impl::AccessDeclaration& declaration : mImpl->Passes[passIndex].Accesses)
+                bool bDiscardAfter = false;
+                bool bFullOverwrite = false;
+                do
                 {
-                    if (declaration.Kind != kind || declaration.ResourceIndex != resourceIndex)
+                    const Impl::AccessDeclaration& declaration = *indexedAccesses[index++].Declaration;
+                    if (kind == ResourceKind::Texture && !ContainsSubresource(declaration.Subresources, mip, slice))
                         continue;
                     merged = merged.has_value()
                         ? MergeAccess(*merged, declaration.Access)
                         : declaration.Access;
-                }
+                    bDiscardAfter |= declaration.bAttachment &&
+                        declaration.AttachmentOps.Store == RenderGraphAttachmentStore::Discard;
+                    bFullOverwrite |= declaration.bAttachment &&
+                        (declaration.AttachmentOps.Load == RenderGraphAttachmentLoad::Clear ||
+                            (declaration.AttachmentOps.Load == RenderGraphAttachmentLoad::Discard &&
+                                declaration.AttachmentOps.bFullOverwrite));
+                } while (index < indexedAccesses.size() && indexedAccesses[index].PassIndex == passIndex);
                 if (merged.has_value())
-                    accesses.push_back({ passIndex, *merged });
+                    accesses.push_back({ passIndex, *merged, bDiscardAfter,
+                        bFullOverwrite && *merged == RenderGraphAccess::Write });
             }
 
             if (accesses.empty())
+            {
+                if (kind == ResourceKind::Texture && mImpl->Textures[resourceIndex].bExported && !bInitiallyInitialized)
+                    mImpl->AddError("RenderGraph exports uninitialized subresource: " + std::string(resourceName));
                 return;
+            }
 
             size_t startIndex = 0;
             std::optional<uint32_t> lastWriter;
             std::vector<uint32_t> readers;
+            bool bContentsAvailable = bInitiallyInitialized;
 
             if (!bInitiallyInitialized)
             {
@@ -920,16 +1134,30 @@ namespace HEngine
 
                 const size_t writerIndex = static_cast<size_t>(
                     std::distance(accesses.begin(), firstWriter));
+                if (writerIndex > 0 && firstWriter->bDiscardAfter)
+                {
+                    mImpl->AddError("RenderGraph reads discarded attachment contents: " + std::string(resourceName));
+                    return;
+                }
                 for (size_t index = 0; index < writerIndex; ++index)
+                {
                     mImpl->AddEdge(firstWriter->PassIndex, accesses[index].PassIndex);
+                    readers.push_back(accesses[index].PassIndex);
+                }
 
                 lastWriter = firstWriter->PassIndex;
+                bContentsAvailable = !firstWriter->bDiscardAfter;
                 startIndex = writerIndex + 1;
             }
 
             for (size_t index = startIndex; index < accesses.size(); ++index)
             {
                 const ResourcePassAccess& current = accesses[index];
+                if (AccessIncludesRead(current.Access) && !bContentsAvailable)
+                {
+                    mImpl->AddError("RenderGraph reads discarded attachment contents: " + std::string(resourceName));
+                    return;
+                }
                 switch (current.Access)
                 {
                 case RenderGraphAccess::Read:
@@ -941,24 +1169,35 @@ namespace HEngine
                 case RenderGraphAccess::Write:
                 case RenderGraphAccess::ReadWrite:
                     if (lastWriter.has_value())
-                        mImpl->AddEdge(*lastWriter, current.PassIndex);
+                        mImpl->AddEdge(*lastWriter, current.PassIndex, false, !current.bFullOverwrite);
                     for (uint32_t reader : readers)
-                        mImpl->AddEdge(reader, current.PassIndex);
+                        mImpl->AddEdge(reader, current.PassIndex, false, false);
                     readers.clear();
                     lastWriter = current.PassIndex;
+                    bContentsAvailable = !current.bDiscardAfter;
                     break;
                 }
             }
+            if (kind == ResourceKind::Texture && mImpl->Textures[resourceIndex].bExported && !bContentsAvailable)
+                mImpl->AddError("RenderGraph exports discarded attachment contents: " + std::string(resourceName));
         };
 
         for (uint32_t index = 0; index < mImpl->Textures.size(); ++index)
         {
             const Impl::TextureRecord& texture = mImpl->Textures[index];
-            buildResourceDependencies(
-                ResourceKind::Texture,
-                index,
-                texture.bInitiallyInitialized,
-                texture.Desc.DebugName.empty() ? "<unnamed texture>" : texture.Desc.DebugName);
+            // Initialization and hazards are properties of each mip/slice, not
+            // of the allocation. A depth-pyramid mip does not initialize its siblings.
+            for (uint32_t slice = 0; slice < texture.Desc.ArrayLayers; ++slice)
+            {
+                for (uint32_t mip = 0; mip < texture.Desc.MipLevels; ++mip)
+                {
+                    const std::string name =
+                        (texture.Desc.DebugName.empty() ? "<unnamed texture>" : texture.Desc.DebugName) +
+                        " [mip " + std::to_string(mip) + ", slice " + std::to_string(slice) + "]";
+                    buildResourceDependencies(
+                        ResourceKind::Texture, index, texture.bInitiallyInitialized, name, mip, slice);
+                }
+            }
         }
         for (uint32_t index = 0; index < mImpl->Buffers.size(); ++index)
         {
@@ -1054,27 +1293,24 @@ namespace HEngine
             }
         }
 
-        auto markObservableLastAccess = [this, &topologicalPosition, &markRoot](
+        auto markObservableLastAccess = [&resourceAccesses, &topologicalPosition, &markRoot](
             ResourceKind kind,
             uint32_t resourceIndex,
-            bool bObservable)
+            bool bObservable,
+            uint32_t mip = 0,
+            uint32_t slice = 0)
         {
             if (!bObservable)
                 return;
 
             uint32_t lastPass = InvalidRenderGraphIndex;
             uint32_t lastPosition = 0;
-            for (uint32_t passIndex = 0; passIndex < mImpl->Passes.size(); ++passIndex)
+            for (const IndexedAccess& indexed : resourceAccesses(kind, resourceIndex))
             {
-                const bool bUsesResource = std::any_of(
-                    mImpl->Passes[passIndex].Accesses.begin(),
-                    mImpl->Passes[passIndex].Accesses.end(),
-                    [kind, resourceIndex](const Impl::AccessDeclaration& access)
-                    {
-                        return access.Kind == kind && access.ResourceIndex == resourceIndex;
-                    });
-                if (!bUsesResource)
+                if (kind == ResourceKind::Texture &&
+                    !ContainsSubresource(indexed.Declaration->Subresources, mip, slice))
                     continue;
+                const uint32_t passIndex = indexed.PassIndex;
                 if (lastPass == InvalidRenderGraphIndex ||
                     topologicalPosition[passIndex] > lastPosition)
                 {
@@ -1092,12 +1328,11 @@ namespace HEngine
             const bool bFinalStateObservable =
                 texture.Lifetime == RenderGraphResourceLifetime::Imported &&
                 texture.FinalState != texture.InitialState;
-            markObservableLastAccess(
-                ResourceKind::Texture,
-                index,
-                texture.bExported ||
-                    texture.Lifetime == RenderGraphResourceLifetime::Persistent ||
-                    bFinalStateObservable);
+            for (uint32_t slice = 0; slice < texture.Desc.ArrayLayers; ++slice)
+                for (uint32_t mip = 0; mip < texture.Desc.MipLevels; ++mip)
+                    markObservableLastAccess(ResourceKind::Texture, index,
+                        texture.bExported || texture.Lifetime == RenderGraphResourceLifetime::Persistent ||
+                            bFinalStateObservable, mip, slice);
         }
         for (uint32_t index = 0; index < mImpl->Buffers.size(); ++index)
         {
@@ -1128,7 +1363,9 @@ namespace HEngine
         {
             const uint32_t passIndex = pendingRoots.back();
             pendingRoots.pop_back();
-            for (uint32_t predecessor : mImpl->Predecessors[passIndex])
+            // Ordering hazards remain in the topological graph, but only data
+            // dependencies and explicit prerequisites make earlier work live.
+            for (uint32_t predecessor : mImpl->ContentPredecessors[passIndex])
                 markRoot(predecessor);
         }
 
@@ -1202,22 +1439,33 @@ namespace HEngine
     {
         if (!params.CommandList)
             throw RenderGraphValidationError("RenderGraph execution requires an NVRHI command list.");
-        CompileOrThrow();
-
-        if (params.ResourcePool)
         {
-            if (params.CommandList->getDevice() != params.ResourcePool->GetDevice())
-                throw RenderGraphValidationError("RenderGraph command list and resource pool belong to different NVRHI devices.");
-            RealizeResources(*params.ResourcePool, params.FrameSlot);
+            CpuPhaseScope timing(params.CpuObserver, RenderGraphCpuPhase::Compile);
+            CompileOrThrow();
         }
-        ValidatePhysicalResources();
-        ExecuteCompiled(params.CommandList, params.Instrumentation);
+
+        {
+            CpuPhaseScope timing(params.CpuObserver, RenderGraphCpuPhase::Realize);
+            if (params.ResourcePool)
+            {
+                if (params.CommandList->getDevice() != params.ResourcePool->GetDevice())
+                    throw RenderGraphValidationError("RenderGraph command list and resource pool belong to different NVRHI devices.");
+                RealizeResources(*params.ResourcePool, params.FrameSlot);
+            }
+        }
+        {
+            CpuPhaseScope timing(params.CpuObserver, RenderGraphCpuPhase::Validate);
+            ValidateBackendResourceUsages(params.CommandList->getDevice()->getGraphicsAPI());
+            ValidatePhysicalResources();
+        }
+        ExecuteCompiled(params.CommandList, params.Instrumentation, params.CpuObserver);
     }
 
     void RenderGraph::RealizeResources(
         RenderGraphResourcePool& resourcePool,
         uint32_t frameSlot)
     {
+        ValidateBackendResourceUsages(resourcePool.GetDevice()->getGraphicsAPI());
         if (!resourcePool.IsFrameActive(frameSlot))
         {
             throw RenderGraphValidationError(
@@ -1248,7 +1496,9 @@ namespace HEngine
                 texture.Desc,
                 texture.Lifetime,
                 texture.RequiredUsage,
-                texture.LifetimeInfo);
+                texture.LifetimeInfo,
+                texture.Lifetime == RenderGraphResourceLifetime::Transient &&
+                    !texture.bExported && !texture.bInitiallyInitialized);
         }
 
         for (uint32_t index = 0; index < mImpl->Buffers.size(); ++index)
@@ -1313,63 +1563,82 @@ namespace HEngine
 
     void RenderGraph::ExecuteCompiled(
         nvrhi::ICommandList* commandList,
-        IRenderGraphInstrumentation* instrumentation)
+        IRenderGraphInstrumentation* instrumentation,
+        IRenderGraphCpuObserver* cpuObserver)
     {
-
+        std::optional<CpuPhaseScope> setupTiming;
+        if (cpuObserver) setupTiming.emplace(cpuObserver, RenderGraphCpuPhase::Setup);
+        for (auto& pass : mImpl->Passes)
+            pass.bHasRecordedCommands = false;
+        const auto queue = commandList->getDesc().queueType;
+        const RenderGraphQueue recordedQueue = queue == nvrhi::CommandQueue::Compute
+            ? RenderGraphQueue::Compute : queue == nvrhi::CommandQueue::Copy
+                ? RenderGraphQueue::Copy : RenderGraphQueue::Graphics;
         std::vector<bool> trackedTextures(mImpl->Textures.size(), false);
+        std::unordered_set<nvrhi::ITexture*> trackedTransientTextures;
         std::vector<bool> trackedBuffers(mImpl->Buffers.size(), false);
+
+        setupTiming.reset();
 
         for (uint32_t executionIndex = 0; executionIndex < mImpl->ExecutionOrder.size(); ++executionIndex)
         {
             const uint32_t passIndex = mImpl->ExecutionOrder[executionIndex];
             Impl::PassRecord& pass = mImpl->Passes[passIndex];
-            bool bHasPendingBarriers = false;
-            for (const Impl::AccessDeclaration& access : pass.Accesses)
             {
-                const nvrhi::ResourceStates state = MapUsageToResourceStates(access.Usage);
-                if (access.Kind == ResourceKind::Texture)
+                CpuPhaseScope timing(cpuObserver, RenderGraphCpuPhase::Barriers, executionIndex, pass.Name);
+                bool bHasPendingBarriers = false;
+                for (const Impl::AccessDeclaration& access : pass.Accesses)
                 {
-                    Impl::TextureRecord& texture = mImpl->Textures[access.ResourceIndex];
-                    if (!trackedTextures[access.ResourceIndex])
+                    const nvrhi::ResourceStates state = MapUsageToResourceStates(access.Usage);
+                    if (access.Kind == ResourceKind::Texture)
                     {
-                        commandList->beginTrackingTextureState(
+                        Impl::TextureRecord& texture = mImpl->Textures[access.ResourceIndex];
+                        const bool bTransient = texture.Lifetime == RenderGraphResourceLifetime::Transient;
+                        if (!trackedTextures[access.ResourceIndex] &&
+                            (!bTransient || trackedTransientTextures.insert(texture.Resource.Get()).second))
+                        {
+                            commandList->beginTrackingTextureState(
+                                texture.Resource,
+                                nvrhi::TextureSubresourceSet(
+                                    0,
+                                    nvrhi::TextureSubresourceSet::AllMipLevels,
+                                    0,
+                                    nvrhi::TextureSubresourceSet::AllArraySlices),
+                                texture.InitialState);
+                            trackedTextures[access.ResourceIndex] = true;
+                        }
+                        commandList->setTextureState(
                             texture.Resource,
-                            nvrhi::TextureSubresourceSet(
-                                0,
-                                nvrhi::TextureSubresourceSet::AllMipLevels,
-                                0,
-                                nvrhi::TextureSubresourceSet::AllArraySlices),
-                            texture.InitialState);
-                        trackedTextures[access.ResourceIndex] = true;
+                            ToNvrhiSubresources(access.Subresources),
+                            MapTextureUsageToResourceStates(access.Usage, texture.Desc.Format,
+                                commandList->getDevice()->getGraphicsAPI()));
+                        bHasPendingBarriers = true;
                     }
-                    commandList->setTextureState(
-                        texture.Resource,
-                        ToNvrhiSubresources(access.Subresources),
-                        state);
-                    bHasPendingBarriers = true;
-                }
-                else if (access.Kind == ResourceKind::Buffer)
-                {
-                    Impl::BufferRecord& buffer = mImpl->Buffers[access.ResourceIndex];
-                    if (!trackedBuffers[access.ResourceIndex])
+                    else if (access.Kind == ResourceKind::Buffer)
                     {
-                        commandList->beginTrackingBufferState(buffer.Resource, buffer.InitialState);
-                        trackedBuffers[access.ResourceIndex] = true;
+                        Impl::BufferRecord& buffer = mImpl->Buffers[access.ResourceIndex];
+                        if (!trackedBuffers[access.ResourceIndex])
+                        {
+                            commandList->beginTrackingBufferState(buffer.Resource, buffer.InitialState);
+                            trackedBuffers[access.ResourceIndex] = true;
+                        }
+                        commandList->setBufferState(buffer.Resource, state);
+                        bHasPendingBarriers = true;
                     }
-                    commandList->setBufferState(buffer.Resource, state);
-                    bHasPendingBarriers = true;
+                    else
+                    {
+                        Impl::AccelerationStructureRecord& accelerationStructure =
+                            mImpl->AccelerationStructures[access.ResourceIndex];
+                        commandList->setAccelStructState(accelerationStructure.Resource, state);
+                        bHasPendingBarriers = true;
+                    }
                 }
-                else
-                {
-                    Impl::AccelerationStructureRecord& accelerationStructure =
-                        mImpl->AccelerationStructures[access.ResourceIndex];
-                    commandList->setAccelStructState(accelerationStructure.Resource, state);
-                    bHasPendingBarriers = true;
-                }
+                if (bHasPendingBarriers)
+                    commandList->commitBarriers();
             }
-            if (bHasPendingBarriers)
-                commandList->commitBarriers();
 
+            // Record includes attachment clears, marker/query commands and the pass callback.
+            CpuPhaseScope recordTiming(cpuObserver, RenderGraphCpuPhase::Record, executionIndex, pass.Name);
             commandList->beginMarker(pass.Name.c_str());
             nvrhi::ITimerQuery* timerQuery = instrumentation
                 ? instrumentation->GetTimerQuery(executionIndex, pass.Name)
@@ -1385,7 +1654,23 @@ namespace HEngine
                 commandList);
             try
             {
+                for (const auto& access : pass.Accesses)
+                {
+                    if (access.bAttachment && access.AttachmentOps.Load == RenderGraphAttachmentLoad::Clear)
+                    {
+                        const auto& texture = mImpl->Textures[access.ResourceIndex];
+                        if (access.Usage == RenderGraphUsage::DepthWrite)
+                            commandList->clearDepthStencilTexture(texture.Resource,
+                                ToNvrhiSubresources(access.Subresources), true, access.AttachmentOps.ClearDepth,
+                                nvrhi::getFormatInfo(texture.Desc.Format).hasStencil, access.AttachmentOps.ClearStencil);
+                        else
+                            commandList->clearTextureFloat(texture.Resource,
+                                ToNvrhiSubresources(access.Subresources), access.AttachmentOps.ClearColor);
+                    }
+                }
                 pass.Execute(context);
+                pass.RecordedQueue = recordedQueue;
+                pass.bHasRecordedCommands = true;
             }
             catch (...)
             {
@@ -1404,7 +1689,9 @@ namespace HEngine
             commandList->endMarker();
         }
 
+        CpuPhaseScope trailingTiming(cpuObserver, RenderGraphCpuPhase::Trailing);
         bool bHasFinalBarriers = false;
+        std::unordered_set<nvrhi::ITexture*> finalizedTransientTextures;
         const bool bVulkan = commandList->getDevice()->getGraphicsAPI() ==
             nvrhi::GraphicsAPI::VULKAN;
         for (uint32_t index = 0; index < mImpl->Textures.size(); ++index)
@@ -1434,7 +1721,12 @@ namespace HEngine
                 }
                 continue;
             }
-            if (!trackedTextures[index])
+            if (texture.Lifetime == RenderGraphResourceLifetime::Transient &&
+                !finalizedTransientTextures.insert(texture.Resource.Get()).second)
+                continue;
+            if (!trackedTextures[index] &&
+                (texture.Lifetime != RenderGraphResourceLifetime::Transient ||
+                    trackedTransientTextures.insert(texture.Resource.Get()).second))
             {
                 commandList->beginTrackingTextureState(
                     texture.Resource,
@@ -1538,6 +1830,7 @@ namespace HEngine
         mImpl->AccelerationStructures.clear();
         mImpl->Passes.clear();
         mImpl->Predecessors.clear();
+        mImpl->ContentPredecessors.clear();
         mImpl->Successors.clear();
         mImpl->ResourceNamespace = AllocateResourceNamespace();
         mImpl->MarkDirty();
@@ -1715,10 +2008,14 @@ namespace HEngine
                 .TopologicalIndex = topologicalIndices[passId],
                 .ExecutionIndex = executionIndices[passId],
                 .Name = pass.Name,
+                .FeatureTypeId = pass.FeatureTypeId,
+                .FeatureInstanceId = pass.FeatureInstanceId,
                 .Queue = pass.Queue,
                 .bSideEffect = pass.bSideEffect,
                 .bSetupComplete = pass.bSetupComplete,
                 .bCulled = mImpl->bCompiled ? pass.bCulled : true,
+                .bHasRecordedCommands = mImpl->bCompiled && !mImpl->bDirty && pass.bHasRecordedCommands,
+                .RecordedQueue = pass.RecordedQueue,
             });
 
             for (const Impl::AccessDeclaration& access : pass.Accesses)
@@ -1731,6 +2028,8 @@ namespace HEngine
                     .Usage = access.Usage,
                     .Subresources = access.Subresources,
                     .bHasSubresources = access.Kind == ResourceKind::Texture,
+                    .bAttachment = access.bAttachment,
+                    .AttachmentOps = access.AttachmentOps,
                 });
             }
         }
@@ -1739,10 +2038,15 @@ namespace HEngine
             mImpl->Textures.size() +
             mImpl->Buffers.size() +
             mImpl->AccelerationStructures.size());
+        std::unordered_map<nvrhi::ITexture*, uint32_t> physicalTextureGroups;
         for (uint32_t resourceId = 0; resourceId < mImpl->Textures.size(); ++resourceId)
         {
             const Impl::TextureRecord& texture = mImpl->Textures[resourceId];
             const nvrhi::FormatInfo& format = nvrhi::getFormatInfo(texture.Desc.Format);
+            uint32_t physicalTextureGroup = 0;
+            if (texture.Resource)
+                physicalTextureGroup = physicalTextureGroups.try_emplace(texture.Resource.Get(),
+                    static_cast<uint32_t>(physicalTextureGroups.size() + 1)).first->second;
             snapshot.Resources.push_back(RenderGraphDiagnosticResourceSnapshot{
                 .ResourceId = resourceId,
                 .Kind = RenderGraphDiagnosticResourceKind::Texture,
@@ -1756,6 +2060,7 @@ namespace HEngine
                     : RenderGraphUsage::None,
                 .bInitiallyInitialized = texture.bInitiallyInitialized,
                 .bExported = texture.bExported,
+                .PhysicalTextureGroup = physicalTextureGroup,
                 .Width = texture.Desc.Width,
                 .Height = texture.Desc.Height,
                 .Depth = texture.Desc.Depth,
@@ -1914,6 +2219,51 @@ namespace HEngine
                  << " last=" << resource.PassInterval.LastUse << '\n';
         }
         return dump.str();
+    }
+
+    void RenderGraph::ValidateBackendResourceUsages(nvrhi::GraphicsAPI api) const
+    {
+        if (api != nvrhi::GraphicsAPI::D3D12) return;
+        for (const auto passIndex : mImpl->ExecutionOrder)
+        {
+            const auto& pass = mImpl->Passes[passIndex];
+            for (const auto& access : pass.Accesses)
+            {
+                if (access.Kind != ResourceKind::Texture || !HasRenderGraphUsage(access.Usage, RenderGraphUsage::DepthRead)) continue;
+                const auto& texture = mImpl->Textures[access.ResourceIndex];
+                for (uint32_t slice = 0; slice < texture.Desc.ArrayLayers; ++slice)
+                    for (uint32_t mip = 0; mip < texture.Desc.MipLevels; ++mip)
+                    {
+                        if (!ContainsSubresource(access.Subresources, mip, slice)) continue;
+                        auto usage = access.Usage;
+                        for (const auto& other : pass.Accesses)
+                            if (other.Kind == ResourceKind::Texture && other.ResourceIndex == access.ResourceIndex &&
+                                ContainsSubresource(other.Subresources, mip, slice)) usage = usage | other.Usage;
+                        try { (void)MapTextureUsageToResourceStates(usage, texture.Desc.Format, api); }
+                        catch (const RenderGraphValidationError& error)
+                        {
+                            throw RenderGraphValidationError("Pass '" + pass.Name + "', texture '" + texture.Desc.DebugName + "': " + error.what());
+                        }
+                    }
+            }
+        }
+    }
+
+    nvrhi::ResourceStates RenderGraph::MapTextureUsageToResourceStates(
+        RenderGraphUsage usage, nvrhi::Format format, nvrhi::GraphicsAPI api)
+    {
+        if (api == nvrhi::GraphicsAPI::D3D12 && HasRenderGraphUsage(usage, RenderGraphUsage::DepthRead) &&
+            usage != RenderGraphUsage::DepthRead)
+            throw RenderGraphValidationError("D3D12 enhanced barriers do not support combining depth attachment reads with another texture layout; split passes or sample a depth snapshot");
+        auto states = MapUsageToResourceStates(usage);
+        const auto& info = nvrhi::getFormatInfo(format);
+        // NVRHI depth/stencil SRV descriptors use the depth-read layout, even
+        // without a simultaneous depth attachment. Keep the graph's explicit
+        // barriers consistent while retaining shader-stage access visibility.
+        if (api == nvrhi::GraphicsAPI::VULKAN && HasRenderGraphUsage(usage, RenderGraphUsage::ShaderResource) &&
+            (info.hasDepth || info.hasStencil))
+            states = states | nvrhi::ResourceStates::DepthRead;
+        return states;
     }
 
     nvrhi::ResourceStates RenderGraph::MapUsageToResourceStates(RenderGraphUsage usage)
@@ -2083,7 +2433,8 @@ namespace HEngine
         RenderGraphAccess requiredAccess) const
     {
         if (!IsDeclared(handle, requiredAccess))
-            throw RenderGraphValidationError("RenderGraph pass accessed an undeclared texture.");
+            throw RenderGraphValidationError("RenderGraph pass '" + std::string(GetPassName()) +
+                "' accessed an undeclared texture (index " + std::to_string(handle.Index) + ").");
         return mGraph.ResolveTexture(handle);
     }
 
@@ -2278,6 +2629,20 @@ namespace HEngine
         RenderGraphSubresourceRange subresources)
     {
         return Write(handle, RenderGraphUsage::RenderTarget, subresources);
+    }
+
+    TextureHandle RenderGraphBuilder::ColorAttachment(TextureHandle handle,
+        const RenderGraphAttachmentOps& ops, RenderGraphSubresourceRange subresources)
+    {
+        mGraph.DeclareAttachment(mPass, handle, ops, subresources, false);
+        return handle;
+    }
+
+    TextureHandle RenderGraphBuilder::DepthAttachment(TextureHandle handle,
+        const RenderGraphAttachmentOps& ops, RenderGraphSubresourceRange subresources)
+    {
+        mGraph.DeclareAttachment(mPass, handle, ops, subresources, true);
+        return handle;
     }
 
     TextureHandle RenderGraphBuilder::DepthRead(

@@ -80,12 +80,14 @@ namespace HEngine
             OfflineViewportRendererProviderDescriptor Descriptor;
             size_t ActiveSessionCount = 0;
             bool bDraining = false;
+            uint64_t Token = 0;
         };
 
         struct OfflineViewportRendererRegistryState
         {
             mutable std::mutex Mutex;
             std::vector<OfflineViewportRendererRegistryEntry> Entries;
+            uint64_t NextToken = 1;
         };
 
         [[nodiscard]] auto FindEntry(
@@ -129,13 +131,13 @@ namespace HEngine
 
         void BeginDrain(
             const std::shared_ptr<OfflineViewportRendererRegistryState>& state,
-            std::string_view id) noexcept
+            std::string_view id, uint64_t token) noexcept
         {
             if (!state)
                 return;
             const std::scoped_lock lock(state->Mutex);
             const auto entry = FindEntry(*state, id);
-            if (entry == state->Entries.end())
+            if (entry == state->Entries.end() || entry->Token != token)
                 return;
             entry->bDraining = true;
             if (entry->ActiveSessionCount == 0)
@@ -146,8 +148,8 @@ namespace HEngine
     OfflineViewportRendererProviderRegistration::
         OfflineViewportRendererProviderRegistration(
             std::shared_ptr<Detail::OfflineViewportRendererRegistryState> state,
-            std::string id) noexcept
-        : mState(std::move(state)), mId(std::move(id))
+            std::string id, uint64_t token) noexcept
+        : mState(std::move(state)), mId(std::move(id)), mToken(token)
     {
     }
 
@@ -160,7 +162,8 @@ namespace HEngine
     OfflineViewportRendererProviderRegistration::
         OfflineViewportRendererProviderRegistration(
             OfflineViewportRendererProviderRegistration&& other) noexcept
-        : mState(std::move(other.mState)), mId(std::move(other.mId))
+        : mState(std::move(other.mState)), mId(std::move(other.mId)),
+          mToken(std::exchange(other.mToken, 0))
     {
     }
 
@@ -173,6 +176,7 @@ namespace HEngine
         Release();
         mState = std::move(other.mState);
         mId = std::move(other.mId);
+        mToken = std::exchange(other.mToken, 0);
         return *this;
     }
 
@@ -182,14 +186,15 @@ namespace HEngine
             return false;
         const std::scoped_lock lock(mState->Mutex);
         const auto entry = Detail::FindEntry(*mState, mId);
-        return entry != mState->Entries.end() && !entry->bDraining;
+        return entry != mState->Entries.end() && !entry->bDraining &&
+            entry->Token == mToken;
     }
 
     void OfflineViewportRendererProviderRegistration::Release() noexcept
     {
         if (!mState)
             return;
-        Detail::BeginDrain(mState, mId);
+        Detail::BeginDrain(mState, mId, mToken);
         mState.reset();
         mId.clear();
     }
@@ -281,8 +286,9 @@ namespace HEngine
             throw std::logic_error(
                 "Offline viewport renderer provider is already registered");
         const std::string id = descriptor.Id;
-        mState->Entries.push_back({ std::move(descriptor), 0, false });
-        return OfflineViewportRendererProviderRegistration(mState, id);
+        const uint64_t token = mState->NextToken++;
+        mState->Entries.push_back({ std::move(descriptor), 0, false, token });
+        return OfflineViewportRendererProviderRegistration(mState, id, token);
     }
 
     void OfflineViewportRendererProviderRegistry::Unregister(

@@ -78,15 +78,21 @@ namespace HEngine
         const glm::vec2 anchorMax = parentSize * layout.AnchorMax;
 
         UILayoutRect rect;
-        if (layout.AnchorMin != layout.AnchorMax)
+        // Each Canvas Slot axis is independent: a top bar can stretch in X
+        // while retaining an authored height and vertical alignment.
+        for (int axis = 0; axis < 2; ++axis)
         {
-            rect.Position = anchorMin + layout.OffsetMin;
-            rect.Size = glm::max((anchorMax - anchorMin) + layout.OffsetMax - layout.OffsetMin, glm::vec2(0.0f, 0.0f));
-            return rect;
+            if (layout.AnchorMin[axis] != layout.AnchorMax[axis])
+            {
+                rect.Position[axis] = anchorMin[axis] + layout.OffsetMin[axis];
+                rect.Size[axis] = std::max(anchorMax[axis] - anchorMin[axis] + layout.OffsetMax[axis] - layout.OffsetMin[axis], 0.0f);
+            }
+            else
+            {
+                rect.Size[axis] = std::max(layout.OffsetMax[axis], 0.0f);
+                rect.Position[axis] = anchorMin[axis] + layout.OffsetMin[axis] - layout.Pivot[axis] * rect.Size[axis];
+            }
         }
-
-        rect.Size = ResolveUILayoutSize(layout);
-        rect.Position = anchorMin + ResolveUILayoutPosition(layout) - layout.Pivot * rect.Size;
         return rect;
     }
 

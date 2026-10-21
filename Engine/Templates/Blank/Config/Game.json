@@ -1,0 +1,12 @@
+{
+  "Game": {
+    "Name": "New Game",
+    "DefaultScene": "Assets/Scenes/Main.he"
+  },
+  "Cook": {
+    "RootFiles": [
+      "Assets/Scenes/Main.he"
+    ],
+    "IncludeDirectories": []
+  }
+}

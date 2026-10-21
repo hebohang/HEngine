@@ -2,13 +2,23 @@
 
 #include "Runtime/Core/Base/Base.h"
 #include "Runtime/Graphics/RHI/RenderBackend.h"
+#include "Runtime/Graphics/RHI/RenderDevice.h"
 #include "Runtime/Graphics/GlobalIllumination/GlobalIllumination.h"
 #include "Runtime/Graphics/GlobalIllumination/GlobalIlluminationTechniqueRegistry.h"
 #include "Runtime/Graphics/RHI/TextureReadback.h"
+#include "Runtime/Graphics/RHI/FrameCaptureSource.h"
 #include "Runtime/Graphics/RHI/TextureManager.h"
 #include "Runtime/Graphics/Renderer/AntiAliasing.h"
+#include "Runtime/Graphics/Renderer/Upscaling.h"
+#include "Runtime/Graphics/Renderer/RenderingPath.h"
+#include "Runtime/Graphics/Renderer/ScenePostProcessPass.h"
+#include "Runtime/Graphics/Renderer/SceneAmbientOcclusionPass.h"
+#include "Runtime/Graphics/Renderer/SceneCloudPass.h"
+#include "Runtime/Graphics/Renderer/SceneReflectionPass.h"
 #include "Runtime/Graphics/Renderer/RuntimeUiRenderGraphPass.h"
 #include "Runtime/Graphics/Renderer/ViewportRendererExtension.h"
+#include "Runtime/Core/Meta/Json.h"
+#include "Runtime/Graphics/Renderer/RenderFeature.h"
 
 #include <nvrhi/nvrhi.h>
 
@@ -24,24 +34,58 @@ namespace HEngine
     class RenderSurface;
     struct MaterialShaderRefreshResult;
     struct RenderWorld;
+    struct SceneRendererStats;
     struct ResolvedRenderSettings;
     struct RenderSettingsChangePlan;
     struct RenderGraphDiagnosticSnapshot;
 
     struct RuntimeRendererDesc
     {
+        std::string PipelineType = "realtime";
+        Json PipelineFeatures = DefaultRenderFeatureConfigurations();
+        uint64_t TransientCacheBudgetBytes = std::numeric_limits<uint64_t>::max();
+        uint64_t TextureStreamingBudgetBytes = 512ull * 1024 * 1024;
         RenderSurface* Surface = nullptr;
 		RenderBackend Backend = RenderBackend::DX12;
+        RenderingPath Path = RenderingPath::Deferred;
         RenderAdapterSelectionOptions AdapterSelection;
+        uint32_t FramesInFlight = 3;
         std::filesystem::path ShaderCacheDirectory;
         std::filesystem::path AssetRootDirectory;
         std::filesystem::path EngineAssetRootDirectory;
         bool bEnableValidation = false;
         bool bEnableGpuTiming = false;
+        bool bEnableCpuGraphTiming = false;
+        bool bEnableGpuFrameMarkers = true;
         GlobalIlluminationSettings GlobalIllumination;
         AntiAliasingSettings AntiAliasing;
+        UpscalingSettings Upscaling;
+        ScenePostProcessSettings PostProcess;
+        SceneAmbientOcclusionSettings AmbientOcclusion;
+        CloudSettings Clouds;
+        SceneReflectionSettings Reflections;
+        bool bGpuOcclusionEnabled = false;
+        bool bGpuBatchingEnabled = false;
+        bool bGpuTightFrustumEnabled = false;
+        bool bGpuShadowBatchingEnabled = false;
+        bool bTransientTextureReuse = false;
+        bool bLodEnabled = false;
+        bool bShadowsEnabled = true;
+        bool bContinuousPcfEnabled = true;
+        float LodMaxPixelError = 1.0f;
         std::uint32_t PbrDebugMode = 0;
         bool bShadowCascadeDebug = false;
+    };
+
+    struct RuntimeConfigurationPreparationStats
+    {
+        uint64_t AttemptId = 0;
+        uint32_t PreparedViews = 0;
+        bool bCommitted = false;
+        double PreparationMilliseconds = 0.0;
+        double TransactionMilliseconds = 0.0;
+        uint64_t ObservedActivePoolNominalBytes = 0;
+        uint64_t PreparedCandidatePoolNominalBytes = 0;
     };
 
     enum class RuntimeEnvironmentState : uint8_t
@@ -107,6 +151,10 @@ namespace HEngine
         Ref<const RenderWorld> World;
         IRuntimeOverlayRecorder* OverlayRecorder = nullptr;
         std::filesystem::path CapturePath;
+        FrameCaptureSource CaptureSource = FrameCaptureSource::Automatic;
+        uint64_t ApplicationSimulationFrame = 0;
+        bool bApplicationSimulationFrameValid = false;
+        bool bCaptureSequenceHistory = false; // Bounded diagnostic only; no readback.
     };
 
     struct RuntimeRendererFrameResult
@@ -114,6 +162,8 @@ namespace HEngine
         uint32_t FrameSlot = 0;
         uint64_t Submission = 0;
         TextureReadbackHandle Capture;
+        std::string CaptureError;
+        Json SequenceHistory = nullptr;
     };
 
 	struct RuntimeOffscreenViewHandle
@@ -159,6 +209,10 @@ namespace HEngine
         void Initialize(const RuntimeRendererDesc& desc);
         void Shutdown();
 
+        // Opens the host list before simulation; RenderFrame submits the same scope.
+        void BeginSimulationFrame();
+        void AbortSimulationFrame() noexcept;
+
         [[nodiscard]] RuntimeRendererFrameResult RenderFrame(
             const RuntimeRendererFrameDesc& desc,
             bool bVSync);
@@ -170,6 +224,7 @@ namespace HEngine
         void ApplyRenderSettingsBatch(
             const ResolvedRenderSettings& settings,
             const RenderSettingsChangePlan& plan);
+        [[nodiscard]] RuntimeConfigurationPreparationStats GetConfigurationPreparationStats() const noexcept;
         [[nodiscard]] AntiAliasingSettings GetAntiAliasingSettings() const;
         [[nodiscard]] AntiAliasingSettings
             GetRequestedAntiAliasingSettings() const;
@@ -181,6 +236,7 @@ namespace HEngine
         void SetGlobalIlluminationSettings(
             const GlobalIlluminationSettings& settings);
         void ResetGlobalIlluminationHistory();
+        void ResetTemporalHistory();
         [[nodiscard]] GlobalIlluminationSettings
             GetGlobalIlluminationSettings() const;
         [[nodiscard]] GlobalIlluminationSettings
@@ -192,6 +248,7 @@ namespace HEngine
         [[nodiscard]] std::vector<GlobalIlluminationTechniqueDescriptor>
             EnumerateGlobalIlluminationTechniques() const;
         [[nodiscard]] RenderCapabilities GetCapabilities() const;
+        [[nodiscard]] Ref<const RenderWorld> GetLastSubmittedRenderWorld() const noexcept;
         void ActivateOfflineViewportRenderer(std::string providerId);
         void DeactivateOfflineViewportRenderer();
         [[nodiscard]] std::string GetActiveOfflineViewportRendererId() const;
@@ -209,6 +266,10 @@ namespace HEngine
 		[[nodiscard]] ManagedTextureHandle LoadTexture(const TextureLoadDesc& desc);
 		[[nodiscard]] const ManagedTexture& GetTexture(ManagedTextureHandle handle) const;
 		void ReleaseTexture(ManagedTextureHandle handle, uint64_t retireSubmission);
+		[[nodiscard]] size_t RequestTextureReload(std::string_view assetPath);
+#if defined(HE_DEV_AGENT_RUNTIME)
+        bool InjectUpscalingFailureForValidation(bool duringDispatch);
+#endif
 
 		void EnableMainOffscreenOutput();
 		[[nodiscard]] RuntimeOffscreenOutput GetMainOffscreenOutput() const;
@@ -225,6 +286,7 @@ namespace HEngine
 			Ref<const RenderWorld> world);
 		[[nodiscard]] RuntimeOffscreenOutput GetOffscreenOutput(
 			RuntimeOffscreenViewHandle handle) const;
+		[[nodiscard]] const SceneRendererStats& GetOffscreenSceneStats(RuntimeOffscreenViewHandle handle) const;
 		[[nodiscard]] TextureReadbackHandle RequestOffscreenCapture(
 			RuntimeOffscreenViewHandle handle,
 			std::filesystem::path outputPath);
@@ -238,11 +300,19 @@ namespace HEngine
 
         [[nodiscard]] bool IsInitialized() const noexcept;
         [[nodiscard]] nvrhi::IDevice* GetDevice() const;
+        [[nodiscard]] RenderMemoryBudget QueryMemoryBudget() const;
+        void BeginGpuTimingFrame(uint64_t cpuFrameId);
+        void CancelGpuTimingFrame() noexcept;
+        [[nodiscard]] std::vector<RenderSubmissionGpuTiming> TakeSubmissionTimings();
+        [[nodiscard]] uint64_t GetLastTimingSampleId() const;
+
+        [[nodiscard]] bool IsCaptureSourceAvailable(FrameCaptureSource source) const;
         [[nodiscard]] uint32_t GetFramesInFlight() const;
         [[nodiscard]] uint32_t GetWidth() const;
         [[nodiscard]] uint32_t GetHeight() const;
 		[[nodiscard]] RenderBackend GetBackend() const;
 		[[nodiscard]] std::string BuildSceneStatsSummary() const;
+        [[nodiscard]] const SceneRendererStats& GetSceneStats() const;
 		[[nodiscard]] RenderGraphDiagnosticSnapshot
 			GetRenderGraphDiagnosticSnapshot() const;
 		[[nodiscard]] std::string BuildRenderGraphDebugDump() const;

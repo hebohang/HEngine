@@ -122,6 +122,7 @@ private:
     std::map<std::string, std::vector<std::shared_ptr<Class>>> m_types_by_short_name;
     std::map<std::string, size_t> m_candidate_logical_source_counts;
     std::set<std::string> m_candidate_source_files;
+    std::set<std::string> m_include_dependencies;
 
     std::vector<std::unique_ptr<Generator::GeneratorInterface>> m_generators;
     std::vector<Diagnostic> m_diagnostics;

@@ -8,15 +8,12 @@
 #include "Runtime/Scripting/ScriptEngine.h"
 #include "Runtime/UI/Rml/RmlUiManager.h"
 
-#include <pybind11/embed.h>
-#include <pybind11/pybind11.h>
 
 #include <algorithm>
 #include <exception>
 #include <stdexcept>
 #include <utility>
 
-namespace py = pybind11;
 
 namespace HEngine
 {
@@ -133,7 +130,6 @@ namespace HEngine
             throw std::logic_error("Python runtime owner is already started.");
         }
 
-        py::gil_scoped_acquire acquire;
         ScopedCurrentScriptOwner currentOwner(owner);
         bool bOwnerTracked = false;
         try
@@ -178,12 +174,8 @@ namespace HEngine
             ScriptEngine::ReloadModuleAndClass(owner);
 #endif
 
-            auto& pyClass = ScriptEngine::GetPyClass(owner);
-            if (!py::hasattr(pyClass, "Start"))
-                return true;
-            const auto& func = pyClass.attr("Start");
             HE_PROFILE_SECTION("PythonScriptSystem::StartCallback");
-            func(entity);
+            ScriptEngine::Invoke(owner, LegacyScriptCallback::Start, &entity);
             return true;
         }
         catch (...)
@@ -258,9 +250,8 @@ namespace HEngine
 
         try
         {
-            if (Py_IsInitialized() != 0)
+            if (ScriptEngine::IsInitialized())
             {
-                py::gil_scoped_acquire acquire;
                 ScriptEngine::UnregisterModule(owner);
             }
         }
@@ -286,6 +277,7 @@ namespace HEngine
         // Remove first so Stop()->HEngine.Destroy(self) cannot recursively invoke
         // the same callback. The outer transaction retains cleanup ownership.
         mStartedScriptOwners.erase(ownerIt);
+        mFaultedOwners.erase(owner);
         std::exception_ptr firstFailure;
         const auto recordFailure = [&firstFailure](std::string_view context) noexcept
         {
@@ -310,17 +302,14 @@ namespace HEngine
             }
         };
 
-        if (bInvokeStopCallback && Py_IsInitialized() != 0)
+        if (bInvokeStopCallback && ScriptEngine::IsInitialized())
         {
             try
             {
-                py::gil_scoped_acquire acquire;
                 ScopedCurrentScriptOwner currentOwner(owner);
                 if (ScriptEngine::IsClassRegistered(owner))
                 {
-                    auto& pyClass = ScriptEngine::GetPyClass(owner);
-                    if (py::hasattr(pyClass, "Stop"))
-                        pyClass.attr("Stop")();
+                    ScriptEngine::Invoke(owner, LegacyScriptCallback::Stop);
                 }
             }
             catch (...)
@@ -405,7 +394,13 @@ namespace HEngine
             }
 
             Entity entity = { handle, mLevel };
-            (void)StartRuntimeOwner(entity, true);
+            const std::string ownerId = entity.UUID().str();
+            const std::string scriptPath = entity.GetComponent<PythonScriptComponent>().Path;
+            try { (void)StartRuntimeOwner(entity, true); }
+            catch (const std::exception& error)
+            {
+                HE_CORE_ERROR("[Python] owner={0}, script={1}: {2}", ownerId, scriptPath, error.what());
+            }
         }
     }
 
@@ -413,8 +408,14 @@ namespace HEngine
     {
 		HE_PROFILE;
 
-        CallPyClassFuncAll(mLevel->IsRuntimePaused() ? "UpdatePaused" : "Update", ts);
+        CallAll(mLevel->IsRuntimePaused() ? LegacyScriptCallback::UpdatePaused : LegacyScriptCallback::Update, ts.GetSeconds());
     }
+
+	void PythonScriptSystem::OnFixedUpdate(Timestep ts)
+	{
+		HE_PROFILE_SECTION("PythonScriptSystem::FixedUpdate");
+		CallAll(LegacyScriptCallback::FixedUpdate, ts.GetSeconds());
+	}
 
     void PythonScriptSystem::OnRuntimeStop()
     {
@@ -471,13 +472,7 @@ namespace HEngine
     {
         // Legacy runtime ImGui UI path. New runtime UI should use HEngine.RmlUI
         // from Start/Update/OnUIEvent and render through RmlUiManager instead.
-        CallPyClassFuncAll("OnUI");
-    }
-
-    template<typename... Args>
-    static void UnPacking(Args... args)
-    {
-        HE_CORE_INFO(args...);
+        CallAll(LegacyScriptCallback::UI);
     }
 
 #if WITH_EDITOR
@@ -492,82 +487,24 @@ namespace HEngine
     }
 #endif
 
-    template<typename... Args>
-    void PythonScriptSystem::CallPyFuncAll(const char* funcName, Args... args)
+    void PythonScriptSystem::CallAll(LegacyScriptCallback callback, float seconds)
     {
-        auto view = mLevel->mRegistry.view<TransformComponent, PythonScriptComponent>();
-        std::vector<EntityHandle> owners;
-        owners.reserve(view.size_hint());
-        for (const EntityHandle handle : view)
-            owners.push_back(handle);
-
-        for (const EntityHandle handle : owners)
+        const auto owners = mStartedScriptOwners;
+        for (const UUID& owner : owners)
         {
-            if (!mLevel->mRegistry.valid(handle) ||
-                !mLevel->mRegistry.all_of<TransformComponent, PythonScriptComponent>(handle))
-            {
+            if (mFaultedOwners.contains(owner) || !ScriptEngine::IsClassRegistered(owner))
                 continue;
-            }
-
-            Entity entity = { handle, mLevel };
-            auto& script = entity.GetComponent<PythonScriptComponent>();
-            if (script.Path.empty() || script.Path == "None")
+            if (std::find(mStartedScriptOwners.begin(), mStartedScriptOwners.end(), owner) == mStartedScriptOwners.end())
                 continue;
-
             try
             {
-                py::gil_scoped_acquire acquire;
-                ScopedCurrentScriptOwner currentOwner(entity.UUID());
-                if (!ScriptEngine::IsModuleRegistered(entity.UUID()))
-                    continue;
-                auto pyModule = ScriptEngine::GetPyModule(entity.UUID());
-                const auto& func = pyModule.attr(funcName);
-                func(args...);
+                ScopedCurrentScriptOwner currentOwner(owner);
+                ScriptEngine::Invoke(owner, callback, nullptr, seconds);
             }
-            catch (py::error_already_set& e)
+            catch (const std::exception& error)
             {
-                HE_CORE_ERROR(e.what());
-            }
-        }
-    }
-
-    template<typename... Args>
-    void PythonScriptSystem::CallPyClassFuncAll(const char* funcName, Args... args)
-    {
-        auto view = mLevel->mRegistry.view<TransformComponent, PythonScriptComponent>();
-        std::vector<EntityHandle> owners;
-        owners.reserve(view.size_hint());
-        for (const EntityHandle handle : view)
-            owners.push_back(handle);
-
-        for (const EntityHandle handle : owners)
-        {
-            if (!mLevel->mRegistry.valid(handle) ||
-                !mLevel->mRegistry.all_of<TransformComponent, PythonScriptComponent>(handle))
-            {
-                continue;
-            }
-
-            Entity entity = { handle, mLevel };
-            auto& script = entity.GetComponent<PythonScriptComponent>();
-            if (script.Path.empty() || script.Path == "None")
-                continue;
-
-            try
-            {
-                py::gil_scoped_acquire acquire;
-                ScopedCurrentScriptOwner currentOwner(entity.UUID());
-                if (!ScriptEngine::IsClassRegistered(entity.UUID()))
-                    continue;
-                auto& pyClass = ScriptEngine::GetPyClass(entity.UUID());
-                const auto& func = pyClass.attr(funcName);
-                func(args...);
-            }
-            catch (py::error_already_set& e)
-            {
-                std::string errorMess = e.what();
-                std::string endStr = std::string("has no attribute ") + "'" + funcName + "'";
-                if (!errorMess.ends_with(endStr.c_str())) HE_CORE_ERROR(e.what());
+                mFaultedOwners.insert(owner);
+                HE_CORE_ERROR("[Python] owner={0}: {1}. Updates disabled until scene restart.", owner.str(), error.what());
             }
         }
     }

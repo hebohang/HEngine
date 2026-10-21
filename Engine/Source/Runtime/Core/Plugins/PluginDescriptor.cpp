@@ -144,7 +144,7 @@ namespace HEngine
         {
             const uint32_t value = static_cast<uint32_t>(platforms);
             constexpr uint32_t Valid =
-                static_cast<uint32_t>(PluginPlatform::Windows);
+                static_cast<uint32_t>(PluginPlatform::Windows | PluginPlatform::Web | PluginPlatform::WeChat | PluginPlatform::Android | PluginPlatform::macOS);
             return value != 0u && (value & ~Valid) == 0u;
         }
 
@@ -325,7 +325,7 @@ namespace HEngine
             return Failure(PluginValidationError::ShippingPolicyViolation,
                 "DeveloperOnly plugin cannot be registered in Shipping: " + descriptor.Id);
 
-        if (environment.Platform != PluginPlatform::Windows ||
+        if ((environment.Platform != PluginPlatform::Windows && environment.Platform != PluginPlatform::Web && environment.Platform != PluginPlatform::WeChat && environment.Platform != PluginPlatform::Android && environment.Platform != PluginPlatform::macOS) ||
             !IsValidPlatformMask(descriptor.Platforms))
             return Failure(PluginValidationError::InvalidPlatform,
                 "Plugin platform selection or mask is invalid: " + descriptor.Id);

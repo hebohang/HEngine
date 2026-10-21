@@ -1,0 +1,10 @@
+{
+    "Rendering.AO.Enabled": true,
+    "Rendering.AO.Technique": "SSAO",
+    "Rendering.AO.Radius": 1.0,
+    "Rendering.AO.Intensity": 1.0,
+    "Rendering.AO.NormalBias": 0.01,
+    "Rendering.AO.SampleCount": 16,
+    "Rendering.AO.FastUpsample": true,
+    "Rendering.Reflections.SSR.Enabled": false
+}

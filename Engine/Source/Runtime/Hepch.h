@@ -8,7 +8,9 @@
 #include <algorithm>
 #include <functional>
 #include <regex>
+#if !defined(HE_WECHAT)
 #include <execution>
+#endif
 #include <filesystem>
 
 #include <string>

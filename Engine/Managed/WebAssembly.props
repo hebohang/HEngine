@@ -1,0 +1,23 @@
+<Project>
+  <Import Project="Directory.Build.props" />
+  <PropertyGroup>
+    <HEPlatform Condition="'$(HEPlatform)' == ''">Web</HEPlatform>
+  </PropertyGroup>
+  <Import Project="Platform.props" />
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <WasmMainJSPath>main.js</WasmMainJSPath>
+    <WasmEnableThreads>false</WasmEnableThreads>
+    <WasmEnableSIMD>false</WasmEnableSIMD>
+    <!-- Mobile WeChat runtimes may lack native Wasm EH. Use the supported
+         JavaScript exception ABI, including Web artifacts reused by WeChat. -->
+    <WasmEnableExceptionHandling>false</WasmEnableExceptionHandling>
+    <BlazorWebAssemblyJiterpreter>false</BlazorWebAssemblyJiterpreter>
+    <WasmBuildNative>true</WasmBuildNative>
+    <PublishTrimmed>false</PublishTrimmed>
+    <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)WebAssembly/GameSessionBridge.cs" Link="HEngine/GameSessionBridge.cs" />
+  </ItemGroup>
+</Project>

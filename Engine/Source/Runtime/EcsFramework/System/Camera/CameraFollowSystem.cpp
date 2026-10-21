@@ -2,6 +2,8 @@
 
 #include "Runtime/EcsFramework/System/Camera/CameraFollowSystem.h"
 #include "Runtime/Core/Input/Input.h"
+#include "Runtime/Core/Input/InputActions.h"
+#include "Runtime/Camera/CameraSpring.h"
 #include "Runtime/Core/Input/MouseCodes.h"
 #include "Runtime/EcsFramework/Component/Camera/CameraComponent.h"
 #include "Runtime/EcsFramework/Component/Camera/FollowCameraComponent.h"
@@ -10,9 +12,12 @@
 #include "Runtime/EcsFramework/Component/Transform/TransformComponent.h"
 #include "Runtime/EcsFramework/Entity/Entity.h"
 #include "Runtime/EcsFramework/System/Physics/PhysicSystem3D.h"
+#include "Runtime/EcsFramework/System/Movement/CharacterPresentation.h"
 #include "Runtime/Core/AppFramework/Application.h"
 #include "Runtime/Core/UUID.h"
+#include "Runtime/Utils/MathUtils/Rotation.h"
 
+#if HE_ENABLE_PHYSICS_3D
 #include <Jolt/Physics/Body/BodyFilter.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
@@ -20,6 +25,7 @@
 #include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Math/MathTypes.h>
+#endif
 
 #include <cmath>
 #include <unordered_map>
@@ -98,9 +104,12 @@ namespace HEngine
 			if (!level->GetWorldTransformComponents(cameraEntity, cameraWorldTranslation, cameraWorldRotation, cameraWorldScale))
 				return;
 
-			const glm::vec3 targetWorldTranslation = level->GetWorldTranslation(targetEntity);
+			glm::vec3 targetWorldTranslation = level->GetWorldTranslation(targetEntity);
+            if (bRuntime)
+                if (const auto offset = GetCharacterPresentationOffset(*level, targetEntity))
+                    targetWorldTranslation += *offset;
 			const glm::vec3 targetWorldRotation = level->GetWorldRotation(targetEntity);
-			const glm::vec3 pivot = targetWorldTranslation + springArm.TargetOffset;
+			glm::vec3 pivot = targetWorldTranslation + springArm.TargetOffset;
 
 			if (!followComp.bRuntimeInitialized)
 			{
@@ -118,6 +127,16 @@ namespace HEngine
                 springArm.RuntimeCurrentDistance = -1.0f;
                 followComp.bRuntimeInitialized = true;
             }
+
+            if (bRuntime && springArm.bEnableLag && springArm.RuntimeCurrentDistance >= 0.0f &&
+                glm::distance(pivot, springArm.RuntimePivot) < std::max(0.1f, springArm.LagResetDistance))
+            {
+                AdvanceCameraSpring(springArm.RuntimePivot, springArm.RuntimePivotVelocity, pivot,
+                    glm::vec3(springArm.LagSpeed, springArm.VerticalLagSpeed, springArm.LagSpeed), dt);
+                pivot = springArm.RuntimePivot;
+            }
+            else springArm.RuntimePivotVelocity = glm::vec3(0.0f);
+            springArm.RuntimePivot = pivot;
 
             glm::vec2 mouseDelta = glm::vec2(0.0f);
             if (bRuntime)
@@ -149,11 +168,17 @@ namespace HEngine
 
                 followComp.RuntimeLastMousePos = mousePos;
 
+                // Look is an angular rate, independent of mouse capture/hold.
+                // Reuse camera sensitivity (including gameplay aim scaling) at
+                // an equivalent full-stick rate of 600 mouse pixels per second.
+                const glm::vec2 stickDelta = InputActions::Get().ReadOrDefault("Look").Value *
+                    (600.0f * followComp.MouseSensitivity * std::max(0.0f, dt));
+
                 if (followComp.Mode == FollowCameraMode::TopDown)
                 {
-                    if (followComp.bAllowYawInput && bRotateInputEnabled)
+                    if (followComp.bAllowYawInput)
                     {
-                        followComp.RuntimeYawRadians += mouseDelta.x * followComp.MouseSensitivity;
+                        followComp.RuntimeYawRadians += mouseDelta.x * followComp.MouseSensitivity + stickDelta.x;
                         followComp.RuntimeYawRadians = std::remainder(
                             followComp.RuntimeYawRadians,
                             glm::two_pi<float>());
@@ -164,13 +189,17 @@ namespace HEngine
 					if (followComp.bFollowTargetRotation)
 						followComp.RuntimeYawRadians = targetWorldRotation.y;
 
-					if (bRotateInputEnabled)
+                    if (bRotateInputEnabled)
                     {
                         if (followComp.bAllowYawInput)
                             followComp.RuntimeYawRadians -= mouseDelta.x * followComp.MouseSensitivity;
                         if (followComp.bAllowPitchInput)
                             followComp.RuntimePitchRadians -= mouseDelta.y * followComp.MouseSensitivity;
                     }
+                    if (followComp.bAllowYawInput)
+                        followComp.RuntimeYawRadians -= stickDelta.x;
+                    if (followComp.bAllowPitchInput)
+                        followComp.RuntimePitchRadians += stickDelta.y;
                 }
             }
             else
@@ -198,13 +227,13 @@ namespace HEngine
                 ? std::max(0.1f, followComp.TopDownDistance)
                 : std::max(0.1f, springArm.ArmLength);
 
-            if (springArm.RuntimeCurrentDistance < 0.0f)
-                springArm.RuntimeCurrentDistance = targetDistance;
+            const bool bInitializeArm = springArm.RuntimeCurrentDistance < 0.0f;
 
             float collisionDistance = targetDistance;
             const bool bCollisionEnabledForMode = springArm.bEnableCollision &&
                 (followComp.Mode != FollowCameraMode::TopDown || springArm.bEnableTopDownCollision);
 
+#if HE_ENABLE_PHYSICS_3D
             if (bRuntime && bCollisionEnabledForMode)
             {
                 if (auto* physicsSystem = level->TryGetSystem<PhysicSystem3D>())
@@ -279,15 +308,24 @@ namespace HEngine
                 }
             }
 
+#endif
             if (bRuntime)
             {
-                const float distanceLerpSpeed = (collisionDistance < springArm.RuntimeCurrentDistance)
-                    ? springArm.CollisionSnapSpeed
-                    : springArm.CollisionRecoverSpeed;
-                springArm.RuntimeCurrentDistance = glm::mix(
-                    springArm.RuntimeCurrentDistance,
-                    collisionDistance,
-                    InterpAlpha(distanceLerpSpeed, dt));
+                if (bInitializeArm)
+                {
+                    // Start at the collision-safe distance rather than sweeping
+                    // the camera through nearby geometry on the first frames.
+                    springArm.RuntimeCurrentDistance = collisionDistance;
+                }
+                else
+                {
+                    const float distanceLerpSpeed = (collisionDistance < springArm.RuntimeCurrentDistance)
+                        ? springArm.CollisionSnapSpeed
+                        : springArm.CollisionRecoverSpeed;
+                    springArm.RuntimeCurrentDistance = collisionDistance < springArm.RuntimeCurrentDistance
+                        ? collisionDistance
+                        : glm::mix(springArm.RuntimeCurrentDistance, collisionDistance, InterpAlpha(distanceLerpSpeed, dt));
+                }
             }
             else
             {
@@ -301,13 +339,15 @@ namespace HEngine
 
 			const glm::vec3 desiredPos = pivot + socketOffset - forward * finalDistance;
 
-			const float alpha = (bRuntime && springArm.bEnableLag) ? InterpAlpha(springArm.LagSpeed, dt) : 1.0f;
-			cameraWorldTranslation = glm::mix(cameraWorldTranslation, desiredPos, alpha);
+            // Orbit the filtered pivot directly. A second position filter changes
+            // view direction on stairs and can drag the camera through collision.
+            cameraWorldTranslation = desiredPos;
 
 			const glm::vec3 up = followComp.bLockToWorldUp ? glm::vec3(0.0f, 1.0f, 0.0f) : (yawRotation * glm::vec3(0.0f, 1.0f, 0.0f));
-			const glm::mat4 viewMatrix = glm::lookAt(cameraWorldTranslation, pivot, up);
+			const glm::vec3 lookAtTarget = pivot + yawRotation * springArm.LookAtOffset;
+			const glm::mat4 viewMatrix = glm::lookAt(cameraWorldTranslation, lookAtTarget, up);
 			const glm::quat worldRotation = glm::quat_cast(glm::inverse(viewMatrix));
-			cameraWorldRotation = glm::eulerAngles(worldRotation);
+			cameraWorldRotation = Math::StableEulerAngles(worldRotation);
 			level->SetWorldTransformComponents(cameraEntity, cameraWorldTranslation, cameraWorldRotation, cameraWorldScale);
 		}
 	}
@@ -343,27 +383,4 @@ namespace HEngine
         }
     }
 
-#if WITH_EDITOR
-    void CameraFollowSystem::OnUpdateEditor(Timestep ts, EditorCamera& camera)
-    {
-        (void)camera;
-
-        const float dt = static_cast<float>(ts);
-        auto view = mLevel->mRegistry.view<TransformComponent, CameraComponent, FollowCameraComponent, SpringArmComponent>();
-		for (auto e : view)
-		{
-			Entity cameraEntity = { e, mLevel };
-			auto [followComp, springArm] = view.get<FollowCameraComponent, SpringArmComponent>(e);
-
-			UpdateFollowCameraEntity(
-				mLevel,
-				cameraEntity,
-				followComp,
-				springArm,
-                dt,
-                false,
-                nullptr);
-        }
-    }
-#endif
 }

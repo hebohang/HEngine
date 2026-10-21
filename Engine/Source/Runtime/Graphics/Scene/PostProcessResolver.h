@@ -24,6 +24,13 @@ namespace HEngine
         bool bGlobal = true;
         bool bLocalVolumeEnabled = false;
         bool bOverrideExposure = true;
+        bool bOverrideBloomIntensity = false;
+        bool bOverrideContrast = false;
+        bool bOverrideSaturation = false;
+        bool bOverrideTemperature = false;
+        bool bOverrideVignetteIntensity = false;
+        bool bOverrideColorGain = false;
+        bool bOverrideColorOffset = false;
     };
 
     struct PostProcessResolveInput

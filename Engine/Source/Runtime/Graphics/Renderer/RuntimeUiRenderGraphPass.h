@@ -99,9 +99,10 @@ namespace HEngine
         std::filesystem::path ShaderCacheDirectory;
     };
 
-    // Adds the high-quality runtime-UI path to an existing LDR RenderGraph:
-    // RuntimeUiRender -> UiTransition -> UiComposite. Add it after tone mapping
-    // and before offscreen-copy, capture and present passes.
+    // Adds the high-quality runtime-UI path to an existing LDR RenderGraph.
+    // UI geometry and clip masks are rasterized at 2x MSAA, resolved, then sent
+    // through UiTransition and UiComposite. Add it after tone mapping and before
+    // offscreen-copy, capture and present passes.
     class RuntimeUiRenderGraphPass final
     {
     public:
@@ -129,6 +130,11 @@ namespace HEngine
         // this immediate release path while submissions may still be in flight.
         // The call advances the cache generation exposed to diagnostics.
         void ClearResourceCaches();
+
+        // A swappable cache capsule for candidate graph preparation. Retain the
+        // displaced capsule until the last submission using its resources retires.
+        [[nodiscard]] std::function<void()> CaptureGraphState();
+        void ClearGraphResourceCaches() noexcept;
 
         [[nodiscard]] size_t GetFramebufferCacheSize() const noexcept;
         [[nodiscard]] size_t GetBindingSetCacheSize() const noexcept;

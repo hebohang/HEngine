@@ -2,6 +2,7 @@
 
 #include "RuntimeUiRenderGraphPass.h"
 
+#include "Runtime/Graphics/RenderGraph/TextureResolvePass.h"
 #include "Runtime/Graphics/RHI/PipelineCache.h"
 #include "Runtime/Graphics/RHI/ShaderArtifactResolver.h"
 #include "Runtime/Graphics/RHI/ShaderManager.h"
@@ -22,6 +23,7 @@ namespace HEngine
     {
         constexpr nvrhi::Format c_UiColorFormat = nvrhi::Format::RGBA8_UNORM;
         constexpr nvrhi::Format c_UiStencilFormat = nvrhi::Format::D24S8;
+        constexpr uint32_t c_UiSampleCount = 2;
 
         struct RuntimeUiRenderPassData
         {
@@ -127,12 +129,14 @@ namespace HEngine
             const char* debugName,
             uint32_t width,
             uint32_t height,
-            nvrhi::Format format)
+            nvrhi::Format format,
+            uint32_t sampleCount = 1)
         {
             RenderGraphTextureDesc desc;
             desc.DebugName = debugName;
             desc.Width = width;
             desc.Height = height;
+            desc.SampleCount = sampleCount;
             desc.Format = format;
             desc.Dimension = nvrhi::TextureDimension::Texture2D;
             desc.ClearValue = format == c_UiStencilFormat
@@ -545,18 +549,20 @@ namespace HEngine
                     data.Backdrop = builder.ShaderResource(inputs.Backdrop);
                 data.UiColor = builder.CreateTexture(
                     MakeUiTextureDesc(
-                        "Runtime UI Premultiplied LDR Color",
+                        "Runtime UI 2x MSAA Premultiplied LDR Color",
                         inputs.Width,
                         inputs.Height,
-                        c_UiColorFormat),
+                        c_UiColorFormat,
+                        c_UiSampleCount),
                     RenderGraphResourceLifetime::Persistent);
                 data.UiColor = builder.RenderTarget(data.UiColor);
                 data.UiStencil = builder.CreateTexture(
                     MakeUiTextureDesc(
-                        "Runtime UI Clip Stencil",
+                        "Runtime UI 2x MSAA Clip Stencil",
                         inputs.Width,
                         inputs.Height,
-                        c_UiStencilFormat),
+                        c_UiStencilFormat,
+                        c_UiSampleCount),
                     RenderGraphResourceLifetime::Persistent);
                 data.UiStencil = builder.DepthWrite(data.UiStencil);
                 result.UiColor = data.UiColor;
@@ -611,6 +617,11 @@ namespace HEngine
                     });
                 }
             });
+
+        result.UiColor = AddTextureResolvePass(
+            graph,
+            result.UiColor,
+            "Runtime UI Resolved Premultiplied LDR Color");
 
         const TextureHandle uiColor = result.UiColor;
         result.UiTransitionPass = graph.AddPass<UiTransitionPassData>(
@@ -690,6 +701,28 @@ namespace HEngine
     void RuntimeUiRenderGraphPass::ClearResourceCaches()
     {
         mImpl->ClearResourceCaches();
+    }
+
+    std::function<void()> RuntimeUiRenderGraphPass::CaptureGraphState()
+    {
+        return [impl = mImpl.get(), uiFramebuffers = mImpl->UiFramebuffers,
+            colorFramebuffers = mImpl->ColorFramebuffers, bindings = mImpl->BindingSets,
+            cacheGeneration = mImpl->CacheGeneration,
+            graphGeneration = mImpl->GraphGeneration]() mutable noexcept
+        {
+            impl->UiFramebuffers.swap(uiFramebuffers);
+            impl->ColorFramebuffers.swap(colorFramebuffers);
+            impl->BindingSets.swap(bindings);
+            std::swap(impl->CacheGeneration, cacheGeneration);
+            std::swap(impl->GraphGeneration, graphGeneration);
+        };
+    }
+
+    void RuntimeUiRenderGraphPass::ClearGraphResourceCaches() noexcept
+    {
+        mImpl->UiFramebuffers.clear();
+        mImpl->ColorFramebuffers.clear();
+        mImpl->BindingSets.clear();
     }
 
     size_t RuntimeUiRenderGraphPass::GetFramebufferCacheSize() const noexcept

@@ -1,3 +1,5 @@
+#define HE_TEXTURE_SAMPLING_NO_DERIVATIVES
+#include "Shared/TextureSampling.hlsli"
 #pragma htype lib
 #pragma hprofile lib lib_6_5
 
@@ -11,6 +13,10 @@ struct RayTracingVertex
 {
     float4 Position;
     float4 Normal;
+    float4 TexCoord;
+    float4 Tangent;
+    float4 Bitangent;
+    float4 Color;
 };
 
 struct RayTracingGeometryRecord
@@ -23,6 +29,10 @@ struct RayTracingMaterialRecord
 {
     float4 BaseColorMetallic;
     float4 EmissiveRoughness;
+    uint4 Textures0;
+    uint4 Textures1;
+    float4 Surface;
+    HETextureSampling Sampling[7];
 };
 
 struct RayTracingInstanceRecord
@@ -439,7 +449,8 @@ void RealtimeRayGeneration()
         normalRoughness.xyz,
         float3(0.0f, 1.0f, 0.0f));
     const float3 primaryAlbedo = max(baseColorMetalness.rgb, 0.0f) *
-        (1.0f - saturate(baseColorMetalness.w));
+        (1.0f - saturate(baseColorMetalness.w)) *
+        (g_SurfaceEmissive.Load(int3(surfacePixel, 0)).a < 0.5f ? 1.0f : 0.0f);
 
     RandomSequence randomSequence;
     randomSequence.SampleIndex = g_DimensionsFrameBounces.z;

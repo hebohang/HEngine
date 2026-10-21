@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "sceneServiceVersion": 2,
+  "lifecycleOperations": {"Initialize":0,"Enable":1,"Update":2,"Disable":3,"Destroy":4,"Start":5,"FixedUpdate":6,"LateUpdate":7,"Reset":8,"OnValidate":9,"Pause":10,"Resume":11,"ApplicationQuit":12,"SceneLoaded":13,"SceneUnloading":14},
+  "managedOperations": {"Initialize":0,"Describe":1,"Create":2,"WriteField":3,"ReadField":4,"Invoke":5,"Release":6,"Shutdown":7,"Collect":8,"ReadFields":9,"Reload":10,"BeginFrame":11,"EditFields":12,"PhysicsContact":13},
+  "engineOperations": {"EntityValid":1,"ReadEntity":2,"WriteEntity":3,"ReadInput":4,"DestroyEntity":5,"Log":6,"ReadSave":7,"WriteSave":8,"FindEntity":9,"ReadTexture":10,"WriteTexture":11,"EmitEvent":12,"ReadEvent":13,"SetEnabled":14,"PlatformService":15,"ComponentAccess":16,"CreateEntity":17,"Hierarchy":18,"PrefabRequest":19,"InputAction":20},
+  "request": [
+    ["Version","u32"],["Operation","u32"],
+    ["Instance","u64"],["Entity","u64"],
+    ["Callback","u32"],["Flags","u32"],["Seconds","f64"],
+    ["Data","float16"],
+    ["Name","pointer"],["NameLength","i32"],["InputLength","i32"],
+    ["Input","pointer"],["Output","pointer"],
+    ["OutputCapacity","i32"],["OutputLength","i32"],
+    ["Result","u64"],["HostEntry","pointer"]
+  ]
+}

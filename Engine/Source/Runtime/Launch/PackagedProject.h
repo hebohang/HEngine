@@ -13,6 +13,7 @@ namespace HEngine
         std::filesystem::path contentRoot;
         std::filesystem::path savedRoot;
         std::shared_ptr<const RuntimeResourceCatalogSnapshot> resourceCatalog;
+        std::filesystem::path gameConfig;
     };
 
     class PackagedProject final

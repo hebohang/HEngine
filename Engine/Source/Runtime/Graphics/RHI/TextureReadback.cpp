@@ -96,6 +96,7 @@ namespace HEngine
             Float16,
             Float32,
             Uint32,
+            Uint8,
         };
 
         struct ReadbackFormatLayout
@@ -115,15 +116,33 @@ namespace HEngine
             case nvrhi::Format::R16_FLOAT:
                 return { 1, 2, ReadbackComponentType::Float16,
                     "float16", "R16_FLOAT", "R" };
+            case nvrhi::Format::RG16_FLOAT:
+                return { 2, 2, ReadbackComponentType::Float16,
+                    "float16", "RG16_FLOAT", "RG" };
             case nvrhi::Format::RGBA16_FLOAT:
                 return { 4, 2, ReadbackComponentType::Float16,
                     "float16", "RGBA16_FLOAT", "RGBA" };
             case nvrhi::Format::R32_FLOAT:
                 return { 1, 4, ReadbackComponentType::Float32,
                     "float32", "R32_FLOAT", "R" };
+            case nvrhi::Format::RG32_FLOAT:
+                return { 2, 4, ReadbackComponentType::Float32,
+                    "float32", "RG32_FLOAT", "RG" };
             case nvrhi::Format::RGBA32_FLOAT:
                 return { 4, 4, ReadbackComponentType::Float32,
                     "float32", "RGBA32_FLOAT", "RGBA" };
+            case nvrhi::Format::D32:
+                return { 1, 4, ReadbackComponentType::Float32,
+                    "float32", "D32", "D" };
+            case nvrhi::Format::RGBA8_UNORM:
+                return { 4, 1, ReadbackComponentType::Uint8,
+                    "uint8", "RGBA8_UNORM", "RGBA" };
+            case nvrhi::Format::R8_UNORM:
+                return { 1, 1, ReadbackComponentType::Uint8,
+                    "uint8", "R8_UNORM", "R" };
+            case nvrhi::Format::RG32_UINT:
+                return { 2, 4, ReadbackComponentType::Uint32,
+                    "uint32", "RG32_UINT", "RG" };
             case nvrhi::Format::R32_UINT:
                 return { 1, 4, ReadbackComponentType::Uint32,
                     "uint32", "R32_UINT", "R" };
@@ -143,7 +162,10 @@ namespace HEngine
 
         [[nodiscard]] bool IsRawReadbackFormat(nvrhi::Format format) noexcept
         {
-            return IsFloatReadbackFormat(format) || format == nvrhi::Format::R32_UINT;
+            return IsFloatReadbackFormat(format) || format == nvrhi::Format::R32_UINT ||
+                format == nvrhi::Format::RG16_FLOAT || format == nvrhi::Format::RG32_FLOAT ||
+                format == nvrhi::Format::D32 || format == nvrhi::Format::RGBA8_UNORM ||
+                format == nvrhi::Format::RG32_UINT || format == nvrhi::Format::R8_UNORM;
         }
 
         [[nodiscard]] size_t GetTightRowSize(
@@ -263,7 +285,9 @@ namespace HEngine
             const uint8_t* source,
             ReadbackComponentType componentType)
         {
-            if (componentType == ReadbackComponentType::Float16)
+            if (componentType == ReadbackComponentType::Uint8)
+                output.push_back(*source);
+            else if (componentType == ReadbackComponentType::Float16)
                 AppendLittleEndian16(output, ReadLittleEndian16(source));
             else
                 AppendLittleEndian32(output, ReadLittleEndian32(source));
@@ -281,7 +305,7 @@ namespace HEngine
             const uint8_t* source,
             ReadbackComponentType componentType)
         {
-            if (componentType == ReadbackComponentType::Uint32)
+            if (componentType == ReadbackComponentType::Uint32 || componentType == ReadbackComponentType::Uint8)
                 return;
 
             bool bNegative = false;
@@ -746,8 +770,10 @@ namespace HEngine
         TextureReadbackNonFinitePolicy nonFinitePolicy)
     {
         const ReadbackFormatLayout layout = GetReadbackFormatLayout(sourceFormat);
-        if (layout.ComponentType == ReadbackComponentType::Uint32)
+        if (layout.ComponentType == ReadbackComponentType::Uint32 || layout.ComponentType == ReadbackComponentType::Uint8)
             throw std::invalid_argument("PFM output requires a floating-point source texture");
+        if (layout.Channels == 2)
+            throw std::invalid_argument("Two-channel textures require raw output");
         if (layout.Channels == 4 && alphaMode != TextureReadbackAlphaMode::Discard)
         {
             throw std::invalid_argument(
@@ -848,7 +874,11 @@ namespace HEngine
                 " non-finite source components");
         }
 
-        const bool bLinearColor = layout.ComponentType != ReadbackComponentType::Uint32;
+        // A floating-point format does not identify a color space: normal,
+        // depth, variance and radiance AOVs use the same formats. The producer's
+        // signal description owns those units, not this byte encoder.
+        const bool bFloatingPoint = layout.ComponentType == ReadbackComponentType::Float16 ||
+            layout.ComponentType == ReadbackComponentType::Float32;
         std::ostringstream metadata;
         metadata << "{\n"
             << "  \"schema\": \"hengine.texture-readback.raw.v1\",\n"
@@ -862,10 +892,8 @@ namespace HEngine
             << "  \"rowOrder\": \"top-down\",\n"
             << "  \"row_order\": \"top-down\",\n"
             << "  \"channel_order\": \"" << layout.ChannelOrder << "\",\n"
-            << "  \"colorSpace\": \"" << (bLinearColor ? "linear" : "data") << "\",\n"
-            << "  \"color_space\": \"" << (bLinearColor ? "scene-linear" : "data") << "\",\n";
-        if (bLinearColor)
-            metadata << "  \"color_primaries\": \"Rec.709/sRGB\",\n";
+            << "  \"colorSpace\": \"" << (bFloatingPoint ? "unspecified" : "data") << "\",\n"
+            << "  \"color_space\": \"" << (bFloatingPoint ? "unspecified" : "data") << "\",\n";
         metadata << "  \"source_format\": \"" << layout.FormatName << "\",\n"
             << "  \"non_finite_policy\": \""
             << (nonFinitePolicy == TextureReadbackNonFinitePolicy::Preserve

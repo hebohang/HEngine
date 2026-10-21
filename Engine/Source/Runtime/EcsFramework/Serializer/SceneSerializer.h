@@ -14,6 +14,7 @@ namespace HEngine
     class RuntimeResourceRegistry;
 	class RuntimeResourceCatalogSnapshot;
     class SceneDocument;
+    class Entity;
 
     enum class SceneMaterializationState : std::uint8_t
     {
@@ -77,6 +78,7 @@ namespace HEngine
         SceneSerializer(const Ref<Level>& level);
 
         [[nodiscard]] Json SerializeToJson() const;
+        [[nodiscard]] Json SerializeEntityToJson(Entity entity) const;
         void Serialize(const std::string& filepath);
         void SerializeRuntime(const std::string& filepath);
 

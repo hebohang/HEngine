@@ -12,5 +12,6 @@ namespace HEngine
 		virtual ~NativeScriptSystem() = default;
 	public:
 		void OnUpdateRuntime(Timestep ts) override;
+		void OnRuntimeStop() override;
 	};
 }

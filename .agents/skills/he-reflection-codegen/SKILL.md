@@ -1,41 +1,51 @@
 ---
 name: he-reflection-codegen
-description: Regenerate reflection outputs and compile the affected target after changes to reflection macros, reflected fields/types, components, or resources in HEngineDev.
+description: Validate HEngine reflection declarations, persisted resource fields, or code generation changes with generation and compilation.
 ---
 
-# Reflection validation
+# Reflection and resource serialization
 
-Never edit generated files manually. `Engine/Source/_generated/` is a legacy
-location and must not be used as build or validation evidence. Active outputs
-live under the selected build's `GeneratedSource`; their authoritative state is
-the selected output root's `.he-codegen/manifest.json`. Agent Game, Editor, and
-Tests use `out/agent/game-<config>/GeneratedSource`,
-`out/agent/editor-<config>/GeneratedSource`, and
-`out/agent/tests-<config>/GeneratedSource`. Multi-config Package uses
-`out/package/build/GeneratedSource/Release`.
-Direct Tests-consumer CMake configurations must set both
+- Declare persisted resource types/fields with the repository reflection macros;
+  generated serializers remain the source of truth.
+- Do not add field-specific patches to generic paths such as
+  `SceneSerializer::SerializeEntity` or `DeserializeEntity`.
+- Never edit generated files manually. `Engine/Source/_generated/` is legacy;
+  it and stale outputs without a manifest are not build or validation evidence.
+
+## Generate and compile once
+
+Build the smallest affected consumer through `he-build-validate` (or the test/package
+route when that is the task). Its `HEngineCodeGen` node ensures generation before
+compilation. Reuse this result; ordinary reflected-field changes do not require a
+separate generation command or an extra runtime run solely because this skill applies.
+Report codegen and build outcomes separately, citing the same command when appropriate.
+
+Active outputs live in the selected build's `GeneratedSource`; authoritative state
+is its `.he-codegen/manifest.json`. Game/Editor/Tests use
+`out/agent/<game|editor|tests>-<config>/GeneratedSource`; multi-config Package uses
+`out/package/build/GeneratedSource/Release`. Full logs are in `out/agent/logs`.
+
+## Standalone diagnostics, only when needed
+
+Use `hectl codegen status|check|run` with the consumer's explicit host/config:
+
+| Consumer | Arguments |
+| --- | --- |
+| Default Game | `-CodeGenHost DevGame -Configuration RelWithDebInfo` |
+| Default Editor | `-CodeGenHost Editor -Configuration RelWithDebInfo` |
+| Tests | `-CodeGenHost Tests -Configuration Debug` |
+| Package | `-CodeGenHost Package -Configuration Release` |
+
+`status` reports dirty reasons; `check` is read-only and fails when dirty; `run`
+publishes only changed content. Choose one action and use `--json` for machine
+output or `--quiet` for silent success. Override configurations to match the actual build.
+Do not rely on the standalone default (Editor/Debug) for a different consumer.
+`Win-CppCodeGen.bat` targets the compatibility `build/GeneratedSource` only;
+do not append it to a normal build. `CPP_CODE_GEN` is a cache compatibility flag,
+not a configure-time generation trigger. Direct Tests CMake configurations need
 `HE_BUILD_TESTS=ON` and `HE_CODEGEN_HOST_OVERRIDE=Tests`.
 
-Use the compact interface from the repository root:
-
-```powershell
-.\hectl.bat codegen status
-.\hectl.bat codegen check
-.\hectl.bat codegen run
-.\Win-CppCodeGen.bat --no-pause
-```
-
-`status` is read-only and reports dirty reasons. `check` is read-only and exits
-nonzero when dirty. `run` publishes transactionally when needed. Add `--json`
-for the stable machine schema or `--quiet` for silent success. The batch entry
-remains compatible and targets `build/GeneratedSource`; normal Game, Editor,
-Tests, and Package builds use their own host/config-specific roots through the
-`HEngineCodeGen` CMake node. Full logs are under `out/agent/logs`.
-
-After generation, use `he-build-validate` to compile the smallest affected
-target (`HGame` by default; `HEngineEditor` for Editor or `WITH_EDITOR` code).
-Do not reuse the VS shared cache. A final no-op check must report `changed=0`,
-`deleted=0`, and no generated output hash/mtime changes; inspect the manifest
-instead of scanning or diffing the entire generated tree.
-
-Report codegen and build as separate commands with PASS/FAIL. If `he-resource-reflection-serialization` also triggers, follow its design constraints but do not repeat codegen.
+Only codegen driver/template/cache/publication changes or an explicit idempotence
+request require an additional no-op verification. Then report `changed=0`,
+`deleted=0`, and actual before/after output hash/mtime equality. A clean manifest
+alone cannot prove unchanged mtime; keep snapshots on disk and report a bounded summary.

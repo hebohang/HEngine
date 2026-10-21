@@ -10,7 +10,7 @@
 namespace
 {
     constexpr size_t MaximumDiagnostics = 20;
-    constexpr const char* GeneratorVersion = HE_CODEGEN_GENERATOR_VERSION;
+    constexpr const char* GeneratorVersion = "2.1.0";
 
     std::string trimCopy(std::string value)
     {
@@ -699,7 +699,7 @@ bool MetaParser::parseProject(void)
 bool MetaParser::parseTranslationUnit(void)
 {
     Utils::toString(clang_getClangVersion(), m_clang_version);
-#if defined(_WIN32)
+#if defined(_WIN32) || defined(__APPLE__)
     const size_t versionPosition = m_clang_version.find("version ");
     int runtimeMajor = 0;
     if (versionPosition != std::string::npos)
@@ -726,6 +726,9 @@ bool MetaParser::parseTranslationUnit(void)
 
     m_argument_storage = {"-x", "c++", "-std=c++20", "-D__REFLECTION_PARSER__",
                           "-ferror-limit=20"};
+#if defined(HE_CODEGEN_LIBCLANG_RESOURCE_DIR)
+    m_argument_storage.emplace_back("-resource-dir=" HE_CODEGEN_LIBCLANG_RESOURCE_DIR);
+#endif
     for (const auto& includePath : m_options.includePaths)
     {
         if (trimCopy(includePath).empty())
@@ -777,6 +780,20 @@ bool MetaParser::parseTranslationUnit(void)
                "clang_parseTranslationUnit2 failed: " + clangErrorName(parseError));
         return false;
     }
+    m_include_dependencies.clear();
+    clang_getInclusions(m_translation_unit,
+        [](CXFile file, CXSourceLocation*, unsigned, CXClientData clientData)
+        {
+            auto* parser = static_cast<MetaParser*>(clientData);
+            std::string source;
+            Utils::toString(clang_getFileName(file), source);
+            if (source.empty()) return;
+            std::error_code error;
+            const auto path = fs::weakly_canonical(fs::path(source), error);
+            if (error || !fs::is_regular_file(path, error)) return;
+            if (fs::equivalent(path, parser->m_options.inputHeader, error)) return;
+            parser->m_include_dependencies.insert(path.generic_string());
+        }, this);
     return true;
 }
 
@@ -1467,6 +1484,14 @@ bool MetaParser::writeIndex(const std::vector<std::string>& outputs)
             index << ", ";
         }
         index << '"' << jsonEscape(outputs[outputIndex]) << '"';
+    }
+    index << "],\n  \"includeDependencies\": [";
+    bool firstDependency = true;
+    for (const auto& dependency : m_include_dependencies)
+    {
+        if (!firstDependency) index << ", ";
+        firstDependency = false;
+        index << '"' << jsonEscape(dependency) << '"';
     }
     index << "]\n}\n";
 

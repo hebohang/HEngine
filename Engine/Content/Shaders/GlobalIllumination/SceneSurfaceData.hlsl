@@ -1,3 +1,4 @@
+#include "Shared/TextureSampling.hlsli"
 #pragma htype vs VS
 #pragma htype ps PS
 
@@ -7,6 +8,10 @@ struct RayTracingMaterialRecord
 {
     float4 BaseColorMetallic;
     float4 EmissiveRoughness;
+    uint4 Textures0;
+    uint4 Textures1;
+    float4 Surface;
+    HETextureSampling Sampling[7];
 };
 
 struct RayTracingInstanceRecord

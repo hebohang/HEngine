@@ -1,0 +1,13 @@
+{
+  "Game": {
+    "Name": "Top Down Range",
+    "DefaultScene": "Assets/Scenes/Main.he"
+  },
+  "Cook": {
+    "RootFiles": [
+      "Assets/Scenes/Main.he",
+      "Assets/UI/StarterHud.rml"
+    ],
+    "IncludeDirectories": []
+  }
+}

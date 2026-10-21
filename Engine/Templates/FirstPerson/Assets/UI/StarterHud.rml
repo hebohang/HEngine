@@ -1,0 +1,22 @@
+<rml>
+<head>
+  <title>First Person Starter</title>
+  <style>
+    body { position: absolute; left: 0; top: 0; width: 100%; height: 100%; margin: 0; font-family: Noto Sans SC; font-size: 18dp; color: #f6f3ec; pointer-events: none; }
+    #panel { position: absolute; left: 24dp; top: 24dp; width: 840dp; max-width: 88%; padding: 16dp; background-color: #14222cdd; }
+    #panel > div { display: block; }
+    #title { color: #f5b956; font-size: 24dp; margin-bottom: 8dp; }
+    #score { margin-top: 8dp; }
+    #crosshair { position: absolute; left: 50%; top: 50%; margin-left: -8dp; margin-top: -16dp; width: 16dp; text-align: center; font-size: 28dp; }
+  </style>
+</head>
+<body>
+  <div id="panel">
+    <div id="title">FIRST PERSON / STARTER RANGE</div>
+    <div>WASD: move | Right-drag / arrows: look | Left click / Space: fire</div>
+    <div id="score">Hits 0 / Shots 0 | R: reset</div>
+    <div>Orange targets return after 2 seconds. Yellow cover blocks shots.</div>
+  </div>
+  <div id="crosshair">+</div>
+</body>
+</rml>

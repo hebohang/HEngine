@@ -3,6 +3,8 @@ RUNTIME_ADD_SOURCE(
     AudioEngine.h
     AudioEngine.cpp
     AudioTypes.h
+    ScriptAudio.h
+    ScriptAudio.cpp
     ProjectAudioPath.h
     ProjectAudioPath.cpp
 )

@@ -1,9 +1,8 @@
 #include "Hepch.h"
 
-#include "IniFIle.h"
+#include "IniFile.h"
 
 #include <simpleIni/SimpleIni.h>
-#include <simpleIni/ConvertUTF.h>
 
 namespace HEngine
 {

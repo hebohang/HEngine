@@ -10,8 +10,11 @@ namespace HEngine
     struct StaticVertex
     {
         glm::vec3 Pos{ 0.0f };
+        glm::vec3 PreviousPosition{ 0.0f };
         glm::vec3 Normal{ 0.0f };
         glm::vec2 TexCoord{ 0.0f };
+        glm::vec2 TexCoord1{ 0.0f };
+        glm::vec4 Color{ 1.0f };
         glm::vec3 Tangent{ 0.0f };
         glm::vec3 Bitangent{ 0.0f };
 
@@ -28,6 +31,7 @@ namespace HEngine
             const glm::vec3 tangent,
             const glm::vec3 bitangent)
             : Pos(position)
+            , PreviousPosition(position)
             , Normal(normal)
             , TexCoord(texCoord)
             , Tangent(tangent)

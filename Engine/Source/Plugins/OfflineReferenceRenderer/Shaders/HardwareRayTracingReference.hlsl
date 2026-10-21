@@ -1,3 +1,8 @@
+#define HE_TEXTURE_SAMPLING_NO_DERIVATIVES
+// Reference rays use the same decoded-texel arithmetic for every sampler mode,
+// including defaults, independent of native sRGB filtering approximation.
+#define HE_TEXTURE_SAMPLING_EXPLICIT_FILTER
+#include "Shared/TextureSampling.hlsli"
 #pragma htype lib
 #pragma hprofile lib lib_6_5
 
@@ -11,6 +16,10 @@ struct RayTracingVertex
 {
     float4 Position;
     float4 Normal;
+    float4 TexCoord;
+    float4 Tangent;
+    float4 Bitangent;
+    float4 Color;
 };
 
 struct RayTracingGeometryRecord
@@ -23,6 +32,10 @@ struct RayTracingMaterialRecord
 {
     float4 BaseColorMetallic;
     float4 EmissiveRoughness;
+    uint4 Textures0;
+    uint4 Textures1;
+    float4 Surface;
+    HETextureSampling Sampling[7];
 };
 
 struct RayTracingInstanceRecord
@@ -55,6 +68,8 @@ struct HitPayload
     uint PrimitiveIndex;
     uint Hit;
     uint FrontFace;
+    float4 TexCoord;
+    float4 Color;
 };
 
 struct ReferencePathTracerConstants
@@ -92,6 +107,48 @@ StructuredBuffer<RayTracingGeometryRecord> g_Geometries : register(t3, space2);
 StructuredBuffer<RayTracingMaterialRecord> g_Materials : register(t4, space2);
 StructuredBuffer<RayTracingInstanceRecord> g_Instances : register(t5, space2);
 StructuredBuffer<RayTracingEmissiveTriangle> g_EmissiveTriangles : register(t6, space2);
+struct AnalyticLight { float4 PositionType; float4 DirectionRadius; float4 Radiance; float4 Cone; };
+StructuredBuffer<AnalyticLight> g_AnalyticLights : register(t7, space2);
+Texture2D<float4> g_MaterialTextures[512] : register(t8, space2);
+SamplerState g_MaterialSampler : register(s0, space2);
+
+float4 SampleMaterialTexture(uint index, float4 uv, HETextureSampling sampling, float4 fallback)
+{
+    if (index == c_InvalidIndex) return fallback;
+    // Fixed mip zero keeps reference transport independent of scheduling.
+    // Primary-ray jitter integrates the pixel footprint across samples.
+    return HE_SampleTextureLod(g_MaterialTextures[NonUniformResourceIndex(index)], g_MaterialSampler, sampling, HE_TextureUv(sampling, uv.xy, uv.zw), 0);
+}
+
+RayTracingMaterialRecord EvaluateMaterial(uint index, float4 uv, float4 color)
+{
+    RayTracingMaterialRecord material = g_Materials[index];
+    material.BaseColorMetallic.rgb *= SampleMaterialTexture(material.Textures0.x, uv, material.Sampling[0], 1).rgb * color.rgb;
+    material.Surface.y *= color.a;
+    const float4 mr = SampleMaterialTexture(material.Textures0.z, uv, material.Sampling[2], 1);
+    material.BaseColorMetallic.w = saturate(material.BaseColorMetallic.w * mr.b * SampleMaterialTexture(material.Textures1.y, uv, material.Sampling[5], 1).r);
+    material.EmissiveRoughness.w = clamp(material.EmissiveRoughness.w * mr.g * SampleMaterialTexture(material.Textures1.z, uv, material.Sampling[6], 1).r, 0.04f, 1.0f);
+    material.EmissiveRoughness.rgb *= SampleMaterialTexture(material.Textures1.x, uv, material.Sampling[4], 1).rgb;
+    return material;
+}
+
+float4 TriangleUv(uint geometryIndex, uint primitiveIndex, float3 barycentrics)
+{
+    const RayTracingGeometryRecord geometry = g_Geometries[geometryIndex];
+    const uint first = geometry.VertexIndexData.y + primitiveIndex * 3u;
+    return g_Vertices[geometry.VertexIndexData.x + g_Indices.Load(first * 4u)].TexCoord * barycentrics.x +
+        g_Vertices[geometry.VertexIndexData.x + g_Indices.Load((first + 1u) * 4u)].TexCoord * barycentrics.y +
+        g_Vertices[geometry.VertexIndexData.x + g_Indices.Load((first + 2u) * 4u)].TexCoord * barycentrics.z;
+}
+
+float4 TriangleColor(uint geometryIndex, uint primitiveIndex, float3 barycentrics)
+{
+    const RayTracingGeometryRecord geometry = g_Geometries[geometryIndex];
+    const uint first = geometry.VertexIndexData.y + primitiveIndex * 3u;
+    return g_Vertices[geometry.VertexIndexData.x + g_Indices.Load(first * 4u)].Color * barycentrics.x +
+        g_Vertices[geometry.VertexIndexData.x + g_Indices.Load((first + 1u) * 4u)].Color * barycentrics.y +
+        g_Vertices[geometry.VertexIndexData.x + g_Indices.Load((first + 2u) * 4u)].Color * barycentrics.z;
+}
 
 TextureCube<float4> g_EnvironmentMap : register(t0, space4);
 SamplerState g_EnvironmentSampler : register(s0, space4);
@@ -173,6 +230,84 @@ float3 SampleCosineHemisphere(float3 normal, float2 randomValue, out float pdf)
     return direction;
 }
 
+float3 FresnelSchlick(float cosine, float3 f0)
+{
+    return f0 + (1.0f - f0) * pow(saturate(1.0f - cosine), 5.0f);
+}
+
+float GgxD(float noH, float alpha)
+{
+    const float a2 = alpha * alpha;
+    const float d = noH * noH * (a2 - 1.0f) + 1.0f;
+    return a2 / max(c_Pi * d * d, 1e-20f);
+}
+
+float GgxG1(float noV, float alpha)
+{
+    return 2.0f * noV / max(noV + sqrt(alpha * alpha + (1.0f - alpha * alpha) * noV * noV), 1e-20f);
+}
+
+// Evaluate and sampling share this exact mixture density, including in MIS.
+float3 EvaluateBsdf(RayTracingMaterialRecord material, float3 n, float3 wo, float3 wi, out float pdf)
+{
+    pdf = 0.0f;
+    const float noV = dot(n, wo), noL = dot(n, wi);
+    if (noV <= 0.0f || noL <= 0.0f) return 0.0f;
+    const float3 h = SafeNormalize(wo + wi, n);
+    const float noH = saturate(dot(n, h)), voH = saturate(dot(wo, h));
+    const float metal = saturate(material.BaseColorMetallic.w);
+    const float3 base = saturate(material.BaseColorMetallic.rgb);
+    const float alpha = max(0.001f, material.EmissiveRoughness.w * material.EmissiveRoughness.w);
+    const float d = GgxD(noH, alpha);
+    const float3 f = FresnelSchlick(voH, lerp(0.04f.xxx, base, metal));
+    const float pSpecular = 0.5f + 0.5f * metal;
+    pdf = lerp(noL / c_Pi, d * noH / max(4.0f * voH, 1e-20f), pSpecular);
+    return (1.0f - metal) * base * (1.0f - f) / c_Pi +
+        f * d * GgxG1(noV, alpha) * GgxG1(noL, alpha) / max(4.0f * noV * noL, 1e-20f);
+}
+
+float3 SampleBsdf(RayTracingMaterialRecord material, float3 n, float3 wo, inout uint rng, out float pdf, out float3 weight)
+{
+    const float select = RandomFloat(rng);
+    const float2 u = float2(RandomFloat(rng), RandomFloat(rng));
+    float3 wi;
+    if (select < 0.5f + 0.5f * saturate(material.BaseColorMetallic.w))
+    {
+        const float alpha = max(0.001f, material.EmissiveRoughness.w * material.EmissiveRoughness.w);
+        const float cosTheta = sqrt((1.0f - u.x) / max(1.0f + (alpha * alpha - 1.0f) * u.x, 1e-20f));
+        const float sinTheta = sqrt(max(0.0f, 1.0f - cosTheta * cosTheta));
+        const float3 tangent = BuildTangent(n);
+        const float3 h = tangent * (sinTheta * cos(c_TwoPi * u.y)) +
+            cross(n, tangent) * (sinTheta * sin(c_TwoPi * u.y)) + n * cosTheta;
+        wi = reflect(-wo, h);
+    }
+    else wi = SampleCosineHemisphere(n, u, pdf);
+    const float3 f = EvaluateBsdf(material, n, wo, wi, pdf);
+    weight = f * max(dot(n, wi), 0.0f) / max(pdf, 1e-20f);
+    return wi;
+}
+
+float3 EvaluateEnvironment(float3 direction)
+{
+    float3 radiance = g_EnvironmentRadiance.rgb;
+    if (g_SamplingSettings.w != 0u)
+        radiance *= max(g_EnvironmentMap.SampleLevel(g_EnvironmentSampler, direction, 0.0f).rgb, 0.0f);
+    return radiance;
+}
+
+bool IsOccluded(float3 origin, float3 direction, float maximumDistance)
+{
+    if (maximumDistance <= 0) return false;
+    RayDesc ray;
+    ray.Origin = origin; ray.Direction = direction; ray.TMin = 0; ray.TMax = maximumDistance;
+    HitPayload payload = (HitPayload)0;
+    payload.Hit = 1u;
+    // Retain alpha any-hit, but skip full normal/material evaluation for shadows.
+    TraceRay(g_SceneTlas, RAY_FLAG_CULL_BACK_FACING_TRIANGLES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH |
+        RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, 0xff, 0, 1, 0, ray, payload);
+    return payload.Hit != 0u;
+}
+
 HitPayload TraceScene(float3 origin, float3 direction, float maximumDistance)
 {
     RayDesc ray;
@@ -214,19 +349,16 @@ bool SampleEmissiveTriangle(
         return false;
 
     const float selectionSample = RandomFloat(randomState);
-    uint selectedIndex = lightCount - 1u;
-    float previousCdf = 0.0f;
+    uint lower = 0u, upper = lightCount - 1u;
     [loop]
-    for (uint lightIndex = 0u; lightIndex < lightCount; ++lightIndex)
+    while (lower < upper)
     {
-        const float cdf = g_EmissiveTriangles[lightIndex].RadianceCdf.w;
-        if (selectionSample <= cdf)
-        {
-            selectedIndex = lightIndex;
-            break;
-        }
-        previousCdf = cdf;
+        const uint middle = lower + (upper - lower) / 2u;
+        if (selectionSample <= g_EmissiveTriangles[middle].RadianceCdf.w) upper = middle;
+        else lower = middle + 1u;
     }
+    const uint selectedIndex = lower;
+    const float previousCdf = selectedIndex ? g_EmissiveTriangles[selectedIndex - 1u].RadianceCdf.w : 0.0f;
 
     const RayTracingEmissiveTriangle light = g_EmissiveTriangles[selectedIndex];
     const float selectionPdf = max(light.RadianceCdf.w - previousCdf, 0.0f);
@@ -255,7 +387,11 @@ bool SampleEmissiveTriangle(
         return false;
     solidAnglePdf = selectionPdf * distanceSquared /
         max(light.NormalArea.w * cosineAtLight, 1e-20f);
-    radiance = light.RadianceCdf.rgb;
+    const float4 uv = TriangleUv(light.Identity.y, light.Identity.z, float3(barycentric0, barycentric1, barycentric2));
+    const RayTracingMaterialRecord material = EvaluateMaterial(light.Identity.w, uv, TriangleColor(light.Identity.y, light.Identity.z, float3(barycentric0, barycentric1, barycentric2)));
+    radiance = material.EmissiveRoughness.rgb;
+    if (material.Surface.w > 0.5f && SampleMaterialTexture(material.Textures0.x, uv, material.Sampling[0], 1).a * material.Surface.y < material.Surface.z)
+        radiance = 0;
     return solidAnglePdf > 0.0f && all(isfinite(radiance));
 }
 
@@ -265,18 +401,28 @@ float EmissiveHitSolidAnglePdf(
     float3 incomingDirection)
 {
     const uint lightCount = g_SamplingSettings.z;
-    float previousCdf = 0.0f;
-    [loop]
-    for (uint lightIndex = 0u; lightIndex < lightCount; ++lightIndex)
+    uint lower = 0u, upper = lightCount;
+    while (lower < upper)
     {
+        const uint middle = lower + (upper - lower) / 2u;
+        const uint3 identity = g_EmissiveTriangles[middle].Identity.xyz;
+        const bool before = identity.x < hit.InstanceIndex ||
+            (identity.x == hit.InstanceIndex && (identity.y < hit.GeometryIndex ||
+            (identity.y == hit.GeometryIndex && identity.z < hit.PrimitiveIndex)));
+        if (before) lower = middle + 1u;
+        else upper = middle;
+    }
+    if (lower < lightCount)
+    {
+        const uint lightIndex = lower;
         const RayTracingEmissiveTriangle light = g_EmissiveTriangles[lightIndex];
+        const float previousCdf = lightIndex > 0u ? g_EmissiveTriangles[lightIndex - 1u].RadianceCdf.w : 0.0f;
         const float selectionPdf = max(light.RadianceCdf.w - previousCdf, 0.0f);
-        previousCdf = light.RadianceCdf.w;
         if (light.Identity.x != hit.InstanceIndex ||
             light.Identity.y != hit.GeometryIndex ||
             light.Identity.z != hit.PrimitiveIndex)
         {
-            continue;
+            return 0.0f;
         }
         const float distanceSquared = dot(
             hit.Position - previousPosition,
@@ -301,6 +447,18 @@ float EmissiveHitSolidAnglePdf(
 void ReferenceMiss(inout HitPayload payload)
 {
     payload.Hit = 0u;
+}
+
+[shader("anyhit")]
+void ReferenceAnyHit(inout HitPayload payload, in BuiltInTriangleIntersectionAttributes attributes)
+{
+    const RayTracingInstanceRecord instance = g_Instances[InstanceID()];
+    const RayTracingMaterialRecord material = g_Materials[instance.Indices.y];
+    const float4 uv = TriangleUv(instance.Indices.x, PrimitiveIndex(),
+        float3(1.0f - attributes.barycentrics.x - attributes.barycentrics.y, attributes.barycentrics));
+    if (material.Surface.w > 0.5f && SampleMaterialTexture(material.Textures0.x, uv, material.Sampling[0], 1).a * material.Surface.y * TriangleColor(instance.Indices.x, PrimitiveIndex(),
+        float3(1.0f - attributes.barycentrics.x - attributes.barycentrics.y, attributes.barycentrics)).a < material.Surface.z)
+        IgnoreHit();
 }
 
 [shader("closesthit")]
@@ -343,10 +501,40 @@ void ReferenceClosestHit(
             vertex1.Normal.xyz * barycentrics.y +
             vertex2.Normal.xyz * barycentrics.z),
         geometricNormal);
-    if (dot(geometricNormal, WorldRayDirection()) > 0.0f)
+    const bool reverseFrame = dot(geometricNormal, WorldRayDirection()) > 0.0f;
+    if (reverseFrame)
         geometricNormal = -geometricNormal;
     if (dot(shadingNormal, geometricNormal) < 0.0f)
         shadingNormal = -shadingNormal;
+    const float4 uv = vertex0.TexCoord * barycentrics.x + vertex1.TexCoord * barycentrics.y + vertex2.TexCoord * barycentrics.z;
+    const RayTracingMaterialRecord material = g_Materials[instance.Indices.y];
+    if (material.Textures0.y != c_InvalidIndex)
+    {
+        float3 tangentRaw = mul((float3x3)instance.World,
+            vertex0.Tangent.xyz * barycentrics.x + vertex1.Tangent.xyz * barycentrics.y + vertex2.Tangent.xyz * barycentrics.z);
+        float3 bitangentRaw = mul((float3x3)instance.World,
+            vertex0.Bitangent.xyz * barycentrics.x + vertex1.Bitangent.xyz * barycentrics.y + vertex2.Bitangent.xyz * barycentrics.z) * (reverseFrame ? -1.f : 1.f);
+        const HETextureSampling normalSampling = material.Sampling[1];
+        if (normalSampling.Options.x != 0 || any(normalSampling.UvRow0.xyz != float3(1,0,0)) || any(normalSampling.UvRow1.xyz != float3(0,1,0)))
+        {
+            float2 uv0 = HE_TextureUv(normalSampling, vertex0.TexCoord.xy, vertex0.TexCoord.zw);
+            float2 du = HE_TextureUv(normalSampling, vertex1.TexCoord.xy, vertex1.TexCoord.zw) - uv0;
+            float2 dv = HE_TextureUv(normalSampling, vertex2.TexCoord.xy, vertex2.TexCoord.zw) - uv0;
+            float3 dp = mul(instance.World, vertex1.Position).xyz - mul(instance.World, vertex0.Position).xyz;
+            float3 dq = mul(instance.World, vertex2.Position).xyz - mul(instance.World, vertex0.Position).xyz;
+            float determinant = du.x * dv.y - du.y * dv.x;
+            if (abs(determinant) > 1e-10) { tangentRaw = (dp * dv.y - dq * du.y) / determinant; bitangentRaw = (dq * du.x - dp * dv.x) / determinant; }
+        }
+        const float3 tangent = SafeNormalize(tangentRaw - shadingNormal * dot(tangentRaw, shadingNormal), BuildTangent(shadingNormal));
+        const float handedness = dot(cross(shadingNormal, tangent), bitangentRaw) < 0 ? -1.0f : 1.0f;
+        const float3 bitangent = cross(shadingNormal, tangent) * handedness;
+        float3 mapped = SampleMaterialTexture(material.Textures0.y, uv, material.Sampling[1], float4(0.5f, 0.5f, 1.f, 1.f)).xyz * 2.f - 1.f;
+        if (material.Textures1.w == 1u) mapped.z = sqrt(saturate(1.f - dot(mapped.xy, mapped.xy)));
+        mapped.xy *= material.Surface.x;
+        shadingNormal = SafeNormalize(tangent * mapped.x + bitangent * mapped.y + shadingNormal * mapped.z, shadingNormal);
+    }
+    if (dot(shadingNormal, geometricNormal) <= 0 || dot(shadingNormal, -WorldRayDirection()) <= 0)
+        shadingNormal = geometricNormal;
 
     payload.Position = worldPosition;
     payload.RayT = RayTCurrent();
@@ -358,13 +546,18 @@ void ReferenceClosestHit(
     payload.PrimitiveIndex = primitiveIndex;
     payload.Hit = 1u;
     payload.FrontFace = HitKind() == HIT_KIND_TRIANGLE_FRONT_FACE ? 1u : 0u;
+    payload.TexCoord = uv;
+    payload.Color = vertex0.Color * barycentrics.x + vertex1.Color * barycentrics.y + vertex2.Color * barycentrics.z;
 }
 
 [shader("raygeneration")]
 void ReferenceRayGeneration()
 {
-    const uint2 pixel = DispatchRaysIndex().xy;
     const uint2 dimensions = g_DimensionsSampleBounces.xy;
+    const uint band = asuint(g_EnvironmentRadiance.w);
+    const uint stride = max(1u, band >> 16u);
+    const uint2 pixel = uint2(DispatchRaysIndex().x,
+        ((DispatchRaysIndex().y + (band & 65535u)) * stride) % dimensions.y);
     if (any(pixel >= dimensions))
         return;
 
@@ -378,12 +571,15 @@ void ReferenceRayGeneration()
         RandomFloat(randomState));
     const float2 uv = (float2(pixel) + subpixel) / float2(dimensions);
     const float2 ndc = float2(uv.x * 2.0f - 1.0f, 1.0f - uv.y * 2.0f);
-    float4 farPosition = mul(
+    // Preserve primary-ray arithmetic across differently sized dispatches.
+    // Tiny fast-math direction differences change texture filtering and paths;
+    // fixed pixel/seed/sample must produce the same reference after a restart.
+    precise float4 farPosition = mul(
         g_InverseViewProjection,
         float4(ndc, 1.0f, 1.0f));
     farPosition.xyz /= max(abs(farPosition.w), 1e-20f);
     float3 rayOrigin = g_CameraPositionAndMaxDistance.xyz;
-    float3 rayDirection = SafeNormalize(
+    precise float3 rayDirection = SafeNormalize(
         farPosition.xyz - rayOrigin,
         float3(0.0f, 0.0f, 1.0f));
     float4 cameraFarPosition = mul(
@@ -415,17 +611,9 @@ void ReferenceRayGeneration()
             g_CameraPositionAndMaxDistance.w);
         if (hit.Hit == 0u)
         {
-            float3 environmentRadiance = g_EnvironmentRadiance.rgb;
-            if (g_SamplingSettings.w != 0u)
-            {
-                environmentRadiance *= max(
-                    g_EnvironmentMap.SampleLevel(
-                        g_EnvironmentSampler,
-                        rayDirection,
-                        0.0f).rgb,
-                    0.0f);
-            }
-            const float3 missContribution = throughput * environmentRadiance;
+            const float3 environmentRadiance = EvaluateEnvironment(rayDirection);
+            const float3 missContribution = throughput * environmentRadiance *
+                (bounce == 0u ? 1.0f : PowerHeuristic(previousBsdfPdf, 1.0f / c_TwoPi));
             if (bounce == 0u)
                 directDiffuse += missContribution;
             else
@@ -433,13 +621,13 @@ void ReferenceRayGeneration()
             break;
         }
 
-        const RayTracingMaterialRecord material = g_Materials[hit.MaterialIndex];
+        const RayTracingMaterialRecord material = EvaluateMaterial(hit.MaterialIndex, hit.TexCoord, hit.Color);
         const float3 diffuseAlbedo = max(material.BaseColorMetallic.rgb, 0.0f) *
             (1.0f - saturate(material.BaseColorMetallic.w));
         const float3 emissiveRadiance = max(material.EmissiveRoughness.rgb, 0.0f);
         if (bounce == 0u)
         {
-            firstAlbedo = diffuseAlbedo;
+            firstAlbedo = saturate(material.BaseColorMetallic.rgb);
             firstNormal = hit.ShadingNormal;
             firstDepth = max(dot(
                 hit.Position - g_CameraPositionAndMaxDistance.xyz,
@@ -490,13 +678,14 @@ void ReferenceRayGeneration()
                 dot(hit.GeometricNormal, lightDirection) > 0.0f)
             {
                 const float offset = RayOffset(hit.Position);
-                const HitPayload shadowHit = TraceScene(
+                const bool shadowHit = IsOccluded(
                     hit.Position + hit.GeometricNormal * offset,
                     lightDirection,
                     max(lightDistance - 2.0f * offset, 0.0f));
-                if (shadowHit.Hit == 0u)
+                if (!shadowHit)
                 {
-                    const float bsdfPdf = cosineAtSurface / c_Pi;
+                    float bsdfPdf;
+                    const float3 bsdf = EvaluateBsdf(material, hit.ShadingNormal, -rayDirection, lightDirection, bsdfPdf);
                     const bool hasBsdfCompetitor =
                         g_SamplingSettings.y == 0u &&
                         bounce < maximumBounces;
@@ -504,7 +693,7 @@ void ReferenceRayGeneration()
                         ? PowerHeuristic(lightPdf, bsdfPdf)
                         : 1.0f;
                     const float3 directSample = throughput *
-                        (diffuseAlbedo / c_Pi) * lightRadiance *
+                        bsdf * lightRadiance *
                         cosineAtSurface * misWeight / max(lightPdf, 1e-20f);
                     if (bounce == 0u)
                         directDiffuse += directSample;
@@ -514,19 +703,78 @@ void ReferenceRayGeneration()
             }
         }
 
+        // Delta lights have no competing BSDF-hit strategy, so their MIS weight is one.
+        const uint analyticCount = (uint)g_AnalyticLights[0].PositionType.x;
+        for (uint lightIndex = 1u; lightIndex <= analyticCount; ++lightIndex)
+        {
+            const AnalyticLight light = g_AnalyticLights[lightIndex];
+            float3 direction = SafeNormalize(-light.DirectionRadius.xyz, hit.GeometricNormal);
+            float distance = g_CameraPositionAndMaxDistance.w;
+            float attenuation = 1.0f;
+            if (light.PositionType.w > 0.5f)
+            {
+                const float3 toLight = light.PositionType.xyz - hit.Position;
+                distance = length(toLight);
+                direction = toLight / max(distance, 1e-6f);
+                const float normalizedDistance = distance / max(light.DirectionRadius.w, 1e-3f);
+                const float falloff = saturate(1.0f - pow(normalizedDistance, 4.0f));
+                attenuation = falloff * falloff / max(distance * distance, 1e-4f);
+                if (light.PositionType.w > 1.5f)
+                {
+                    const float cone = saturate((dot(-direction, normalize(light.DirectionRadius.xyz)) - light.Cone.y) / max(light.Cone.x - light.Cone.y, 1e-5f));
+                    attenuation *= cone * cone;
+                }
+            }
+            const float cosine = max(dot(hit.ShadingNormal, direction), 0.0f);
+            if (attenuation > 0 && cosine > 0 && dot(hit.GeometricNormal, direction) > 0)
+            {
+                const bool shadow = IsOccluded(hit.Position + hit.GeometricNormal * RayOffset(hit.Position), direction,
+                    max(0.f, distance - 2.f * RayOffset(hit.Position)));
+                if (!shadow)
+                {
+                    float pdf;
+                    const float3 contribution = throughput * EvaluateBsdf(material, hit.ShadingNormal, -rayDirection, direction, pdf) *
+                        light.Radiance.rgb * (attenuation * cosine);
+                    if (bounce == 0u) directDiffuse += contribution;
+                    else indirectDiffuse += contribution;
+                }
+            }
+        }
+
+        // Environment NEE also runs in DirectOnly. Uniform hemisphere sampling
+        // has a known nonzero density over every environment texel direction.
+        const float envZ = RandomFloat(randomState);
+        const float envPhi = c_TwoPi * RandomFloat(randomState);
+        const float envRadius = sqrt(max(0.0f, 1.0f - envZ * envZ));
+        const float3 envTangent = BuildTangent(hit.ShadingNormal);
+        const float3 envDirection = envTangent * (envRadius * cos(envPhi)) +
+            cross(hit.ShadingNormal, envTangent) * (envRadius * sin(envPhi)) + hit.ShadingNormal * envZ;
+        if (dot(hit.GeometricNormal, envDirection) > 0.0f)
+        {
+            float envBsdfPdf;
+            const float3 envBsdf = EvaluateBsdf(material, hit.ShadingNormal, -rayDirection, envDirection, envBsdfPdf);
+            const float envPdf = 1.0f / c_TwoPi;
+            const float envMis = g_SamplingSettings.y == 0u && bounce < maximumBounces ? PowerHeuristic(envPdf, envBsdfPdf) : 1.0f;
+            const bool envHit = IsOccluded(hit.Position + hit.GeometricNormal * RayOffset(hit.Position), envDirection, g_CameraPositionAndMaxDistance.w);
+            if (!envHit)
+            {
+                const float3 contribution = throughput * envBsdf * EvaluateEnvironment(envDirection) * envZ * envMis / envPdf;
+                if (bounce == 0u) directDiffuse += contribution;
+                else indirectDiffuse += contribution;
+            }
+        }
+
         if (g_SamplingSettings.y != 0u || bounce >= maximumBounces)
             break;
 
         previousPosition = hit.Position;
-        rayDirection = SampleCosineHemisphere(
-            hit.ShadingNormal,
-            float2(RandomFloat(randomState), RandomFloat(randomState)),
-            previousBsdfPdf);
+        float3 bsdfWeight;
+        rayDirection = SampleBsdf(material, hit.ShadingNormal, -rayDirection, randomState, previousBsdfPdf, bsdfWeight);
         if (previousBsdfPdf <= 0.0f)
             break;
         if (dot(hit.GeometricNormal, rayDirection) <= 0.0f)
             break;
-        throughput *= diffuseAlbedo;
+        throughput *= bsdfWeight;
         if (bounce >= 2u)
         {
             const float survivalProbability = clamp(
@@ -565,8 +813,13 @@ void ReferenceRayGeneration()
                 reciprocalCount,
             1.0f);
     }
-    g_Albedo[pixel] = float4(firstAlbedo, 1.0f);
-    g_WorldNormal[pixel] = float4(firstNormal, 0.0f);
+    // Pixel-filtered guides, using the identical primary samples as beauty.
+    // A miss contributes zero; these are noisy guides (cleanAux must be false).
+    const float guideWeight = 1.0f / float(sampleIndex + 1u);
+    g_Albedo[pixel] = float4(sampleIndex == 0u ? firstAlbedo :
+        lerp(g_Albedo[pixel].rgb, firstAlbedo, guideWeight), 1.0f);
+    g_WorldNormal[pixel] = float4(sampleIndex == 0u ? firstNormal :
+        lerp(g_WorldNormal[pixel].rgb, firstNormal, guideWeight), 0.0f);
     g_ViewDepth[pixel] = firstDepth;
     g_MaterialId[pixel] = firstMaterial;
     g_InstanceId[pixel] = firstInstance;

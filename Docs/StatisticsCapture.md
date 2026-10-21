@@ -1,0 +1,16 @@
+# Buffered runtime statistics
+
+RenderStats keeps current-frame capture work inside the version2 wall endpoint and formats/writes statistics files after the measured loop. `frames.csv.settings.json` records `statisticsOutput` and `statisticsCaptureCostIncluded`. This change does not remove frames, GPU/CPU pass records, submission identities, memory samples, warmup rules or acceptance thresholds.
+
+`BoundedStatisticsBuffer<T>` reserves once, preserves insertion order and stable previous-frame addresses, supports move-owned payloads, and fails explicitly on overflow without moving the rejected value or evicting retained rows. Measured frames use the requested ExitAfterFrames capacity (maximum100000); open-ended runs use16384. Submission/memory capacity adds4096 startup/drain records. Existing CPU graph POD storage retains its separate explicit limit. Full PerformanceFrame owns GPU pass and GI snapshots, so heap payload memory also depends on the captured scene; row caps are not claims of a fixed total byte ceiling.
+
+At each measured frame end, snapshots and CPU graph records are captured, normal timing guard cleanup finishes, and the current frame moves into its preallocated buffer before taking its final wall timestamp. The next iteration fills the prior row's CPU interval/busy counters in place. The last row remains captured with unavailable interval/busy fields, as there is no next start. All captured rows drain on normal shutdown, after GPU completion resolves submission timing. Original strict streams/error checks and frame/file-length checks remain; overflow or write errors fail rather than silently discard evidence. Hard termination may leave header-only/incomplete output, which is not valid benchmark evidence.
+
+New `cpuStatsQueryMs` measures QueryCpuExecutionTimes within the prologue. `cpuStatsBufferMs` measures the current frame's final snapshot enqueue/reset and is outside the prologue, but inside v2 wall. These fields must not both be blindly added to the old seven-stage total: query is nested in cpuStatsPrologueMs, whereas final buffer cost belongs to the residual unless explicitly counted once.
+
+040130's four slow frames all contained71–90ms in the former prologue. That combined scope did not distinguish OS CPU-time queries from synchronous CSV formatting/writes. The refactor removes the known synchronous I/O path and retains direct query timing for a causal follow-up; it does not by itself prove the historical stalls were I/O or that performance is fixed.
+
+Validation entry: `.\hectl.bat test StatisticsBuffer` (pending main integration run). It covers ordered move-owned data retention, previous-frame address stability, late field update, exact saturation, rejected value preservation and forbidden re-reserve. Static review confirms no statistics formatter/write/flush runs inside the measured loop. Final runtime count/order and actual performance require a fresh v2 run.
+# External process memory sampling
+
+`Tools/Agent/Rendering-MemorySampler.ps1 -SkipGpuQuery` records process memory without discovering or invoking `nvidia-smi`; its summary marks GPU sampling unavailable with a null GPU peak, allowing benchmark monitoring without periodic GPU queries. Omitting the switch preserves optional NVIDIA device-memory sampling.

@@ -14,6 +14,8 @@ namespace HEngine
         REFLECTION_COMPONENT_BODY(BehaviorTreeComponent);
     public:
         BehaviorTreeComponent() = default;
+        BehaviorTreeComponent(BehaviorTreeComponent&&) noexcept = default;
+        BehaviorTreeComponent& operator=(BehaviorTreeComponent&&) noexcept = default;
         BehaviorTreeComponent(const BehaviorTreeComponent& other)
             : btResPath(other.btResPath),
             tickInterval(other.tickInterval),
@@ -30,6 +32,7 @@ namespace HEngine
             if (this == &other)
                 return *this;
 
+            ComponentBase::operator=(other);
             btResPath = other.btResPath;
             tickInterval = other.tickInterval;
             bLoaded = false;

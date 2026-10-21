@@ -1,4 +1,4 @@
-﻿
+
 #ifndef __EFFEKSEERRENDERER_COMMON_UTILS_H__
 #define __EFFEKSEERRENDERER_COMMON_UTILS_H__
 
@@ -11,6 +11,9 @@
 #include <algorithm>
 #include <array>
 #include <assert.h>
+#include <atomic>
+#include <cstdio>
+#include <cstdlib>
 #include <functional>
 #include <math.h>
 #include <string.h>
@@ -1003,6 +1006,21 @@ struct ShaderParameterCollector
 
 	void Collect(Renderer* renderer, Effekseer::Effect* effect, Effekseer::NodeRendererBasicParameter* param, bool edgeFalloff, bool isSoftParticleEnabled)
 	{
+		#if defined(HE_EFFEKSEER_DEV_TEST_HOOKS) && HE_EFFEKSEER_DEV_TEST_HOOKS
+	const char* diagnostic = std::getenv("HE_VFX_EARLY_SMOKE");
+#else
+	const char* diagnostic = nullptr; // No environment-controlled SDK diagnostics in shipping.
+#endif
+		static std::atomic<unsigned> diagnosticCalls{0};
+		if (diagnostic && diagnostic[0] == '1' && diagnostic[1] == '\0' && diagnosticCalls.fetch_add(1) < 32)
+		{
+			std::fprintf(stderr, "EARLY_COLLECTOR_SAMPLER renderer=%p effect=%p param=%p material=%d rawFilter0=%d rawWrap0=%d size=%zu filterOffset=%td wrapOffset=%td\n",
+				static_cast<void*>(renderer), static_cast<void*>(effect), static_cast<void*>(param),
+				static_cast<int>(param->MaterialType), static_cast<int>(param->TextureFilters[0]), static_cast<int>(param->TextureWraps[0]),
+				sizeof(*param), reinterpret_cast<const char*>(param->TextureFilters.data()) - reinterpret_cast<const char*>(param),
+				reinterpret_cast<const char*>(param->TextureWraps.data()) - reinterpret_cast<const char*>(param));
+			std::fflush(stderr);
+		}
 		::Effekseer::Backend::TextureRef TexturePtr = nullptr;
 		::Effekseer::Backend::TextureRef NormalTexturePtr = nullptr;
 		::Effekseer::Backend::TextureRef AlphaTexturePtr = nullptr;

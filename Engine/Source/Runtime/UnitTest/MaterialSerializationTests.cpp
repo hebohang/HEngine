@@ -410,6 +410,14 @@ namespace HEngine::Tests
         importedPbr.bUseAoMap = true;
         importedPbr.bUseEmissiveMap = true;
 
+        bool unsupportedUvRejected = false;
+        try { (void)BuildBasePbrMaterialResV2(importedPbr); }
+        catch (const std::invalid_argument&) { unsupportedUvRejected = true; }
+        Require(unsupportedUvRejected, "BasePBR accepted unsupported UV2+ texture coordinates.");
+        importedPbr.pbrMetallicRoughness.metallicRoughnessTexture.texCoord = 0;
+        importedPbr.normalTexture.texCoord = 1;
+        importedPbr.occlusionTexture.texCoord = 0;
+        importedPbr.emissiveTexture.texCoord = 1;
         const MaterialRes importedMaterial = BuildBasePbrMaterialResV2(importedPbr);
         Require(importedMaterial.SchemaVersion == 2 &&
             importedMaterial.Type == "Default" &&
@@ -482,10 +490,10 @@ namespace HEngine::Tests
         Require(legacyRoundTrip.name == importedPbr.name &&
             legacyRoundTrip.pbrMetallicRoughness.baseColorTexture.texCoord == 1 &&
             legacyRoundTrip.pbrMetallicRoughness.baseColorTexture.textureRes.sampler.wrapS == 10497 &&
-            legacyRoundTrip.normalTexture.texCoord == 3 &&
+            legacyRoundTrip.normalTexture.texCoord == 1 &&
             legacyRoundTrip.normalTexture.textureRes.sampler.minFilter == 9987 &&
-            legacyRoundTrip.occlusionTexture.texCoord == 4 &&
-            legacyRoundTrip.emissiveTexture.texCoord == 5 &&
+            legacyRoundTrip.occlusionTexture.texCoord == 0 &&
+            legacyRoundTrip.emissiveTexture.texCoord == 1 &&
             legacyRoundTrip.bUseAlbedoMap && legacyRoundTrip.bUseNormalMap &&
             legacyRoundTrip.bUseMetallicRoughnessMap && legacyRoundTrip.bUseAoMap &&
             legacyRoundTrip.bUseEmissiveMap,
@@ -534,6 +542,29 @@ namespace HEngine::Tests
 })json");
 
         Material legacy("Assets/Material/Legacy.hmat");
+        for (const char* alphaMode : {"BLEND", "OPAQUE", "MASK"})
+        {
+            Json alphaFixture = {
+                {"Type", "Custom"}, {"ShaderPath", "Shaders/TestMaterial.hlsl"},
+                {"Properties", {{"alphaMode", alphaMode},
+                    {"pbrMetallicRoughness", {{"baseColorFactor", {0.2, 0.2, 0.2, 0.5}}}}}}
+            };
+            fixture.Write("Project/Assets/Material/LegacyAlpha.hmat", alphaFixture.dump(2));
+            Material legacyAlpha("Assets/Material/LegacyAlpha.hmat");
+            legacyAlpha.ApplyRuntimePropertyChanges();
+            Require(legacyAlpha.mPbrMatRes.alphaMode == alphaMode,
+                "Legacy alpha mode was changed by the default Alpha Clip property.");
+            const auto alphaSnapshot = legacyAlpha.BuildRenderSnapshot();
+            const auto expectedAlphaMode = std::string_view(alphaMode) == "BLEND"
+                ? RenderMaterialAlphaMode::Blend : std::string_view(alphaMode) == "MASK"
+                    ? RenderMaterialAlphaMode::Mask : RenderMaterialAlphaMode::Opaque;
+            Require(alphaSnapshot.AlphaMode == expectedAlphaMode,
+                "Legacy transparent material did not reach the correct render path.");
+            const auto migratedAlpha = legacyAlpha.BuildSerializedDocument();
+            Require(migratedAlpha.at("Properties").at("alphaMode") == alphaMode &&
+                (migratedAlpha.at("BlendMode") == "Transparent") == (std::string_view(alphaMode) == "BLEND"),
+                "Legacy transparent material was lost during V2 migration.");
+        }
         Require(legacy.GetSchemaVersion() == 1, "A material without SchemaVersion was not treated as V1.");
         Require(std::abs(legacy.metallicFactor - 0.65f) < 0.0001f,
             "Legacy alias did not update the immediate runtime PBR view.");
@@ -558,6 +589,8 @@ namespace HEngine::Tests
         // This fixture intentionally exercises V2 serialization without a
         // compiled material manifest; keep it on the legacy-compatible type.
         upgraded["Type"] = "Default";
+        upgraded["ShaderPath"] = "Shaders/BasePBR.hlsl";
+        upgraded["PassName"] = "BasePBR";
         upgraded["BlendMode"] = "Transparent";
         upgraded["DepthWrite"] = false;
         upgraded["Properties"]["alphaMode"] = "BLEND";
@@ -569,8 +602,8 @@ namespace HEngine::Tests
         Material roundTrip("Assets/Material/V2.hmat");
         Require(roundTrip.GetSchemaVersion() == 2,
             "V2 material did not round-trip its schema version.");
-        Require(std::abs(FindProperty(roundTrip, "metallic").FloatValue - 0.65f) < 0.0001f,
-            "V2 typed float did not migrate by stable id after a property rename.");
+        Require(std::abs(roundTrip.metallicFactor - 0.65f) < 0.0001f,
+            "V2 BasePBR round-trip lost the legacy metallic value.");
         Require(roundTrip.GetOrphanedParameters().contains("removed"),
             "V2 orphan did not round-trip.");
         Require(roundTrip.mPbrMatRes.alphaMode == "BLEND",
@@ -579,6 +612,21 @@ namespace HEngine::Tests
         Require(roundTrip.mPbrMatRes.alphaMode == "BLEND" &&
             roundTrip.BuildSerializedDocument().value("BlendMode", "") == "Transparent",
             "Applying V2 material parameters overwrote the authoritative render state.");
+        Json inconsistentCutoff = upgraded;
+        inconsistentCutoff["Parameters"]["g_AlphaCutoff"] = {
+            { "StableId", "g_AlphaCutoff" }, { "Type", "float" }, { "Value", 0.9f }
+        };
+        fixture.Write("Project/Assets/Material/InconsistentCutoff.hmat",
+            inconsistentCutoff.dump(2));
+        bool rejectedInconsistentCutoff = false;
+        try { Material invalid("Assets/Material/InconsistentCutoff.hmat"); }
+        catch (const std::invalid_argument& error)
+        {
+            rejectedInconsistentCutoff =
+                std::string(error.what()).find("g_AlphaCutoff") != std::string::npos;
+        }
+        Require(rejectedInconsistentCutoff,
+            "V2 material silently ignored a conflicting typed mask cutoff.");
 
         const MaterialShaderManifest firstLayout = MakeLayoutManifest(false);
         fixture.Write(
@@ -926,5 +974,71 @@ namespace HEngine::Tests
             bRejectedUnsafeTexture = true;
         }
         Require(bRejectedUnsafeTexture, "Unsafe legacy material texture path was not rejected.");
+
+        MaterialShaderManifest textureLayout = MakeLayoutManifest(false);
+        MaterialShaderProperty textureProperty = MakeLayoutProperty(
+            "g_AlbedoMap", "pbr.albedo_map", MaterialShaderPropertyType::Texture2D,
+            {}, static_cast<uint32_t>(textureLayout.Properties.size()));
+        textureProperty.Default.Texture = "white";
+        textureProperty.Fallback = "white";
+        textureProperty.TextureSemantic = MaterialShaderTextureSemantic::BaseColor;
+        textureProperty.ColorSpace = MaterialShaderColorSpace::Srgb;
+        textureProperty.Binding.RegisterType = "ParameterRow";
+        textureProperty.Binding.DescriptorIndex =
+            static_cast<int32_t>(textureProperty.RowOffset);
+        textureLayout.Properties.push_back(textureProperty);
+        textureLayout.ParameterBlock.ByteSize = static_cast<uint32_t>(
+            textureLayout.Properties.size() * MaterialShaderParameterAlignment);
+        textureLayout.BindingSignatureHash =
+            BuildMaterialShaderBindingSignatureHash(textureLayout);
+        fixture.Write(
+            "GeneratedContent/Shaders/CACHES/Materials/TestMaterial.hlsl.material.json",
+            MaterialShaderManifestToJson(textureLayout).dump(2));
+        const auto writeLegacyTextureMaterial = [&](std::string_view name,
+            std::string_view stableId)
+        {
+            Json document = {
+                { "SchemaVersion", 2 }, { "Type", "Custom" },
+                { "PassName", "TestMaterial" },
+                { "ShaderPath", "Shaders/TestMaterial.hlsl" },
+                { "VariantKeywords", Json::array() },
+                { "Domain", "Surface" }, { "ShadingModel", "Lit" },
+                { "BlendMode", "Opaque" }, { "CullMode", "Back" },
+                { "DepthWrite", true }, { "AlphaCutoff", 0.5 },
+                { "Parameters", Json::object() },
+                { "Textures", {
+                    { "g_AlbedoMap", {
+                        { "StableId", stableId }, { "Type", "texture2d" },
+                        { "Path", "Assets/Textures/Fixture.png" },
+                        { "Sampling", {
+                            { "useAffine", true },
+                            { "affineRow0", { 1.0, 0.0, 0.0 } },
+                            { "affineRow1", { 0.0, -1.0, 1.0 } },
+                        } },
+                    } },
+                } },
+                { "OrphanedParameters", Json::object() },
+                { "Properties", Json::object() },
+            };
+            fixture.Write("Project/Assets/Material/" + std::string(name) + ".hmat",
+                document.dump(2));
+        };
+        writeLegacyTextureMaterial("LegacyTextureStableId", "g_AlbedoMap");
+        Material legacyTextureStableId("Assets/Material/LegacyTextureStableId.hmat");
+        const auto& loadedSampling = FindProperty(
+            legacyTextureStableId, "g_AlbedoMap").Sampling;
+        const auto loadedSnapshot = legacyTextureStableId.BuildRenderSnapshot();
+        Require(loadedSampling.useAffine &&
+                loadedSampling.affineRow1 == glm::vec3(0.0f, -1.0f, 1.0f) &&
+                loadedSnapshot.LegacyTextures[0].Sampling.useAffine &&
+                loadedSnapshot.LegacyTextures[0].Sampling.affineRow1 ==
+                    glm::vec3(0.0f, -1.0f, 1.0f) &&
+                !legacyTextureStableId.GetOrphanedParameters().contains("g_AlbedoMap"),
+            "A V2 texture whose legacy StableId equals its name lost its UV transform.");
+        writeLegacyTextureMaterial("DifferentTextureStableId", "unrelated.generation");
+        Material differentTextureStableId("Assets/Material/DifferentTextureStableId.hmat");
+        Require(!FindProperty(differentTextureStableId, "g_AlbedoMap").Sampling.useAffine &&
+                differentTextureStableId.GetOrphanedParameters().contains("g_AlbedoMap"),
+            "A genuinely different texture StableId inherited an unrelated name's value.");
     }
 }

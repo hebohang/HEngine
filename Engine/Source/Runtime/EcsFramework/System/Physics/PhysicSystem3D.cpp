@@ -1,6 +1,7 @@
 #include "Hepch.h"
 
 #include "Runtime/EcsFramework/System/Physics/PhysicSystem3D.h"
+#include "Runtime/Core/RuntimeCpuBudget.h"
 #include "Runtime/EcsFramework/Component/Transform/TransformComponent.h"
 #include "Runtime/EcsFramework/Component/Camera/CameraComponent.h"
 #include "Runtime/EcsFramework/Component/Mesh/MeshComponent.h"
@@ -8,6 +9,7 @@
 #include "Runtime/EcsFramework/Component/Physics/ThreeD/Rigidbody3DComponent.h"
 #include "Runtime/EcsFramework/Component/Physics/ThreeD/CapsuleCollider3DComponent.h"
 #include "Runtime/EcsFramework/Entity/Entity.h"
+#include "Runtime/EcsFramework/System/Script/ScriptSystem.h"
 #include "Runtime/Resource/ModeManager/ModeManager.h"
 
 #include <Jolt/RegisterTypes.h>
@@ -19,6 +21,7 @@
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Collision/CastResult.h>
+#include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/ShapeCast.h>
@@ -26,7 +29,11 @@
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
+#include <Jolt/Physics/Collision/Shape/ScaledShape.h>
+#include "Runtime/Platform/PhysicsCookedMesh.h"
+#include "Runtime/Resource/ConfigManager/ConfigManager.h"
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
+#include <thread>
 
 #ifdef JPH_DEBUG_RENDERER
 #include <Jolt/Physics/Character/CharacterVirtual.h>
@@ -41,12 +48,85 @@
 #include <limits>
 #include <stdexcept>
 #include <vector>
+#include <map>
+#include <mutex>
+#include <set>
 
 #include <glm/gtx/quaternion.hpp>
 
 namespace HEngine
 {
-		namespace
+	// Jolt workers only copy contact data. ECS/script access happens after Update
+	// on the engine thread, with all physics body locks released.
+	class ScriptContactListener3D final : public JPH::ContactListener
+	{
+		struct Contact
+		{
+			EntityHandle First, Second;
+			glm::vec3 Point, Normal;
+			bool Trigger;
+		};
+		using Pair = std::pair<EntityHandle, EntityHandle>;
+		std::mutex mMutex;
+		std::map<JPH::SubShapeIDPair, Contact> mContacts;
+		std::set<JPH::SubShapeIDPair> mRemoved;
+		std::map<Pair, Contact> mPrevious;
+		bool mOverflow = false;
+		void Record(const JPH::Body& first, const JPH::Body& second, const JPH::ContactManifold& manifold)
+		{
+			if (!first.GetUserData() || !second.GetUserData()) return;
+			const JPH::SubShapeIDPair key(first.GetID(), manifold.mSubShapeID1, second.GetID(), manifold.mSubShapeID2);
+			std::scoped_lock guard(mMutex);
+			if (mContacts.size() >= 32768 && !mContacts.contains(key)) { mOverflow = true; return; }
+			const bool trigger = first.IsSensor() || second.IsSensor();
+			const glm::vec3 point = trigger || manifold.mRelativeContactPointsOn1.empty() ? glm::vec3(0) : Utils::JoltRVec3ToGlm(manifold.GetWorldSpaceContactPointOn1(0));
+			mContacts.insert_or_assign(key, Contact{static_cast<EntityHandle>(first.GetUserData() - 1),
+				static_cast<EntityHandle>(second.GetUserData() - 1), point,
+				trigger ? glm::vec3(0) : Utils::JoltVec3ToGlm(manifold.mWorldSpaceNormal), trigger});
+			mRemoved.erase(key);
+		}
+	public:
+		void OnContactAdded(const JPH::Body& a, const JPH::Body& b, const JPH::ContactManifold& manifold, JPH::ContactSettings&) override { Record(a, b, manifold); }
+		void OnContactPersisted(const JPH::Body& a, const JPH::Body& b, const JPH::ContactManifold& manifold, JPH::ContactSettings&) override { Record(a, b, manifold); }
+		void OnContactRemoved(const JPH::SubShapeIDPair& pair) override
+		{
+			std::scoped_lock guard(mMutex);
+			if (mContacts.contains(pair)) mRemoved.insert(pair);
+		}
+		void Flush(Level* level, JPH::BodyInterface& bodies)
+		{
+			std::map<Pair, Contact> current;
+			{
+				std::scoped_lock guard(mMutex);
+				if (mOverflow) throw std::runtime_error("Physics script contact budget exceeded (32768 manifolds).");
+				for (auto it = mContacts.begin(); it != mContacts.end();)
+				{
+					const auto& key = it->first;
+					const bool alive = bodies.IsAdded(key.GetBody1ID()) && bodies.IsAdded(key.GetBody2ID());
+					// Jolt removes cached manifolds when bodies sleep. Sleeping is not an Exit.
+					const bool removed = mRemoved.contains(key) && alive && (bodies.IsActive(key.GetBody1ID()) || bodies.IsActive(key.GetBody2ID()));
+					if (!alive || removed) { mRemoved.erase(key); it = mContacts.erase(it); continue; }
+					current.try_emplace(Pair{it->second.First, it->second.Second}, it->second);
+					++it;
+				}
+			}
+			if (auto* scripts = level->TryGetSystem<ScriptSystem>())
+			{
+				const auto publish = [&](const Contact& contact, uint32_t phase) {
+					const glm::vec3 point = phase == 2 ? glm::vec3(0) : contact.Point;
+					const glm::vec3 normal = phase == 2 ? glm::vec3(0) : contact.Normal;
+					scripts->QueueContact(contact.First, contact.Second, phase, contact.Trigger, point, -normal);
+					scripts->QueueContact(contact.Second, contact.First, phase, contact.Trigger, point, normal);
+				};
+				for (const auto& [pair, contact] : current) publish(contact, mPrevious.contains(pair) ? 1u : 0u);
+				for (const auto& [pair, contact] : mPrevious) if (!current.contains(pair)) publish(contact, 2);
+			}
+			mPrevious = std::move(current);
+		}
+	};
+	PhysicSystem3D::PhysicSystem3D(Level* level) : System(level),
+		mBodyConnection(level->mRegistry.on_destroy<Rigidbody3DComponent>().connect<&PhysicSystem3D::OnBodyRemoving>(*this)) {}
+			namespace
 		{
 			constexpr uint32_t kMaxBodies = 65536;
 		constexpr uint32_t kNumBodyMutexes = 0;
@@ -56,7 +136,6 @@ namespace HEngine
 			constexpr uint32_t kJobSystemMaxJobs = 4096;
 			constexpr uint32_t kJobSystemMaxBarriers = 32;
 
-			constexpr float kMaxPhysicsDeltaTime = 1.0f / 30.0f;
 			constexpr float kEditorFloorSnapLiftPadding = 0.1f;
 			constexpr float kEditorFloorSnapMinLiftDistance = 1.0f;
 			constexpr float kEditorFloorSnapMaxDistance = 100000.0f;
@@ -333,6 +412,32 @@ namespace HEngine
 				}
 			}
 
+			// Cooked collision is independent of any visible MeshComponent.
+			if (rb3d->Shape == CollisionShape::TriangleMesh)
+			{
+				if (rb3d->Type != Rigidbody3DComponent::Body3DType::Static || rb3d->CollisionAssetPath.empty())
+					throw std::runtime_error("Triangle collision requires a static body and CollisionAssetPath.");
+				const auto root = ConfigManager::GetInstance().GetRootFolder();
+				JPH::RefConst<JPH::Shape> cooked;
+				auto* registry = entity.GetLevel()->GetRuntimeResourceRegistry();
+				if (registry && registry->IsInitialized())
+				{
+					const auto key = RuntimeResourceKey::FromProjectPath(RuntimeResourceKind::Generic,
+						rb3d->CollisionAssetPath, "JoltCookedTriangleMesh-v1");
+					const auto path = rb3d->CollisionAssetPath;
+					auto handle = registry->AcquireBlocking<JPH::RefConst<JPH::Shape>>(key, [root, path]() {
+						return std::make_shared<JPH::RefConst<JPH::Shape>>(LoadCookedTriangleMesh(root, path));
+					});
+					entity.GetLevel()->PinRuntimeResource(handle);
+					cooked = *handle.Get();
+				}
+				else cooked = LoadCookedTriangleMesh(root, rb3d->CollisionAssetPath);
+				JPH::ScaledShapeSettings settings(cooked, Utils::GlmToJoltVec3(worldScale * colliderScale));
+				auto result = settings.Create();
+				if (result.HasError()) throw std::runtime_error(result.GetError().c_str());
+				return applyLocalColliderTransform(result.Get());
+			}
+
 			JPH::AABox bounds;
 			if (entity.HasComponent<MeshComponent>())
 			{
@@ -360,8 +465,8 @@ namespace HEngine
 				}
 			}
 
-			if (!bounds.IsValid())
-				bounds = JPH::AABox(JPH::Vec3(-0.5f, -0.5f, -0.5f), JPH::Vec3(0.5f, 0.5f, 0.5f));
+            if (!bounds.IsValid())
+				bounds = JPH::AABox(Utils::GlmToJoltVec3(-0.5f * safeScale), Utils::GlmToJoltVec3(0.5f * safeScale));
 
 			JPH::Vec3 halfExtent = bounds.GetExtent();
 			halfExtent = JPH::Vec3(
@@ -826,7 +931,9 @@ namespace HEngine
 			mRuntimeJoltInitialized = true;
 
 			mTempAllocator = std::make_unique<JPH::TempAllocatorImpl>(kTempAllocatorSize);
-			mJobSystem = std::make_unique<JPH::JobSystemThreadPool>(kJobSystemMaxJobs, kJobSystemMaxBarriers, -1);
+			const int joltWorkers = GetRuntimeCpuBudget().JoltWorkers;
+			mJobSystem = std::make_unique<JPH::JobSystemThreadPool>(
+                kJobSystemMaxJobs, kJobSystemMaxBarriers, joltWorkers);
 			mPhysicsSystem = std::make_unique<JPH::PhysicsSystem>();
 
 			mBroadPhaseLayerInterface = std::make_unique<JPH::BroadPhaseLayerInterfaceTable>(2, 2);
@@ -852,6 +959,8 @@ namespace HEngine
 				*mObjectVsBroadPhaseLayerFilter,
 				*mObjectLayerPairFilter);
 			mPhysicsSystem->SetGravity(JPH::Vec3(0.0f, -9.8f, 0.0f));
+			mContactListener = std::make_unique<ScriptContactListener3D>();
+			mPhysicsSystem->SetContactListener(mContactListener.get());
 			mDebugMode = ModeManager::mPhysicsDebugDrawModeFlag;
 
 			BuildRuntimeRigidBodies();
@@ -883,13 +992,14 @@ namespace HEngine
 		{
 			Entity entity = { e, mLevel };
 			auto& rb3d = entity.GetComponent<Rigidbody3DComponent>();
-			rb3d.RuntimeBody = nullptr;
+			if (rb3d.RuntimeBody) continue;
 
 			JPH::RefConst<JPH::Shape> shape = BuildQueryShapeForEntity(entity);
 			if (!shape)
 				continue;
 
 			JPH::BodyCreationSettings settings = CreateBodySettings(shape, entity, rb3d);
+			settings.mUserData = static_cast<uint64_t>(e) + 1;
 			JPH::BodyID bodyID = bodyInterface.CreateAndAddBody(
 				settings,
 				rb3d.Type == Rigidbody3DComponent::Body3DType::Static ? JPH::EActivation::DontActivate : JPH::EActivation::Activate);
@@ -959,15 +1069,28 @@ namespace HEngine
 			std::rethrow_exception(firstFailure);
 	}
 
+	void PhysicSystem3D::OnBodyRemoving(Registry& registry, EntityHandle entity)
+	{
+		auto& component = registry.get<Rigidbody3DComponent>(entity);
+		JPH::BodyID body;
+		const bool decoded = DecodeRuntimeBodyHandle(component.RuntimeBody, body);
+		component.RuntimeBody = nullptr;
+		if (!mPhysicsSystem || !decoded) return;
+		auto& bodies = mPhysicsSystem->GetBodyInterface();
+		if (bodies.IsAdded(body)) bodies.RemoveBody(body);
+		bodies.DestroyBody(body);
+	}
+
 	void PhysicSystem3D::OnUpdateRuntime(Timestep ts)
 	{
 		HE_PROFILE;
 
 		if (mRuntimeState != RuntimeLifecycleState::Started || !mPhysicsSystem)
 			return;
+		BuildRuntimeRigidBodies();
 
-		const float clampedDt = std::min(static_cast<float>(ts), kMaxPhysicsDeltaTime);
-		mPhysicsSystem->Update(clampedDt, 1, mTempAllocator.get(), mJobSystem.get());
+		mPhysicsSystem->Update(static_cast<float>(ts), 1, mTempAllocator.get(), mJobSystem.get());
+		if (mContactListener) mContactListener->Flush(mLevel, mPhysicsSystem->GetBodyInterface());
 
 		auto& bodyInterface = mPhysicsSystem->GetBodyInterface();
 		auto view = mLevel->mRegistry.view<TransformComponent, Rigidbody3DComponent>();
@@ -984,7 +1107,9 @@ namespace HEngine
 
 			if (!bodyInterface.IsAdded(bodyID))
 			{
-				rb3d.RuntimeBody = nullptr;
+				// Script-disabled bodies retain their shape and BodyID while
+				// outside the broadphase. Clearing this handle would recreate
+				// the collider next frame and leak the unadded body.
 				continue;
 			}
 
@@ -1108,6 +1233,7 @@ namespace HEngine
 			#endif
 		});
 		cleanupStage("runtime physics system", [&]() { mPhysicsSystem.reset(); });
+		cleanupStage("runtime contact listener", [&]() { mContactListener.reset(); });
 		cleanupStage("runtime job system", [&]() { mJobSystem.reset(); });
 		cleanupStage("runtime temp allocator", [&]() { mTempAllocator.reset(); });
 		cleanupStage("runtime broad phase filter", [&]() { mObjectVsBroadPhaseLayerFilter.reset(); });

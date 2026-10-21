@@ -1,0 +1,24 @@
+{
+  "3a6c5e51-8da7-4c11-9099-a0987f5ec261": {
+    "TagComponent": {"Tag": "Player"},
+    "TransformComponent": {"Translation": [0, 0.5, 0], "Rotation": [0, 0, 0], "Scale": [0.5, 0.5, 0.5]},
+    "MeshComponent": {"Path": "Assets/Models/Box/Box.hmesh"},
+    "ScriptComponent": {"Backend": "he.script.csharp", "Type": "template.player", "Fields": "{\"schema\":1,\"fields\":{}}", "Enabled": true}
+  },
+  "4a6c5e51-8da7-4c11-9099-a0987f5ec261": {
+    "TagComponent": {"Tag": "Floor"},
+    "TransformComponent": {"Translation": [0, -0.25, 0], "Rotation": [0, 0, 0], "Scale": [6, 0.25, 6]},
+    "MeshComponent": {"Path": "Assets/Models/Box/Box.hmesh"}
+  },
+  "5a6c5e51-8da7-4c11-9099-a0987f5ec261": {
+    "TagComponent": {"Tag": "Camera"},
+    "TransformComponent": {"Translation": [0, 5, 9], "Rotation": [-0.5, 0, 0], "Scale": [1, 1, 1]},
+    "CameraComponent": {"Primary": true, "bOverrideExposure": true, "ExposureEV100": 0,
+      "Camera": {"mProjectionType": 0, "mPerspectiveFOV": 0.785398, "mPerspectiveNear": 0.1, "mPerspectiveFar": 200}}
+  },
+  "6a6c5e51-8da7-4c11-9099-a0987f5ec261": {
+    "TagComponent": {"Tag": "Sun"},
+    "TransformComponent": {"Translation": [0, 5, 0], "Rotation": [-2.45, -0.5, 0], "Scale": [1, 1, 1]},
+    "DirectionalLightComponent": {"Color": [1, 0.95, 0.85], "Intensity": 3, "bCastShadows": true}
+  }
+}

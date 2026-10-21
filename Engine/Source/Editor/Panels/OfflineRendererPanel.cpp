@@ -24,9 +24,10 @@ namespace HEngine
         {
             switch (aov)
             {
-            case OfflineViewportAov::Beauty: return "Beauty";
-            case OfflineViewportAov::DirectDiffuse: return "Direct Diffuse";
-            case OfflineViewportAov::IndirectDiffuse: return "Indirect Diffuse";
+            case OfflineViewportAov::DenoisedBeauty: return "Denoised Beauty";
+            case OfflineViewportAov::Beauty: return "Raw Beauty";
+            case OfflineViewportAov::DirectDiffuse: return "Direct Transport (legacy)";
+            case OfflineViewportAov::IndirectDiffuse: return "Indirect Transport (legacy)";
             case OfflineViewportAov::Albedo: return "Albedo";
             case OfflineViewportAov::WorldNormal: return "World Normal";
             case OfflineViewportAov::ViewDepth: return "View Depth";
@@ -109,8 +110,14 @@ namespace HEngine
     void OfflineRendererPanel::PollExport(
         IOfflineViewportRendererSession& session)
     {
-        if (!mExport || !session.IsExportValid(mExport))
+        if (!mExport)
             return;
+        if (!session.IsExportValid(mExport))
+        {
+            mStatus = "Export cancelled: its session or image generation changed.";
+            mExport = {};
+            return;
+        }
         const TextureReadbackResult result = session.GetExportResult(mExport);
         if (result.Status == TextureReadbackStatus::Complete)
         {
@@ -166,6 +173,51 @@ namespace HEngine
             InitializeFromSession(*session);
         PollExport(*session);
 
+        const auto summary = session->GetOfflineProgress();
+        ImGui::Text("%s | %u x %u", summary.Phase.c_str(), summary.Width, summary.Height);
+        ImGui::Text("Completed spp: %.2f average (%llu - %llu)", summary.AverageSamples,
+            static_cast<unsigned long long>(summary.AccumulatedSamples),
+            static_cast<unsigned long long>(summary.MaximumSamples));
+        ImGui::TextWrapped("Denoise: %s | %llu spp", summary.DenoiserStatus.c_str(),
+            static_cast<unsigned long long>(summary.DenoisedSamples));
+        if (!summary.Error.empty()) ImGui::TextWrapped("%s", summary.Error.c_str());
+        ImGui::PushID("QuickControls");
+        if (ImGui::BeginCombo("Preview", AovName(mApplied.PreviewAov)))
+        {
+            for (const auto aov : session->GetAvailableAovs())
+            {
+                if (ImGui::Selectable(AovName(aov), aov == mApplied.PreviewAov))
+                {
+                    try
+                    {
+                        auto displaySettings = session->GetOfflineSettings();
+                        displaySettings.PreviewAov = aov;
+                        session->ApplyOfflineSettings(displaySettings);
+                        mApplied = session->GetOfflineSettings();
+                        mPending.PreviewAov = mApplied.PreviewAov;
+                    }
+                    catch (const std::exception& exception) { mStatus = exception.what(); }
+                }
+            }
+            ImGui::EndCombo();
+        }
+        if (ImGui::Button("Pause")) session->Pause();
+        ImGuiWrapper::SameLine(0.0f);
+        if (ImGui::Button("Resume")) session->Resume();
+        ImGuiWrapper::SameLine(0.0f);
+        if (ImGui::Button("Restart")) session->Restart();
+        ImGuiWrapper::SameLine(0.0f);
+        if (ImGui::Button("Cancel")) session->Cancel();
+        ImGui::PopID();
+        if (!mStatus.empty()) ImGui::TextWrapped("%s", mStatus.c_str());
+        if (!ImGui::CollapsingHeader("Settings, export and diagnostics")) return;
+
+        ImGuiWrapper::PropertyRow("Interactive", [&]() { bDirty |= ImGui::Checkbox("##OfflineInteractive", &mPending.bInteractive); });
+        ImGuiWrapper::PropertyRow("Target FPS", [&]() { bDirty |= ImGui::SliderFloat("##OfflineFps", &mPending.TargetFramesPerSecond, 30.f, 120.f, "%.0f"); });
+        ImGuiWrapper::PropertyRow("Work Budget", [&]() { bDirty |= ImGui::SliderFloat("##OfflineBudget", &mPending.WorkBudgetMilliseconds, 0.25f, 8.f, "%.2f ms"); });
+        ImGuiWrapper::PropertyRow("Navigation Scale", [&]() { bDirty |= ImGui::SliderFloat("##OfflineNavigationScale", &mPending.InteractiveScale, 0.05f, 1.f, "%.2f"); });
+        ImGuiWrapper::PropertyRow("Denoise", [&]() { bDirty |= ImGui::Checkbox("##OfflineDenoise", &mPending.bDenoise); });
+
         ImGuiWrapper::PropertyRow("Target Samples", [&]()
         {
             int value = static_cast<int>(mPending.TargetSamples);
@@ -176,14 +228,9 @@ namespace HEngine
                 bDirty = true;
             }
         });
-        ImGuiWrapper::PropertyRow("Samples Per Frame", [&]()
+        ImGuiWrapper::PropertyRow("Saved Legacy Batch", [&]()
         {
-            int value = static_cast<int>(mPending.SamplesPerFrame);
-            if (ImGui::SliderInt("##OfflineSamplesPerFrame", &value, 1, 64))
-            {
-                mPending.SamplesPerFrame = static_cast<uint32_t>(value);
-                bDirty = true;
-            }
+            ImGui::Text("%u (automatic budget active)", mPending.SamplesPerFrame);
         });
         ImGuiWrapper::PropertyRow("Max Bounces", [&]()
         {
@@ -424,7 +471,8 @@ namespace HEngine
                         : OfflineViewportOutputFormat::Raw;
                 if (mPending.OutputFormat ==
                         OfflineViewportOutputFormat::ToneMappedPng &&
-                    mPending.PreviewAov != OfflineViewportAov::Beauty)
+                    mPending.PreviewAov != OfflineViewportAov::Beauty &&
+                    mPending.PreviewAov != OfflineViewportAov::DenoisedBeauty)
                 {
                     mPending.OutputFormat = OfflineViewportOutputFormat::Pfm;
                     mStatus = "Tone-mapped PNG is available only for Beauty.";
@@ -479,6 +527,20 @@ namespace HEngine
                 application.GetRenderCapabilities());
         ImGui::TextWrapped("Support: %s", support.Reason.c_str());
         ImGui::Text("State: %s", SessionStateName(progress.State));
+        ImGui::Text("Phase: %s", progress.Phase.c_str());
+        ImGui::Text("Completed spp min/avg/max: %llu / %.2f / %llu",
+            static_cast<unsigned long long>(progress.AccumulatedSamples), progress.AverageSamples,
+            static_cast<unsigned long long>(progress.MaximumSamples));
+        ImGui::Text("Submitted min spp: %llu; in flight: %u; generation: %llu",
+            static_cast<unsigned long long>(progress.SubmittedSamples), progress.InFlight,
+            static_cast<unsigned long long>(progress.Generation));
+        ImGui::TextWrapped("Denoiser: %s (%.1f ms, %llu spp)", progress.DenoiserStatus.c_str(),
+            progress.DenoiseMilliseconds, static_cast<unsigned long long>(progress.DenoisedSamples));
+        if (!progress.bTimingAvailable) ImGui::TextUnformatted("GPU scheduling timing unavailable; conservative budget");
+        else ImGui::Text("Last completed trace band: %.3f ms", progress.TracingMilliseconds);
+        ImGui::Text("Geometry: %u included, %u excluded", progress.IncludedInstances, progress.ExcludedInstances);
+        ImGui::Text("Retired image sets: %u; stale bands retired: %llu", progress.RetiredOutputSets,
+            static_cast<unsigned long long>(progress.StaleResults));
         ImGui::Text(
             "Samples: %llu / %llu",
             static_cast<unsigned long long>(progress.AccumulatedSamples),
@@ -491,7 +553,7 @@ namespace HEngine
         ImGui::Text("Resolution: %u x %u", progress.Width, progress.Height);
         ImGui::Text("Elapsed: %.2f s", progress.ElapsedSeconds);
         ImGui::Text(
-            "Last GPU pass body: %.3f ms",
+            "Last GPU frame span: %.3f ms",
             progress.LastGpuMilliseconds);
         ImGui::Text(
             "Last reset mask: 0x%08x",

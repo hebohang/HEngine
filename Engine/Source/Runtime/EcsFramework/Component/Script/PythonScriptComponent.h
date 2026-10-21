@@ -11,6 +11,9 @@ namespace HEngine
     public:
         PythonScriptComponent() = default;
         PythonScriptComponent(const PythonScriptComponent&) = default;
+        PythonScriptComponent& operator=(const PythonScriptComponent&) = default;
+        PythonScriptComponent(PythonScriptComponent&&) noexcept = default;
+        PythonScriptComponent& operator=(PythonScriptComponent&&) noexcept = default;
 		PythonScriptComponent(const std::string& path)
 			: Path(path)
 		{}

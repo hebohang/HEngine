@@ -10,7 +10,7 @@
     },
     {
       "type": "default",
-      "project": "out\\agent\\game-debug\\bin\\HEngineDemo.exe",
+      "project": "out\\agent\\game-debug\\bin\\StarbloomSurvivor.exe",
       "projectTarget": "",
       "name": "HGame Dev Direct Launch"
     }

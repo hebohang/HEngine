@@ -1,10 +1,14 @@
 #include "Hepch.h"
 
 #include "Runtime/Graphics/RHI/RenderDevice.h"
+#if HE_RENDER_DX12
 #include "Runtime/Platform/DirectX/DX12/DX12Capabilities.h"
 #include "Runtime/Platform/DirectX/DX12/DX12RenderBackend.h"
+#endif
+#if HE_RENDER_VULKAN
 #include "Runtime/Platform/Vulkan/VulkanCapabilities.h"
 #include "Runtime/Platform/Vulkan/VulkanRenderBackend.h"
+#endif
 
 #include <stdexcept>
 

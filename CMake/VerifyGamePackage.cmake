@@ -28,14 +28,78 @@ set(requiredRootEntries
     D3D12
     Game.manifest.json
     Game.pak
+    HEngine.Runtime.json
     LICENSE.txt
     Licenses
-    python311.dll
     README.txt
     ${PACKAGE_EXECUTABLE_NAME}.exe
     THIRD_PARTY_NOTICES.txt
-    vcruntime140.dll
 )
+file(READ "${PACKAGE_DIR}/HEngine.Runtime.json" runtimeContract)
+string(JSON runtimeSchema GET "${runtimeContract}" schema)
+if(NOT runtimeSchema EQUAL 1)
+    message(FATAL_ERROR "Unsupported native runtime dependency contract")
+endif()
+foreach(flag fsr dx12 vulkan oidn)
+    string(JSON runtimeType TYPE "${runtimeContract}" ${flag})
+    if(NOT runtimeType STREQUAL "BOOLEAN")
+        message(FATAL_ERROR "Invalid native runtime flag: ${flag}")
+    endif()
+    string(JSON runtime_${flag} GET "${runtimeContract}" ${flag})
+endforeach()
+if(runtime_oidn)
+    message(FATAL_ERROR "OIDN/offline renderer is forbidden in Shipping")
+endif()
+if(runtime_fsr)
+    string(JSON runtimeArchitecture ERROR_VARIABLE architectureError GET "${runtimeContract}" architecture)
+    list(APPEND requiredRootEntries msvcp140.dll vcruntime140.dll)
+    if(NOT runtimeArchitecture STREQUAL "arm64" OR EXISTS "${PACKAGE_DIR}/vcruntime140_1.dll")
+        list(APPEND requiredRootEntries vcruntime140_1.dll)
+    endif()
+    foreach(backend Dx12 Vulkan)
+        string(TOLOWER "${backend}" graphicsFlag)
+        string(JSON fsrBackendType ERROR_VARIABLE backendError TYPE "${runtimeContract}" "fsr${backend}")
+        if(backendError)
+            if(runtimeArchitecture STREQUAL "arm64")
+                message(FATAL_ERROR "ARM64 requires explicit FSR backend capabilities")
+            endif()
+            set(runtime_fsr${backend} ${runtime_${graphicsFlag}})
+        else()
+            if(NOT fsrBackendType STREQUAL "BOOLEAN")
+                message(FATAL_ERROR "Invalid FSR backend capability")
+            endif()
+            string(JSON runtime_fsr${backend} GET "${runtimeContract}" "fsr${backend}")
+        endif()
+    endforeach()
+    if(runtime_fsrDx12)
+        list(APPEND requiredRootEntries amd_fidelityfx_dx12.dll)
+    endif()
+    if(runtime_fsrVulkan)
+        list(APPEND requiredRootEntries amd_fidelityfx_vk.dll)
+    endif()
+endif()
+if(NOT DEFINED PACKAGE_PYTHON_PLUGIN)
+    set(PACKAGE_PYTHON_PLUGIN enabled)
+endif()
+if(NOT DEFINED PACKAGE_CSHARP_PLUGIN)
+    set(PACKAGE_CSHARP_PLUGIN disabled)
+endif()
+foreach(mode PACKAGE_PYTHON_PLUGIN PACKAGE_CSHARP_PLUGIN)
+    if(NOT "${${mode}}" MATCHES "^(enabled|disabled)$")
+        message(FATAL_ERROR "Invalid script plugin package mode: ${mode}")
+    endif()
+endforeach()
+if(PACKAGE_PYTHON_PLUGIN STREQUAL "enabled")
+    list(APPEND requiredRootEntries python311.dll vcruntime140.dll)
+endif()
+list(REMOVE_DUPLICATES requiredRootEntries)
+if(PACKAGE_CSHARP_PLUGIN STREQUAL "enabled")
+    list(APPEND requiredRootEntries Scripting)
+    file(GLOB scriptDirectories RELATIVE "${PACKAGE_DIR}/Scripting" "${PACKAGE_DIR}/Scripting/*")
+    if(NOT scriptDirectories STREQUAL "CSharp")
+        message(FATAL_ERROR "Scripting package must contain only the selected CSharp runtime")
+    endif()
+endif()
 
 file(READ "${PACKAGE_DIR}/.he-package-root" packageMarker)
 string(STRIP "${packageMarker}" packageMarker)
@@ -54,7 +118,7 @@ if(NOT actualRootEntries STREQUAL requiredRootEntries)
 endif()
 
 foreach(fileName IN LISTS requiredRootEntries)
-    if(fileName STREQUAL "Licenses" OR fileName STREQUAL "D3D12")
+    if(fileName STREQUAL "Licenses" OR fileName STREQUAL "D3D12" OR fileName STREQUAL "Scripting")
         if(NOT IS_DIRECTORY "${PACKAGE_DIR}/${fileName}" OR IS_SYMLINK "${PACKAGE_DIR}/${fileName}")
             message(FATAL_ERROR "Required package directory is missing or unsafe: ${fileName}")
         endif()
@@ -153,13 +217,16 @@ endif()
 if(manifestFileCount GREATER 0)
     math(EXPR manifestFileLast "${manifestFileCount} - 1")
     foreach(fileIndex RANGE ${manifestFileLast})
+        # Parse the large manifest once per file, then inspect the small entry.
+        string(JSON fileEntry GET "${packageManifest}" Files ${fileIndex})
+        set(manifestFileEntryByIndex_${fileIndex} "${fileEntry}")
         string(JSON filePathType ERROR_VARIABLE filePathTypeError
-            TYPE "${packageManifest}" Files ${fileIndex} Path)
+            TYPE "${fileEntry}" Path)
         if(filePathTypeError OR NOT filePathType STREQUAL "STRING")
             message(FATAL_ERROR
                 "Game.manifest.json Files[${fileIndex}].Path must be a string")
         endif()
-        string(JSON filePath GET "${packageManifest}" Files ${fileIndex} Path)
+        string(JSON filePath GET "${fileEntry}" Path)
         he_assert_package_policy_value(
             "${filePath}"
             "Game.manifest.json Files[${fileIndex}].Path")
@@ -194,6 +261,7 @@ set(spirvMaterialArtifactCount 0)
 if(manifestFileCount GREATER 0)
     math(EXPR manifestFileLast "${manifestFileCount} - 1")
     foreach(fileIndex RANGE ${manifestFileLast})
+        set(fileEntry "${manifestFileEntryByIndex_${fileIndex}}")
         set(normalizedFilePath "${manifestFilePathByIndex_${fileIndex}}")
         string(TOLOWER "${normalizedFilePath}" normalizedFilePathKey)
         string(FIND "${normalizedFilePathKey}" "shaders/caches/dxil/" dxilArtifactPosition)
@@ -223,20 +291,20 @@ if(manifestFileCount GREATER 0)
         endif()
 
         string(JSON fileTypeType ERROR_VARIABLE fileTypeTypeError
-            TYPE "${packageManifest}" Files ${fileIndex} Type)
+            TYPE "${fileEntry}" Type)
         if(NOT fileTypeTypeError)
             if(NOT fileTypeType STREQUAL "STRING")
                 message(FATAL_ERROR
                     "Game.manifest.json Files[${fileIndex}].Type must be a string")
             endif()
-            string(JSON fileType GET "${packageManifest}" Files ${fileIndex} Type)
+            string(JSON fileType GET "${fileEntry}" Type)
             he_assert_package_policy_value(
                 "${fileType}"
                 "Game.manifest.json Files[${fileIndex}].Type")
         endif()
 
         string(JSON dependencyCount ERROR_VARIABLE dependenciesError
-            LENGTH "${packageManifest}" Files ${fileIndex} Dependencies)
+            LENGTH "${fileEntry}" Dependencies)
         if(dependenciesError)
             message(FATAL_ERROR
                 "Game.manifest.json Files[${fileIndex}].Dependencies must be an array")
@@ -250,15 +318,14 @@ if(manifestFileCount GREATER 0)
                         "Game.manifest.json Files[${fileIndex}].Dependencies[${dependencyIndex}].${dependencyField}")
                     string(JSON dependencyFieldType
                         ERROR_VARIABLE dependencyFieldTypeError
-                        TYPE "${packageManifest}" Files ${fileIndex}
+                        TYPE "${fileEntry}"
                             Dependencies ${dependencyIndex} ${dependencyField})
                     if(NOT dependencyFieldTypeError)
                         if(NOT dependencyFieldType STREQUAL "STRING")
                             message(FATAL_ERROR
                                 "${dependencyContext} must be a string")
                         endif()
-                        string(JSON dependencyFieldValue GET "${packageManifest}"
-                            Files ${fileIndex} Dependencies ${dependencyIndex}
+                        string(JSON dependencyFieldValue GET "${fileEntry}" Dependencies ${dependencyIndex}
                             ${dependencyField})
                         he_assert_package_policy_value(
                             "${dependencyFieldValue}"
@@ -302,7 +369,7 @@ if(manifestFileCount GREATER 0)
         endif()
 
         string(JSON tagCount ERROR_VARIABLE tagsError
-            LENGTH "${packageManifest}" Files ${fileIndex} Tags)
+            LENGTH "${fileEntry}" Tags)
         if(tagsError)
             message(FATAL_ERROR
                 "Game.manifest.json Files[${fileIndex}].Tags must be an array")
@@ -311,12 +378,12 @@ if(manifestFileCount GREATER 0)
             math(EXPR tagLast "${tagCount} - 1")
             foreach(tagIndex RANGE ${tagLast})
                 string(JSON tagType ERROR_VARIABLE tagTypeError
-                    TYPE "${packageManifest}" Files ${fileIndex} Tags ${tagIndex})
+                    TYPE "${fileEntry}" Tags ${tagIndex})
                 if(tagTypeError OR NOT tagType STREQUAL "STRING")
                     message(FATAL_ERROR "Game.manifest.json tag must be a string")
                 endif()
                 string(JSON tagValue GET
-                    "${packageManifest}" Files ${fileIndex} Tags ${tagIndex})
+                    "${fileEntry}" Tags ${tagIndex})
                 he_assert_package_policy_value(
                     "${tagValue}"
                     "Game.manifest.json tag")

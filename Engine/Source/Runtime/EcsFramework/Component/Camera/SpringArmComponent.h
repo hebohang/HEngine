@@ -14,9 +14,17 @@ namespace HEngine
         float ArmLength = 3.2f;
         glm::vec3 SocketOffset = glm::vec3(0.5f, 1.6f, 0.0f);
         glm::vec3 TargetOffset = glm::vec3(0.0f);
+        glm::vec3 LookAtOffset = glm::vec3(0.0f);
 
         bool bEnableLag = true;
         float LagSpeed = 12.0f;
+        // Filter the shared orbit/look target, avoiding stair-induced pitch impulses.
+        float VerticalLagSpeed = 8.0f;
+        float LagResetDistance = 5.0f;
+        PROPERTY(Disable)
+        glm::vec3 RuntimePivot = glm::vec3(0.0f);
+        PROPERTY(Disable)
+        glm::vec3 RuntimePivotVelocity = glm::vec3(0.0f);
 
         bool bEnableCollision = true;
         float ProbeRadius = 0.2f;

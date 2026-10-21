@@ -69,6 +69,28 @@ namespace HEngine
         Json defaultValue = 0.0f;
     };
 
+    REFLECTION_TYPE(AnimBlendSampleRes)
+    STRUCT(AnimBlendSampleRes, Fields)
+    {
+        REFLECTION_BODY(AnimBlendSampleRes);
+        int nodeId = -1; // Existing State node supplies its clip.
+        float threshold = 0.0f;
+        float thresholdY = 0.0f; // Used only when blendParameterY is present.
+    };
+
+    REFLECTION_TYPE(AnimLayerRes)
+    STRUCT(AnimLayerRes, Fields)
+    {
+        REFLECTION_BODY(AnimLayerRes);
+        int nodeId = -1;
+        float weight = 1.0f;
+        std::string weightParameter;
+        // Optional normalized playback position, independent of the base locomotion phase.
+        std::string progressParameter;
+        std::vector<std::string> maskRoots; // Empty means the full hierarchy; listed roots include descendants.
+        bool additive = false; // Delta relative to this clip's bind pose.
+    };
+
     REFLECTION_TYPE(AnimControllerNodeRes)
     STRUCT(AnimControllerNodeRes, Fields)
     {
@@ -78,6 +100,10 @@ namespace HEngine
         std::string name;
         std::vector<float> position = { 0.0f, 0.0f };
         std::string clipPath;
+        std::string blendParameter; // Empty preserves the original single-clip state.
+        std::string blendParameterY; // Optional second coordinate, normalized inverse-square distance blend.
+        std::vector<AnimBlendSampleRes> blendSamples;
+        std::vector<AnimLayerRes> layers; // Ordered, phase-synchronized; base clip alone owns events/root motion.
     };
 
     REFLECTION_TYPE(AnimControllerConditionRes)

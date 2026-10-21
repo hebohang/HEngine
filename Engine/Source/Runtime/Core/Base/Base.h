@@ -3,7 +3,9 @@
 #include <memory>
 
 // Platform detection using predefined macros
-#ifdef _WIN32
+#if defined(__EMSCRIPTEN__)
+	#define HE_PLATFORM_WECHAT
+#elif defined(_WIN32)
 	/* Windows x64/x86 */
 	#ifdef _WIN64
 		/* Windows x64  */
@@ -25,7 +27,6 @@
 		#error "IOS is not supported!"
 	#elif TARGET_OS_MAC == 1
 		#define HE_PLATFORM_MACOS
-		#error "MacOS is not supported!"
 	#else
 		#error "Unknown Apple platform!"
 	#endif
@@ -34,7 +35,6 @@
   * it has __linux__ defined */
 #elif defined(__ANDROID__)
 	#define HE_PLATFORM_ANDROID
-	#error "Android is not supported!"
 #elif defined(__linux__)
 	#define HE_PLATFORM_LINUX
 	#error "Linux is not supported!"
@@ -55,14 +55,16 @@
 	#else
 		#define HENGINE_API
 	#endif
+#elif defined(HE_PLATFORM_WECHAT) || defined(HE_PLATFORM_ANDROID) || defined(HE_PLATFORM_MACOS)
+	#define HENGINE_API
 #else
-	#error HEngine only supports Windows!
+	#error Unsupported HEngine platform
 #endif // End of DLL support
 
 #ifdef HE_DEBUG
 	#if defined(HE_PLATFORM_WINDOWS)
 		#define HE_DEBUGBREAK() __debugbreak()
-	#elif defined(HE_PLATFORM_LINUX)
+	#elif defined(HE_PLATFORM_LINUX) || defined(HE_PLATFORM_ANDROID) || defined(HE_PLATFORM_MACOS)
 		#include <signal.h>
 		#define HE_DEBUGBREAK() raise(SIGTRAP)
 	#else

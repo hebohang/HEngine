@@ -1,0 +1,458 @@
+name: Validate Windows
+
+on:
+  pull_request:
+    paths:
+      - 'Engine/**'
+      - 'CMake/**'
+      - 'CMakeLists.txt'
+      - 'Tools/**'
+      - 'HEngine.workspace.json'
+      - 'Examples/**'
+      - '.github/workflows/build_windows.yml'
+  workflow_dispatch:
+    inputs:
+      run_gpu_validation:
+        description: Run optional DX12/Vulkan probes and package smokes on registered GPU runners
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+# Sample gameplay is maintained in its own public repository. This temporary
+# checkout preserves the native/managed sample contracts exercised by CI.
+env:
+  HE_PROJECT_DIR: ${{ github.workspace }}/Project
+
+concurrency:
+  group: windows-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  validate:
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 240
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Checkout independent Starbloom Survivor sample
+        uses: actions/checkout@v4
+        with:
+          repository: hebohang/StarbloomSurvivor
+          ref: c6f7449c7fff9d7c9b5dd32e89638d7a654f7f9a
+          path: Project
+          persist-credentials: false
+
+      - name: Report and verify VS2026 toolchain
+        shell: powershell
+        run: |
+          . .\Tools\Agent\Toolchain.ps1
+          $toolchain = Get-HeVisualStudio
+          if ($toolchain.Toolset -ne 'v145') { throw 'CI requires VS2026 / v145.' }
+          Import-HeToolchain -Toolchain $toolchain
+          $toolchain | Format-List
+          cmake --version
+          ninja --version
+          & (Join-Path $toolchain.Path 'VC\Tools\Llvm\x64\bin\clang.exe') --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Validate toolchain selection and cache migration
+        shell: powershell
+        run: .\Tools\Agent\Test-Toolchain.ps1
+
+      - name: Set up content tool Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Prepare pinned source build dependencies
+        shell: powershell
+        run: |
+          .\Tools\Dependencies\Install-SourceDependencies.ps1 -NoPause
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Validate transactional asset operations
+        shell: powershell
+        run: |
+          python Tools/Content/test_asset_operations.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python Tools/Build/test_preflight.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Generate reflection sources
+        shell: powershell
+        run: |
+          .\Win-CppCodeGen.bat --no-pause
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Configure and build the full Clang graph
+        shell: powershell
+        run: |
+          . .\Tools\Agent\Toolchain.ps1
+          Import-HeToolchain
+
+          $cmake = (Get-Command cmake.exe -CommandType Application |
+            Select-Object -First 1).Source
+          $ninja = (Get-Command ninja.exe -CommandType Application |
+            Select-Object -First 1).Source
+          $clang = Join-Path (Get-HeVisualStudio).Path "VC\Tools\Llvm\x64\bin\clang-cl.exe"
+          $repositoryRoot = $PWD.Path
+          $buildRoot = Join-Path $repositoryRoot "out\ci\clang-debug"
+          $runtimeOutput = Join-Path $buildRoot "bin"
+          $generatedSource = Join-Path $buildRoot "GeneratedSource"
+          $projectRoot = Join-Path $repositoryRoot "Project"
+          $freshConfigure = @(Get-HeFreshConfigureArguments $buildRoot $clang Ninja)
+          & $cmake @freshConfigure -S $repositoryRoot -B $buildRoot -G Ninja `
+            "-DCMAKE_BUILD_TYPE=Debug" `
+            "-DCMAKE_C_COMPILER=$clang" `
+            "-DCMAKE_CXX_COMPILER=$clang" `
+            "-DCMAKE_MAKE_PROGRAM=$ninja" `
+            "-DHE_PROJECT_DIR=$projectRoot" `
+            "-DHE_GENERATED_SOURCE_DIR=$generatedSource" `
+            "-DHE_RUNTIME_OUTPUT_DIR=$runtimeOutput" `
+            -DPACK_GAME=OFF `
+            -DHE_BUILD_DEV_GAME=OFF `
+            -DCPP_CODE_GEN=OFF `
+            -DHE_RENDER_DX12=ON `
+            -DHE_RENDER_VULKAN=ON `
+            -DHE_EFFEKSEER_BUILD_DX12=ON `
+            -DHE_EFFEKSEER_BUILD_VULKAN=ON `
+            -DHE_ENABLE_TRACY=OFF `
+            -DHE_TRACY_ON_DEMAND=ON
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $cmake --build $buildRoot --parallel 4
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Validate shader profile contracts
+        shell: powershell
+        run: |
+          .\Tools\Agent\Build.ps1 -Target HShaderCompiler -Configuration Debug
+          $compiler = (Resolve-Path `
+            "out\agent\editor-debug\bin\Programs\HShaderCompiler\HShaderCompiler.exe").Path
+          & $compiler --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Validate cooker Python import closure
+        shell: powershell
+        run: |
+          .\Tools\Agent\Build.ps1 -Target HCooker -Configuration Debug
+          $cooker = (Resolve-Path `
+            "out\agent\editor-debug\bin\Programs\HCooker\HCooker.exe").Path
+          & $cooker --self-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run headless engine contracts
+        shell: powershell
+        run: |
+          $tests = @(
+            "StrictProjectRelativePath",
+            "AtomicResourceSave",
+            "AntiAliasing",
+            "AudioLifecycle",
+            "DescriptorIndexAllocator",
+            "ConfigManagerDualRoot",
+            "EffectTransformBatch",
+            "EffekseerRegressionManifest",
+            "EffekseerRuntimeLifecycle",
+            "MaterialHotReload",
+            "MaterialSerialization",
+            "GroupedAssetOutputNames",
+            "MeshResourceValidation",
+            "MeshCpuDecode",
+            "RenderGraph",
+            "RenderGraphResourcePool",
+            "RenderSettings",
+            "PipelineCacheKeys",
+            "ShaderCacheKey",
+            "TextureReadbackPng",
+            "RenderWorldSubmission",
+            "RuntimePrefabResource",
+            "RuntimeResourceCatalog",
+            "RuntimeResourceRegistryLifecycle",
+            "RuntimeResourceWarmup",
+            "RuntimeUiResource",
+            "RenderCapabilityPolicy",
+            "SceneDocumentIncremental",
+            "SystemLifecycle",
+            "SurvivorPickupBatch",
+            "SurvivorSpatialIndex",
+            "SurvivorTargetingBatch",
+            "PbrLightingReflection",
+            "EmbreeSubMeshPickResolve",
+            "FixedSimulationClock",
+            "InputActions",
+            "NavigationGeometry",
+            "PrefabSubtree",
+            "AnimationPoseContract",
+            "ScriptEcs",
+            "PhysicsScriptContact",
+            "PhysicsScriptContact2D",
+            "PresentationClock",
+            "ApplicationRuntimeStartupGuard"
+          )
+          foreach ($test in $tests) {
+            .\hectl.bat test $test
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+      - name: Build development game
+        shell: powershell
+        run: |
+          .\hectl.bat game build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build editor
+        shell: powershell
+        run: |
+          .\hectl.bat editor build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Validate managed scripting workflows
+        shell: powershell
+        run: |
+          . .\Tools\Dependencies\Environment.ps1
+          Import-HEDependencyEnvironment
+          dotnet run --project Tools/Scripting/WorkflowTests/WorkflowTests.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build Release game package
+        shell: powershell
+        run: |
+          .\hectl.bat package
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify package allow-list
+        shell: powershell
+        run: |
+          $descriptor = Get-Content -Raw Project\Project.heproject | ConvertFrom-Json
+          $packageDir = (Resolve-Path "dist\$($descriptor.ExecutableName)").Path
+          $licenseList = (Resolve-Path `
+            "out\package\build\Engine\Source\Game\ExpectedPackageLicenses.txt").Path
+          cmake `
+            "-DPACKAGE_DIR=$packageDir" `
+            "-DPACKAGE_EXECUTABLE_NAME=$($descriptor.ExecutableName)" `
+            "-DPACKAGE_PROJECT_ID=$($descriptor.ProjectId)" `
+            "-DPACKAGE_LICENSE_LIST_FILE=$licenseList" `
+            -P CMake\VerifyGamePackage.cmake
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify PE closure and Agility SDK
+        shell: powershell
+        run: |
+          $descriptor = Get-Content -Raw Project\Project.heproject | ConvertFrom-Json
+          $packageDir = (Resolve-Path "dist\$($descriptor.ExecutableName)").Path
+          $sdkVersion = [int](Get-Content -Raw `
+            out\package\build\DirectXAgilitySDK.version).Trim()
+          $packageVersion = (Get-Content -Raw `
+            out\package\build\DirectXAgilitySDK.package-version).Trim()
+          & .\Tools\Packaging\Verify-WindowsPackage.ps1 `
+            -PackageDir $packageDir `
+            -ExecutableName $descriptor.ExecutableName `
+            -ExpectedD3D12SDKVersion $sdkVersion `
+            -ExpectedAgilityPackageVersion $packageVersion
+
+      - name: Run packaged game full-start smoke with WARP
+        shell: powershell
+        run: |
+          $descriptor = Get-Content -Raw Project\Project.heproject | ConvertFrom-Json
+          & .\Tools\Packaging\Test-PackagedGame.ps1 `
+            -PackageDir "dist\$($descriptor.ExecutableName)" `
+            -ExecutableName $descriptor.ExecutableName `
+            -LogDirectory "out\package-full-start" `
+            -TimeoutSeconds 300 `
+            -UseWarp
+
+      - name: Create release evidence
+        shell: powershell
+        run: |
+          $descriptor = Get-Content -Raw Project\Project.heproject | ConvertFrom-Json
+          $packageDir = (Resolve-Path "dist\$($descriptor.ExecutableName)").Path
+          $evidenceDir = Join-Path $PWD "out\ci-package-evidence"
+          New-Item -ItemType Directory -Force -Path $evidenceDir | Out-Null
+          $zipName = "$($descriptor.ExecutableName)-windows-x64.zip"
+          $zipPath = Join-Path $evidenceDir $zipName
+          tar.exe -a -c -f $zipPath -C $packageDir .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $zipHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $zipPath).Hash.ToLowerInvariant()
+          "$zipHash  $zipName" | Set-Content -Encoding ascii `
+            (Join-Path $evidenceDir "$zipName.sha256")
+          git rev-parse HEAD | Set-Content -Encoding ascii `
+            (Join-Path $evidenceDir "commit-sha.txt")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item -LiteralPath `
+            "out\package\build\Engine\Source\Game\CookReport.json" `
+            -Destination (Join-Path $evidenceDir "CookReport.json")
+
+      - name: Verify final ZIP round-trip
+        shell: powershell
+        run: |
+          $descriptor = Get-Content -Raw Project\Project.heproject | ConvertFrom-Json
+          $evidenceDir = (Resolve-Path "out\ci-package-evidence").Path
+          $zipName = "$($descriptor.ExecutableName)-windows-x64.zip"
+          $zipPath = Join-Path $evidenceDir $zipName
+          $unicodeSegment = 'Unicode-' + [char]0x96EA + '-' +
+            [char]::ConvertFromUtf32(0x1F680) + ' ZIP'
+          $roundTripDir = Join-Path $PWD `
+            ("out\ci-zip-roundtrip\{0}\{1}" -f $unicodeSegment, [Guid]::NewGuid().ToString('N'))
+          if (Test-Path -LiteralPath $roundTripDir) {
+            throw "Fresh ZIP round-trip directory already exists: $roundTripDir"
+          }
+          Expand-Archive -LiteralPath $zipPath -DestinationPath $roundTripDir
+
+          $licenseList = (Resolve-Path `
+            "out\package\build\Engine\Source\Game\ExpectedPackageLicenses.txt").Path
+          cmake `
+            "-DPACKAGE_DIR=$roundTripDir" `
+            "-DPACKAGE_EXECUTABLE_NAME=$($descriptor.ExecutableName)" `
+            "-DPACKAGE_PROJECT_ID=$($descriptor.ProjectId)" `
+            "-DPACKAGE_LICENSE_LIST_FILE=$licenseList" `
+            -P CMake\VerifyGamePackage.cmake
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $sdkVersion = [int](Get-Content -Raw `
+            out\package\build\DirectXAgilitySDK.version).Trim()
+          $packageVersion = (Get-Content -Raw `
+            out\package\build\DirectXAgilitySDK.package-version).Trim()
+          & .\Tools\Packaging\Verify-WindowsPackage.ps1 `
+            -PackageDir $roundTripDir `
+            -ExecutableName $descriptor.ExecutableName `
+            -ExpectedD3D12SDKVersion $sdkVersion `
+            -ExpectedAgilityPackageVersion $packageVersion
+          & .\Tools\Packaging\Test-PackagedGame.ps1 `
+            -PackageDir $roundTripDir `
+            -ExecutableName $descriptor.ExecutableName `
+            -LogDirectory "out\ci-zip-roundtrip-logs" `
+            -TimeoutSeconds 300 `
+            -UseWarp
+
+      - name: Upload diagnostic logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-validation-logs
+          path: |
+            out/agent/logs/
+            out/ci/clang-debug/CMakeFiles/CMakeConfigureLog.yaml
+            out/package/build/CMakeFiles/CMakeConfigureLog.yaml
+          retention-days: 14
+
+      - name: Upload packaged game and release evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: starbloom-survivor-windows-x64
+          path: out/ci-package-evidence/*
+          if-no-files-found: error
+          retention-days: 14
+
+  gpu-capability-probe:
+    needs: validate
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_gpu_validation }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-10-intel-dx12
+            runner: '["self-hosted","Windows","X64","he-gpu-win10-intel"]'
+            backend: dx12
+          - name: windows-10-intel-vulkan
+            runner: '["self-hosted","Windows","X64","he-gpu-win10-intel"]'
+            backend: vulkan
+          - name: windows-11-nvidia-dxr-dx12
+            runner: '["self-hosted","Windows","X64","he-gpu-win11-nvidia-dxr"]'
+            backend: dx12
+          - name: windows-11-nvidia-dxr-vulkan
+            runner: '["self-hosted","Windows","X64","he-gpu-win11-nvidia-dxr"]'
+            backend: vulkan
+          - name: windows-11-amd-dxr-dx12
+            runner: '["self-hosted","Windows","X64","he-gpu-win11-amd-dxr"]'
+            backend: dx12
+          - name: windows-11-amd-dxr-vulkan
+            runner: '["self-hosted","Windows","X64","he-gpu-win11-amd-dxr"]'
+            backend: vulkan
+          - name: windows-11-no-dxr-dx12
+            runner: '["self-hosted","Windows","X64","he-gpu-win11-no-dxr"]'
+            backend: dx12
+          - name: windows-11-no-dxr-vulkan
+            runner: '["self-hosted","Windows","X64","he-gpu-win11-no-dxr"]'
+            backend: vulkan
+    runs-on: ${{ fromJSON(matrix.runner) }}
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Checkout independent Starbloom Survivor sample
+        uses: actions/checkout@v4
+        with:
+          repository: hebohang/StarbloomSurvivor
+          ref: c6f7449c7fff9d7c9b5dd32e89638d7a654f7f9a
+          path: Project
+          persist-credentials: false
+
+      - name: Download the exact validated package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: starbloom-survivor-windows-x64
+          path: out/package-artifact
+
+      - name: Extract packaged game
+        shell: powershell
+        run: |
+          $zips = @(Get-ChildItem -LiteralPath out\package-artifact -File `
+            -Filter "*-windows-x64.zip")
+          if ($zips.Count -ne 1) { throw "Expected exactly one package ZIP." }
+          Expand-Archive -LiteralPath $zips[0].FullName `
+            -DestinationPath out\package-under-test
+
+      - name: Probe real graphics capabilities
+        shell: powershell
+        run: |
+          $descriptor = Get-Content -Raw Project\Project.heproject | ConvertFrom-Json
+          $game = (Resolve-Path `
+            "out\package-under-test\$($descriptor.ExecutableName).exe").Path
+          $output = Join-Path $PWD "GraphicsCaps-${{ matrix.name }}.json"
+          $processPath = $env:PATH
+          Remove-Item Env:\PATH -ErrorAction SilentlyContinue
+          Remove-Item Env:\Path -ErrorAction SilentlyContinue
+          $env:PATH = $processPath
+          $process = Start-Process -FilePath $game `
+            -ArgumentList @(
+              "--graphics-probe",
+              "--graphics-api=${{ matrix.backend }}",
+              "--strict-graphics-api",
+              "--output", $output) `
+            -WorkingDirectory (Split-Path -Parent $game) `
+            -WindowStyle Hidden -Wait -PassThru
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+          if (-not (Test-Path -LiteralPath $output -PathType Leaf)) {
+            throw "Graphics probe did not write $output"
+          }
+
+      - name: Validate packaged game selected renderer path
+        shell: powershell
+        run: |
+          $descriptor = Get-Content -Raw Project\Project.heproject | ConvertFrom-Json
+          & .\Tools\Packaging\Test-PackagedGame.ps1 `
+            -PackageDir out\package-under-test `
+            -ExecutableName $descriptor.ExecutableName `
+            -LogDirectory "out\package-gpu-check-${{ matrix.name }}" `
+            -TimeoutSeconds 300 `
+            -GraphicsApi ${{ matrix.backend }}
+
+      - name: Upload real GPU capability report
+        uses: actions/upload-artifact@v4
+        with:
+          name: graphics-caps-${{ matrix.name }}
+          path: GraphicsCaps-${{ matrix.name }}.json
+          if-no-files-found: error
+          retention-days: 14
+

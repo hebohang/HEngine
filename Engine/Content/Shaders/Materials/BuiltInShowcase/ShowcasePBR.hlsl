@@ -19,9 +19,10 @@
 
 void EvaluateMaterial(in HEMaterialInput input, inout HEMaterialSurface surface)
 {
-    const float4 albedo = g_AlbedoMap.Sample(HE_MATERIAL_DEFAULT_SAMPLER, input.UV0);
-    const float3 sampledNormal = g_NormalMap.Sample(
-        HE_MATERIAL_DEFAULT_SAMPLER, input.UV0).xyz * 2.0 - 1.0;
+    const float4 albedo = g_AlbedoMap.Sample(HE_MATERIAL_DEFAULT_SAMPLER, g_AlbedoMap_UV);
+    float normalMipVariance;
+    float3 normalTS = HE_SAMPLE_NORMAL_MAP(g_NormalMap,
+        HE_MATERIAL_DEFAULT_SAMPLER, g_NormalMap_UV, g_NormalStrength, normalMipVariance);
     const float2 detail = float2(
         sin(input.UV0.y * g_DetailScale * 6.2831853),
         cos(input.UV0.x * g_DetailScale * 6.2831853));
@@ -29,9 +30,10 @@ void EvaluateMaterial(in HEMaterialInput input, inout HEMaterialSurface surface)
     surface.Metallic = g_MetallicFactor;
     surface.PerceptualRoughness = g_RoughnessFactor;
     surface.AO = g_AoStrength;
-    surface.NormalTS = normalize(float3(
-        sampledNormal.xy * g_NormalStrength + detail * g_DetailNormalStrength,
-        max(sampledNormal.z, 0.1)));
+    normalTS.xy += detail * g_DetailNormalStrength;
+    surface.NormalTS = HE_SafeNormalize(normalTS);
+    surface.NormalMipVariance = normalMipVariance;
+    surface.NormalUvSet = g_NormalMap_UV_SET;
     surface.Emissive = g_EmissiveFactor.rgb;
     surface.Opacity = albedo.a * g_BaseColorFactor.a;
 }

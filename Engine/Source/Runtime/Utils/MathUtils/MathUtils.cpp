@@ -1,7 +1,9 @@
 #include "Hepch.h"
 #include "Math.h"
 #include <glm/gtx/matrix_decompose.hpp>
+#include <glm/gtx/quaternion.hpp>
 #include "MathUtils.h"
+#include "Rotation.h"
 
 namespace HEngine::Math
 {
@@ -13,8 +15,23 @@ namespace HEngine::Math
 
 		if (!glm::decompose(transform, scale, orientation, translation, skew, perspective))
 			return false;
+		// GLM represents a reflected matrix with three negative scales. Near a
+		// quarter turn its extracted orientation is ill-conditioned; use a
+		// consistent single-axis reflection before converting to Euler angles.
+		if (glm::determinant(glm::mat3(transform)) < 0.0f)
+		{
+			scale = { -glm::length(glm::vec3(transform[0])),
+				glm::length(glm::vec3(transform[1])),
+				glm::length(glm::vec3(transform[2])) };
+			if (glm::any(glm::lessThanEqual(glm::abs(scale), glm::vec3(1e-8f))))
+				return false;
+			glm::mat3 reflectedRotation;
+			for (int column = 0; column < 3; ++column)
+				reflectedRotation[column] = glm::vec3(transform[column]) / scale[column];
+			orientation = glm::quat_cast(reflectedRotation);
+		}
 
-		rotation = glm::eulerAngles(glm::normalize(orientation));
+		rotation = StableEulerAngles(orientation);
 		return true;
 	}
 

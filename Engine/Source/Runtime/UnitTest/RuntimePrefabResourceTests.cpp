@@ -3,6 +3,7 @@
 #include "Runtime/UnitTest/RuntimePrefabResourceTests.h"
 
 #include "Runtime/EcsFramework/Component/Basic/IDComponent.h"
+#include "Runtime/EcsFramework/Component/Basic/TagComponent.h"
 #include "Runtime/EcsFramework/Entity/Entity.h"
 #include "Runtime/EcsFramework/Serializer/PrefabSerializer.h"
 #include "Runtime/Resource/ConfigManager/ConfigManager.h"
@@ -246,5 +247,30 @@ namespace HEngine::Tests
 			"An invalid prefab component unexpectedly instantiated successfully.");
 		Require(CountEntities(level) == 0,
 			"A failed prefab deserialization leaked its partially created entity.");
+
+		const auto cachedPath = prefabDirectory / "Cached.hprefab";
+		const std::string cachedName = "Assets/Prefabs/Cached.hprefab";
+		Utils::SaveJsonToFile(Json{{"TagComponent", {{"Tag", "Before"}}}}, cachedPath);
+		auto& runtimeRegistry = RuntimeResourceRegistry::GetInstance();
+		runtimeRegistry.Init(0);
+		{
+			Level cachedLevel;
+			Entity first = PrefabSerializer::InstantiatePrefab(&cachedLevel, cachedName);
+			Entity second = PrefabSerializer::InstantiatePrefab(&cachedLevel, cachedName);
+			Require(first && second && first.GetComponent<IDComponent>().ID != second.GetComponent<IDComponent>().ID,
+				"Prepared prefab instances reused an entity identity.");
+			Require(first.GetComponent<TagComponent>().Tag == "Before" &&
+				second.GetComponent<TagComponent>().Tag == "Before",
+				"Prepared prefab instances lost the original component value.");
+			Utils::SaveJsonToFile(Json{{"TagComponent", {{"Tag", "After"}}}}, cachedPath);
+			Require(runtimeRegistry.Invalidate(
+				ResolveRuntimePrefabPath(projectRoot, cachedName).Key),
+				"Prepared prefab fixture could not invalidate its resource generation.");
+			Entity third = PrefabSerializer::InstantiatePrefab(&cachedLevel, cachedName);
+			Require(third && third.GetComponent<TagComponent>().Tag == "After" &&
+				first.GetComponent<TagComponent>().Tag == "Before",
+				"Prepared prefab cache survived a resource generation change.");
+		}
+		runtimeRegistry.Shutdown();
 	}
 }

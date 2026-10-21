@@ -1,0 +1,162 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="HEngine · 项目管理" Width="1080" Height="720" MinWidth="880" MinHeight="600"
+        WindowStartupLocation="CenterScreen" Background="#10151E" Foreground="#EAF0FA"
+        FontFamily="Microsoft YaHei UI" FontSize="13" UseLayoutRounding="True" SnapsToDevicePixels="True">
+  <Window.Resources>
+    <Style TargetType="ScrollBar">
+      <Setter Property="Width" Value="8"/><Setter Property="Opacity" Value="0"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
+        <Track Name="PART_Track" IsDirectionReversed="True" Orientation="{TemplateBinding Orientation}"
+               Minimum="{TemplateBinding Minimum}" Maximum="{TemplateBinding Maximum}" Value="{TemplateBinding Value}" ViewportSize="{TemplateBinding ViewportSize}">
+          <Track.DecreaseRepeatButton><RepeatButton Command="{x:Static ScrollBar.PageUpCommand}" Focusable="False"><RepeatButton.Template><ControlTemplate><Border Background="Transparent"/></ControlTemplate></RepeatButton.Template></RepeatButton></Track.DecreaseRepeatButton>
+          <Track.Thumb><Thumb><Thumb.Template><ControlTemplate><Border CornerRadius="3" Margin="1" Background="#536984"/></ControlTemplate></Thumb.Template></Thumb></Track.Thumb>
+          <Track.IncreaseRepeatButton><RepeatButton Command="{x:Static ScrollBar.PageDownCommand}" Focusable="False"><RepeatButton.Template><ControlTemplate><Border Background="Transparent"/></ControlTemplate></RepeatButton.Template></RepeatButton></Track.IncreaseRepeatButton>
+        </Track>
+      </ControlTemplate></Setter.Value></Setter>
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=ScrollViewer}}" Value="True"><Setter Property="Opacity" Value="1"/></DataTrigger>
+        <DataTrigger Binding="{Binding IsKeyboardFocusWithin, RelativeSource={RelativeSource AncestorType=ScrollViewer}}" Value="True"><Setter Property="Opacity" Value="1"/></DataTrigger>
+      </Style.Triggers>
+    </Style>
+    <Style TargetType="ComboBoxItem">
+      <Setter Property="Padding" Value="10,8"/><Setter Property="Foreground" Value="#EAF0FA"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ComboBoxItem">
+        <Border Name="ItemSurface" Background="Transparent" Padding="{TemplateBinding Padding}"><ContentPresenter/></Border>
+        <ControlTemplate.Triggers><Trigger Property="IsHighlighted" Value="True"><Setter TargetName="ItemSurface" Property="Background" Value="#294364"/></Trigger></ControlTemplate.Triggers>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style TargetType="ComboBox">
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ComboBox">
+        <Grid>
+          <ToggleButton Focusable="False" IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+            <ToggleButton.Template><ControlTemplate TargetType="ToggleButton"><Border CornerRadius="6" Background="#111B29" BorderBrush="#34455E" BorderThickness="1"><TextBlock Text="⌄" Foreground="#A3B2C7" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,12,0"/></Border></ControlTemplate></ToggleButton.Template>
+          </ToggleButton>
+          <ContentPresenter Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}" Margin="10,7,32,7" VerticalAlignment="Center" IsHitTestVisible="False"/>
+          <Popup Name="PART_Popup" Placement="Bottom" IsOpen="{TemplateBinding IsDropDownOpen}" AllowsTransparency="True" Focusable="False" PopupAnimation="Fade">
+            <Border Background="#182230" BorderBrush="#34455E" BorderThickness="1" CornerRadius="6" MinWidth="{TemplateBinding ActualWidth}" MaxHeight="{TemplateBinding MaxDropDownHeight}">
+              <ScrollViewer CanContentScroll="True"><ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained"/></ScrollViewer>
+            </Border>
+          </Popup>
+        </Grid>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style TargetType="Button">
+      <Setter Property="Padding" Value="16,9"/><Setter Property="MinHeight" Value="36"/>
+      <Setter Property="Background" Value="#263448"/><Setter Property="Foreground" Value="#EAF0FA"/>
+      <Setter Property="BorderBrush" Value="#34455E"/><Setter Property="BorderThickness" Value="1"/><Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+        <Border Name="Surface" CornerRadius="7" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
+          <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+        </Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="BorderBrush" Value="#84B9FF"/></Trigger>
+          <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Surface" Property="BorderBrush" Value="#84B9FF"/></Trigger>
+          <Trigger Property="IsPressed" Value="True"><Setter TargetName="Surface" Property="Opacity" Value="0.75"/></Trigger>
+          <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Surface" Property="Opacity" Value="0.4"/></Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style TargetType="TextBox">
+      <Setter Property="Padding" Value="10,7"/><Setter Property="MinHeight" Value="34"/>
+      <Setter Property="Background" Value="#111B29"/><Setter Property="Foreground" Value="#EAF0FA"/>
+      <Setter Property="BorderBrush" Value="#34455E"/><Setter Property="CaretBrush" Value="#EAF0FA"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/><Setter Property="SelectionBrush" Value="#4579BD"/>
+    </Style>
+    <Style TargetType="ListBoxItem">
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="12,10"/><Setter Property="Margin" Value="0,0,0,6"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem">
+        <Border Name="Surface" Padding="{TemplateBinding Padding}" CornerRadius="8" Background="Transparent"><ContentPresenter/></Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="#202D3E"/></Trigger>
+          <Trigger Property="IsSelected" Value="True"><Setter TargetName="Surface" Property="Background" Value="#294364"/></Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style TargetType="TabItem">
+      <Setter Property="Foreground" Value="#A3B2C7"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TabItem">
+        <Border Name="TabSurface" Padding="16,10" BorderThickness="0,0,0,2" BorderBrush="Transparent" Background="Transparent"><ContentPresenter ContentSource="Header"/></Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property="IsSelected" Value="True"><Setter Property="Foreground" Value="#EAF0FA"/><Setter TargetName="TabSurface" Property="BorderBrush" Value="#72B1FF"/></Trigger>
+          <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="TabSurface" Property="Background" Value="#202D3E"/></Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style TargetType="TabControl">
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TabControl">
+        <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+          <TabPanel IsItemsHost="True"/>
+          <ContentPresenter Grid.Row="1" Name="PART_SelectedContentHost" ContentSource="SelectedContent" Margin="0,18,0,0"/>
+        </Grid>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+  </Window.Resources>
+  <Grid Margin="24,20">
+    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <Grid Margin="0,0,0,20">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="54"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+      <Image Name="BrandIcon" Width="40" Height="40" VerticalAlignment="Center"/>
+      <StackPanel Grid.Column="1"><TextBlock Text="HEngine" FontSize="26" FontWeight="SemiBold"/>
+        <TextBlock Name="Engine" Foreground="#91A2BA" FontSize="11" TextTrimming="CharacterEllipsis" Margin="0,3,0,0"/>
+      </StackPanel>
+    </Grid>
+    <Grid Grid.Row="1">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="276"/><ColumnDefinition Width="20"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+      <Border CornerRadius="12" Background="#182230" Padding="16">
+        <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+          <StackPanel Margin="0,0,0,16"><TextBlock Text="最近项目" FontSize="17" FontWeight="SemiBold"/>
+            <TextBlock Text="双击项目，或按 Enter 打开" Foreground="#91A2BA" FontSize="11" Margin="0,5,0,0"/></StackPanel>
+          <ListBox Name="Recent" Grid.Row="1" Background="Transparent" Foreground="#EAF0FA" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto"/>
+          <StackPanel Grid.Row="2" Margin="0,12,0,0">
+            <TextBlock Name="Default" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="54" Foreground="#91A2BA" FontSize="11" Margin="0,0,0,12"/>
+            <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="8"/><ColumnDefinition/></Grid.ColumnDefinitions>
+              <Button Name="Forget" Content="移除记录" Padding="8,7" FontSize="12"/><Button Name="Reset" Grid.Column="2" Content="恢复默认" Padding="8,7" FontSize="12"/>
+            </Grid>
+          </StackPanel>
+        </Grid>
+      </Border>
+      <Border Grid.Column="2" CornerRadius="12" Background="#182230" Padding="22,12,22,20">
+        <TabControl Name="Pages">
+          <TabItem Header="打开项目"><ScrollViewer Name="OpenForm" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel>
+              <TextBlock Text="继续你的创作" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,6"/>
+              <TextBlock Text="选择项目文件，或从左侧最近项目中打开。" Foreground="#91A2BA" Margin="0,0,0,22"/>
+              <TextBlock Text="项目位置" Margin="0,0,0,7"/>
+              <DockPanel><Button Name="Browse" Content="浏览…" DockPanel.Dock="Right" Margin="8,0,0,0"/><TextBox Name="Path" ToolTip="项目目录或 Project.heproject"/></DockPanel>
+              <Border Background="#111B29" CornerRadius="8" Padding="14" Margin="0,16,0,18"><TextBlock Name="Details" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="66" Foreground="#B9C8DC"/></Border>
+              <WrapPanel><Button Name="Open" Content="打开项目" Background="#72B1FF" Foreground="#102139" BorderBrush="#72B1FF" Margin="0,0,10,0"/><Button Name="Use" Content="设为默认项目"/></WrapPanel>
+              <CheckBox Name="KeepOpen" Content="打开后保留项目管理器" Foreground="#A3B2C7" Margin="0,18,0,0"/>
+            </StackPanel>
+          </ScrollViewer></TabItem>
+          <TabItem Header="创建项目"><ScrollViewer Name="CreateForm" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel>
+              <TextBlock Text="从一个新想法开始" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,14"/>
+              <TextBlock Text="项目模板" Margin="0,0,0,6"/><ComboBox Name="Template" Foreground="#EAF0FA" MinHeight="34"/>
+              <TextBlock Name="TemplateDescription" Foreground="#91A2BA" TextWrapping="Wrap" MinHeight="32" MaxHeight="36" FontSize="11" Margin="0,7,0,12"/>
+              <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="12"/><ColumnDefinition/></Grid.ColumnDefinitions>
+                <StackPanel><TextBlock Text="项目名称" Margin="0,0,0,6"/><TextBox Name="Name" Text="我的游戏"/></StackPanel>
+                <StackPanel Grid.Column="2"><TextBlock Text="文件夹名称" Margin="0,0,0,6"/><TextBox Name="Folder" Text="MyGame"/></StackPanel>
+              </Grid>
+              <TextBlock Text="保存位置" Margin="0,14,0,6"/>
+              <DockPanel><Button Name="LocationBrowse" Content="选择…" DockPanel.Dock="Right" Margin="8,0,0,0"/><TextBox Name="Location"/></DockPanel>
+              <TextBlock Text="在所选位置新建文件夹，创建完成后自动打开。" Foreground="#91A2BA" FontSize="11" Margin="0,7,0,16"/>
+              <Button Name="Create" Content="创建并打开" Background="#72B1FF" Foreground="#102139" BorderBrush="#72B1FF" HorizontalAlignment="Left"/>
+            </StackPanel>
+          </ScrollViewer></TabItem>
+        </TabControl>
+      </Border>
+    </Grid>
+    <Border Grid.Row="2" CornerRadius="10" Background="#182230" Padding="16,12" Margin="0,16,0,0">
+      <StackPanel>
+        <DockPanel><Button Name="Cancel" Content="取消" DockPanel.Dock="Right" Padding="14,6" Margin="12,0,0,0" IsEnabled="False"/>
+          <TextBlock Name="Status" TextWrapping="Wrap" MaxHeight="40" TextTrimming="CharacterEllipsis" Foreground="#B7D7FF" VerticalAlignment="Center" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/></DockPanel>
+        <Expander Name="LogPanel" Header="构建与启动日志" IsExpanded="False" Foreground="#91A2BA" Margin="0,7,0,0">
+          <Grid Margin="0,8,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <TextBox Name="Log" Height="110" IsReadOnly="True" BorderThickness="0" Background="#10151E" Foreground="#AEBFD6" FontFamily="Consolas, Microsoft YaHei UI" FontSize="11" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" TextWrapping="Wrap"/>
+            <Button Name="ViewLog" Grid.Column="1" Content="完整日志" VerticalAlignment="Top" IsEnabled="False" Margin="12,0,0,0"/>
+          </Grid>
+        </Expander>
+      </StackPanel>
+    </Border>
+  </Grid>
+</Window>

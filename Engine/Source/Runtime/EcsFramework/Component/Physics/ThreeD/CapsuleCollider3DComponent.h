@@ -11,6 +11,8 @@ namespace HEngine
     {
         REFLECTION_COMPONENT_BODY(CapsuleCollider3DComponent);
     public:
+        static constexpr BuildFeature RequiredBuildFeature = BuildFeature::Physics3D;
+    public:
         glm::vec3 Center = glm::vec3(0.0f);
         float Radius = 0.35f;
         float Height = 1.8f;

@@ -69,6 +69,8 @@ namespace HEngine
 
         void NotifyFrameSubmitted(uint64_t submission) noexcept override;
         void UpdateImportedResources(RenderGraph& renderGraph) override;
+        [[nodiscard]] std::function<void()> CaptureGraphState() override;
+        void ClearGraphResourceCaches() noexcept override;
         void AbortFrame() noexcept override;
         void Collect(uint64_t completedSubmission) override;
         void Clear(uint64_t completedSubmission) override;

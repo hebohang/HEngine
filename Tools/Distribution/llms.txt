@@ -1,0 +1,14 @@
+# HEngine 1.1.0
+
+Binary engine SDK. Gameplay requires no engine C++ source download.
+
+- AGENTS.md: installation instructions and supported tooling.
+- Docs/AI_GAME_DEVELOPMENT.md: start here; create, inspect, script, validate, export.
+- Docs/ScriptingGuide.md: lifecycle, resources, handles, errors, examples.
+- Docs/ScriptingApiAudit-1.1.0.md: system coverage and explicit limitations.
+- Docs/Api/index.md: generated, browsable C# API reference.
+- Docs/Api/api-index.json: searchable API member IDs, signatures, summaries and input hashes.
+- Scripting/CSharp/HEngine.ScriptCore.xml: compiled assembly documentation.
+- Examples/ScriptingBasics: minimal scripts illustrating the documented API.
+- Tools/Build/Capabilities.json: supported export hosts; symbols alone do not imply platform support.
+- Docs/BuildAndPublish.md: project export.

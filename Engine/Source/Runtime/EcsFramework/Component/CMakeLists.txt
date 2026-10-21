@@ -13,6 +13,6 @@ add_subdirectory(Shape)
 add_subdirectory(Transform)
 
 RUNTIME_ADD_SOURCE(
-    ComponentBase.h ComponentGroup.h
+    ComponentBase.h ComponentGroup.h RenderSettingsComponent.h
     Animation/AnimatorComponent.h Animation/AnimatorComponent.cpp
 )

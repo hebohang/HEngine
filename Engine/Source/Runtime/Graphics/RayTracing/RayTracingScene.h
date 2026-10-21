@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Runtime/Graphics/RayTracing/HardwareRayTracing.h"
+#include "Runtime/Resource/ResType/TextureSampling.h"
 #include "Runtime/Graphics/RenderGraph/RenderGraph.h"
 
 #include <glm/glm.hpp>
@@ -15,6 +16,7 @@
 
 namespace HEngine
 {
+    class TextureManager;
     inline constexpr uint32_t InvalidRayTracingSceneIndex =
         std::numeric_limits<uint32_t>::max();
 
@@ -26,6 +28,8 @@ namespace HEngine
         // Surface-data-only scenes reuse the platform-neutral geometry tables
         // without creating BLAS/TLAS resources or invoking RT commands.
         bool bCreateAccelerationStructures = true;
+        bool bBasePbrMaterials = false;
+        TextureManager* Textures = nullptr;
     };
 
     struct RayTracingSceneRevisions
@@ -46,6 +50,10 @@ namespace HEngine
     {
         glm::vec4 Position{ 0.0f, 0.0f, 0.0f, 1.0f };
         glm::vec4 Normal{ 0.0f, 1.0f, 0.0f, 0.0f };
+        glm::vec4 TexCoord{ 0.0f };
+        glm::vec4 Tangent{ 0.0f };
+        glm::vec4 Bitangent{ 0.0f };
+        glm::vec4 Color{ 1.0f };
     };
 
     struct RayTracingGeometryRecord
@@ -61,6 +69,21 @@ namespace HEngine
         glm::vec4 BaseColorMetallic{ 1.0f, 1.0f, 1.0f, 0.0f };
         // rgb: radiance, w: perceptual roughness.
         glm::vec4 EmissiveRoughness{ 0.0f, 0.0f, 0.0f, 1.0f };
+        // Base color, normal, packed metallic/roughness, AO (AO is not transport).
+        glm::uvec4 Textures0{ InvalidRayTracingSceneIndex };
+        // Emission, separate metallic, separate roughness, normal encoding (1=BC5).
+        glm::uvec4 Textures1{ InvalidRayTracingSceneIndex };
+        // Normal strength, alpha factor, cutoff, alpha mode (1=mask).
+        glm::vec4 Surface{ 1.0f, 1.0f, 0.5f, 0.0f };
+        TextureSamplingGpu Sampling[7];
+    };
+
+    struct RayTracingAnalyticLight
+    {
+        glm::vec4 PositionType{ 0.0f }; // w: 0 directional, 1 point, 2 spot
+        glm::vec4 DirectionRadius{ 0.0f };
+        glm::vec4 Radiance{ 0.0f };
+        glm::vec4 Cone{ 0.0f }; // inner/outer cosines
     };
 
     struct RayTracingInstanceRecord
@@ -85,11 +108,11 @@ namespace HEngine
         glm::uvec4 Identity{ InvalidRayTracingSceneIndex };
     };
 
-    static_assert(sizeof(RayTracingVertex) == 32);
+    static_assert(sizeof(RayTracingVertex) == 96);
     static_assert(offsetof(RayTracingVertex, Normal) == 16);
     static_assert(sizeof(RayTracingGeometryRecord) == 32);
     static_assert(offsetof(RayTracingGeometryRecord, GeometryData) == 16);
-    static_assert(sizeof(RayTracingMaterialRecord) == 32);
+    static_assert(sizeof(RayTracingMaterialRecord) == 416);
     static_assert(offsetof(RayTracingMaterialRecord, EmissiveRoughness) == 16);
     static_assert(sizeof(RayTracingInstanceRecord) == 208);
     static_assert(offsetof(RayTracingInstanceRecord, Indices) == 192);
@@ -139,6 +162,7 @@ namespace HEngine
         BufferHandle Materials;
         BufferHandle Instances;
         BufferHandle EmissiveTriangles;
+        BufferHandle AnalyticLights;
     };
 
     struct RayTracingSceneGpuResources
@@ -150,6 +174,7 @@ namespace HEngine
         nvrhi::BufferHandle Materials;
         nvrhi::BufferHandle Instances;
         nvrhi::BufferHandle EmissiveTriangles;
+        nvrhi::BufferHandle AnalyticLights;
         uint64_t Generation = 0;
     };
 
@@ -178,6 +203,9 @@ namespace HEngine
 
         [[nodiscard]] bool ConsumeGraphRebuildRequest() noexcept;
         [[nodiscard]] bool IsReady() const noexcept;
+        [[nodiscard]] std::span<const nvrhi::TextureHandle> GetMaterialTextures() const noexcept;
+        [[nodiscard]] uint64_t GetMaterialTextureGeneration() const noexcept;
+        [[nodiscard]] bool UsesBasePbrMaterials() const noexcept;
         [[nodiscard]] uint64_t GetResourceGeneration() const noexcept;
         [[nodiscard]] const RayTracingSceneGpuResources& GetGpuResources() const noexcept;
         [[nodiscard]] const RayTracingSceneStats& GetStats() const noexcept;

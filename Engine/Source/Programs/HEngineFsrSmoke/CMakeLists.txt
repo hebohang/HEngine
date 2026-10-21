@@ -1,0 +1,16 @@
+ADD_PROGRAM(HEngineFsrSmoke)
+target_sources(${TARGET_NAME} PRIVATE Main.cpp)
+if(HE_BUILD_DEV_GAME)
+    target_sources(${TARGET_NAME} PRIVATE StreamingValidation.cpp)
+    target_compile_definitions(${TARGET_NAME} PRIVATE HE_FSR_STREAMING_VALIDATION=1)
+else()
+    # Editor-hosted release checks share its compiled runtime; development-only
+    # texture failure injection is unavailable in that runtime ABI.
+    target_compile_definitions(${TARGET_NAME} PRIVATE HE_FSR_STREAMING_VALIDATION=0)
+endif()
+target_include_directories(${TARGET_NAME} PRIVATE "${EngineSourceDir}" "${EngineRuntimeDir}")
+target_link_libraries(${TARGET_NAME} PRIVATE HEngineRuntime)
+he_deploy_fsr31(${TARGET_NAME})
+if(WIN32 AND HE_RENDER_DX12)
+    he_enable_d3d12_agility(${TARGET_NAME})
+endif()

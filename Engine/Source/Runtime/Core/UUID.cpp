@@ -78,7 +78,7 @@ namespace HEngine
 namespace std
 {
     template <>
-    void swap(HEngine::UUID& lhs, HEngine::UUID& rhs) noexcept
+	void swap(HEngine::UUID& lhs, HEngine::UUID& rhs)
     {
         lhs.swap(rhs);
     }

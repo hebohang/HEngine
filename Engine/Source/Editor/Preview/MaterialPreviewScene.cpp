@@ -287,7 +287,7 @@ namespace HEngine
 		Entity environmentLight = scene->CreateEntity("Material Preview Environment");
 		auto& environment = environmentLight.AddComponent<EnvironmentLightComponent>();
 		environment.HdrTexturePath = "Assets/Textures/Hdr/Default.hdr";
-		environment.Exposure = 0.9f;
+		environment.ExposureEV100 = 0.1520031f;
 		environment.IBLIntensity = 1.15f;
 
 		Entity keyLight = scene->CreateEntity("Material Preview Key Light");
@@ -306,8 +306,7 @@ namespace HEngine
 		fillLight.AddComponent<PointLightComponent>(
 			3.0f * studioScale * studioScale,
 			glm::vec3(0.55f, 0.68f, 1.0f),
-			6.0f * studioScale,
-			2.0f);
+			6.0f * studioScale);
 
 		mScene = std::move(scene);
 		mRenderSystem = std::move(renderSystem);

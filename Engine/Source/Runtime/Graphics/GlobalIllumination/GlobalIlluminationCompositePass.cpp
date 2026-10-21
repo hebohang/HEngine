@@ -371,14 +371,14 @@ namespace HEngine
         GlobalIlluminationCompositeMode mode,
         uint32_t width,
         uint32_t height,
-        bool bScalarInput)
+        uint32_t inputChannel)
     {
         if (!sceneColor || !globalIllumination || width == 0 || height == 0)
             throw std::invalid_argument("GI composite pass inputs are incomplete");
         mImpl->Width = width;
         mImpl->Height = height;
         mImpl->Constants.OutputDimensions = glm::uvec2(width, height);
-        mImpl->Constants.ScalarInput = bScalarInput ? 1u : 0u;
+        mImpl->Constants.ScalarInput = inputChannel;
         mImpl->Constants.SampleCount = 1u;
         renderGraph.AddPass<CompositePassData>(
             mode == GlobalIlluminationCompositeMode::Additive
@@ -442,7 +442,7 @@ namespace HEngine
         uint32_t width,
         uint32_t height,
         uint32_t sampleCount,
-        bool bScalarInput)
+        uint32_t inputChannel)
     {
         if (!multisampleSceneColor || !multisampleSceneDepth ||
             !representativeSceneDepth || !globalIllumination ||
@@ -478,7 +478,7 @@ namespace HEngine
         mImpl->Width = width;
         mImpl->Height = height;
         mImpl->Constants.OutputDimensions = glm::uvec2(width, height);
-        mImpl->Constants.ScalarInput = bScalarInput ? 1u : 0u;
+        mImpl->Constants.ScalarInput = inputChannel;
         mImpl->Constants.SampleCount = sampleCount;
         renderGraph.AddPass<CompositePassData>(
             "GICompositeMSAA",
@@ -550,5 +550,23 @@ namespace HEngine
         mImpl->MultisampleBindingSets.clear();
         mImpl->Framebuffers.clear();
         mImpl->Pipelines.clear();
+    }
+
+    std::function<void()> GlobalIlluminationCompositePass::CaptureGraphState()
+    {
+        return [impl = mImpl.get(), bindings = mImpl->BindingSets,
+            multisample = mImpl->MultisampleBindingSets, frames = mImpl->Framebuffers,
+            constants = mImpl->Constants, width = mImpl->Width, height = mImpl->Height]() mutable noexcept
+        {
+            using std::swap;
+            swap(impl->BindingSets, bindings); swap(impl->MultisampleBindingSets, multisample);
+            swap(impl->Framebuffers, frames); swap(impl->Constants, constants);
+            swap(impl->Width, width); swap(impl->Height, height);
+        };
+    }
+
+    void GlobalIlluminationCompositePass::ClearGraphResourceCaches() noexcept
+    {
+        mImpl->BindingSets.clear(); mImpl->MultisampleBindingSets.clear(); mImpl->Framebuffers.clear();
     }
 }

@@ -1,0 +1,131 @@
+name: Release Windows SDK (free runners only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      architecture:
+        description: Architectures to build and validate
+        type: choice
+        options: [both, x64, arm64]
+        default: both
+      publish:
+        description: Publish a NEW version only after every selected architecture passes
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: free-windows-release-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    # Job-level condition runs before allocating a runner. Private forks skip ALL jobs.
+    if: github.event_name == 'workflow_dispatch' && github.event.repository.private == false && github.event.repository.visibility == 'public'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      architectures: ${{ steps.plan.outputs.architectures }}
+      version: ${{ steps.plan.outputs.version }}
+    env:
+      HE_ARCHITECTURE: ${{ inputs.architecture }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: python3 Tools/Distribution/Release/test_contract.py -v
+      - run: python3 Tools/Distribution/Release/test_publish.py -v
+      - id: plan
+        env:
+          HE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: python3 Tools/Distribution/Release/contract.py plan --architecture "$HE_ARCHITECTURE"
+
+  build:
+    needs: plan
+    if: github.event_name == 'workflow_dispatch' && github.event.repository.private == false && github.event.repository.visibility == 'public'
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 350
+    env:
+      HE_RUNNER_LABEL: ${{ matrix.runner }}
+      HE_ARCHITECTURE: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+          # Content tooling uses the locked x64 wheel on either Windows host.
+          architecture: x64
+      - name: Enforce free runner and repository policy
+        env:
+          HE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        shell: pwsh
+        run: python Tools/Distribution/Release/contract.py guard --architecture $env:HE_ARCHITECTURE
+      - name: Validate architecture selection and legacy runtime contracts
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File Tools/Agent/Test-Architecture.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File Tools/Dependencies/Test-RuntimeArchitecture.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File Tools/Dependencies/Test-FsrRuntime.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python Tools/Dependencies/test_fsr_cmake.py -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          global-json-file: Engine/Managed/global.json
+      - name: Build and verify complete binary SDK
+        env:
+          HE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        shell: pwsh
+        run: ./Tools/Distribution/Release/Build-CI.ps1 -Architecture $env:HE_ARCHITECTURE
+      - name: Transfer validated SDK only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sdk-${{ matrix.arch }}
+          path: out/agent/release-ci/publish/*
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+      - name: Preserve bounded failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: failure-${{ matrix.arch }}
+          path: out/agent/release-ci/evidence/**/*.log
+          if-no-files-found: ignore
+          retention-days: 1
+
+  publish:
+    needs: [plan, build]
+    if: github.event_name == 'workflow_dispatch' && github.event.repository.private == false && github.event.repository.visibility == 'public' && inputs.publish && needs.build.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      HE_ARCHITECTURES: ${{ needs.plan.outputs.architectures }}
+      HE_RELEASE_VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: sdk-*
+          path: out/agent/release-ci/downloads
+      - name: Verify all selected SDKs and publish without overwriting a release
+        env:
+          HE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: python3 Tools/Distribution/Release/publish.py

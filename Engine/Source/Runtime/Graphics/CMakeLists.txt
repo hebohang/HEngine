@@ -16,6 +16,7 @@ RUNTIME_ADD_SOURCE(
     VFX/EffekseerPackage.h
     VFX/EffekseerRegressionManifest.h
     VFX/EffekseerRegressionManifest.cpp
+    VFX/EffekseerCamera.h
     VFX/EffekseerRuntime.h
     VFX/EffekseerRuntime.cpp
     VFX/EffekseerRenderGraphPass.h

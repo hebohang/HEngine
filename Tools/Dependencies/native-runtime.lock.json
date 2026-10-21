@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "fsrVersion": "3.1.4",
+  "oidnVersion": "2.5.1",
+  "agilitySdkVersion": 619,
+  "agilityPackageVersion": "1.619.5",
+  "files": {
+    "D3D12/D3D12Core.dll": "eddf4cff4eda8162624b88694ad2adf4b09bc5aee6339191f39adf8ae48b41e7",
+    "amd_fidelityfx_dx12.dll": "12a5081257ec95b0b53ad51b4a87fb3c03f97fe0bbb59f9496968f8d50ef93a6",
+    "amd_fidelityfx_vk.dll": "a1624cc4238fef046f30c4d80ce3f47be63fc5f5373f49e3ee9edb9960f54c78",
+    "Plugins/OfflineReferenceRenderer/OpenImageDenoise.dll": "64ceb78b1e10342a5323ead6f346d7f2b2e1c69fe17c399bebbcef3df26bed16",
+    "Plugins/OfflineReferenceRenderer/OpenImageDenoise_core.dll": "18557e4424297ed892f2a0285dd565ec9065234a84bac1b84d16fd995371a422",
+    "Plugins/OfflineReferenceRenderer/OpenImageDenoise_device_cpu.dll": "e22617f115ae4056c3417983545aebed1d75ac7c1baca086c39d18a84bf47d78",
+    "tbb12.dll": "454ea95817cd33b837540bbfe21f6bf415f6fbf2ad712c2353896d17492e763d"
+  }
+}

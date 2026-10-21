@@ -27,6 +27,7 @@ namespace HEngine
     {
         RenderCamera Camera;
         GlobalIlluminationHistorySignature HistorySignature;
+        SsgiReactiveRegion ReactiveRegion;
         uint32_t Width = 0;
         uint32_t Height = 0;
         uint32_t FrameSequenceIndex = 0;
@@ -69,6 +70,8 @@ namespace HEngine
             GetLastRawOutputs() const noexcept;
         void NotifyFrameSubmitted(uint64_t submission) noexcept override;
         void UpdateImportedResources(RenderGraph& renderGraph) override;
+        [[nodiscard]] std::function<void()> CaptureGraphState() override;
+        void ClearGraphResourceCaches() noexcept override;
         void AbortFrame() noexcept override;
         void Collect(uint64_t completedSubmission) override;
         void Clear(uint64_t completedSubmission) override;

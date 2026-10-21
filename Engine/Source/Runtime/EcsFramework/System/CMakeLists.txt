@@ -12,4 +12,5 @@ add_subdirectory(Embree)
 RUNTIME_ADD_SOURCE(
     System.h SystemGroup.h SystemLifecycle.h
     Animation/AnimationSystem.h Animation/AnimationSystem.cpp
+    Animation/SequenceSystem.h Animation/SequenceSystem.cpp
 )

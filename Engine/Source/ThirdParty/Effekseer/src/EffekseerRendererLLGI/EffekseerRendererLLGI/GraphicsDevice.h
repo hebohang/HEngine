@@ -2,6 +2,8 @@
 #ifndef __EFFEKSEERRENDERER_LLGI_GRAPHICS_DEVICE_H__
 #define __EFFEKSEERRENDERER_LLGI_GRAPHICS_DEVICE_H__
 
+#include "BufferPoolStats.h"
+
 #include <Effekseer.h>
 #include <LLGI.Buffer.h>
 #include <LLGI.CommandList.h>
@@ -239,7 +241,10 @@ class UniformBuffer
 	: public DeviceObject,
 	  public Effekseer::Backend::UniformBuffer
 {
+	friend class GraphicsDevice;
 	std::shared_ptr<LLGI::Buffer> buffer_;
+	std::vector<uint8_t> contents_;
+	std::vector<std::shared_ptr<LLGI::Buffer>> snapshots_;
 	GraphicsDevice* graphicsDevice_ = nullptr;
 	std::function<void()> onDisposed_;
 
@@ -352,6 +357,8 @@ public:
 
 	void QueueMipMapGeneration(LLGI::Texture* texture);
 	void QueueBufferUpload(const std::shared_ptr<LLGI::Buffer>& destination, const void* data, int32_t size);
+
+	BufferPoolStats GetBufferPoolStats() const;
 
 	void Register(DeviceObject* deviceObject);
 

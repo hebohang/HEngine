@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <memory>
 
 namespace HEngine
@@ -23,6 +24,9 @@ namespace HEngine
         glm::vec3 CameraPosition{ 0.0f };
         float ZNear = 0.1f;
         float ZFar = 1000.0f;
+        glm::vec3 LightDirection{ 0.0f, 1.0f, 0.0f };
+        glm::vec3 LightColor{ 1.0f };
+        glm::vec3 LightAmbientColor{ 0.25f };
     };
 
     struct EffekseerRenderGraphPassResult
@@ -50,6 +54,9 @@ namespace HEngine
         glm::vec3 CameraPosition{ 0.0f };
         float ZNear = 0.1f;
         float ZFar = 1000.0f;
+        glm::vec3 LightDirection{ 0.0f, 1.0f, 0.0f };
+        glm::vec3 LightColor{ 1.0f };
+        glm::vec3 LightAmbientColor{ 0.25f };
     };
 
     // Owns the immutable depth-conversion state and resource-dependent views
@@ -58,6 +65,7 @@ namespace HEngine
     class EffekseerRenderGraphPass final
     {
     public:
+        static void AddSimulationToGraph(RenderGraph& graph);
         explicit EffekseerRenderGraphPass(const EffekseerRenderGraphPassDesc& desc);
         ~EffekseerRenderGraphPass();
 
@@ -77,6 +85,11 @@ namespace HEngine
         // Call after the owning queue is idle when graph resources are resized
         // or destroyed. Immutable shaders/layout/pipeline remain cached.
         void ClearResourceCaches();
+
+        // Exchanges only graph resource views; the live VFX manager and frame
+        // camera are independent of candidate graph preparation.
+        [[nodiscard]] std::function<void()> CaptureGraphState();
+        void ClearGraphResourceCaches() noexcept;
 
         [[nodiscard]] size_t GetFramebufferCacheSize() const noexcept;
         [[nodiscard]] size_t GetDepthBindingSetCacheSize() const noexcept;

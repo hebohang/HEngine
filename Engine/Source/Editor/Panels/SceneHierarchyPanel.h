@@ -52,6 +52,7 @@ namespace HEngine
 		void RebuildHierarchyCache();
         Entity CreateFolder(Entity parent = {});
         bool MatchesFilter(Entity entity) const;
+        void DrawEntityList(const std::vector<Entity>& entities);
         void DrawEntityNode(Entity entity);
     private:
         Ref<Level> mContext;
@@ -79,6 +80,7 @@ namespace HEngine
         template <typename componentType>
         void MenuAddComponent(const char* menuName, const char* menuItemName);
         void DrawComponents(Entity entity);
+        void DrawPrefabInstance(Entity entity);
         bool mFirstOpen = true;
     };
 }

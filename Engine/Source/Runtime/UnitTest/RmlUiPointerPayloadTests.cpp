@@ -33,7 +33,7 @@ namespace HEngine::Tests
     void RmlUiPointerPayloadContract()
     {
         RmlUiEventPayloadData pointer;
-        pointer.DocumentId = "showcase";
+        pointer.DocumentId = "survivor";
         pointer.EventType = "mousescroll";
         pointer.TargetElementId = "preview_surface";
         pointer.CurrentElementId = "hub_root";
@@ -56,7 +56,7 @@ namespace HEngine::Tests
             "Mouse button changed during payload construction.");
 
         RmlUiEventPayloadData animation;
-        animation.DocumentId = "showcase";
+        animation.DocumentId = "survivor";
         animation.EventType = "animationend";
         animation.TargetElementId = "page_characters";
         animation.CurrentElementId = "page_characters";

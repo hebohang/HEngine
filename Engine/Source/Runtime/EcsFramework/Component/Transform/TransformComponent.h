@@ -16,6 +16,9 @@ namespace HEngine
     public:
         TransformComponent() = default;
         TransformComponent(const TransformComponent&) = default;
+        TransformComponent& operator=(const TransformComponent&) = default;
+        TransformComponent(TransformComponent&&) noexcept = default;
+        TransformComponent& operator=(TransformComponent&&) noexcept = default;
         TransformComponent(const glm::vec3 & translation)
             : Translation(translation) {}
         TransformComponent(const glm::vec3& translation, const glm::vec3& rotation, const glm::vec3& scale)

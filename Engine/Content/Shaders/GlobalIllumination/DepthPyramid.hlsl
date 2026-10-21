@@ -7,7 +7,9 @@ struct DepthPyramidConstants
     uint2 SourceDimensions;
     uint2 OutputDimensions;
     uint CopySource;
-    uint3 Padding;
+    uint MaximumReduction;
+    uint ReductionFactor;
+    uint Padding;
 };
 HE_DECLARE_PUSH_CONSTANTS(
     DepthPyramidConstants,
@@ -26,14 +28,16 @@ void CS(uint3 dispatchThreadId : SV_DispatchThreadID)
 
     if (g_DepthPyramidConstants.CopySource != 0u)
     {
-        g_OutputDepth[outputPixel] =
-            g_SourceDepth.Load(int3(outputPixel, 0));
+        float depth = g_SourceDepth.Load(int3(outputPixel, 0));
+        g_OutputDepth[outputPixel] = g_DepthPyramidConstants.MaximumReduction != 0u &&
+            (!isfinite(depth) || depth < 0.0f || depth > 1.0f) ? 1.0f : depth;
         return;
     }
 
-    const uint2 sourceBegin = outputPixel * 2u;
+    const uint factor = g_DepthPyramidConstants.ReductionFactor;
+    const uint2 sourceBegin = outputPixel * factor;
     uint2 sourceEnd = min(
-        sourceBegin + 2u,
+        sourceBegin + factor,
         g_DepthPyramidConstants.SourceDimensions);
 
     // Standard texture mip dimensions use floor division. Assign the odd
@@ -46,15 +50,17 @@ void CS(uint3 dispatchThreadId : SV_DispatchThreadID)
 
     // HEngine's current raster depth is normal-Z device depth: background is
     // 1 and a smaller value is the nearer occluder.
-    float minimumDepth = 1.0f;
+    const bool maximum = g_DepthPyramidConstants.MaximumReduction != 0u;
+    float reducedDepth = maximum ? 0.0f : 1.0f;
     for (uint sourceY = sourceBegin.y; sourceY < sourceEnd.y; ++sourceY)
     {
         for (uint sourceX = sourceBegin.x; sourceX < sourceEnd.x; ++sourceX)
         {
-            minimumDepth = min(
-                minimumDepth,
-                g_SourceDepth.Load(int3(uint2(sourceX, sourceY), 0)));
+            float sourceDepth = g_SourceDepth.Load(int3(uint2(sourceX, sourceY), 0));
+            // Unknown depth cannot establish full-footprint occlusion.
+            if (maximum && (!isfinite(sourceDepth) || sourceDepth < 0.0f || sourceDepth > 1.0f)) sourceDepth = 1.0f;
+            reducedDepth = maximum ? max(reducedDepth, sourceDepth) : min(reducedDepth, sourceDepth);
         }
     }
-    g_OutputDepth[outputPixel] = minimumDepth;
+    g_OutputDepth[outputPixel] = reducedDepth;
 }

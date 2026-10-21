@@ -46,7 +46,7 @@ namespace HEngine
             GlobalIlluminationCompositeMode mode,
             uint32_t width,
             uint32_t height,
-            bool bScalarInput = false);
+            uint32_t inputChannel = 0);
         TextureHandle AddMultisamplePass(
             RenderGraph& renderGraph,
             TextureHandle multisampleSceneColor,
@@ -56,8 +56,10 @@ namespace HEngine
             uint32_t width,
             uint32_t height,
             uint32_t sampleCount,
-            bool bScalarInput = false);
+            uint32_t inputChannel = 0);
         void ClearCaches();
+        [[nodiscard]] std::function<void()> CaptureGraphState();
+        void ClearGraphResourceCaches() noexcept;
 
     private:
         struct Impl;

@@ -27,7 +27,7 @@ provided by `RenderDevice`. The RT/GI passes make no asynchronous-compute claim.
   instance mapping, per-frame TLAS build/update, GPU geometry/material/instance
   tables, emissive-triangle power distribution, deferred resource retirement,
   and build/reuse statistics.
-- `Plugins/OfflineReferenceRenderer/Source/OfflineReferenceRendererSession`: deterministic one-sample
+- `Graphics/GlobalIllumination/ReferencePathTracer`: deterministic one-sample
   increments into persistent `RGBA32_FLOAT` pre-tonemap accumulation and AOVs.
 - `Graphics/GlobalIllumination/RealtimeRayTracedGlobalIllumination`: Raster
   primary visibility with one RT sample per pixel at full or half scale and two

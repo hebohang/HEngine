@@ -16,7 +16,8 @@ namespace HEngine
         void Initialize(
             RenderSurface& surface,
             bool bEnableValidation,
-            const RenderAdapterSelectionOptions& selection) override;
+            const RenderAdapterSelectionOptions& selection,
+            uint32_t framesInFlight) override;
         void Shutdown() override;
         [[nodiscard]] FrameContext& BeginFrame() override;
         void AbortFrame(FrameContext& frame) noexcept override;
@@ -31,6 +32,8 @@ namespace HEngine
 
     private:
         struct Impl;
+        void ReleaseSurface();
+        void RestoreSurface();
         void message(nvrhi::MessageSeverity severity, const char* messageText) override;
 
         Scope<Impl> mImpl;

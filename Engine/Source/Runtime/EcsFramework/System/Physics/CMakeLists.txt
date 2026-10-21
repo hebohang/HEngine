@@ -1,5 +1,8 @@
-RUNTIME_ADD_SOURCE(
-    PhysicSystem2D.h PhysicSystem2D.cpp
-    JoltDebugRendererAdapter.h JoltDebugRendererAdapter.cpp
-    PhysicSystem3D.h PhysicSystem3D.cpp
-)
+set(physicsSources PhysicSystem2D.h PhysicSystem3D.h)
+if(HE_ENABLE_PHYSICS_2D)
+    list(APPEND physicsSources PhysicSystem2D.cpp)
+endif()
+if(HE_ENABLE_PHYSICS_3D)
+    list(APPEND physicsSources PhysicSystem3D.cpp JoltDebugRendererAdapter.h JoltDebugRendererAdapter.cpp)
+endif()
+RUNTIME_ADD_SOURCE(${physicsSources})

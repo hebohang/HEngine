@@ -90,6 +90,10 @@ namespace HEngine
             { "SamplesPerPixel", settings.SamplesPerPixel },
             { "MaxBounces", settings.MaxBounces },
             { "AtrousIterations", settings.AtrousIterations },
+            { "SvgfOptimizedKernels", settings.bSvgfOptimizedKernels },
+            { "SsgiLocalReactiveBudget", settings.bSsgiLocalReactiveBudget },
+            { "SvgfSharedUncertainty", settings.bSvgfSharedUncertainty },
+            { "SsgiEnvironmentMis", settings.bSsgiEnvironmentMis },
             { "BilateralUpsample", settings.bBilateralUpsample },
             { "SSGI", {
                 { "RayCount", settings.ScreenSpaceRayCount },
@@ -102,6 +106,7 @@ namespace HEngine
                 { "Thickness", settings.ScreenSpaceThickness },
                 { "EdgeFade", settings.ScreenSpaceEdgeFade },
                 { "TemporalWeight", settings.ScreenSpaceTemporalWeight },
+                { "DiffuseHitDistanceWeight", settings.ScreenSpaceDiffuseHitDistanceWeight },
             } },
         };
     }
@@ -150,6 +155,10 @@ namespace HEngine
         result.bBilateralUpsample = json.value(
             "BilateralUpsample",
             defaults.bBilateralUpsample);
+        result.bSvgfOptimizedKernels = json.value("SvgfOptimizedKernels", defaults.bSvgfOptimizedKernels);
+        result.bSsgiLocalReactiveBudget = json.value("SsgiLocalReactiveBudget", defaults.bSsgiLocalReactiveBudget);
+        result.bSvgfSharedUncertainty = json.value("SvgfSharedUncertainty", defaults.bSvgfSharedUncertainty);
+        result.bSsgiEnvironmentMis = json.value("SsgiEnvironmentMis", defaults.bSsgiEnvironmentMis);
         result.bDirectOnly = json.value("DirectOnly", defaults.bDirectOnly);
         if (json.contains("SSGI") && json["SSGI"].is_object())
         {
@@ -177,6 +186,9 @@ namespace HEngine
                 ssgi.value("EdgeFade", defaults.ScreenSpaceEdgeFade),
                 0.0f,
                 0.5f);
+            result.ScreenSpaceDiffuseHitDistanceWeight = std::clamp(
+                ssgi.value("DiffuseHitDistanceWeight", defaults.ScreenSpaceDiffuseHitDistanceWeight),
+                0.0f, 1.0f);
             result.ScreenSpaceTemporalWeight = std::clamp(
                 ssgi.value(
                     "TemporalWeight",

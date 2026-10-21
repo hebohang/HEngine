@@ -2,6 +2,7 @@
 
 #include "Runtime/Resource/ConfigManager/ConfigManager.h"
 #include "Runtime/Graphics/Settings/RenderSettingsService.h"
+#include "Runtime/Platform/PlatformPaths.h"
 #include "Runtime/Utils/JsonUtils/JsonUtils.h"
 #include "Runtime/Utils/PathUtils/PathUtils.h"
 #include "Runtime/ImGui/ImGuiLayer.h"
@@ -132,8 +133,11 @@ namespace HEngine
 #if defined(HE_PACKAGED_GAME)
         if (!projectRoot.is_absolute() || !engineContentRoot.is_absolute())
             throw std::runtime_error("Packaged game content roots must be absolute.");
-        mRootFolder = NormalizePath(projectRoot);
-        mEngineContentFolder = NormalizePath(engineContentRoot);
+        // Every packaged asset path is derived from these roots. Keep native
+        // file-I/O spelling here so deep imported paths remain readable even
+        // when the package is installed beneath a long or Unicode directory.
+        mRootFolder = PlatformPaths::ToFileIoPath(NormalizePath(projectRoot));
+        mEngineContentFolder = PlatformPaths::ToFileIoPath(NormalizePath(engineContentRoot));
         if (!HasBaseEngineConfig(mRootFolder))
             throw std::runtime_error("Packaged game content is missing Config/BaseEngine.json.");
 #else
@@ -147,6 +151,9 @@ namespace HEngine
         mEngineGeneratedContentFolder = engineGeneratedContentRoot.empty()
             ? mEngineContentFolder
             : NormalizePath(engineGeneratedContentRoot);
+#if defined(HE_PACKAGED_GAME)
+        mEngineGeneratedContentFolder = PlatformPaths::ToFileIoPath(mEngineGeneratedContentFolder);
+#endif
         if (!std::filesystem::is_directory(mEngineGeneratedContentFolder))
         {
             throw std::runtime_error(
@@ -369,7 +376,10 @@ namespace HEngine
     std::filesystem::path ConfigManager::GetContentRootForPath(
         const std::filesystem::path& fullPath)
     {
-        const std::filesystem::path normalized = NormalizePath(fullPath);
+        std::filesystem::path normalized = NormalizePath(fullPath);
+#if defined(HE_PACKAGED_GAME)
+        normalized = PlatformPaths::ToFileIoPath(normalized);
+#endif
         const ConfigManager& config = ConfigManager::GetInstance();
         if (IsWithin(config.GetRootFolder(), normalized))
             return config.GetRootFolder();
@@ -380,7 +390,10 @@ namespace HEngine
 
     std::string ConfigManager::GetRelativePath(const std::filesystem::path& fullPath)
     {
-        const std::filesystem::path normalized = NormalizePath(fullPath);
+        std::filesystem::path normalized = NormalizePath(fullPath);
+#if defined(HE_PACKAGED_GAME)
+        normalized = PlatformPaths::ToFileIoPath(normalized);
+#endif
         const ConfigManager& config = ConfigManager::GetInstance();
         if (IsWithin(config.GetRootFolder(), normalized))
             return Utils::PathToUtf8(normalized.lexically_relative(config.GetRootFolder()));

@@ -25,8 +25,8 @@ struct VertexInput
     float3 Position : POSITION;
     float3 Normal : NORMAL;
 #if SKINNED
-    int4 BoneIds : BONEIDS;
-    float4 BoneWeights : BONEWEIGHTS;
+    int4 BoneIds[4] : BONEIDS;
+    float4 BoneWeights[4] : BONEWEIGHTS;
 #endif
 };
 
@@ -39,10 +39,10 @@ float4 VS(VertexInput input) : SV_Position
     float3 skinnedNormal = 0.0f;
     float totalWeight = 0.0f;
     [unroll]
-    for (uint influence = 0; influence < 4; ++influence)
+    for (uint influence = 0; influence < 16; ++influence)
     {
-        const int boneId = input.BoneIds[influence];
-        const float weight = input.BoneWeights[influence];
+        const int boneId = input.BoneIds[influence / 4][influence % 4];
+        const float weight = input.BoneWeights[influence / 4][influence % 4];
         if (boneId < 0 || weight <= 0.0f)
             continue;
         const float4x4 bone =

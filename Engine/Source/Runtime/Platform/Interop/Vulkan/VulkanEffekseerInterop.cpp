@@ -2,6 +2,7 @@
 
 #include "VulkanEffekseerInterop.h"
 
+#include "Runtime/Platform/Interop/EffekseerFrameResources.h"
 #include "Runtime/Platform/Vulkan/VulkanNativeContext.h"
 
 #include <EffekseerRendererVulkan.h>
@@ -9,8 +10,10 @@
 
 #include <array>
 #include <climits>
+#include <cstdlib>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <vector>
 
@@ -90,8 +93,15 @@ namespace HEngine
 
     struct VulkanEffekseerInterop::Impl
     {
+        struct CacheUse
+        {
+            uint64_t Generation = 0;
+            uint64_t LastSubmission = 0;
+        };
+
         struct FramebufferCacheEntry
         {
+            CacheUse Use;
             nvrhi::FramebufferHandle Owner;
             VkFramebuffer Framebuffer = VK_NULL_HANDLE;
             uint32_t Width = 0;
@@ -100,6 +110,7 @@ namespace HEngine
 
         struct TextureCacheEntry
         {
+            CacheUse Use;
             nvrhi::TextureHandle Owner;
             Effekseer::Backend::TextureRef Texture;
             VkFormat Format = VK_FORMAT_UNDEFINED;
@@ -114,16 +125,61 @@ namespace HEngine
 
         Effekseer::Backend::GraphicsDeviceRef GraphicsDevice;
         EffekseerRenderer::RendererRef Renderer;
+        EffekseerFrameResources FrameResources;
         Effekseer::RefPtr<EffekseerRenderer::SingleFrameMemoryPool> MemoryPool;
         Effekseer::RefPtr<EffekseerRenderer::CommandList> CommandList;
+        uint64_t RecordingStartDrawCount = 0;
+        uint64_t RecordingStartDispatchCount = 0;
         Effekseer::Backend::TextureRef DepthTexture;
         Effekseer::Backend::TextureRef BackgroundTexture;
 
         VkDevice NativeDevice = VK_NULL_HANDLE;
         VkRenderPass RenderPass = VK_NULL_HANDLE;
         VkCommandBuffer ActiveNativeCommandBuffer = VK_NULL_HANDLE;
+        VkFramebuffer ActiveNativeFramebuffer = VK_NULL_HANDLE;
+        VkExtent2D ActiveExtent = {};
         std::vector<FramebufferCacheEntry> Framebuffers;
         std::vector<TextureCacheEntry> ExternalTextures;
+        uint64_t CacheGeneration = 0;
+        uint64_t LastCacheSubmission = 0;
+        uint32_t CacheRetentionFrames = 1;
+        uint32_t CacheFrameSlot = 0;
+        bool bCacheFrameActive = false;
+        bool bLogCacheRetirement = false;
+
+        void CollectCaches(uint64_t completed)
+        {
+            const auto expired = [&](const CacheUse& use)
+            {
+                return use.LastSubmission <= completed &&
+                    CacheGeneration > use.Generation &&
+                    CacheGeneration - use.Generation > CacheRetentionFrames;
+            };
+            // No active recording uses these entries. Native framebuffer
+            // destruction precedes releasing its owning attachment image views.
+            const size_t oldFramebufferCount = Framebuffers.size();
+            const size_t oldTextureCount = ExternalTextures.size();
+            std::erase_if(Framebuffers, [&](const FramebufferCacheEntry& entry)
+            {
+                if (!expired(entry.Use)) return false;
+                vkDestroyFramebuffer(NativeDevice, entry.Framebuffer, nullptr);
+                return true;
+            });
+            std::erase_if(ExternalTextures, [&](const TextureCacheEntry& entry)
+            {
+                return expired(entry.Use);
+            });
+            const size_t removedFramebuffers = oldFramebufferCount - Framebuffers.size();
+            const size_t removedTextures = oldTextureCount - ExternalTextures.size();
+            if (bLogCacheRetirement && (removedFramebuffers || removedTextures))
+            {
+                // These are cache Owner counts, not LLGI reference or VRAM totals.
+                HE_CORE_INFO("[Effekseer][VulkanCacheRetirement] generation={} completed={} "
+                    "removedFramebuffers={} remainingFramebuffers={} removedTextures={} remainingTextures={} ownersOnly=1",
+                    CacheGeneration, completed, removedFramebuffers, Framebuffers.size(),
+                    removedTextures, ExternalTextures.size());
+            }
+        }
 
         nvrhi::Format ColorFormat = nvrhi::Format::UNKNOWN;
         nvrhi::Format DepthFormat = nvrhi::Format::UNKNOWN;
@@ -210,15 +266,13 @@ namespace HEngine
             if (mImpl->Renderer == nullptr)
                 throw std::runtime_error("Effekseer Vulkan renderer creation failed");
 
-            mImpl->MemoryPool = EffekseerRenderer::CreateSingleFrameMemoryPool(mImpl->GraphicsDevice);
-            if (mImpl->MemoryPool == nullptr)
-                throw std::runtime_error("Effekseer Vulkan single-frame memory pool creation failed");
-
-            mImpl->CommandList = EffekseerRenderer::CreateCommandList(
-                mImpl->GraphicsDevice,
-                mImpl->MemoryPool);
-            if (mImpl->CommandList == nullptr)
-                throw std::runtime_error("Effekseer Vulkan command-list adapter creation failed");
+            mImpl->FrameResources.Initialize(desc.FramesInFlight);
+            mImpl->CacheRetentionFrames = desc.FramesInFlight;
+            mImpl->bLogCacheRetirement = false;
+#if defined(HE_DEV_AGENT_RUNTIME)
+            if (const char* value = std::getenv("HE_VFX_CACHE_RETIREMENT_LOG"))
+                mImpl->bLogCacheRetirement = std::string_view(value) == "1";
+#endif
 
             std::array<VkAttachmentDescription, 2> attachments = {};
             attachments[0].format = colorFormat;
@@ -277,6 +331,62 @@ namespace HEngine
         }
     }
 
+    void VulkanEffekseerInterop::BeginHostFrame(uint32_t slot, uint64_t completed)
+    {
+        mImpl->FrameResources.Begin(slot, completed);
+        ++mImpl->CacheGeneration;
+        mImpl->CacheFrameSlot = slot;
+        mImpl->CollectCaches(completed);
+        mImpl->bCacheFrameActive = true;
+    }
+
+    void VulkanEffekseerInterop::NotifyHostFrameSubmitted(uint32_t slot, uint64_t submission) noexcept
+    {
+        // All views in the host scope share this publication. A duplicate from
+        // an earlier frame must not stamp or close a newer recording scope.
+        if (mImpl->bCacheFrameActive && slot == mImpl->CacheFrameSlot &&
+            submission > mImpl->LastCacheSubmission)
+        {
+            for (auto& entry : mImpl->Framebuffers)
+                if (entry.Use.Generation == mImpl->CacheGeneration)
+                    entry.Use.LastSubmission = submission;
+            for (auto& entry : mImpl->ExternalTextures)
+                if (entry.Use.Generation == mImpl->CacheGeneration)
+                    entry.Use.LastSubmission = submission;
+            mImpl->LastCacheSubmission = submission;
+            mImpl->bCacheFrameActive = false;
+        }
+        mImpl->FrameResources.Submitted(slot, submission);
+    }
+
+    void VulkanEffekseerInterop::AbortHostFrame(uint32_t slot) noexcept
+    {
+        // Do not erase LastSubmission: an entry can also belong to an older,
+        // still-pending view recording. Aborted uses only age out the CPU cache.
+        if (mImpl->bCacheFrameActive && slot == mImpl->CacheFrameSlot)
+            mImpl->bCacheFrameActive = false;
+        mImpl->FrameResources.Abort(slot);
+    }
+
+    void VulkanEffekseerInterop::AbortRecording() noexcept
+    {
+        // Unwind native recording while the host command list is still open.
+        // Keep all banks and their in-flight references until GPU completion.
+        try
+        {
+            if (mImpl->Status.bRendering)
+                mImpl->Renderer->EndRendering();
+        }
+        catch (...) {}
+        mImpl->Status.bRendering = false;
+        try
+        {
+            if (mImpl->Status.bFrameActive)
+                EndFrame();
+        }
+        catch (...) {}
+    }
+
     void VulkanEffekseerInterop::Shutdown() noexcept
     {
         if (mImpl == nullptr)
@@ -305,12 +415,14 @@ namespace HEngine
         mImpl->ActiveBackground = nullptr;
         mImpl->ActiveFramebuffer = nullptr;
         mImpl->ActiveCommandList = nullptr;
-        // External texture wrappers own VkImageViews referenced by recorded
-        // descriptor sets. Shutdown is called only after GPU idle, so release
-        // the cache here instead of at EndFrame.
+        // Remaining cache entries may own in-flight image views until this
+        // GPU-idle shutdown; ordinary stale entries retire at BeginHostFrame.
         mImpl->ExternalTextures.clear();
         mImpl->CommandList.Reset();
         mImpl->MemoryPool.Reset();
+        if (mImpl->Renderer != nullptr)
+            mImpl->Renderer->GetImpl()->InternalVertexBuffer.reset();
+        mImpl->FrameResources.Clear();
         mImpl->Renderer.Reset();
         mImpl->GraphicsDevice.Reset();
         mImpl->Device = nullptr;
@@ -326,16 +438,67 @@ namespace HEngine
                 vkDestroyRenderPass(mImpl->NativeDevice, mImpl->RenderPass, nullptr);
         }
         mImpl->Framebuffers.clear();
+        mImpl->CacheGeneration = 0;
+        mImpl->LastCacheSubmission = 0;
+        mImpl->bCacheFrameActive = false;
         mImpl->RenderPass = VK_NULL_HANDLE;
         mImpl->NativeDevice = VK_NULL_HANDLE;
         mImpl->ColorFormat = nvrhi::Format::UNKNOWN;
         mImpl->DepthFormat = nvrhi::Format::UNKNOWN;
     }
 
+    void VulkanEffekseerInterop::BeginComputeFrame(nvrhi::ICommandList* commandList)
+    {
+        if (!mImpl->Status.bInitialized || mImpl->Status.bFrameActive || !mImpl->bCacheFrameActive)
+            throw std::logic_error("Vulkan Effekseer compute requires an initialized idle interop and host scope");
+        if (!commandList)
+            throw std::invalid_argument("Vulkan Effekseer compute requires a command list");
+        const VkCommandBuffer nativeCommandBuffer = GetNativeHandle<VkCommandBuffer>(
+            commandList->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer));
+        if (nativeCommandBuffer == VK_NULL_HANDLE)
+            throw std::invalid_argument("Vulkan Effekseer compute requires an open native command buffer");
+        bool bCommandListActive = false;
+        try
+        {
+            auto& record = mImpl->FrameResources.Acquire(*mImpl->Renderer.Get(), mImpl->GraphicsDevice);
+            mImpl->MemoryPool = record.MemoryPool;
+            mImpl->CommandList = record.CommandList;
+            mImpl->Renderer->GetImpl()->InternalVertexBuffer = record.VertexBuffer;
+            mImpl->MemoryPool->NewFrame();
+            commandList->commitBarriers();
+            EffekseerRendererVulkan::BeginCommandList(mImpl->CommandList, nativeCommandBuffer, false);
+            bCommandListActive = true;
+            const auto counts = EffekseerRenderer::GetRecordedCommandCounts(mImpl->CommandList);
+            mImpl->RecordingStartDrawCount = counts.Draw;
+            mImpl->RecordingStartDispatchCount = counts.Dispatch;
+            mImpl->Renderer->SetCommandList(mImpl->CommandList);
+            mImpl->Renderer->SetDepth(nullptr, {});
+            mImpl->Renderer->SetBackground(nullptr);
+            mImpl->ActiveCommandList = commandList;
+            mImpl->ActiveFramebuffer = nullptr;
+            mImpl->ActiveNativeCommandBuffer = nativeCommandBuffer;
+            mImpl->ActiveNativeFramebuffer = VK_NULL_HANDLE;
+            mImpl->bNativeRenderPassActive = false;
+            mImpl->Status.bFrameActive = true;
+            mImpl->Status.bDepthSampleBound = false;
+            mImpl->Status.bBackgroundBound = false;
+        }
+        catch (...)
+        {
+            mImpl->Renderer->SetCommandList(nullptr);
+            if (bCommandListActive) EffekseerRendererVulkan::EndCommandList(mImpl->CommandList);
+            mImpl->CommandList.Reset();
+            commandList->clearState();
+            throw;
+        }
+    }
+
     void VulkanEffekseerInterop::BeginFrame(const EffekseerRenderFrameDesc& frame)
     {
         if (!mImpl->Status.bInitialized)
             throw std::logic_error("Vulkan Effekseer interop BeginFrame called before Initialize");
+        if (!mImpl->bCacheFrameActive)
+            throw std::logic_error("Vulkan Effekseer recording requires a host frame scope");
         if (mImpl->Status.bFrameActive)
             throw std::logic_error("Vulkan Effekseer interop frame is already active");
         if (frame.CommandList == nullptr || frame.Framebuffer == nullptr)
@@ -419,11 +582,12 @@ namespace HEngine
         frame.CommandList->commitBarriers();
 
         VkFramebuffer nativeFramebuffer = VK_NULL_HANDLE;
-        for (const Impl::FramebufferCacheEntry& entry : mImpl->Framebuffers)
+        for (Impl::FramebufferCacheEntry& entry : mImpl->Framebuffers)
         {
             if (entry.Owner.Get() == frame.Framebuffer)
             {
                 nativeFramebuffer = entry.Framebuffer;
+                entry.Use.Generation = mImpl->CacheGeneration;
                 break;
             }
         }
@@ -454,26 +618,31 @@ namespace HEngine
             if (framebufferResult != VK_SUCCESS)
                 ThrowVulkanFailure("framebuffer creation", framebufferResult);
 
-            mImpl->Framebuffers.push_back({
-                .Owner = frame.Framebuffer,
-                .Framebuffer = nativeFramebuffer,
-                .Width = framebufferInfo.width,
-                .Height = framebufferInfo.height,
-            });
+            try
+            {
+                mImpl->Framebuffers.push_back({
+                    .Use = {.Generation = mImpl->CacheGeneration},
+                    .Owner = frame.Framebuffer,
+                    .Framebuffer = nativeFramebuffer,
+                    .Width = framebufferInfo.width,
+                    .Height = framebufferInfo.height,
+                });
+            }
+            catch (...)
+            {
+                vkDestroyFramebuffer(mImpl->NativeDevice, nativeFramebuffer, nullptr);
+                throw;
+            }
         }
 
         bool bEffekseerCommandListActive = false;
-        bool bNativeRenderPassActive = false;
         try
         {
+            auto& record = mImpl->FrameResources.Acquire(*mImpl->Renderer.Get(), mImpl->GraphicsDevice);
+            mImpl->MemoryPool = record.MemoryPool;
+            mImpl->CommandList = record.CommandList;
+            mImpl->Renderer->GetImpl()->InternalVertexBuffer = record.VertexBuffer;
             mImpl->MemoryPool->NewFrame();
-
-            VkRenderPassBeginInfo beginInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
-            beginInfo.renderPass = mImpl->RenderPass;
-            beginInfo.framebuffer = nativeFramebuffer;
-            beginInfo.renderArea.extent = { framebufferInfo.width, framebufferInfo.height };
-            vkCmdBeginRenderPass(nativeCommandBuffer, &beginInfo, VK_SUBPASS_CONTENTS_INLINE);
-            bNativeRenderPassActive = true;
 
             const VkViewport viewport = {
                 0.0f,
@@ -487,7 +656,10 @@ namespace HEngine
             vkCmdSetViewport(nativeCommandBuffer, 0, 1, &viewport);
             vkCmdSetScissor(nativeCommandBuffer, 0, 1, &scissor);
 
-            EffekseerRendererVulkan::BeginCommandList(mImpl->CommandList, nativeCommandBuffer);
+            EffekseerRendererVulkan::BeginCommandList(mImpl->CommandList, nativeCommandBuffer, false);
+            const auto counts = EffekseerRenderer::GetRecordedCommandCounts(mImpl->CommandList);
+            mImpl->RecordingStartDrawCount = counts.Draw;
+            mImpl->RecordingStartDispatchCount = counts.Dispatch;
             bEffekseerCommandListActive = true;
             mImpl->Renderer->SetCommandList(mImpl->CommandList);
 
@@ -496,13 +668,14 @@ namespace HEngine
                 const VkImage nativeDepth = GetNativeImage(frame.DepthSampleTexture);
                 if (nativeDepth == VK_NULL_HANDLE)
                     throw std::runtime_error("NVRHI did not expose the Vulkan depth-sample image");
-                for (const Impl::TextureCacheEntry& entry : mImpl->ExternalTextures)
+                for (Impl::TextureCacheEntry& entry : mImpl->ExternalTextures)
                 {
                     if (entry.Owner.Get() == frame.DepthSampleTexture &&
                         entry.Format == VK_FORMAT_R32_SFLOAT &&
                         entry.Aspect == VK_IMAGE_ASPECT_COLOR_BIT)
                     {
                         mImpl->DepthTexture = entry.Texture;
+                        entry.Use.Generation = mImpl->CacheGeneration;
                         break;
                     }
                 }
@@ -514,6 +687,7 @@ namespace HEngine
                     if (mImpl->DepthTexture != nullptr)
                     {
                         mImpl->ExternalTextures.push_back({
+                            .Use = {.Generation = mImpl->CacheGeneration},
                             .Owner = frame.DepthSampleTexture,
                             .Texture = mImpl->DepthTexture,
                             .Format = VK_FORMAT_R32_SFLOAT,
@@ -539,13 +713,14 @@ namespace HEngine
                     frame.BackgroundTexture->getDesc().format);
                 if (nativeBackground == VK_NULL_HANDLE || backgroundFormat == VK_FORMAT_UNDEFINED)
                     throw std::runtime_error("NVRHI did not expose a usable Vulkan Effekseer background image");
-                for (const Impl::TextureCacheEntry& entry : mImpl->ExternalTextures)
+                for (Impl::TextureCacheEntry& entry : mImpl->ExternalTextures)
                 {
                     if (entry.Owner.Get() == frame.BackgroundTexture &&
                         entry.Format == backgroundFormat &&
                         entry.Aspect == VK_IMAGE_ASPECT_COLOR_BIT)
                     {
                         mImpl->BackgroundTexture = entry.Texture;
+                        entry.Use.Generation = mImpl->CacheGeneration;
                         break;
                     }
                 }
@@ -557,6 +732,7 @@ namespace HEngine
                     if (mImpl->BackgroundTexture != nullptr)
                     {
                         mImpl->ExternalTextures.push_back({
+                            .Use = {.Generation = mImpl->CacheGeneration},
                             .Owner = frame.BackgroundTexture,
                             .Texture = mImpl->BackgroundTexture,
                             .Format = backgroundFormat,
@@ -578,7 +754,9 @@ namespace HEngine
             mImpl->ActiveDepthSample = frame.DepthSampleTexture;
             mImpl->ActiveBackground = frame.BackgroundTexture;
             mImpl->ActiveNativeCommandBuffer = nativeCommandBuffer;
-            mImpl->bNativeRenderPassActive = true;
+            mImpl->ActiveNativeFramebuffer = nativeFramebuffer;
+            mImpl->ActiveExtent = { framebufferInfo.width, framebufferInfo.height };
+            mImpl->bNativeRenderPassActive = false;
             mImpl->Status.bFrameActive = true;
             mImpl->Status.bDepthSampleBound = frame.DepthSampleTexture != nullptr;
             mImpl->Status.bBackgroundBound = frame.BackgroundTexture != nullptr;
@@ -590,8 +768,6 @@ namespace HEngine
             mImpl->Renderer->SetCommandList(nullptr);
             if (bEffekseerCommandListActive)
                 EffekseerRendererVulkan::EndCommandList(mImpl->CommandList);
-            if (bNativeRenderPassActive)
-                vkCmdEndRenderPass(nativeCommandBuffer);
             frame.CommandList->clearState();
             mImpl->DepthTexture.Reset();
             mImpl->BackgroundTexture.Reset();
@@ -601,10 +777,23 @@ namespace HEngine
 
     void VulkanEffekseerInterop::BeginRendering()
     {
+        if (!mImpl->ActiveFramebuffer)
+            throw std::logic_error("Vulkan Effekseer compute-only recording cannot draw");
         if (!mImpl->Status.bFrameActive)
             throw std::logic_error("Vulkan Effekseer rendering requires an active interop frame");
         if (mImpl->Status.bRendering)
             throw std::logic_error("Vulkan Effekseer rendering is already active");
+        // Uploads and compute-to-graphics barriers must finish outside the
+        // native render pass, including CPU-only frames with pending assets.
+        mImpl->GraphicsDevice->BeginComputePass();
+        mImpl->GraphicsDevice->EndComputePass();
+        VkRenderPassBeginInfo beginInfo = { VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO };
+        beginInfo.renderPass = mImpl->RenderPass;
+        beginInfo.framebuffer = mImpl->ActiveNativeFramebuffer;
+        beginInfo.renderArea.extent = mImpl->ActiveExtent;
+        vkCmdBeginRenderPass(mImpl->ActiveNativeCommandBuffer, &beginInfo, VK_SUBPASS_CONTENTS_INLINE);
+        mImpl->bNativeRenderPassActive = true;
+        EffekseerRendererVulkan::BeginExternalRenderPass(mImpl->CommandList);
         if (!mImpl->Renderer->BeginRendering())
             throw std::runtime_error("Effekseer Vulkan BeginRendering failed");
         mImpl->Status.bRendering = true;
@@ -616,6 +805,9 @@ namespace HEngine
             throw std::logic_error("Vulkan Effekseer EndRendering called without BeginRendering");
         if (!mImpl->Renderer->EndRendering())
             throw std::runtime_error("Effekseer Vulkan EndRendering failed");
+        EffekseerRendererVulkan::EndExternalRenderPass(mImpl->CommandList);
+        vkCmdEndRenderPass(mImpl->ActiveNativeCommandBuffer);
+        mImpl->bNativeRenderPassActive = false;
         mImpl->Status.bRendering = false;
     }
 
@@ -626,11 +818,23 @@ namespace HEngine
         if (mImpl->Status.bRendering)
             throw std::logic_error("Vulkan Effekseer EndFrame called while rendering is active");
 
+        if (!mImpl->ActiveFramebuffer)
+        {
+            mImpl->GraphicsDevice->BeginComputePass();
+            mImpl->GraphicsDevice->EndComputePass();
+        }
+
         mImpl->Renderer->SetDepth(nullptr, {});
         mImpl->Renderer->SetBackground(nullptr);
         mImpl->Renderer->SetCommandList(nullptr);
         EffekseerRendererVulkan::EndCommandList(mImpl->CommandList);
-        vkCmdEndRenderPass(mImpl->ActiveNativeCommandBuffer);
+
+        const auto counts = EffekseerRenderer::GetRecordedCommandCounts(mImpl->CommandList);
+        mImpl->Status.RecordedDrawCount = counts.Draw - mImpl->RecordingStartDrawCount;
+        mImpl->Status.RecordedDispatchCount = counts.Dispatch - mImpl->RecordingStartDispatchCount;
+        ++mImpl->Status.RecordingSerial;
+        if (mImpl->bNativeRenderPassActive)
+            vkCmdEndRenderPass(mImpl->ActiveNativeCommandBuffer);
 
         mImpl->ActiveCommandList->clearState();
         mImpl->DepthTexture.Reset();

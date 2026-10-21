@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateSet(
         "HGame",
         "HEngineEditor",
@@ -8,11 +8,14 @@ param(
         "HShaderCompiler",
         "HEngineTests",
         "HEngineDX12SceneSmoke",
+        "HEngineFsrSmoke",
         "HEngineRmlDX12Smoke")]
     [string]$Target = "HGame",
 
-    [ValidateSet("Debug", "RelWithDebInfo")]
+    [ValidateSet("Debug", "RelWithDebInfo", "Release")]
     [string]$Configuration = "Debug",
+
+    [ValidateSet('', 'x64', 'arm64')][string]$Architecture = '',
 
     [ValidateRange(1, 16)]
     [int]$Parallel = 4,
@@ -37,6 +40,8 @@ param(
     [string]$CapturePath = "",
 
     [string]$StartupScene = "",
+    [string]$StartupViewportMode = "",
+    [string]$InputReplayPath = "",
 
     [switch]$NoCursorCapture,
 
@@ -46,8 +51,25 @@ param(
 
     [switch]$RenderStats,
 
+    [ValidateSet("", "Forward", "Deferred")]
+    [string]$RenderPath = "",
+
+    [string]$RenderStatsPath = "",
+
+    [string]$RenderSettingsPath = "",
+
+    [ValidateRange(0, 10000000)]
+    [long]$PerformanceWarmupFrames = 30,
+
     [ValidateSet("", "DX12", "Vulkan")]
     [string]$GraphicsApi = "",
+
+    [ValidateSet("All", "DX12", "Vulkan")]
+    [string]$RenderBackends = "All",
+    [ValidateSet("Full", "Minimal")]
+    [string]$RuntimeFeatures = "Full",
+    [ValidateSet("Physics2D", "Physics3D", "Navigation", "Svg", "Lottie")]
+    [string[]]$DisableFeature = @(),
 
     [switch]$StrictGraphicsApi,
 
@@ -56,101 +78,36 @@ param(
     [switch]$EnableTracy,
 
     [switch]$PortableEditor,
+    [switch]$PortablePlayer,
+    [switch]$IncludeRenderSmokes,
 
     [string]$Project = "",
+
+    # Explicit validation profiles share no state with the default/VS builds.
+    [ValidatePattern('^$|^[a-z0-9][a-z0-9-]{0,47}$')]
+    [string]$BuildVariant = "",
+    [ValidatePattern('^$|^[a-z0-9][a-z0-9-]{0,47}$')]
+    [string]$ArtifactVariant = "",
+    [string]$PluginConfig = "",
 
     [switch]$ShowBuildOutput
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "Toolchain.ps1")
+$Architecture = Resolve-HeWindowsArchitecture $Architecture
+$BuildVariant = Get-HeArchitectureVariant $BuildVariant $Architecture
 if ($UseWarp -and $GraphicsApi -eq "Vulkan") {
     throw "-UseWarp is valid only with -GraphicsApi DX12."
 }
 . (Join-Path $PSScriptRoot "Process.ps1")
+. (Join-Path $PSScriptRoot "Rendering-Validation.ps1")
 
 function Get-RepositoryRoot {
     return (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 }
 
-function Resolve-HEProject {
-    param(
-        [string]$ProjectPath,
-        [string]$RepositoryRoot
-    )
-
-    if ([string]::IsNullOrWhiteSpace($ProjectPath)) {
-        $ProjectPath = $env:HE_PROJECT_DIR
-    }
-    if ([string]::IsNullOrWhiteSpace($ProjectPath)) {
-        $ProjectPath = Join-Path $RepositoryRoot "Project"
-    }
-    elseif (-not [System.IO.Path]::IsPathRooted($ProjectPath) -and
-        -not (Test-Path -LiteralPath $ProjectPath)) {
-        $repositoryRelativePath = Join-Path $RepositoryRoot $ProjectPath
-        if (Test-Path -LiteralPath $repositoryRelativePath) {
-            $ProjectPath = $repositoryRelativePath
-        }
-    }
-
-    $resolvedInput = Resolve-Path -LiteralPath $ProjectPath -ErrorAction Stop
-    $inputItem = Get-Item -LiteralPath $resolvedInput.Path -Force
-    if ($inputItem.PSIsContainer) {
-        $projectRoot = $inputItem.FullName
-        $descriptorPath = Join-Path $projectRoot "Project.heproject"
-    }
-    else {
-        if ($inputItem.Name -ine "Project.heproject") {
-            throw "-Project must name a project directory or Project.heproject: $($inputItem.FullName)"
-        }
-        $descriptorPath = $inputItem.FullName
-        $projectRoot = $inputItem.Directory.FullName
-    }
-
-    if (-not (Test-Path -LiteralPath $descriptorPath -PathType Leaf)) {
-        throw "Project descriptor was not found: $descriptorPath"
-    }
-    try {
-        $descriptor = Get-Content -Raw -LiteralPath $descriptorPath | ConvertFrom-Json
-    }
-    catch {
-        throw "Project descriptor is not valid JSON: $descriptorPath. $($_.Exception.Message)"
-    }
-
-    $projectId = [string]$descriptor.ProjectId
-    $executableName = [string]$descriptor.ExecutableName
-    if ($projectId.Length -gt 128 -or
-        $projectId -notmatch '^[a-z0-9][a-z0-9._-]*$' -or
-        $projectId.EndsWith('.') -or
-        $projectId -match '(?i)^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$') {
-        throw "Project.heproject ProjectId must use lowercase ASCII letters, digits, '.', '_' or '-': $descriptorPath"
-    }
-    if ($executableName.Length -gt 64 -or
-        $executableName -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*$' -or
-        $executableName.EndsWith('.') -or $executableName -match '(?i)\.exe$') {
-        throw "Project.heproject ExecutableName must be a safe extension-free executable basename: $descriptorPath"
-    }
-    if ($executableName -match '(?i)^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$') {
-        throw "Project.heproject ExecutableName uses a reserved Windows filename: $descriptorPath"
-    }
-
-    $normalizedRoot = [System.IO.Path]::GetFullPath($projectRoot).TrimEnd('\', '/')
-    $sha256 = [System.Security.Cryptography.SHA256]::Create()
-    try {
-        $rootBytes = [System.Text.Encoding]::UTF8.GetBytes($normalizedRoot.ToLowerInvariant())
-        $pathHash = ([System.BitConverter]::ToString($sha256.ComputeHash($rootBytes))).Replace('-', '').Substring(0, 8).ToLowerInvariant()
-    }
-    finally {
-        $sha256.Dispose()
-    }
-
-    return [pscustomobject]@{
-        Root = $normalizedRoot
-        DescriptorPath = [System.IO.Path]::GetFullPath($descriptorPath)
-        ProjectId = $projectId
-        ExecutableName = $executableName
-        CacheKey = "${projectId}-${pathHash}"
-    }
-}
+. (Join-Path $PSScriptRoot "Project.ps1")
 
 function Test-DefaultProject {
     param(
@@ -164,57 +121,6 @@ function Test-DefaultProject {
         $defaultRoot,
         [System.StringComparison]::OrdinalIgnoreCase)
 }
-
-function Import-Vs2022Environment {
-    $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
-    if (-not (Test-Path -LiteralPath $vswhere)) {
-        throw "vswhere.exe was not found; install the Visual Studio 2022 C++ toolchain."
-    }
-
-    $installationPath = & $vswhere -latest -version "[17.0,18.0)" -products * `
-        -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-    if ($LASTEXITCODE -ne 0 -or -not $installationPath) {
-        throw "A Visual Studio 2022 installation with the x64 C++ toolchain was not found."
-    }
-
-    # Ninja's MSVC dependency scanner matches the English /showIncludes prefix.
-    # Keep compiler diagnostics deterministic so header dependencies are recorded
-    # even when the Windows display language is not English.
-    [Environment]::SetEnvironmentVariable(
-        "VSLANG",
-        "1033",
-        [EnvironmentVariableTarget]::Process)
-
-    $devCommand = Join-Path ($installationPath | Select-Object -First 1) "Common7\Tools\VsDevCmd.bat"
-    $environmentLines = & $env:ComSpec /d /s /c `
-        "`"$devCommand`" -no_logo -arch=x64 -host_arch=x64 >nul && set"
-    if ($LASTEXITCODE -ne 0) {
-        throw "VsDevCmd.bat failed to initialize the x64 toolchain."
-    }
-
-    foreach ($line in $environmentLines) {
-        if ($line -match "^([^=]+)=(.*)$") {
-            [Environment]::SetEnvironmentVariable(
-                $matches[1],
-                $matches[2],
-                [EnvironmentVariableTarget]::Process)
-        }
-    }
-
-    # Some launch hosts expose both PATH and Path. VsDevCmd updates Path, and
-    # PowerShell Start-Process rejects the resulting case-insensitive duplicate
-    # environment block. Preserve the toolchain-updated value under one key.
-    $processEnvironment =
-        [Environment]::GetEnvironmentVariables([EnvironmentVariableTarget]::Process)
-    $canonicalPath = $processEnvironment['Path']
-    if ([string]::IsNullOrWhiteSpace($canonicalPath)) {
-        $canonicalPath = $processEnvironment['PATH']
-    }
-    Remove-Item Env:PATH -ErrorAction SilentlyContinue
-    Remove-Item Env:Path -ErrorAction SilentlyContinue
-    $env:PATH = $canonicalPath
-}
-
 function Invoke-LoggedCommand {
     param(
         [string]$Label,
@@ -305,10 +211,13 @@ $projectInfo = Resolve-HEProject -ProjectPath $Project -RepositoryRoot $reposito
 $projectRoot = $projectInfo.Root
 $projectExecutableName = $projectInfo.ExecutableName
 $bDefaultProject = Test-DefaultProject -ProjectRoot $projectRoot -RepositoryRoot $repositoryRoot
-$bGameMode = $Target -in @("HGame", "HEngineTests", "HEngineDX12SceneSmoke", "HEngineRmlDX12Smoke")
-$bSelfContainedSmoke = $Target -in @("HEngineDX12SceneSmoke", "HEngineRmlDX12Smoke")
+$bGameMode = $Target -in @("HGame", "HEngineTests", "HEngineDX12SceneSmoke", "HEngineRmlDX12Smoke", "HEngineFsrSmoke")
+$bSelfContainedSmoke = $Target -in @("HEngineDX12SceneSmoke", "HEngineRmlDX12Smoke", "HEngineFsrSmoke")
 if ($PortableEditor -and $Target -ne "HEngineEditor") {
     throw "-PortableEditor is only supported for HEngineEditor."
+}
+if ($PortablePlayer -and ($Target -ne 'HGame' -or $PortableEditor)) {
+    throw '-PortablePlayer is only supported for the standalone HGame host.'
 }
 $modeName = if ($Target -eq "HEngineTests") {
     "tests"
@@ -322,6 +231,7 @@ else {
 if ($PortableEditor) {
     $modeName = "editor-portable"
 }
+if ($PortablePlayer) { $modeName = 'game-portable' }
 $codeGenHostOverride = if ($Target -eq "HEngineTests") {
     "Tests"
 }
@@ -339,6 +249,13 @@ if ($EnableTracy) {
     $modeName = "${modeName}-tracy"
 }
 $configurationName = $Configuration.ToLowerInvariant()
+if ($RenderBackends -ne "All" -and !$BuildVariant) { $BuildVariant = $RenderBackends.ToLowerInvariant() }
+if ($RuntimeFeatures -eq 'Minimal' -or $DisableFeature.Count -gt 0) {
+    $featureSuffix = if ($RuntimeFeatures -eq 'Minimal') { 'minimal' } else { 'no-' + (($DisableFeature | Sort-Object) -join '-').ToLowerInvariant() }
+    if (!$BuildVariant) { $BuildVariant = $featureSuffix }
+    elseif ($BuildVariant -notlike "*$featureSuffix*") { $BuildVariant += "-$featureSuffix" }
+}
+if ($BuildVariant) { $modeName = "${modeName}-${BuildVariant}" }
 $buildRelativePath = if ($bDefaultProject) {
     "out\agent\{0}-{1}" -f $modeName, $configurationName
 }
@@ -347,6 +264,8 @@ else {
 }
 $buildRoot = Join-Path $repositoryRoot $buildRelativePath
 $runtimeOutput = Join-Path $buildRoot "bin"
+if ($ArtifactVariant) { $runtimeOutput = Join-Path $runtimeOutput $ArtifactVariant }
+if ($PluginConfig) { $PluginConfig = (Resolve-Path -LiteralPath $PluginConfig -ErrorAction Stop).Path.Replace('\', '/') }
 $generatedSourceRoot = Join-Path $buildRoot "GeneratedSource"
 $logRoot = if ($bDefaultProject) {
     Join-Path $repositoryRoot "out\agent\logs"
@@ -357,14 +276,16 @@ else {
 $cachePath = Join-Path $buildRoot "CMakeCache.txt"
 $tracyValue = if ($EnableTracy) { "ON" } else { "OFF" }
 $portableEditorValue = if ($PortableEditor) { "ON" } else { "OFF" }
+$portablePlayerValue = if ($PortablePlayer) { "ON" } else { "OFF" }
 $bRunRequested = $Run -or $Wait -or $TimeoutSeconds -gt 0 -or
     $ExitAfterFrames -gt 0 -or $FixedDeltaSeconds -gt 0.0 -or
     -not [string]::IsNullOrWhiteSpace($Resolution) -or $CaptureFrame -gt 0 -or
     -not [string]::IsNullOrWhiteSpace($CapturePath) -or
-    -not [string]::IsNullOrWhiteSpace($StartupScene) -or $NoCursorCapture -or $NoVSync
+    -not [string]::IsNullOrWhiteSpace($StartupScene) -or
+    -not [string]::IsNullOrWhiteSpace($InputReplayPath) -or $NoCursorCapture -or $NoVSync
 $bWaitRequested = $Wait -or $TimeoutSeconds -gt 0 -or $ExitAfterFrames -gt 0 -or $CaptureFrame -gt 0
-if ($PortableEditor -and $bRunRequested) {
-    throw "-PortableEditor builds must be run from an assembled portable layout."
+if (($PortableEditor -or $PortablePlayer) -and $bRunRequested) {
+    throw "Portable builds must be run from an assembled portable layout."
 }
 
 if ([double]::IsNaN($FixedDeltaSeconds) -or [double]::IsInfinity($FixedDeltaSeconds) -or
@@ -389,8 +310,8 @@ if ($CaptureFrame -eq 0 -and -not [string]::IsNullOrWhiteSpace($CapturePath)) {
     throw "-CapturePath requires -CaptureFrame."
 }
 if (-not [string]::IsNullOrWhiteSpace($StartupScene)) {
-    if ($Target -ne "HEngineEditor") {
-        throw "-StartupScene is only supported for HEngineEditor."
+    if ($Target -notin @("HEngineEditor", "HGame")) {
+        throw "-StartupScene is only supported for HEngineEditor and development HGame."
     }
     $StartupScene = $StartupScene.Replace('\', '/')
     if ([System.IO.Path]::IsPathRooted($StartupScene) -or
@@ -398,6 +319,19 @@ if (-not [string]::IsNullOrWhiteSpace($StartupScene)) {
         [System.IO.Path]::GetExtension($StartupScene) -cne '.he' -or
         @($StartupScene.Split('/')) -contains '..') {
         throw "-StartupScene requires a safe Assets-relative .he path."
+    }
+}
+if (-not [string]::IsNullOrWhiteSpace($InputReplayPath)) {
+    if ($Target -ne 'HGame' -or $ExitAfterFrames -le 0) {
+        throw '-InputReplayPath requires a bounded HGame run.'
+    }
+    if (-not [System.IO.Path]::IsPathRooted($InputReplayPath)) {
+        $InputReplayPath = Join-Path $projectRoot $InputReplayPath
+    }
+    $InputReplayPath = [System.IO.Path]::GetFullPath($InputReplayPath)
+    if ([System.IO.Path]::GetExtension($InputReplayPath).ToLowerInvariant() -ne '.json' -or
+        -not (Test-Path -LiteralPath $InputReplayPath -PathType Leaf)) {
+        throw '-InputReplayPath requires an existing JSON file.'
     }
 }
 if ($CaptureFrame -gt 0) {
@@ -410,6 +344,7 @@ if ($CaptureFrame -gt 0) {
     if ($ExitAfterFrames -eq 0) {
         $ExitAfterFrames = $CaptureFrame
     }
+    $bStorageOwnCapture = [string]::IsNullOrWhiteSpace($CapturePath)
     if ([string]::IsNullOrWhiteSpace($CapturePath)) {
         $captureName = "{0}-{1}-{2}.png" -f $modeName, $configurationName, (Get-Date -Format "yyyyMMdd-HHmmss-fff")
         $captureRoot = if ($bDefaultProject) {
@@ -424,8 +359,8 @@ if ($CaptureFrame -gt 0) {
         $CapturePath = Join-Path $repositoryRoot $CapturePath
     }
     $CapturePath = [System.IO.Path]::GetFullPath($CapturePath)
-    if ([System.IO.Path]::GetExtension($CapturePath) -ine ".png") {
-        throw "-CapturePath must use the .png extension."
+    if ([System.IO.Path]::GetExtension($CapturePath).ToLowerInvariant() -notin @('.png', '.pfm', '.raw')) {
+        throw "-CapturePath must use .png (display), .pfm or .raw (scene-linear HDR)."
     }
 }
 if ($bRunRequested -and $Target -ne "HGame" -and $Target -ne "HEngineEditor" -and
@@ -450,13 +385,25 @@ elseif ($Target -eq "HEngineEditor") {
         -ArtifactPath (Join-Path $runtimeOutput "HEngineEditor.exe") `
         -ProcessName "HEngineEditor"
 }
-Import-Vs2022Environment
+$toolchain = Get-HeVisualStudio -Architecture $Architecture
+Import-HeToolchain -Toolchain $toolchain
+Write-Host "toolchain: $($toolchain.Generator), $($toolchain.Toolset), MSVC $($toolchain.ToolsVersion)"
 $cmakeCommand = (Get-Command cmake.exe -CommandType Application -ErrorAction Stop |
     Select-Object -First 1).Source
 
+. (Join-Path $PSScriptRoot 'Storage.ps1')
+$storageRun = $null
+$buildEvidenceRun = $null
+$storageEvidenceComplete = $true
+$configureLog = $null
+$buildLog = $null
+$process = $null
+$storageState = 'failed'
 $executionLockPath = Join-Path $buildRoot ".agent-execution.lock"
 $executionLock = $null
+$cacheLease = $null
 try {
+$cacheLease = Open-HECacheLease -CachePath $buildRoot
 try {
     $executionLock = [System.IO.File]::Open(
         $executionLockPath,
@@ -479,6 +426,9 @@ elseif ($Target -eq "HEngineEditor") {
         -ProcessName "HEngineEditor"
 }
 
+$buildEvidenceDirectory = Join-Path $logRoot ('build-run-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $buildEvidenceDirectory | Out-Null
+$buildEvidenceRun = Start-HEStorageRun -Project $projectRoot -Workflow "build-$Target-$modeName-$configurationName" -Paths @($buildEvidenceDirectory) -Locks @($executionLockPath) -Outer
 $buildLockPath = Join-Path $buildRoot ".agent-build.lock"
 $buildLock = $null
 try {
@@ -493,49 +443,80 @@ try {
         throw "Another Agent build is using $buildRoot. Wait for it to finish instead of sharing the Ninja directory."
     }
 
+    $assetToolsValue = if ($Target -in @('HAssetImporter','HCooker','HEngineEditor')) { 'ON' } else { 'OFF' }
+    $renderSmokesValue = if ($bSelfContainedSmoke -or $IncludeRenderSmokes) { 'ON' } else { 'OFF' }
+    $featureValues = [ordered]@{}
+    $featureNames = [ordered]@{ Physics2D='PHYSICS_2D'; Physics3D='PHYSICS_3D'; Navigation='NAVIGATION'; Svg='UI_SVG'; Lottie='UI_LOTTIE' }
+    foreach ($feature in $featureNames.Keys) {
+        $featureValues["HE_ENABLE_$($featureNames[$feature])"] = if ($RuntimeFeatures -eq 'Minimal' -or $feature -in $DisableFeature) { 'OFF' } else { 'ON' }
+    }
+    $featureArguments = @($featureValues.Keys | ForEach-Object { "-D$_=$($featureValues[$_])" })
+    $dx12Value = if ($RenderBackends -eq "Vulkan") { "OFF" } else { "ON" }
+    $vulkanValue = if ($RenderBackends -eq "DX12") { "OFF" } else { "ON" }
     $devGameValue = if ($bGameMode) { "ON" } else { "OFF" }
     $normalizedRuntimeOutput = ([System.IO.Path]::GetFullPath($runtimeOutput)).Replace('\', '/')
     $normalizedProjectRoot = $projectRoot.Replace('\', '/')
-    $bConfigureRequired = -not (Test-Path -LiteralPath $cachePath)
+    $freshConfigure = @(Get-HeFreshConfigureArguments -BuildRoot $buildRoot -Compiler $toolchain.Compiler -Generator Ninja)
+    # A terminated configure can leave a valid-looking cache before Ninja writes
+    # its build graph. Reconfigure that cache instead of failing at build time.
+    $bConfigureRequired = $freshConfigure.Count -gt 0 -or
+        -not (Test-Path -LiteralPath $cachePath) -or
+        -not (Test-Path -LiteralPath (Join-Path $buildRoot "build.ninja"))
     if (-not $bConfigureRequired) {
-        if (-not (Test-CMakeCacheValue -Path $cachePath -Name "CMAKE_GENERATOR" -ExpectedValue "Ninja")) {
-            throw "The Agent build cache does not use Ninja: $buildRoot. Use a fresh Agent build directory."
-        }
         $bConfigureRequired =
             -not (Test-CMakeCacheValue -Path $cachePath -Name "CMAKE_BUILD_TYPE" -ExpectedValue $Configuration) -or
             -not (Test-CMakeCacheValue -Path $cachePath -Name "HE_BUILD_DEV_GAME" -ExpectedValue $devGameValue) -or
             -not (Test-CMakeCacheValue -Path $cachePath -Name "HE_PORTABLE_EDITOR" -ExpectedValue $portableEditorValue) -or
+            -not (Test-CMakeCacheValue -Path $cachePath -Name "HE_PORTABLE_PLAYER" -ExpectedValue $portablePlayerValue) -or
             -not (Test-CMakeCacheValue -Path $cachePath -Name "PACK_GAME" -ExpectedValue "OFF") -or
             -not (Test-CMakeCacheValue -Path $cachePath -Name "HE_ENABLE_GM" -ExpectedValue "ON") -or
+            -not (Test-CMakeCacheValue -Path $cachePath -Name "HE_BUILD_ASSET_TOOLS" -ExpectedValue $assetToolsValue) -or
+            -not (Test-CMakeCacheValue -Path $cachePath -Name "HE_BUILD_RENDER_SMOKES" -ExpectedValue $renderSmokesValue) -or
             -not (Test-CMakeCacheValue -Path $cachePath -Name "HE_BUILD_TESTS" -ExpectedValue $buildTestsValue) -or
             -not (Test-CMakeCacheValue -Path $cachePath -Name "CPP_CODE_GEN" -ExpectedValue "OFF") -or
             -not (Test-CMakeCacheValue -Path $cachePath -Name "HE_CODEGEN_HOST_OVERRIDE" -ExpectedValue $codeGenHostOverride) -or
-            -not (Test-CMakeCacheValue -Path $cachePath -Name "HE_EFFEKSEER_BUILD_DX12" -ExpectedValue "ON") -or
+            -not (Test-CMakeCacheValue -Path $cachePath -Name "HE_RENDER_DX12" -ExpectedValue $dx12Value) -or
+            -not (Test-CMakeCacheValue -Path $cachePath -Name "HE_RENDER_VULKAN" -ExpectedValue $vulkanValue) -or
             -not (Test-CMakeCacheValue -Path $cachePath -Name "HE_ENABLE_TRACY" -ExpectedValue $tracyValue) -or
             -not (Test-CMakeCacheValue -Path $cachePath -Name "HE_TRACY_ON_DEMAND" -ExpectedValue "ON") -or
             -not (Test-CMakeCacheValue -Path $cachePath -Name "HE_TRACY_MEMORY_PROFILING" -ExpectedValue "OFF") -or
             -not (Test-CMakeCacheValue -Path $cachePath -Name "HE_TRACY_CALLSTACK_DEPTH" -ExpectedValue "0") -or
             -not (Test-CMakeCacheValue -Path $cachePath -Name "HE_PROJECT_DIR" -ExpectedValue $normalizedProjectRoot) -or
+            -not (Test-CMakeCacheValue -Path $cachePath -Name "HE_PLUGIN_CONFIG" -ExpectedValue $PluginConfig) -or
             -not (Test-CMakeCacheValue -Path $cachePath -Name "HE_GENERATED_SOURCE_DIR" -ExpectedValue (($generatedSourceRoot.Replace('\', '/')))) -or
             -not (Test-CMakeCacheValue -Path $cachePath -Name "HE_RUNTIME_OUTPUT_DIR" -ExpectedValue $normalizedRuntimeOutput)
     }
 
+    foreach ($feature in $featureValues.Keys) {
+        if (!(Test-CMakeCacheValue -Path $cachePath -Name $feature -ExpectedValue $featureValues[$feature])) { $bConfigureRequired = $true }
+    }
     if ($bConfigureRequired) {
         $configureLog = Join-Path $logRoot ("configure-{0}-{1}.log" -f $modeName, $configurationName)
         Invoke-LoggedCommand -Label "configure $modeName $Configuration" -LogPath $configureLog -Command {
-            & $cmakeCommand -S $repositoryRoot -B $buildRoot -G Ninja `
+            & $cmakeCommand @freshConfigure @featureArguments -S $repositoryRoot -B $buildRoot -G Ninja `
+                "-DCMAKE_C_COMPILER=$($toolchain.Compiler)" `
+                "-DCMAKE_CXX_COMPILER=$($toolchain.Compiler)" `
                 "-DCMAKE_BUILD_TYPE=$Configuration" `
+                -DCMAKE_EXPORT_COMPILE_COMMANDS=ON `
                 "-DHE_BUILD_DEV_GAME=$devGameValue" `
                 "-DHE_PORTABLE_EDITOR=$portableEditorValue" `
+                "-DHE_PORTABLE_PLAYER=$portablePlayerValue" `
                 -DHE_ENABLE_GM=ON `
                 "-DHE_BUILD_TESTS=$buildTestsValue" `
+                "-DHE_BUILD_ASSET_TOOLS=$assetToolsValue" `
+                "-DHE_BUILD_RENDER_SMOKES=$renderSmokesValue" `
+                "-DHE_CODEGEN_LIBCLANG_ROOT=$env:HE_CODEGEN_LIBCLANG_ROOT" `
+                "-DHE_CODEGEN_PARSER_EXECUTABLE=$env:HE_CODEGEN_PARSER_EXECUTABLE" `
                 "-DHE_PROJECT_DIR=$projectRoot" `
+                "-DHE_PLUGIN_CONFIG=$PluginConfig" `
                 "-DHE_GENERATED_SOURCE_DIR=$generatedSourceRoot" `
                 "-DHE_RUNTIME_OUTPUT_DIR=$runtimeOutput" `
                 -DPACK_GAME=OFF `
                 -DCPP_CODE_GEN=OFF `
                 "-DHE_CODEGEN_HOST_OVERRIDE=$codeGenHostOverride" `
-                -DHE_EFFEKSEER_BUILD_DX12=ON `
+                "-DHE_RENDER_DX12=$dx12Value" `
+                "-DHE_RENDER_VULKAN=$vulkanValue" `
+                "-DHE_SHADER_SPIRV=$vulkanValue" `
                 "-DHE_ENABLE_TRACY=$tracyValue" `
                 -DHE_TRACY_ON_DEMAND=ON `
                 -DHE_TRACY_MEMORY_PROFILING=OFF `
@@ -568,6 +549,9 @@ $artifact = switch ($Target) {
     "HEngineRmlDX12Smoke" {
         Join-Path $runtimeOutput "Programs\HEngineRmlDX12Smoke\HEngineRmlDX12Smoke.exe"
     }
+    "HEngineFsrSmoke" {
+        Join-Path $runtimeOutput "Programs\HEngineFsrSmoke\HEngineFsrSmoke.exe"
+    }
 }
 if (-not (Test-Path -LiteralPath $artifact)) {
     throw "Build completed but the expected artifact was not found: $artifact"
@@ -593,6 +577,26 @@ if ($bRunRequested) {
         $savedRoot = Join-Path $sessionRoot "$runId\Saved"
         New-Item -ItemType Directory -Force -Path $savedRoot | Out-Null
         $runArguments.Add("--saved-root=`"$savedRoot`"")
+        $storagePaths = @((Split-Path -Parent $savedRoot), $stdoutLog, $stderrLog)
+        if ($bStorageOwnCapture) { $storagePaths += $CapturePath }
+        $storageRun = Start-HEStorageRun -Project $projectRoot -Workflow "$Target-$modeName-$configurationName" -Paths $storagePaths -Locks @($executionLockPath)
+        if ($storageRun) {
+            try {
+                # VS environment import can change module discovery in Windows
+                # PowerShell. Receipt hashing must not depend on cmdlet autoload.
+                $artifactStream = [IO.File]::OpenRead($artifact)
+                $artifactHasher = [Security.Cryptography.SHA256]::Create()
+                try {
+                    $artifactHash = [BitConverter]::ToString($artifactHasher.ComputeHash($artifactStream)).Replace('-', '')
+                }
+                finally {
+                    $artifactHasher.Dispose()
+                    $artifactStream.Dispose()
+                }
+                [ordered]@{artifact=$artifact;sha256=$artifactHash;target=$Target;configuration=$Configuration;scene=$StartupScene;storageId=$storageRun.Id} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path (Split-Path -Parent $savedRoot) 'run.json') -Encoding UTF8
+            }
+            catch { $storageEvidenceComplete = $false; Write-Warning "storage runtime receipt failed: $($_.Exception.Message)" }
+        }
     }
     if ($ExitAfterFrames -gt 0) {
         $runArguments.Add("--exit-after-frames=$ExitAfterFrames")
@@ -611,6 +615,12 @@ if ($bRunRequested) {
     if (-not [string]::IsNullOrWhiteSpace($StartupScene)) {
         $runArguments.Add("--startup-scene=$StartupScene")
     }
+    if (-not [string]::IsNullOrWhiteSpace($InputReplayPath)) {
+        $runArguments.Add("--input-replay=`"$InputReplayPath`"")
+    }
+    if (-not [string]::IsNullOrWhiteSpace($StartupViewportMode)) {
+        $runArguments.Add("--viewport-mode=$StartupViewportMode")
+    }
     if ($NoCursorCapture) {
         $runArguments.Add("--no-cursor-capture")
     }
@@ -623,6 +633,21 @@ if ($bRunRequested) {
     if ($RenderStats) {
         $runArguments.Add("--render-stats")
     }
+    if (-not [string]::IsNullOrWhiteSpace($RenderPath)) {
+        $runArguments.Add("--render-path=$($RenderPath.ToLowerInvariant())")
+    }
+    if (-not [string]::IsNullOrWhiteSpace($RenderSettingsPath)) {
+        $RenderSettingsPath = [System.IO.Path]::GetFullPath($RenderSettingsPath)
+        if (-not (Test-Path -LiteralPath $RenderSettingsPath -PathType Leaf)) {
+            throw "Render settings JSON was not found: $RenderSettingsPath"
+        }
+        $runArguments.Add("--render-settings=`"$RenderSettingsPath`"")
+    }
+    if (-not [string]::IsNullOrWhiteSpace($RenderStatsPath)) {
+        $RenderStatsPath = [System.IO.Path]::GetFullPath($RenderStatsPath)
+        $runArguments.Add("--render-stats-path=`"$RenderStatsPath`"")
+    }
+    $runArguments.Add("--performance-warmup-frames=$PerformanceWarmupFrames")
     if (-not [string]::IsNullOrWhiteSpace($GraphicsApi)) {
         $runArguments.Add("--graphics-api=$($GraphicsApi.ToLowerInvariant())")
     }
@@ -667,9 +692,11 @@ if ($bRunRequested) {
         } else { 0.0 }
 
         if ($Target -eq "HGame") {
-            $readyTimeoutMilliseconds = 30000.0
+            # Large benchmark scenes legitimately need longer than 30 seconds
+            # to import/upload. The caller's owned-run deadline remains binding.
+            $readyTimeoutMilliseconds = 300000.0
             if ($totalTimeoutMilliseconds -gt 0) {
-                $readyTimeoutMilliseconds = [Math]::Min($readyTimeoutMilliseconds, $totalTimeoutMilliseconds)
+                $readyTimeoutMilliseconds = $totalTimeoutMilliseconds
             }
             $bReady = $false
             while ($runStopwatch.Elapsed.TotalMilliseconds -lt $readyTimeoutMilliseconds) {
@@ -731,6 +758,9 @@ if ($bRunRequested) {
                 Get-Content -LiteralPath $stderrLog -Tail 50 -ErrorAction SilentlyContinue
                 exit $process.ExitCode
             }
+            if ($RenderValidation) {
+                Assert-RenderingValidationLogs -Paths @($stdoutLog, $stderrLog)
+            }
             Write-Host "run ${Target}: PASS exit=0"
             if ($CaptureFrame -gt 0) {
                 if (-not (Test-Path -LiteralPath $CapturePath)) {
@@ -759,9 +789,27 @@ if ($bRunRequested) {
         }
     }
 }
+$storageState = $(if ($storageEvidenceComplete) { 'success' } else { 'unknown' })
 }
 finally {
+    if ($buildEvidenceRun) {
+        try {
+            foreach ($evidenceLog in @($configureLog, $buildLog)) {
+                if ($evidenceLog -and (Test-Path -LiteralPath $evidenceLog)) { Copy-Item -LiteralPath $evidenceLog -Destination $buildEvidenceDirectory }
+            }
+            [ordered]@{target=$Target;configuration=$Configuration;project=$projectRoot;buildRoot=$buildRoot;state=$storageState;artifact=$artifact} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $buildEvidenceDirectory 'result.json') -Encoding UTF8
+        }
+        catch { $storageState = 'unknown'; Write-Warning "storage build evidence snapshot failed: $($_.Exception.Message)" }
+    }
+    if ($process) {
+        try { $process.Refresh(); if (-not $process.HasExited) { $storageState = 'unknown' } }
+        catch { $storageState = 'unknown' }
+    }
     if ($null -ne $executionLock) {
         $executionLock.Dispose()
     }
+    if ($cacheLease) { $cacheLease.Dispose() }
+    if ($storageRun) { Complete-HEStorageRun -Run $storageRun -State $storageState }
+    if ($buildEvidenceRun) { Complete-HEStorageRun -Run $buildEvidenceRun -State $storageState }
+    else { Invoke-HEStorageAuto }
 }

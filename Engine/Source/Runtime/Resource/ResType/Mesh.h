@@ -147,6 +147,16 @@ namespace HEngine
         std::vector<float> max;  // optional. integer value is promoted to double
     };
 
+    REFLECTION_TYPE(MeshLod)
+    CLASS(MeshLod, Fields)
+    {
+        REFLECTION_BODY(MeshLod);
+    public:
+        int indices = -1;
+        // Offline simplification's maximum object-space positional error.
+        float objectSpaceError = 0.0f;
+    };
+
     REFLECTION_TYPE(Primitive)
     CLASS(Primitive, Fields)
     {
@@ -155,8 +165,11 @@ namespace HEngine
         std::string materialResPath;
         std::map<std::string, int> attributes;  // Required. type to accessor index in MeshRes.accessorVec
         int indices = -1;   // The index of the accessor that contains the indices.
+        std::vector<MeshLod> lods;
         int mode = 4;  // The topology type of primitives to render.
         std::vector<std::map<std::string, int>> targets;
+        std::vector<std::string> targetNames;
+        std::vector<float> targetWeights;
     };
 
     REFLECTION_TYPE(MeshRes)

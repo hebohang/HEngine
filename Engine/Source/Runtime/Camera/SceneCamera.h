@@ -20,6 +20,7 @@ namespace HEngine
         void SetPerspective(float verticalFOV, float nearClip, float farClip);
 
         void SetViewportSize(uint32_t width, uint32_t height);
+        void SetAspectRatio(float aspect);
 
         float GetPerspectiveVerticalFOV() const { return mPerspectiveFOV; }
         void SetPerspectiveVerticalFOV(float verticalFOV) { mPerspectiveFOV = verticalFOV; RecalculateProjection(); }
@@ -36,7 +37,7 @@ namespace HEngine
         void SetOrthographicFarClip(float farClip) { mOrthographicFar = farClip; RecalculateProjection(); }
 
         ProjectionType GetProjectionType() const { return mProjectionType; }
-        void SetProjectionType(ProjectionType type) { mProjectionType = type; }
+        void SetProjectionType(ProjectionType type) { mProjectionType = type; RecalculateProjection(); }
     private:
         void RecalculateProjection();
     public:
@@ -48,6 +49,6 @@ namespace HEngine
         float mOrthographicSize = 10.0f;
         float mOrthographicNear = -1.0f, mOrthographicFar = 1.0f;
 
-        float mAspectRatio = 0.0f;
+        float mAspectRatio = 1.0f;
     };
 }

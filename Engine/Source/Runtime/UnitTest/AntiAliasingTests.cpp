@@ -103,10 +103,12 @@ namespace HEngine::Tests
             settings.SmaaCornerRounding = 0.5f;
             settings.TaaHistoryWeight = 0.875f;
             settings.TaaSharpness = 0.375f;
+            settings.bTaaOptimizedHistoryGather = true;
+            settings.bTaaSharedNeighborhood = true;
             settings.CaptureSupersampleScale = 4;
 
             const Json serialized = SerializeAntiAliasingSettings(settings);
-            Require(serialized.is_object() && serialized.size() == 11 &&
+            Require(serialized.is_object() && serialized.size() == 13 &&
                     !serialized.contains("CaptureSupersampleScale"),
                 "AA JSON serialization omitted or invented a persisted field.");
             AntiAliasingSettings persistedSettings = settings;

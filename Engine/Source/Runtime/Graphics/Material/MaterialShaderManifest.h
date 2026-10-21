@@ -15,7 +15,7 @@
 namespace HEngine
 {
     inline constexpr std::uint32_t MaterialShaderManifestFormatVersion = 3;
-    inline constexpr std::uint32_t MaterialShaderAbiVersion = 1;
+    inline constexpr std::uint32_t MaterialShaderAbiVersion = 2;
     inline constexpr std::uint32_t MaterialShaderParameterAlignment = 16;
     inline constexpr std::size_t MaterialParameterMaximumPropertyCount = 64;
     inline constexpr std::size_t MaterialParameterMaximumTextureCount = 16;
@@ -27,7 +27,7 @@ namespace HEngine
     enum class MaterialShaderCullMode { Back, None };
     enum class MaterialShaderDescriptorMode { Baseline, HeapDirect };
     enum class MaterialShaderVertexPath { Static, Skinned, GpuDriven };
-    enum class MaterialShaderPass { Forward, Depth, Shadow, Outline };
+    enum class MaterialShaderPass { Forward, Depth, Shadow, Outline, GBuffer };
     enum class MaterialShaderArtifactStage : std::uint8_t { Invalid, Vertex, Pixel };
     enum class MaterialShaderPropertyType { Float, Float2, Float3, Color, Bool, Int, Texture2D };
     enum class MaterialShaderTextureSemantic

@@ -1,0 +1,150 @@
+name: Validate starter templates
+
+on:
+  pull_request:
+    paths:
+      - 'Engine/Templates/**'
+      - 'Engine/Content/Assets/StarterContent/**'
+      - 'Engine/Managed/**'
+      - 'Tools/Agent/Project*'
+      - 'Tools/Agent/Test-Projects.ps1'
+      - 'Tools/Agent/Test-StarterTemplatesNative.ps1'
+      - 'Tools/Agent/hectl.ps1'
+      - 'Tools/Tests/StarterGameplayTests/**'
+      - 'Tools/Scripting/Api.schema.json'
+      - 'Tools/Scripting/GenerateApi.cmake'
+      - '.github/workflows/starter_templates.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: starter-templates-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  templates:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: Engine/Managed/global.json
+      - name: Validate independent project creation
+        shell: powershell
+        run: ./Tools/Agent/Test-Projects.ps1
+      - name: Exercise project manager template selection
+        shell: powershell
+        run: |
+          powershell -NoProfile -STA -ExecutionPolicy Bypass -File Tools/Agent/ProjectManager.ps1 -SmokeTest -CapturePath out/agent/starter-project-manager.png
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Compile and exercise actual template scripts
+        shell: powershell
+        run: |
+          dotnet run --project Tools/Tests/StarterGameplayTests/StarterGameplayTests.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build newly created independent projects
+        shell: powershell
+        run: |
+          . ./Tools/Agent/Project.ps1
+          $root = $PWD.Path
+          $projects = Join-Path $root 'out/agent/starter-compile'
+          $null = New-Item -ItemType Directory -Path $projects -Force
+          foreach ($template in @('FirstPerson', 'TopDown')) {
+            $project = New-HEProject -RepositoryRoot $root -ProjectPath (Join-Path $projects $template) -Name "$template CI" -Template $template
+            dotnet build (Join-Path $project.Root 'Scripts/CSharp/GameScripts.csproj') -c Release "-p:HEngineRoot=$root"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Upload creation and UI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: starter-template-evidence
+          path: |
+            out/agent/starter-project-manager.png
+            out/agent/project-tests/**/Project.heproject
+            out/agent/starter-compile/**/Project.heproject
+          if-no-files-found: warn
+
+  native:
+    needs: templates
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: Engine/Managed/global.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Prepare pinned development dependencies
+        shell: powershell
+        run: |
+          ./Tools/Dependencies/Dependencies.ps1 -Action install -Profile DevGame -Project Engine/Templates/Blank -PluginConfig Tools/Distribution/PlayerPlugins.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Locate reusable native build
+        id: native-build
+        shell: powershell
+        run: |
+          . ./Tools/Agent/Project.ps1
+          . ./Tools/Agent/Toolchain.ps1
+          $project = Resolve-HEProject -ProjectPath Engine/Templates/Blank -RepositoryRoot $PWD.Path
+          $toolchain = Get-HeVisualStudio
+          "root=out/agent/projects/$($project.CacheKey)/game-portable-starter-dx12-release" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "toolchain=$($toolchain.Toolset)-$($toolchain.ToolsVersion)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+      - name: Restore native player build
+        id: native-cache
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          key: starter-dx12-v1-${{ runner.os }}-${{ steps.native-build.outputs.toolchain }}-${{ hashFiles('Engine/Source/**', 'Engine/Managed/**', 'Engine/Content/**', 'Engine/Templates/Blank/**', 'Engine/CMakeLists.txt', 'CMake/**', 'CMakeLists.txt', 'Tools/Agent/Build.ps1', 'Tools/Agent/CodeGen*.ps1', 'Tools/Agent/Toolchain.ps1', 'Tools/Agent/Project.ps1', 'Tools/Agent/LibClang.ps1', 'Tools/Scripting/**', 'Tools/Dependencies/**', 'Tools/Distribution/PlayerPlugins.json') }}
+          path: |
+            ${{ steps.native-build.outputs.root }}/bin
+            ${{ steps.native-build.outputs.root }}/GeneratedContent/Engine
+            ${{ steps.native-build.outputs.root }}/PlayerTemplate-Release.json
+      - name: Build one reusable DX12 development player
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          ./Tools/Agent/Build.ps1 -Target HGame -Configuration Release -Project Engine/Templates/Blank -PortablePlayer -PluginConfig Tools/Distribution/PlayerPlugins.json -RenderBackends DX12 -BuildVariant starter-dx12 -Parallel 4
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Save successful native build before runtime validation
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}
+          path: |
+            ${{ steps.native-build.outputs.root }}/bin
+            ${{ steps.native-build.outputs.root }}/GeneratedContent/Engine
+            ${{ steps.native-build.outputs.root }}/PlayerTemplate-Release.json
+      - name: Assemble current development template
+        shell: powershell
+        run: |
+          ./Tools/Distribution/Build-DevPlayer.ps1 -SkipBuild -BuildVariant starter-dx12 -Output out/ci/starter-player
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Validate native scene loading and gameplay on WARP
+        shell: powershell
+        run: |
+          ./Tools/Agent/Test-StarterTemplatesNative.ps1 -DevelopmentTemplate out/ci/starter-player -EvidenceRoot out/agent/starter-native
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload native logs, assertions and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: starter-native-evidence
+          path: |
+            out/agent/starter-native/**/*.png
+            out/agent/starter-native/**/*.log
+            out/agent/starter-native/**/result.json
+            out/agent/starter-native/**/agent-calls.jsonl
+            out/agent/logs/**
+          if-no-files-found: warn

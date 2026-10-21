@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "id": "explosion-arcane-low",
+  "template": "explosion",
+  "semantic": {
+    "purpose": "explosion presentation",
+    "style": "arcane broad"
+  },
+  "compile": {
+    "color": [
+      195,
+      85,
+      255,
+      255
+    ],
+    "radius_m": 1.8,
+    "attack_s": 0.5,
+    "sustain_s": 1.2,
+    "decay_s": 1.0,
+    "particles": 32,
+    "direction": [
+      0,
+      1,
+      0
+    ],
+    "seed": 1806,
+    "simulation": "cpu",
+    "quality": "Low"
+  },
+  "playback": {
+    "scale": 1,
+    "speed": 1,
+    "intensity": 1
+  },
+  "budget": {
+    "max_particles": 32
+  },
+  "requirements": {
+    "backends": [
+      "DX12",
+      "Vulkan"
+    ],
+    "fallback_recipe": null
+  },
+  "dependencies": []
+}

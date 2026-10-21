@@ -1,53 +1,31 @@
 #pragma once
 
 #include "Runtime/EcsFramework/System/System.h"
-
-#include <glm/glm.hpp>
-
-struct rcHeightfield;
-struct rcCompactHeightfield;
-struct rcContourSet;
-struct rcPolyMesh;
-struct rcPolyMeshDetail;
-
-class dtNavMesh;
-class dtNavMeshQuery;
+#include "Runtime/AI/Navigation/NavigationService.h"
 
 namespace HEngine
 {
     class NavPathDebugSystem : public System
     {
     public:
-        NavPathDebugSystem(Level* level)
-            : System(level)
-        {
-        }
-
-        virtual ~NavPathDebugSystem();
-
+        explicit NavPathDebugSystem(Level* level) : System(level) {}
         void OnUpdateRuntime(Timestep ts) override;
-
+        void OnRuntimeStop() override { mNavigation.Release(); bBuildAttempted = false; mDebugTriangles.clear(); }
 #if WITH_EDITOR
         void OnUpdateEditor(Timestep ts, EditorCamera& camera) override;
 #endif
+        bool Rebuild(const NavigationBuildSettings& settings, const NavigationBounds* bounds = nullptr);
+        NavigationService& GetNavigation() { return mNavigation; }
+        void SetDebugVisible(bool visible) { bDebugVisible = visible; }
+        bool IsDebugVisible() const { return bDebugVisible; }
 
     private:
-        bool RebuildNavMeshFromScene();
-        void ReleaseBuildData();
-        void ReleaseDetour();
-        bool FindEntityPositionByTag(const char* tagName, glm::vec3& outPosition) const;
-        bool BuildAndDrawPath(const glm::vec3& startWorld, const glm::vec3& endWorld, EditorCamera& camera);
-
-    private:
-        rcHeightfield* mHeightfield = nullptr;
-        rcCompactHeightfield* mCompactHeightfield = nullptr;
-        rcContourSet* mContourSet = nullptr;
-        rcPolyMesh* mPolyMesh = nullptr;
-        rcPolyMeshDetail* mDetailMesh = nullptr;
-
-        dtNavMesh* mNavMesh = nullptr;
-        dtNavMeshQuery* mNavQuery = nullptr;
-        bool mLastBuildSucceeded = false;
-        bool mBuildErrorReported = false;
+        bool FindEntityPositionByTag(const char* tag, glm::vec3& position) const;
+        bool PrepareDebug();
+        void DrawDebug();
+        NavigationService mNavigation;
+        std::vector<glm::vec3> mDebugTriangles;
+        bool bDebugVisible = false;
+        bool bBuildAttempted = false;
     };
 }

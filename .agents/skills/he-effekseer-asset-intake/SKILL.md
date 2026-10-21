@@ -1,55 +1,42 @@
 ---
 name: he-effekseer-asset-intake
-description: Discover, license-review, safely download, inspect, register, preview, convert, and import Effekseer effects for HEngine. Use for Effekseer asset sourcing, .zip/.efkpkg archive intake, .efk/.efkefc compatibility or GPU-particle checks, provenance and SHA-256 manifests, CC0/CC-BY review, quarantined Project/SourceAssets/EffekseerInbox workflows, or importing effects into Project/Assets/Effects.
+description: Discover, inspect, or import external Effekseer assets for HEngine, including license and compatibility review.
 ---
 
 # HEngine Effekseer Asset Intake
 
-Use a provenance-first quarantine workflow. Treat every downloaded archive as untrusted and every unstated license as unusable.
+Treat downloaded archives as untrusted and unstated licenses as unusable. Keep provenance and originals in quarantine; perform only the stages needed for the requested result.
 
-## Read the applicable references
+## Select the completion stage
 
-- Read [references/sources.md](references/sources.md) before discovering or ranking candidates.
-- Read [references/license-policy.md](references/license-policy.md) before making any license decision or downloading.
-- Read [references/manifest-schema.md](references/manifest-schema.md) before creating or updating `asset.json`.
+| Request | Completion boundary |
+| --- | --- |
+| Discover/rank | Return enough suitable candidates with source and license evidence; use [sources](references/sources.md). Do not download by default. |
+| Static inspection | Report archive safety, dependencies, format/version and GPU detections, including unknowns. Stop without launching an editor or engine unless confirmation is needed for the requested result. |
+| Preview/convert | Work on a copy in the tool needed to answer the request; deliver preview/conversion evidence without publishing runtime assets. |
+| Import | Finish license, dependency, HEngine preview, support and budget checks, then publish the approved package and [manifest](references/manifest-schema.md). |
 
-## Follow the intake workflow
+Read [license-policy](references/license-policy.md) before a license decision or download, and [manifest-schema](references/manifest-schema.md) before writing `asset.json`. Existing task authorization is sufficient; advancing stages must serve the request, not this table alone.
 
-1. Identify a concrete gameplay/VFX gap and the renderer, quality tier, budget category, and Effekseer version constraints. Prefer effects that improve gameplay readability over spectacle.
-2. Discover and audit candidates only by default. Do not download unless the user explicitly requests it or the active task already authorizes it.
-3. Record the public source page, author, exact license evidence, format, expected dependencies, and the gameplay gap for every candidate. Never infer rights from a filename, search tag, "free," or "royalty free."
-4. Apply `references/license-policy.md`. Stop on `REJECT`; keep `MANUAL_REVIEW` candidates out of runtime assets and do not download protected/purchased content automatically.
-5. For an authorized, automatically acceptable asset, run a dry run first:
+## Discovery, download and static inspection
 
-   ```powershell
-   python scripts/fetch_effekseer_asset.py --url <direct-download-url> --source <public-source-url> --license CC0-1.0 --author <author> --asset-id <asset-id> --destination Project/SourceAssets/EffekseerInbox --dry-run
-   ```
+- Use the requested gameplay purpose and known renderer, quality, budget and version constraints to rank candidates. Record the public page, author, exact license evidence, format and expected dependencies; never infer rights from a filename, tag, "free" or "royalty free."
+- Download only when explicitly requested or already authorized by the active task. Stop acquisition/import for `REJECT`; keep `MANUAL_REVIEW` candidates out of runtime assets. Gated/purchased items remain candidate records for the user to obtain.
+- Use `scripts/fetch_effekseer_asset.py` with an explicitly acceptable license and `--dry-run`; review the URL, license, target and filename, then repeat without the flag when correct. The script refuses credentials/executable-looking downloads, limits size and verifies staging before atomic publication. Reviewed custom licenses also need `--license-file <complete-terms>`. Commands are in [sources](references/sources.md#download-and-inspection-commands).
+- Keep downloads and `asset.json` under `Project/SourceAssets/EffekseerInbox/<asset-id>/`, never directly in `Project/Assets/Effects`. Inspect ZIP/`.efkpkg` or TAR using `scripts/inspect_effekseer_archive.py`; it does not extract or execute content. Preserve the original archive and `.efk`/`.efkefc`.
+- Reject dangerous paths, links, executable/script content, duplicate normalized names, oversized content or contents inconsistent with the source. Resolve missing dependencies before preview.
+- Detection results are evidence, not guarantees: absent GPU markers do not prove an opaque file is CPU-only. Keep `null`, `Unavailable` and low-confidence results explicit. Use the official Effekseer 1.80.6 Editor only when the task requires confirmation or an unknown blocks the requested preview/import stage.
 
-6. Review the printed URL, license, target, and filename. Repeat without `--dry-run` only when they are correct. Keep the original download and generated `asset.json` under `Project/SourceAssets/EffekseerInbox/<asset-id>/`; never download directly into `Project/Assets/Effects`.
-7. Inspect without extracting or modifying the original:
+## Preview and import
 
-   ```powershell
-   python scripts/inspect_effekseer_archive.py Project/SourceAssets/EffekseerInbox/<asset-id>/<archive> --output Project/SourceAssets/EffekseerInbox/<asset-id>/inspection.json --pretty
-   ```
+- Preview or convert editable copies with official Effekseer 1.80.6 tools as needed. Keep legacy originals even if loading fails; do not patch opaque runtime bytes or assume equal version numbers imply compatibility. Record all edits and irreversible upgrades; overwriting a 1.7 original still requires explicit confirmation.
+- Before final import, preview a scratch `.efkpkg` in HEngine using owned `hectl game/editor check`, `capture` or an Agent session stopped in `finally`; never `open`. Check the current configuration/ownership contract before using `Tools/VFX/preview.py`.
+- Validate only the selected or affected backends and quality tiers; each claimed support combination needs evidence. Check relevant coordinate/orientation/scale, color/material, depth/soft-particle, distortion/background-copy, sound, lifetime/stop and LOD behavior, plus overdraw and the VFX budget. Gameplay-critical effects require a CPU fallback.
+- Query the current candidate with `vfx.describe` / `vfx.stats`, or embedded `HEngine.VFX.Describe()` / `GetStats()` without an Agent mailbox, and inspect per-effect status/support reasons after load/play. Separate CPU support, actual GPU enablement and production validation: `gpu.validated=false` stays unverified after a successful development probe. Backend names alone prove no support; retired DX11/OpenGL evidence is historical.
+- Pin executable/backend/package/scene/quality and retain native stdout/stderr, captures and measured profiler data. Mark inaccessible counters `Unavailable` and estimates `Estimated`; follow the [renderer-evidence contract](references/manifest-schema.md#renderer-evidence-for-support-claims).
+- Publish only the approved `.efkpkg` to a new path under `Project/Assets/Effects`, preserving prior effects for rollback. Decorative particles must not own gameplay damage, collision, targeting or hit logic.
+- Update the manifest atomically with the measured profiler baseline, budget/quality tier, confirmed support/fallback and hashes of every imported file. `scripts/update_asset_manifest.py` validates hash-linked runtime evidence for each new support claim; use its [dry-run example](references/manifest-schema.md#update-command), inspect the JSON, then publish.
 
-8. Reject dangerous paths, links, executable/script content, duplicate normalized names, oversized content, or content inconsistent with the source description. Resolve every missing dependency before preview.
-9. Treat version and GPU-particle results as evidence-bearing detections. If the script reports `null`, `Unavailable`, or low-confidence heuristics, inspect with the official Effekseer 1.80.6 Editor; do not convert uncertainty into a precise claim.
-10. Preview in Effekseer 1.80.6 from a copy. Preserve the original `.efk`/`.efkefc` and archive. Record irreversible format upgrades and all edits. Do not overwrite a 1.7 source without explicit confirmation.
-11. Check renderer capability, CPU fallback, coordinate system, orientation, scale, color space, materials, depth/soft particles, distortion/background copy, sound, lifetime/stop behavior, LOD, overdraw, and the HEngine VFX budget. HEngine currently accepts only the DX12 renderer; Vulkan is not implemented, and retired DX11/OpenGL evidence must be revalidated before import. Gameplay-critical effects must have a CPU fallback.
-12. Preview in HEngine before packaging. Capture measured profiler data; mark unavailable counters as unavailable and estimates as estimated.
-13. Package only the approved copy as `.efkpkg`, import it to a new path under `Project/Assets/Effects`, and preserve the prior effect for comparison/rollback. Never attach gameplay damage, collision, targeting, or hit logic to decorative particles.
-14. Save the measured profiler baseline as a JSON object. Update the manifest atomically, assign a budget/quality tier, confirm renderer and CPU fallback behavior, and hash every imported file:
+Report the completed stage and its applicable source/license evidence, hashes, compatibility, support/fallback, budget, preview and output paths. Unperformed stages stay unverified rather than triggering extra work.
 
-   ```powershell
-   python scripts/update_asset_manifest.py --manifest Project/SourceAssets/EffekseerInbox/<asset-id>/asset.json --inspection Project/SourceAssets/EffekseerInbox/<asset-id>/inspection.json --import-file Project/Assets/Effects/<effect>.efkpkg --final-import-path Project/Assets/Effects/<effect>.efkpkg --minimum-effekseer-version 1.80.6 --supported-renderer-api DX12 --has-cpu-fallback true --estimated-peak-particles <count> --budget-category Combat --quality-tier High --profiler-baseline <baseline.json> --modification "Packaged with Effekseer 1.80.6" --dry-run
-   ```
-
-15. Review the dry-run JSON, then repeat without `--dry-run`. Report the source, license decision/evidence, SHA-256 values, Effekseer compatibility, GPU/CPU fallback status, budget result, preview result, final path, and modifications.
-
-## Use the scripts safely
-
-- `scripts/fetch_effekseer_asset.py` accepts only an explicit automatically acceptable license, refuses credentials and executable-looking downloads, limits size, verifies the staged file before atomic publication, and writes no files during `--dry-run`. A reviewed custom license also requires `--license-file <complete-terms>`.
-- `scripts/inspect_effekseer_archive.py` supports ZIP-compatible archives (including `.efkpkg`) and TAR archives. It never extracts or executes content. A detection of no GPU marker is not proof for opaque binary formats.
-- `scripts/update_asset_manifest.py` validates required fields, consumes inspection JSON, hashes imports, and writes through an atomic replacement. Use `--dry-run` before mutation.
-
-Do not bypass login, purchase, captcha, rate limits, or access controls; simulate purchases; execute archive programs/scripts; collect unrelated personal data; or leave partially downloaded content marked complete. For itch.io, BOOTH, and other gated sources, register only the candidate and let the user obtain it.
+Do not bypass login, payment, captcha, rate limits or access controls; simulate purchases; execute archive programs/scripts; collect unrelated personal data; or mark partial downloads complete.

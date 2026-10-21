@@ -27,6 +27,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "Toolchain.ps1")
 
 function Get-PathHash {
     param([string]$Value)
@@ -86,83 +87,9 @@ function Find-ParserExecutable {
 
 function Find-ModernLibClang {
     param([string]$RequestedRoot)
-
-    $candidateRoots = New-Object 'System.Collections.Generic.List[string]'
-    if (-not [string]::IsNullOrWhiteSpace($RequestedRoot)) {
-        $candidateRoots.Add($RequestedRoot)
-    }
-    if (-not [string]::IsNullOrWhiteSpace($env:HE_CODEGEN_LIBCLANG_ROOT)) {
-        $candidateRoots.Add($env:HE_CODEGEN_LIBCLANG_ROOT)
-    }
-    $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
-    if (Test-Path -LiteralPath $vswhere -PathType Leaf) {
-        $installations = & $vswhere -all -products * -format json | ConvertFrom-Json
-        foreach ($installation in @($installations)) {
-            $candidateRoots.Add((Join-Path $installation.installationPath "VC\Tools\Llvm\x64"))
-        }
-    }
-
-    $libClangMatches = New-Object 'System.Collections.Generic.List[object]'
-    foreach ($candidateRoot in $candidateRoots) {
-        if ([string]::IsNullOrWhiteSpace($candidateRoot)) {
-            continue
-        }
-        $root = [System.IO.Path]::GetFullPath($candidateRoot).TrimEnd('\', '/')
-        $clang = Join-Path $root "bin\clang.exe"
-        $dll = Join-Path $root "bin\libclang.dll"
-        $library = Join-Path $root "lib\libclang.lib"
-        if (-not (Test-Path -LiteralPath $clang -PathType Leaf) -or
-            -not (Test-Path -LiteralPath $dll -PathType Leaf) -or
-            -not (Test-Path -LiteralPath $library -PathType Leaf)) {
-            continue
-        }
-        $versionLine = (& $clang --version 2>$null | Select-Object -First 1)
-        if ($versionLine -notmatch '(?i)clang version\s+([0-9]+)(?:\.([0-9]+))?') {
-            continue
-        }
-        $major = [int]$matches[1]
-        if ($major -lt 20) {
-            continue
-        }
-        $libClangMatches.Add([pscustomobject]@{
-            Root = $root
-            Major = $major
-            Version = $versionLine.Trim()
-        })
-    }
-    $selected = $libClangMatches | Sort-Object Major -Descending | Select-Object -First 1
-    if ($null -eq $selected) {
-        throw "Reflection codegen requires libclang 20 or newer. Install the Visual Studio LLVM component or pass -LibClangRoot/HE_CODEGEN_LIBCLANG_ROOT."
-    }
-    return $selected
+    . (Join-Path $PSScriptRoot "LibClang.ps1")
+    Resolve-HELibClang -Root $RequestedRoot
 }
-
-function Import-Vs2022Environment {
-    $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
-    if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
-        throw "vswhere.exe was not found; install the Visual Studio 2022 C++ toolchain."
-    }
-    $installationPath = & $vswhere -latest -version "[17.0,18.0)" -products * `
-        -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-    if ($LASTEXITCODE -ne 0 -or -not $installationPath) {
-        throw "A Visual Studio 2022 installation with the x64 C++ toolchain was not found."
-    }
-    [Environment]::SetEnvironmentVariable(
-        "VSLANG", "1033", [EnvironmentVariableTarget]::Process)
-    $devCommand = Join-Path ($installationPath | Select-Object -First 1) "Common7\Tools\VsDevCmd.bat"
-    $environmentLines = & $env:ComSpec /d /s /c `
-        "`"$devCommand`" -no_logo -arch=x64 -host_arch=x64 >nul && set"
-    if ($LASTEXITCODE -ne 0) {
-        throw "VsDevCmd.bat failed to initialize the x64 toolchain."
-    }
-    foreach ($line in $environmentLines) {
-        if ($line -match "^([^=]+)=(.*)$") {
-            [Environment]::SetEnvironmentVariable(
-                $matches[1], $matches[2], [EnvironmentVariableTarget]::Process)
-        }
-    }
-}
-
 function Write-StateMissingResult {
     param(
         [string]$Reason,
@@ -218,13 +145,15 @@ function Write-WrapperResult {
 $repositoryRoot = [System.IO.Path]::GetFullPath($RepositoryRoot).TrimEnd('\', '/')
 $projectRoot = [System.IO.Path]::GetFullPath($ProjectRoot).TrimEnd('\', '/')
 $generatedSourceDir = [System.IO.Path]::GetFullPath($GeneratedSourceDir).TrimEnd('\', '/')
+$toolchain = Get-HeVisualStudio
 $libClang = Find-ModernLibClang -RequestedRoot $LibClangRoot
 $codegenRoot = Join-Path $repositoryRoot "out\agent\codegen"
-$toolBuildDir = Join-Path $codegenRoot ("tool-v2-ninja-v143-clang{0}" -f $libClang.Major)
+$toolBuildDir = Join-Path $codegenRoot ("tool-v3-ninja-{0}-{1}-clang{2}" -f $toolchain.Toolset, $toolchain.ToolsVersion, $libClang.Major)
 $projectHash = (Get-PathHash -Value $projectRoot).Substring(0, 12)
 $outputHash = (Get-PathHash -Value $generatedSourceDir).Substring(0, 12)
 $effectiveConfiguration = if ($CodeGenHost -eq "Package") { "Release" } else { $Configuration }
 $stateKey = "{0}-{1}-{2}-{3}" -f $projectHash, $outputHash, $CodeGenHost.ToLowerInvariant(), $effectiveConfiguration.ToLowerInvariant()
+$stateKey += "-$($toolchain.Toolset)-$($toolchain.ToolsVersion)"
 $stateBuildDir = Join-Path $codegenRoot ("state\" + $stateKey)
 $stateRuntimeDir = Join-Path $stateBuildDir "bin"
 $stateContextPath = Join-Path $stateBuildDir ("codegen\context-{0}.txt" -f $effectiveConfiguration)
@@ -258,6 +187,11 @@ if ($UseManagedBuild) {
         (Test-Path -LiteralPath $managedContextPath -PathType Leaf) -and
         (Test-Path -LiteralPath $managedInputList -PathType Leaf) -and
         (Test-Path -LiteralPath $managedCachePath -PathType Leaf)
+    if ($bManagedConfigured) {
+        $expectedGenerator = if ($CodeGenHost -eq 'Package') { $toolchain.Generator } else { 'Ninja' }
+        $bManagedConfigured = @(Get-HeFreshConfigureArguments -BuildRoot $managedBuildRoot `
+            -Compiler $toolchain.Compiler -Generator $expectedGenerator).Count -eq 0
+    }
     if (-not $bManagedConfigured -and $Action -eq "Run") {
         $UseManagedBuild = $false
     }
@@ -288,7 +222,10 @@ if ($UseManagedBuild) {
         exit $LASTEXITCODE
     }
 
-    Import-Vs2022Environment
+    . (Join-Path $PSScriptRoot 'Storage.ps1')
+    $managedCacheLease = Open-HECacheLease -CachePath $managedBuildRoot
+    try {
+    Import-HeToolchain -Toolchain $toolchain
     $managedResultTimeBefore = if (Test-Path -LiteralPath $managedResultPath -PathType Leaf) {
         (Get-Item -LiteralPath $managedResultPath).LastWriteTimeUtc.Ticks
     }
@@ -347,6 +284,8 @@ if ($UseManagedBuild) {
     }
     Write-WrapperResult -ResultText $managedResultText
     exit 0
+    }
+    finally { $managedCacheLease.Dispose() }
 }
 
 $parserExecutable = Find-ParserExecutable -BuildRoot $toolBuildDir
@@ -378,12 +317,14 @@ if ($Action -in @("Status", "Check")) {
 }
 
 New-Item -ItemType Directory -Force -Path $toolBuildDir, $stateBuildDir, $logRoot | Out-Null
-Import-Vs2022Environment
+Import-HeToolchain -Toolchain $toolchain
 $toolCachePath = Join-Path $toolBuildDir "CMakeCache.txt"
 if (-not (Test-Path -LiteralPath $toolCachePath -PathType Leaf)) {
     Invoke-LoggedNative -Description "HEngineParser tool configure" `
         -LogPath (Join-Path $logRoot "codegen-tool-configure.log") -Command {
         & cmake -S $repositoryRoot -B $toolBuildDir `
+            "-DCMAKE_C_COMPILER=$($toolchain.Compiler)" `
+            "-DCMAKE_CXX_COMPILER=$($toolchain.Compiler)" `
             -DHE_CODEGEN_TOOL_ONLY=ON `
             "-DHE_CODEGEN_LIBCLANG_ROOT=$($libClang.Root)" `
             -DCPP_CODE_GEN=OFF `
@@ -410,6 +351,8 @@ if (-not (Test-Path -LiteralPath $stateCachePath -PathType Leaf)) {
     Invoke-LoggedNative -Description "codegen state configure" `
         -LogPath (Join-Path $logRoot ("codegen-state-configure-{0}.log" -f $stateKey)) -Command {
         & cmake -S $repositoryRoot -B $stateBuildDir `
+            "-DCMAKE_C_COMPILER=$($toolchain.Compiler)" `
+            "-DCMAKE_CXX_COMPILER=$($toolchain.Compiler)" `
             "-DHE_PROJECT_DIR=$projectRoot" `
             "-DHE_GENERATED_SOURCE_DIR=$generatedSourceDir" `
             "-DHE_CODEGEN_PARSER_EXECUTABLE=$parserExecutable" `

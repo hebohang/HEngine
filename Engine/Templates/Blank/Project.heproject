@@ -1,0 +1,10 @@
+{
+  "SchemaVersion": 1,
+  "RuntimeMode": "Scene",
+  "ProjectId": "blank",
+  "DisplayName": "New Game",
+  "EngineVersion": "1.1.0",
+  "ExecutableName": "Game",
+  "GameConfig": "Config/Game.json",
+  "PackageConfig": "Config/Package.json"
+}

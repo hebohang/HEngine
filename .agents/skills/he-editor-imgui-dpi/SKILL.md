@@ -11,4 +11,5 @@ Use `Editor/ImGuiWrapper/ImGuiWrapper.h` helpers: `S(...)`, `SetColumnWidth`, `S
 - Refresh cached column widths when `HasScaleChanged(...)` fires.
 - Do not rescale values already in final pixel space, such as viewport/work-area coordinates.
 
-Verify the changed panel follows these rules, then build `HEngineEditor` through `he-build-validate`.
+Validate the affected panel through the suitable Editor route in `he-build-validate`;
+reuse its build result instead of adding a separate build.

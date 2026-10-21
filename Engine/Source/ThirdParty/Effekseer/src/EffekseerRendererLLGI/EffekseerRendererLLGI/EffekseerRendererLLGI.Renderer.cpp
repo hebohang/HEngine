@@ -18,6 +18,10 @@
 #include <EffekseerRendererCommon/TextureLoader.h>
 
 #include <iostream>
+#include <atomic>
+#include <cstdio>
+#include <cstdlib>
+#include <stdexcept>
 
 namespace EffekseerRendererLLGI
 {
@@ -837,6 +841,16 @@ void RendererImplemented::SetPixelBufferToShader(const void* data, int32_t size,
 void RendererImplemented::SetTextures(Shader* shader, Effekseer::Backend::TextureRef* textures, int32_t count)
 {
 	auto state = GetRenderState()->GetActiveState();
+	if (count < 0 || count > Effekseer::TextureSlotMax || count > LLGI::NumTexture)
+		throw std::runtime_error("Effekseer LLGI SetTextures received an invalid texture count: " + std::to_string(count));
+	#if defined(HE_EFFEKSEER_DEV_TEST_HOOKS) && HE_EFFEKSEER_DEV_TEST_HOOKS
+	const char* diagnostic = std::getenv("HE_VFX_EARLY_SMOKE");
+#else
+	const char* diagnostic = nullptr; // No environment-controlled SDK diagnostics in shipping.
+#endif
+	static std::atomic<unsigned> diagnosticCalls{0};
+	const bool trace = diagnostic && diagnostic[0] == '1' && diagnostic[1] == '\0' &&
+		diagnosticCalls.fetch_add(1) < 32;
 	std::array<LLGI::TextureWrapMode, 3> ws;
 	ws[(int)Effekseer::TextureWrapType::Clamp] = LLGI::TextureWrapMode::Clamp;
 	ws[(int)Effekseer::TextureWrapType::Repeat] = LLGI::TextureWrapMode::Repeat;
@@ -848,6 +862,21 @@ void RendererImplemented::SetTextures(Shader* shader, Effekseer::Backend::Textur
 
 	for (int32_t i = 0; i < count; i++)
 	{
+		const auto filter = state.TextureFilterTypes[i];
+		const auto wrap = state.TextureWrapTypes[i];
+		if (trace)
+		{
+			std::fprintf(stderr, "EARLY_CPU_SAMPLER renderer=%p commandList=%p shader=%p count=%d slot=%d rawFilter=%d rawWrap=%d\n",
+				static_cast<void*>(this), static_cast<void*>(GetCurrentCommandList()), static_cast<void*>(shader),
+				count, i, static_cast<int>(filter), static_cast<int>(wrap));
+			std::fflush(stderr);
+		}
+		// Unsupported state is a caller/data error, not a sampler fallback.
+		// Validate before indexing the translation tables to avoid undefined reads.
+		if ((filter != Effekseer::TextureFilterType::Nearest && filter != Effekseer::TextureFilterType::Linear) ||
+			(wrap != Effekseer::TextureWrapType::Clamp && wrap != Effekseer::TextureWrapType::Repeat && wrap != Effekseer::TextureWrapType::Mirror))
+			throw std::runtime_error("Effekseer LLGI invalid sampler enum at slot " + std::to_string(i) +
+				": filter=" + std::to_string(static_cast<int>(filter)) + ", wrap=" + std::to_string(static_cast<int>(wrap)));
 		if (textures[i] == nullptr)
 		{
 			GetCurrentCommandList()->SetTexture(nullptr, ws[(int)state.TextureWrapTypes[i]], fs[(int)state.TextureFilterTypes[i]], i);

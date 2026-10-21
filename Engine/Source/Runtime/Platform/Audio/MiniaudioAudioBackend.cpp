@@ -543,6 +543,14 @@ namespace HEngine
                     : 0.0;
             }
 
+            void SetSuspended(bool suspended) override
+            {
+                std::scoped_lock lock(mMutex);
+                if (!mEngineInitialized) return;
+                if (suspended) ma_engine_stop(&mEngine);
+                else ma_engine_start(&mEngine);
+            }
+
             void SetMasterVolume(float volume) override
             {
                 std::scoped_lock lock(mMutex);

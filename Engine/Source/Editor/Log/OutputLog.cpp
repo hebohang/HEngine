@@ -1,3 +1,4 @@
+#include "Runtime/Scripting/ScriptEngine.h"
 #include "Editor/Log/OutputLog.h"
 #include "Editor/EditorLayer.h"
 #include "Editor/ImGuiWrapper/ImGuiWrapper.h"
@@ -381,9 +382,9 @@ namespace HEngine
     {
         try
         {
-            pybind11::exec(command_line);
+            ScriptEngine::Execute(command_line);
         }
-        catch (pybind11::error_already_set& e)
+        catch (const std::exception& e)
         {
             AddLog("[error] %s \n", e.what());
         }

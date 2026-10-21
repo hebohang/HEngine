@@ -11,7 +11,14 @@ namespace HEngine
         const OfflineViewportRendererSettings& settings)
     {
         return Json{
-            { "Schema", "hengine.offline-reference-renderer-settings.v1" },
+            { "Schema", "hengine.offline-reference-renderer-settings.v2" },
+            { "Interactive", settings.bInteractive },
+            { "Denoise", settings.bDenoise },
+            { "DenoiseIntervalMilliseconds", settings.DenoiseIntervalMilliseconds },
+            { "TargetFramesPerSecond", settings.TargetFramesPerSecond },
+            { "WorkBudgetMilliseconds", settings.WorkBudgetMilliseconds },
+            { "InteractiveScale", settings.InteractiveScale },
+            { "SettleMilliseconds", settings.SettleMilliseconds },
             { "TargetSamples", settings.TargetSamples },
             { "SamplesPerFrame", settings.SamplesPerFrame },
             { "MaxBounces", settings.MaxBounces },
@@ -44,6 +51,15 @@ namespace HEngine
         if (!json.is_object())
             return defaults;
         OfflineViewportRendererSettings result = defaults;
+        // v1 batch counts remain persisted as a legacy preference; neither
+        // strategy may bypass the bounded scheduler with a large batch.
+        result.bInteractive = json.value("Interactive", defaults.bInteractive);
+        result.bDenoise = json.value("Denoise", defaults.bDenoise);
+        result.DenoiseIntervalMilliseconds = std::clamp(json.value("DenoiseIntervalMilliseconds", defaults.DenoiseIntervalMilliseconds), 100u, 10000u);
+        result.TargetFramesPerSecond = std::clamp(json.value("TargetFramesPerSecond", defaults.TargetFramesPerSecond), 15.0f, 120.0f);
+        result.WorkBudgetMilliseconds = std::clamp(json.value("WorkBudgetMilliseconds", defaults.WorkBudgetMilliseconds), 0.25f, 16.0f);
+        result.InteractiveScale = std::clamp(json.value("InteractiveScale", defaults.InteractiveScale), 0.05f, 1.0f);
+        result.SettleMilliseconds = std::clamp(json.value("SettleMilliseconds", defaults.SettleMilliseconds), 100.0f, 2000.0f);
         result.TargetSamples = std::clamp(
             json.value("TargetSamples", defaults.TargetSamples),
             1u,
@@ -97,7 +113,7 @@ namespace HEngine
         const uint32_t previewAov = json.value(
             "PreviewAov",
             static_cast<uint32_t>(defaults.PreviewAov));
-        if (previewAov <= static_cast<uint32_t>(OfflineViewportAov::SampleCount))
+        if (previewAov <= static_cast<uint32_t>(OfflineViewportAov::DenoisedBeauty))
             result.PreviewAov = static_cast<OfflineViewportAov>(previewAov);
         result.OutputDirectory = std::filesystem::path(json.value(
             "OutputDirectory",

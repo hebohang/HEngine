@@ -26,7 +26,7 @@ Do not use a search result, filename, "free," "royalty free," or marketplace cat
 
 ## Candidate limits and ranking
 
-Unless the active task states otherwise, shortlist no more than 6-10 candidates and download no more than 3-5 explicitly licensed official CC0 items. Never mirror or bulk-download an effect library.
+Stop once enough candidates satisfy the request. Unless the task sets a different scope, cap the shortlist at 10 and authorized downloads at 5 explicitly licensed official CC0 items; these are ceilings, not targets or download authorization. Never mirror or bulk-download an effect library.
 
 Rank candidates by:
 
@@ -36,4 +36,18 @@ Rank candidates by:
 4. performance and renderer fit;
 5. visual richness.
 
-Prefer a coherent chain - cast/spawn, projectile, trail, hit flash, and residue - over an isolated explosion. Reject visually impressive effects that obscure characters, enemies, or danger telegraphs.
+When the request covers a complete ability, prefer a coherent cast/spawn, projectile, trail, hit and residue chain. A request for one effect does not require sourcing the whole chain. Reject visually impressive effects that obscure characters, enemies or danger telegraphs.
+
+## Download and inspection commands
+
+Run from the repository root, replacing placeholders and using a license actually supported by the saved evidence. Download authorization and license approval are prerequisites; the dry run writes no files.
+
+```powershell
+python .agents/skills/he-effekseer-asset-intake/scripts/fetch_effekseer_asset.py --url <direct-download-url> --source <public-source-url> --license CC0-1.0 --author <author> --asset-id <asset-id> --destination Project/SourceAssets/EffekseerInbox --dry-run
+```
+
+Review the URL, license, target and filename, then repeat without `--dry-run` when correct. For an existing archive, inspection alone does not require downloading it again:
+
+```powershell
+python .agents/skills/he-effekseer-asset-intake/scripts/inspect_effekseer_archive.py Project/SourceAssets/EffekseerInbox/<asset-id>/<archive> --output Project/SourceAssets/EffekseerInbox/<asset-id>/inspection.json --pretty
+```

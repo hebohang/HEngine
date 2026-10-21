@@ -1,0 +1,65 @@
+# UE / Fab 资产接入 HE：实测流程与边界
+
+这份流程以本机只读 UE 5.4 工程的 `MAP_Demo` 和 `IdaFaber` 人物为实测样例。UE `.uasset`、E 盘 Fab 原件保持原样；导出、中间文件、材质副本、场景和验证结果放在独立 HE 项目。使用其他 Fab 资源前，应先确认该资源及其贴图、动画的授权范围。
+
+工具回归使用 Python 3.12：先按 `Tools/UE/requirements-ground.txt` 与 `Tools/UE/requirements-probe.txt` 安装各自的 NumPy/OpenEXR 依赖，再在引擎根目录执行 `python -m unittest discover -s Tools/UE -p 'test_*.py'`。系统默认 Python 3.7 或未安装 OpenEXR 的解释器会因缺依赖而无法收集全部测试；不要把这种环境错误当成导入器逻辑回归。
+
+## 静态关卡
+
+不同 UE 包下同名纹理会得到稳定路径哈希后缀，`ExportLevelTextures.py` 在 `texture-export.json` 中记录原资产和导出文件。运行 `PrepareLevelForHE.py` 时传入 `--texture-manifest`，让贴图按完整 UE 包路径绑定；旧的无重名导出可不传，但发现重名会报错。若材质清单存在相同短名称，在项目 profile 的 `materialSourcePaths` 中用 glTF 材质名指定完整 UE 材质路径；重复的 glTF 材质名须在导出阶段消歧，避免重导入时复用错误资源 ID。
+
+1. 在 UE 工程启用 glTF Exporter 与 Python Editor Script 插件。用 `UnrealEditor-Cmd.exe <uproject> -run=pythonscript -script=<脚本绝对路径> -unattended -nop4 -nosplash` 运行 `Tools/UE/InspectLevel.py`、`InspectLevelMaterials.py`、`ExportLevelTextures.py`、`ExportLevelGltf.py`。需要对齐编辑器后处理时，另设置 `HE_UE_LEVEL` 和项目内的 `HE_UE_POSTPROCESS_OUTPUT`，运行通用 `Tools/UE/InspectLevelPostProcess.py`，记录每个 PostProcess Volume 的覆盖开关、数值和混合材质权重。各脚本顶部列出所需环境变量；输出均指向 HE 项目的 `SourceAssets/`，不要指向 UE `Content/`。`InspectLevel.py` 的 actor/网格/材质清单用于确认导出覆盖率，`ExportLevelGltf.py` 的 `.export.json` 记录 glTF 导出错误。只复制实际开启的覆盖项；UE 与 HE 的 Bloom、曝光、Vignette 及 RGB Gain/Offset 运算可能不同，数值须通过同机位画面对照校准，不能直接视为等效。
+2. 为新关卡在 HE 项目内编写 schema 1 导入配置。建议写入稳定的UE资产路径`"identityKey": "/Game/.../MAP_Demo"`：它参与节点、网格、材质与场景`he_id`生成，导出glTF移动目录后引用仍稳定，但已发布项目不得随意更换这个键。`collisionMeshPrefixes` 选实际要挡住人物与跟随镜头的结构网格；`doubleSidedMaterials`、`maskedMaterials` 和 `emissiveFactor` 来自该关卡材质检查。双面和遮罩是独立选项。已有 glTF `alphaCutoff` 必须保留；配置的 `alphaCutoff` 仅为无源阈值的遮罩材质提供默认值，确需覆盖时按材质名写 `alphaCutoffOverrides`。实测配置见外部项目 `C:/WorkSpace/HEngineProjects/MechanicGirlLab/Tools/SickaLevelImportProfile.json`。这些选择属于内容，不写进引擎通用导入器。
+3. 运行 `python Tools/UE/PrepareLevelForHE.py <export.gltf> <materials.json> <derived.gltf> --profile <profile.json>`。该工具将 UE 实例贴图、diffuse tint、稳定 `he_id`、有效网格、碰撞元数据和 KHR 灯光写到派生 glTF，另写相邻 `.bin`；原 glTF 不变。配置了`identityKey`时相同键及节点名称生成相同ID；旧配置仍按源绝对路径生成，保持既有项目引用不变。内容同步仍应指向稳定的派生glTF路径；移动已发布项目的原导入路径可能需要另行迁移。
+4. 先用 `powershell -NoProfile -ExecutionPolicy Bypass -File Tools/Agent/Build.ps1 -Target HAssetImporter -Configuration RelWithDebInfo -Project <HE项目>` 构建该项目的导入器，再对派生 glTF 执行 `python Tools/Content/content_sync.py plan --source <derived.gltf> --project <HE项目> --importer <HAssetImporter.exe> --verify none --report <报告目录>`；确认预期变更后使用相同参数的 `sync`。缺少导入器时 `plan` 会在创建暂存目录前返回 `importer_argument`。导入目录由 content-sync 管理，不手工编辑。重新导入后再次 `plan` 应为 `changed=false` 且 added/modified/deleted 均为 0；不满足时检查 ID、源路径、贴图和材质映射。
+5. 大贴图关卡可用 `Tools/UE/CompressImportedLevel.py <HE项目> <导入场景.he> <项目材质输出目录> <texconv.exe>` 生成带完整 mip 的 BC7 项目副本。遮罩材质默认保留基础 mip 覆盖率；若 UE 贴图的 `do_scale_mips_for_alpha_coverage` 为 False，可加 `--texture-policy <JSON>`，逐张设置 `preserveAlphaCoverage: false`，使 mip 行为更接近 UE。策略键是项目相对的已导入 PNG 路径，样例见 `MechanicGirlLab/Tools/SickaTexturePolicy.json`；策略值参与缓存文件名，重跑可验证 manifest 不变。项目组合脚本把这些材质引用、可控人物、镜头和环境参数接到正式场景；引擎导入资源仍由 content-sync 单独拥有。资源文件名按内容变化，项目材质映射应从压缩 manifest 和稳定源材质特征重新解析，不能硬编码旧哈希。用 Game/Editor 打开、固定输入漫游、截图与 UE 相同镜头对照，再测帧时间。
+
+本例的可重复调用为：
+
+```powershell
+$lab = 'C:\WorkSpace\HEngineProjects\MechanicGirlLab'
+$source = "$lab\SourceAssets\SickaDynastyUE"
+python Tools/UE/PrepareLevelForHE.py "$source\MAP_Demo.gltf" "$source\MAP_Demo-materials.json" "$source\MAP_Demo_HE.gltf" --profile "$lab\Tools\SickaLevelImportProfile.json" --texture-manifest "$source\texture-export.json"
+```
+
+`PrepareLevelForHE.py` 的通用部分不等于 UE 材质图翻译器。当前可映射常见 BaseColor/Diffuse、Normal、ORM、EmissiveMask 和实例 diffuse tint；glTF 本身不携带 UE 的烘焙光照、投射贴花、Niagara、局部反射捕获或 SkyAtmosphere。关卡中的材质参数名、透明规则、碰撞范围和灯光仍需逐项核对，不能仅凭 glTF 导出成功认定画面等效。
+
+UE5.4 静态 HQ 光照贴图可用独立的 `Tools/UE/HELightmapBridge` 只读命令行插件导出，再由 `PackHqLightmapDds.py` 压成带完整 mip 的线性 BC7 DDS，`BindStaticLightmaps.py` 按 Actor 标签、位置和 UV1 验证后写入 HE 场景的 `MeshComponent`。详细重建命令见 [HELightmapBridge/README.md](../Tools/UE/HELightmapBridge/README.md)。这条管线把 UE 贴图路径、每实例 UV 矩形与解码系数留在项目资产，引擎只负责通用的贴图生命周期、反射字段和运行时采样；源 `.uasset` 不改。当前运行采样依赖 DX12 heap-direct，SICKA 的 2112 个静态实体已绑定，未覆盖的物体仍使用环境光。UE 场景的 Sun、SkyLight 和40盏 PointLight 为 Stationary，烘焙贴图不应替代它们的实时直射光。项目用 `StaticLightmapBlend=0.2` 混合烘焙漫反射与环境漫反射；该权重可编辑、保存，并非通用 UE 等效参数。同机位整图误差尚未优于无图集版本，树冠和长期30FPS仍未验收通过。
+
+静态朝地面的 UE DecalActor 可走独立近似流程：设置 `HE_UE_DECAL_CONFIG=<项目内JSON>`，用 `UnrealEditor-Cmd.exe <uproject> -run=pythonscript -script=<引擎>/Tools/UE/ExportLevelDecals.py` 只读导出位置、尺寸、投射方向和材质路径。分别导出许可范围内的 BaseColor/Alpha、可选法线图和待接收关卡的 HE glTF，然后用 Python 3.11（`Tools/UE/requirements-ground.txt`）运行 `Tools/UE/BuildPlanarDecalGltf.py <facts.json> <basecolor.png> <derived.gltf> --normal-texture <normal.png> --receiver-gltf <level.gltf> --surface-offset-cm 1 --subdivisions 2 --conform-vertices --surface-report <report.json>`。工具沿节点层级和真实三角形在世界XZ采样表面高度，接缝中心可做20cm内邻域回退；无接收面的细分三角形不生成。它输出稳定ID网格，先 `hectl content plan` 再 `content sync -Verify none`，然后在项目组合脚本中引用。SICKA配置与重建入口是外部项目 `Tools/SickaGroundLeaves.json` / `Build-SickaGroundLeaves.py`；重导入顺序为 `py -3.11 Tools/Build-SickaGroundLeaves.py --geometry-only` → `hectl content plan/sync` → `py -3.11 Tools/Build-SickaGroundLeaves.py --material-only` → `python Tools/Build-SickaDynastyScene.py`，确保材质副本读取最新导入结果。项目材质副本单独存色调，原 UE 素材和导入材质不改。此法只适合静态、朝地面的枯叶类贴花，不能替代 UE 对墙面、台阶立面及动态接收物的投射。材质贴图是否带 Alpha、材质是 Translucent 还是 Masked、原投射方向和贴地结果均须视觉检查；无主相机的贴花资源应在组合后的 Game/Editor 场景验收。
+
+若 UE 关卡使用 BP Sky Sphere，可用 `Tools/UE/InspectSkySphere.py` 只读导出运行时天空材质颜色：设置 `HE_UE_LEVEL` 为关卡资产路径、`HE_UE_SKY_OUTPUT` 为 UE Content 之外的 JSON 路径，再以同样的 `UnrealEditor-Cmd -run=pythonscript` 调用。输出包括 Horizon/Zenith/Cloud/Sun 色与亮度参数；它不是 HDRI，也不包含天空球的云纹理或 UE 烘焙间接光。SICKA 项目的 `Generate-SickaSky.py --ue-sky-settings <JSON> --ue-lighting-settings <JSON>` 用该报告制作独立 HDR 诊断副本，项目正式场景只有在同镜头画面和性能均验证后才应切换。
+
+局部反射设置 `HE_UE_PROBE_CONFIG=<项目内JSON>` 后，用完整编辑器加载模式运行 `UnrealEditor-Cmd.exe <uproject> -ExecutePythonScript=<引擎根目录>/Tools/UE/ExportProbeFaces.py -unattended -nop4 -nosplash`。项目配置示例为 `MechanicGirlLab/Tools/SickaProbeConfig.json`，列出关卡路径、探针名称、UE 厘米坐标、分辨率及 UE `Content` 外的输出目录；脚本只创建瞬时采集 actor，不保存 UE 原关卡。六面线性 OpenEXR 文件为 `<prefix>-px/nx/py/ny/pz/nz`。转换环境使用 Python 3.12，执行 `python -m pip install -r Tools/UE/requirements-probe.txt` 安装 NumPy 与 OpenEXR 后，用 `python Tools/UE/ConvertProbeFaces.py --prefix <六面共同前缀> --output <项目内.hdr>` 转为 HE 的 Y-up 经纬 HDR；这两个包均非引擎运行依赖。六面 UE 旋转 pitch/yaw 分别为 `(0,0)/(0,180)/(0,90)/(0,-90)/(90,0)/(-90,0)`；Python `unreal.Rotator` 使用命名参数，其位置参数顺序不是 C++ `FRotator(Pitch,Yaw,Roll)`。SICKA 实测的快速 `-run=pythonscript -AllowCommandletRendering` 虽产生有效 EXR，但近处网格未渲染，因此必须先目视检查六面内容，再接入 `ReflectionProbeComponent`。`python Tools/UE/test_convert_probe_faces.py` 验证六轴和 Radiance 输出。SICKA 诊断场景已验证 HE 可以加载局部探针并改变画面；正式画面对齐与稳定 30 FPS 仍需另行验收。
+
+同机位画质对照可用 `Tools/UE/ExportCameraReference.py`：设置 `HE_UE_CAMERA_CONFIG=<项目内JSON>`，以相同完整编辑器模式运行，输出 UE `SCS_FINAL_COLOR_LDR` PNG 与报告，仍不保存 UE 资源。示例 `MechanicGirlLab/Tools/SickaUECameraConfig.json` 采用 UE 厘米位置(-1000,0,180)、yaw0、90°横向FOV、512²；HE 项目 `Build-SickaUECameraCompare.py` 在相应米制位置(-10,1.8,0)生成同朝向、同FOV诊断场景。此法可重复比较结构、光照和天空，但 SceneCapture 的曝光/时序不一定与用户交互的 UE 编辑器视口完全相同，自动测得的未配准 RGB 差值应与目视检查一起解释。
+
+相机配置可设置 `warmupCaptures`（0–32）与 `warmupDelaySeconds`（0–1），重复采集后输出最终帧；`forceMeshLod0Prefixes` 可暂时将指定 `/Game/` 静态网格 actor 强制为 LOD0，采集后还原，不保存 UE 关卡。SICKA 实测重复8次与强制69棵树LOD0都没有消除 UE/HE 近景轮廓差异，不能把差异直接归因于首帧流送或树的远景LOD。
+
+若要以用户实际看到的编辑器视口为基准，用相同 `HE_UE_CAMERA_CONFIG` 以完整编辑器模式运行 `Tools/UE/ExportViewportReference.py`；它临时设置编辑器相机、创建同FOV/方形画幅的相机 actor，并安排高分辨率截图 `<name>-viewport.png`，不保存关卡。截图任务异步完成，须在 UE 进程退出后确认 PNG 存在且尺寸正确，不能把任务已安排当作截图成功。SICKA 中该视口图与独立同机位视口截图的512² RGB8均差低于0.1；它证实大块树冠是UE视口本身的表现，不是 `SceneCapture2D` 的独有产物。UE材质的遮罩阈值仍是0.3333，纹理保留Alpha且UV0与HE导入网格逐顶点一致；树冠差异的最终原因未定，不应把诊断用不裁剪树片直接当成正式修复。
+
+开发版 Game 的有界性能与漫游验收可用 `hectl game check/capture -Project <HE项目> -StartupScene Assets/Scenes/<场景>.he -InputReplayPath Tools/<回放>.json -Frames <帧数> -RenderStats -RenderStatsPath <CSV>`，无需 Agent 邮箱轮询。回放文件 `{"version":1,"segments":[{"frames":60,"held":[]},{"frames":100,"held":["w"]}]}` 按游戏场景就绪后的渲染帧切换按住的键；键名沿用 `hectl agent keys`，仅开发版有界 HGame 接受，打包程序不接入。项目样例 `MechanicGirlLab/Tools/SickaTraversal.replay.json` 覆盖待机、走、跑、跳；同一文件可重复捕获画面与性能统计。注意固定模拟步长保证输入条件可重现，不能保证 Windows 帧时间逐次相同；报告硬件、画质、分辨率及所有超时帧。
+
+## 骨骼人物与动画
+
+`MechanicGirlLab/Tools/Export-UnrealMechanicGirl.py` 是只读 UE FBX 导出的可改造样例：其 `ASSETS` 表明确列出 SkeletalMesh 和 AnimationSequence，清单记录骨架、材质槽、形变目标及动画信息。新人物先检查网格与动画是否共用骨架、根骨坐标、比例、蒙皮、morph 名称和材质槽，再导入 HE 的 `.hmesh`、`.hskel`、`.hanim`。本例动画 FBX 与网格 FBX 的根姿态差异由项目内 `Retarget-UnrealMechanicGirl.py` 产生独立副本，原导出文件不覆盖；`Configure-UnrealMechanicGirl.py` 生成控制器和可重复预览场景。
+
+面部、发片、衣物不是 FBX 文件名即可证明的功能。本例分别在 Editor 预览形变、13 段动画、发片遮罩及五套衣物材质，并在 Game 检查走跑跳、碰撞后步态、眨眼和近景。具体证据和未达到 UE 同镜头质量的项见外部项目 `README.md`、`VALIDATION.md`，以及本仓库 `Docs/engine-upgrade-validation.md`。新角色应复用引擎的 Skin/Eye/HairCards/Cloth 和动画控制器能力，人物专属贴图、绑定修正与表演曲线留在项目。
+
+植被顶点风动使用 `MaterialSurface.hlsli` 的可选 `HE_MATERIAL_HAS_VERTEX_OFFSET` / `EvaluateMaterialVertexOffset(positionWS, uv0, color, timeSeconds)` 接口；同一位移用于颜色/深度/阴影，并在速度缓冲按上一帧时间重算。默认宏为0，旧材质无行为变化。`Shaders/Materials/Foliage/Subsurface.hlsl` 提供米制幅度、世界XZ方向、Hz频率和米制波长；项目材质实例应按资产尺度自行设值，并用开/关风同帧与跨帧捕获验证阴影、拖影和幅度。该正弦方案适用于有限叶片扰动，不等同完整UE材质WPO图，也不承担布料/角色头发模拟。
+
+Fab Niagara资源目前没有直接跨引擎解释器。先将 `HE_UE_ASSET_PATHS` 设为含 NiagaraSystem、NiagaraEmitter 和相关材质实例 `/Game/...` 路径的 JSON 数组，`HE_UE_INSPECTION_OUTPUT` 设为 UE Content 外的绝对 JSON 路径，然后用 `UnrealEditor-Cmd.exe <uproject> -run=pythonscript -script=<引擎根目录>/Tools/UE/InspectNiagaraDependencies.py -unattended -nop4 -nosplash` 只读检查依赖、材质实例覆盖值和贴图引用。依赖能指出发射/更新模块，却不能自动还原 Niagara 曲线、粒子行为或运行画面。SICKA范例以UE只读贴图导出、项目内Effekseer可编辑源和 `.efkpkg`、场景中的稳定位置ID、已有通用 `VfxPlayback` API组成可重建工作流；原UE `.uasset` 不修改。第二个场景可换自己的效果包和发射器位置复用播放接口，不应把SICKA贴图或21处坐标写入引擎。未受场景光照的精灵可通过`VfxPlayback.Play`的可编辑RGBA全局颜色与项目外观参数校准；这不等于实现了粒子受光或雾，仍要在实际Game/Editor画面和帧时间验收。SICKA近似落叶已将近景尺寸校准到0.24米，但与UE Niagara并非逐参数等效。
+
+落叶案例暴露了效果**编译阶段**的资源路径要求：`.efkpkg` 中后来加入贴图不足以让已编译节点使用它；使用Effekseer 1.80.6 `-cui` 编译`.efkproj`前，引用的 `RendererCommonValues/ColorTexture` 文件必须已经存在于源工程的相对路径。SICKA首版节点colorIndex=-1，虽资源表列出PNG且运行时成功加载，仍出现无纹理白方片；将贴图暂存于源工程旁并重新编译后colorIndex=0。项目生成器保留可编辑外观JSON、源贴图SHA与派生贴图SHA，双次构建哈希稳定。Effekseer节点生成间隔还须写在1.80的`CommonValues/Generation`下，旧平铺字段会被静默忽略。引擎通用纹理加载器已为解码/上传失败增加明确日志；运行时不能替代编译期纹理绑定检查。
+SICKA的`M_Particle_Leaves`在UE检查中为Masked/Default Lit。HE的Effekseer节点须在`RendererCommonValues/Material`明确写入7，且引擎渲染视图必须提供方向光与环境底色；仅复制贴图或在项目脚本上调色不会让节点受光。SICKA项目的`Tools/SickaLeafAppearance.json`用`lightingMode`选择此编译模式。当前实现仍使用Effekseer Alpha Blend精灵，没有等效的UE遮罩、场景阴影接收或雾；导入时要分别验证材质模式、纹理实际绑定、现场灯光响应与运动稳定性。
+材质视觉A/B需要改到运行时真正使用的绑定：HE `.hmat` 既有 `Properties.emissiveTexture` / `ExposedProperties.g_EmissiveMap`，也有 `Textures.g_EmissiveMap.Path`（压缩后常指向DDS）。只改Properties而不改Textures可能保持原画面；SICKA纯白发光贴图诊断同时更新两处后才证明通路可用。UE `SceneCapture2D` 的同脚本临时材质替换未产生预期变化，不能据此判定原材质没有发光；需要有实际编辑器帧推进和可见变化的对照证据。
+UE glTF 导出的局部灯光也要与UE组件核对：SICKA六盏器皿SpotLight在UE为10强度、暖色，原glTF颜色峰值仅0.002233且省略intensity。`PrepareLevelForHE.py` 支持项目profile中的 `lightOverrides`（以唯一glTF灯名指定最终KHR_lights_punctual `color` 与 `intensity`，严格拒绝未知/重复名及无效值）；本例只覆盖六盏异常灯，颜色按导出色相比例归一化。先执行 `hectl content plan` 确认预期差异，再同步；对没有主相机的纯静态关卡，`-Verify runtime` 会因camera_primary_missing失败，即使资源已经发布，应改用 `-Verify none` 并在组合后的可玩场景执行Game/Editor实际运行。不可把这个手动校准值推广到其他灯或资产。
+灯光源事实可用 `HE_UE_LIGHT_CONFIG=<UE Content外JSON>` 调用 `UnrealEditor-Cmd.exe <uproject> -run=pythonscript -script=<引擎根目录>/Tools/UE/ExportLevelLights.py -unattended -nop4 -nosplash` 只读导出。JSON指定`level`、绝对`output`，可选唯一`actorLabels`；结果包含组件类型、UE厘米位置、强度及单位、RGB8、色温、衰减与锥角。SICKA六盏器皿灯的结构化报告在外部项目 `SourceAssets/SickaDynastyUE/urn-light-facts.json`，六项均为UNITLESS强度10、RGB8(255,159,0)、2288.57K。此报告不能自动转换为glTF的cd光度；项目profile覆盖值须结合画面A/B验证。
+
+树木LOD诊断可在同一 `ExportCameraReference.py` 配置中使用 `forceMeshLodPrefixes` 与零基 `forceMeshLodIndex`（0–7，且必须小于每个匹配网格的实际LOD数）；旧 `forceMeshLod0Prefixes` 仍兼容。工具以UE的一基 `forced_lod_model` 临时设置组件并在退出前恢复，还可选择 `captureSource=SCS_BASE_COLOR` 做材质数据诊断。SICKA的LOD0与普通参考仅有细小差异，而LOD3强制捕获变为整片公告板，不能把当前大块近景树冠解释为LOD3。外部项目的 `Tools/Validate-SickaTreeImport.py` 从 UE 只读场景报告和glTF与HE可玩场景核对69棵树的位置及四种网格的LOD0三角形位置/UV，避免仅凭实体数或材质名判断导入正确；该验证不证明UE与HE的实时遮罩及着色等效。
+
+定向灯轴向必须随格式一起导入。HE原生 `DirectionalLightComponent.LocalDirection` 默认局部 `+Y`，glTF `KHR_lights_punctual` 的定向灯沿局部 `-Z` 发光；导入器现在保存 `LocalDirection=(0,0,-1)`，运行时经世界变换计算光线传播方向。保留源节点旋转与稳定ID，不要仅因节点局部 `+Y` 对上UE Actor的 Up Vector 就认定太阳方向正确。SICKA的只读UE报告给出 Sun Forward=(-0.426692,-0.356027,-0.831372)，换轴到HE为(-0.426692,-0.831372,-0.356027)；再次 `content plan` 应为0修改，并在同镜头树木开关A/B中检查路面投影。
+
+对齐用户实际看到的编辑器视口时，用 `HE_UE_CAMERA_CONFIG=<Content外配置JSON>` 调用 `UnrealEditor-Cmd.exe <uproject> -ExecutePythonScript=<引擎根目录>/Tools/UE/ExportViewportReference.py -unattended -nop4 -nosplash`；脚本按配置机位、FOV和方形分辨率产生异步视口PNG及任务JSON，退出后仍须核实PNG确已存在并可解码。配置可选 `hideMeshPrefixes`，按UE `/Game/...` 静态网格路径前缀临时隐藏匹配组件；在一次性命令行编辑器进程中完成A/B，不保存关卡或覆盖源 `.uasset`。这与 `SceneCapture2D` 参考图可能有不同后处理/LOD路径，不能混用其像素误差。SICKA两个独立视口截图的RGB8均差仅0.0508，第二个后退2米视口用于雾参数交叉验证。
+
+每次正式HE场景改动后，从**当前正式场景**复制固定相机生成诊断场景，再与原UE视口做同分辨率比较；旧诊断场景可能保留过期材质、雾或后处理值。项目例子 `C:/WorkSpace/HEngineProjects/MechanicGirlLab/Tools/Build-SickaCurrentStreetCompare.py` 仅替换相机并去掉遮挡视口的主角视觉对象，二次生成可复现。对UE参考自身的未预热、LOD或遮罩异常先做隔离检查；例如SICKA参考中的块状树冠不应通过制造HE矩形叶片来缩小全图像素误差。记录道路、建筑、雾等非异常区域的误差和目视结果，避免全图MAE掩盖局部退化。

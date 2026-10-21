@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "hardwareClass": "RTX 3060 Laptop GPU; actual device and driver recorded per run",
+  "resolution": [1280, 720],
+  "configuration": "Release preferred; RelWithDebInfo diagnostic measurements must disclose development differences",
+  "normal": {
+    "simultaneousEffects": 16,
+    "quality": "High",
+    "cpuInstancesMax": 4000,
+    "gpuParticleCapacityMax": 50176,
+    "drawCallsMax": 256,
+    "cpuUpdateP95Ms": 1.0,
+    "cpuDrawSubmitP95Ms": 1.5,
+    "gpuSimulationP95Ms": 1.0,
+    "gpuVfxRenderP95Ms": 2.0,
+    "totalGpuFrameP95Ms": 16.6667,
+    "totalCpuFrameP95Ms": 16.6667
+  },
+  "stress": {
+    "nominalParticles": [20000, 50000],
+    "claim": "Capacity, cost scaling and recovery; no normal-game FPS claim",
+    "repeatPlayStopCycles": 30,
+    "postWarmupResourceGrowthAllowed": false,
+    "timeoutSeconds": 300
+  },
+  "sampling": {
+    "warmupFrames": 600,
+    "sampleFramesPerRound": 600,
+    "rounds": 3,
+    "percentiles": [50, 95],
+    "excludeFrames": "Only declared warmup and readback retirement; retain all measured long frames",
+    "gpuEvidence": "Completed timestamp queries plus submission identity; unavailable is not zero",
+    "overdrawProxy": "Changed alpha-composited screen area versus no-effect capture; explicitly not fragment overdraw count"
+  },
+  "visual": {
+    "requiredMoments": ["start", "peak", "decay", "end", "after-stop"],
+    "crossBackend": "Same seed, camera, fixed step, exposure, scene and resource hashes; no pixel-exact requirement",
+    "review": "Inspect temporal sequence, radius, orientation, blending, depth, readable telegraph and residuals; statistics alone cannot pass"
+  },
+  "lockedBeforeCandidateMeasurements": true
+}

@@ -8,9 +8,11 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdlib>
 #include <fstream>
 #include <limits>
 #include <stdexcept>
+#include <string_view>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -26,7 +28,9 @@ namespace HEngine
             std::array<uint32_t, 2> SourceDimensions{};
             std::array<uint32_t, 2> OutputDimensions{};
             uint32_t CopySource = 0;
-            std::array<uint32_t, 3> Padding{};
+            uint32_t MaximumReduction = 0;
+            uint32_t ReductionFactor = 2;
+            uint32_t Padding = 0;
         };
 
         static_assert(sizeof(DepthPyramidConstants) == 32);
@@ -42,6 +46,8 @@ namespace HEngine
             uint32_t OutputWidth = 0;
             uint32_t OutputHeight = 0;
             bool bCopySource = false;
+            bool bMaximumReduction = false;
+            uint32_t ReductionFactor = 2;
         };
 
         struct BindingKey
@@ -191,9 +197,13 @@ namespace HEngine
             , ShaderArtifactCacheRoot(desc.ShaderArtifactCacheRoot)
             , Backend(desc.Backend)
             , BinaryFormat(GetShaderBinaryFormat(desc.Backend))
+            , bMaximumReduction(desc.bMaximumReduction)
+            , BaseDownsample(desc.BaseDownsample)
         {
             if (!Device)
                 throw std::invalid_argument("DepthPyramidPass requires a valid NVRHI device");
+            if (BaseDownsample != 1u && BaseDownsample != 2u && BaseDownsample != 4u)
+                throw std::invalid_argument("Depth pyramid base downsample must be one, two or four");
             if (ShaderArtifactCacheRoot.empty())
             {
                 throw std::invalid_argument(
@@ -297,6 +307,8 @@ namespace HEngine
         std::filesystem::path ShaderArtifactCacheRoot;
         RenderBackend Backend = RenderBackend::DX12;
         ShaderBinaryFormat BinaryFormat = ShaderBinaryFormat::Dxil;
+        bool bMaximumReduction = false;
+        uint32_t BaseDownsample = 1;
         nvrhi::ShaderHandle Shader;
         nvrhi::BindingLayoutHandle BindingLayout;
         nvrhi::ComputePipelineHandle Pipeline;
@@ -334,39 +346,116 @@ namespace HEngine
                 "DepthPyramidPass requires a single-sample 2D scene depth texture");
         }
 
-        const uint32_t mipCount = CalculateMipCount(width, height);
+        const uint32_t baseWidth = (width + mImpl->BaseDownsample - 1u) / mImpl->BaseDownsample;
+        const uint32_t baseHeight = (height + mImpl->BaseDownsample - 1u) / mImpl->BaseDownsample;
+        const uint32_t mipCount = CalculateMipCount(baseWidth, baseHeight);
         const TextureHandle pyramid = renderGraph.CreateTexture(
             RenderGraphTextureDesc{
-                .DebugName = "GI Normal-Z Depth Pyramid",
-                .Width = width,
-                .Height = height,
+                .DebugName = mImpl->bMaximumReduction ? "Occlusion MAX Depth Pyramid" : "GI Normal-Z Depth Pyramid",
+                .Width = baseWidth,
+                .Height = baseHeight,
                 .MipLevels = mipCount,
                 .Format = nvrhi::Format::R32_FLOAT,
+                .CapabilityUsage = RenderGraphUsage::ShaderResource | RenderGraphUsage::UnorderedAccess,
             });
+
+        bool mergeGiDepthPyramid = false;
+#if defined(HE_DEV_AGENT_RUNTIME)
+        static const bool mergeRequested = [] {
+            const char* value = std::getenv("HE_RENDER_MERGE_GI_DEPTH_PYRAMID");
+            return value && std::string_view(value) == "1";
+        }();
+        mergeGiDepthPyramid = mergeRequested && !mImpl->bMaximumReduction &&
+            mImpl->BaseDownsample == 1u;
+#endif
+        if (mergeGiDepthPyramid)
+        {
+            struct MergedPassData
+            {
+                TextureHandle Source;
+                TextureHandle Output;
+            };
+            renderGraph.AddPass<MergedPassData>(
+                "DepthPyramidMerged", RenderGraphQueue::Compute,
+                [sceneDepth, pyramid, mipCount](RenderGraphBuilder& builder, MergedPassData& data)
+                {
+                    data.Source = builder.ShaderResource(sceneDepth,
+                        { .BaseMipLevel = 0, .MipLevelCount = 1,
+                          .BaseArraySlice = 0, .ArraySliceCount = 1 });
+                    // Internal reads consume mips produced in this callback, not old contents.
+                    data.Output = builder.Write(pyramid, RenderGraphUsage::UnorderedAccess,
+                        { .BaseMipLevel = 0, .MipLevelCount = mipCount,
+                          .BaseArraySlice = 0, .ArraySliceCount = 1 });
+                },
+                [impl = mImpl.get(), width, height, mipCount](
+                    RenderGraphContext& context, const MergedPassData& data)
+                {
+                    auto* commandList = context.GetCommandList();
+                    auto* sceneDepth = context.GetTexture(data.Source, RenderGraphAccess::Read);
+                    auto* pyramid = context.GetTexture(data.Output, RenderGraphAccess::Write);
+                    uint32_t sourceWidth = width;
+                    uint32_t sourceHeight = height;
+                    for (uint32_t mip = 0; mip < mipCount; ++mip)
+                    {
+                        const uint32_t outputWidth = mip == 0 ? sourceWidth : std::max(sourceWidth / 2u, 1u);
+                        const uint32_t outputHeight = mip == 0 ? sourceHeight : std::max(sourceHeight / 2u, 1u);
+                        if (mip > 0)
+                            commandList->setTextureState(pyramid,
+                                nvrhi::TextureSubresourceSet(mip - 1u, 1, 0, 1),
+                                nvrhi::ResourceStates::ShaderResource);
+                        commandList->setTextureState(pyramid,
+                            nvrhi::TextureSubresourceSet(mip, 1, 0, 1),
+                            nvrhi::ResourceStates::UnorderedAccess);
+                        commandList->commitBarriers();
+                        impl->Dispatch(commandList,
+                            BindingKey{ .Source = mip == 0 ? sceneDepth : pyramid,
+                                .Output = pyramid, .SourceMip = mip == 0 ? 0 : mip - 1u,
+                                .OutputMip = mip },
+                            DepthPyramidConstants{
+                                .SourceDimensions = { sourceWidth, sourceHeight },
+                                .OutputDimensions = { outputWidth, outputHeight },
+                                .CopySource = mip == 0 ? 1u : 0u,
+                                .MaximumReduction = 0u,
+                                .ReductionFactor = mip == 0 ? 1u : 2u });
+                        sourceWidth = outputWidth;
+                        sourceHeight = outputHeight;
+                    }
+                    // Match the graph declaration on exit; consumers establish their SRV state.
+                    commandList->setTextureState(pyramid,
+                        nvrhi::TextureSubresourceSet(0, mipCount, 0, 1),
+                        nvrhi::ResourceStates::UnorderedAccess);
+                    commandList->commitBarriers();
+                });
+            return { .Depth = pyramid, .Width = baseWidth, .Height = baseHeight,
+                .MipCount = mipCount };
+        }
 
         uint32_t sourceWidth = width;
         uint32_t sourceHeight = height;
         for (uint32_t outputMip = 0; outputMip < mipCount; ++outputMip)
         {
-            const bool bCopySource = outputMip == 0;
-            const uint32_t outputWidth = bCopySource
-                ? width
+            const bool bFirstMip = outputMip == 0;
+            const bool bCopySource = bFirstMip && mImpl->BaseDownsample == 1u;
+            const uint32_t outputWidth = bFirstMip
+                ? baseWidth
                 : std::max(sourceWidth / 2u, 1u);
-            const uint32_t outputHeight = bCopySource
-                ? height
+            const uint32_t outputHeight = bFirstMip
+                ? baseHeight
                 : std::max(sourceHeight / 2u, 1u);
-            const uint32_t sourceMip = bCopySource ? 0 : outputMip - 1u;
-            const TextureHandle source = bCopySource ? sceneDepth : pyramid;
-            const std::string passName = bCopySource
+            const uint32_t sourceMip = bFirstMip ? 0 : outputMip - 1u;
+            const TextureHandle source = bFirstMip ? sceneDepth : pyramid;
+            const uint32_t reductionFactor = bFirstMip ? mImpl->BaseDownsample : 2u;
+            const bool bMaximumReduction = mImpl->bMaximumReduction;
+            const std::string passName = (bMaximumReduction ? "Occlusion" : "") + std::string(bFirstMip
                 ? "DepthPyramidMip0"
-                : "DepthPyramidReduceMip" + std::to_string(outputMip);
+                : "DepthPyramidReduceMip" + std::to_string(outputMip));
 
             renderGraph.AddPass<DepthPyramidPassData>(
                 passName,
                 RenderGraphQueue::Compute,
                 [source, pyramid, sourceMip, outputMip,
                     sourceWidth, sourceHeight, outputWidth, outputHeight,
-                    bCopySource](
+                    bCopySource, bMaximumReduction, reductionFactor](
                     RenderGraphBuilder& builder,
                     DepthPyramidPassData& data)
                 {
@@ -394,6 +483,8 @@ namespace HEngine
                     data.OutputWidth = outputWidth;
                     data.OutputHeight = outputHeight;
                     data.bCopySource = bCopySource;
+                    data.bMaximumReduction = bMaximumReduction;
+                    data.ReductionFactor = reductionFactor;
                 },
                 [impl = mImpl.get()](
                     RenderGraphContext& context,
@@ -423,6 +514,8 @@ namespace HEngine
                                 data.OutputHeight,
                             },
                             .CopySource = data.bCopySource ? 1u : 0u,
+                            .MaximumReduction = data.bMaximumReduction ? 1u : 0u,
+                            .ReductionFactor = data.ReductionFactor,
                         });
                 });
 
@@ -432,8 +525,8 @@ namespace HEngine
 
         return {
             .Depth = pyramid,
-            .Width = width,
-            .Height = height,
+            .Width = baseWidth,
+            .Height = baseHeight,
             .MipCount = mipCount,
         };
     }
@@ -441,5 +534,10 @@ namespace HEngine
     void DepthPyramidPass::ClearCaches()
     {
         mImpl->BindingSets.clear();
+    }
+    std::function<void()> DepthPyramidPass::CaptureGraphState()
+    {
+        return [impl = mImpl.get(), bindings = mImpl->BindingSets]() mutable noexcept
+        { impl->BindingSets.swap(bindings); };
     }
 }

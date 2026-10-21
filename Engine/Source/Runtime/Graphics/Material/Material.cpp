@@ -1,4 +1,5 @@
 #include "Hepch.h"
+#include "_generated/serializer/TextureSampling.gen.h"
 
 #include "Material.h"
 #include "Runtime/Graphics/Material/MaterialShaderManager.h"
@@ -434,6 +435,11 @@ namespace HEngine
                     }
                     if (!bRestored)
                         continue;
+                    if (property.Decl.Type == MaterialPropertyType::Texture && entry.contains("Sampling")) {
+                        Serializer::Deserialize(entry.at("Sampling"), property.Sampling);
+                        (void)PackTextureSampling(property.Sampling);
+                    }
+
 
                     orphanedParameters.erase(iterator);
                     return true;
@@ -637,7 +643,12 @@ namespace HEngine
                 left.ColorValue == right.ColorValue &&
                 left.IntValue == right.IntValue &&
                 left.BoolValue == right.BoolValue &&
-                left.TextureValue == right.TextureValue;
+                left.TextureValue == right.TextureValue &&
+                left.Sampling.useAffine == right.Sampling.useAffine && left.Sampling.affineRow0 == right.Sampling.affineRow0 &&
+                left.Sampling.affineRow1 == right.Sampling.affineRow1 && left.Sampling.texCoord == right.Sampling.texCoord && left.Sampling.offset == right.Sampling.offset &&
+                left.Sampling.scale == right.Sampling.scale && left.Sampling.rotation == right.Sampling.rotation &&
+                left.Sampling.wrapS == right.Sampling.wrapS && left.Sampling.wrapT == right.Sampling.wrapT &&
+                left.Sampling.minFilter == right.Sampling.minFilter && left.Sampling.magFilter == right.Sampling.magFilter;
         }
 
         bool MaterialRuntimePropertiesEquivalent(
@@ -737,6 +748,22 @@ namespace HEngine
                 throw std::invalid_argument(
                     "Material ABI v1 requires Opaque/Mask depth write and Transparent no-write.");
             }
+            // V2 render state is authoritative. Reject a conflicting typed
+            // parameter instead of silently rendering with a different mask
+            // cutoff than the imported material claims to use.
+            const auto cutoffParameter = mMatRes.Parameters.find("g_AlphaCutoff");
+            if (cutoffParameter != mMatRes.Parameters.end() &&
+                cutoffParameter->is_object() && cutoffParameter->contains("Value"))
+            {
+                const Json& value = (*cutoffParameter)["Value"];
+                if (!value.is_number() ||
+                    std::abs(value.get<float>() - mMatRes.AlphaCutoff) > 1e-4f)
+                {
+                    throw std::invalid_argument(
+                        "Material V2 g_AlphaCutoff disagrees with authoritative AlphaCutoff: " +
+                        mMatResPath);
+                }
+            }
         }
 
         if (!mMatRes.PassName.empty())
@@ -761,6 +788,13 @@ namespace HEngine
 
         if (mPassName.empty())
             mPassName = "BasePBR";
+
+        if (mSchemaVersion >= 2 && mType == MaterialType::Default &&
+            ToLowerCopy(mShaderPath) != "shaders/basepbr.hlsl")
+        {
+            throw std::invalid_argument(
+                "Material V2 Type=Default ignores custom ShaderPath; set Type=Custom to render the declared shader.");
+        }
 
         Serializer::Deserialize(mMatRes.Properties, mPbrMatRes);
         const auto validateLegacyTexturePath = [&](std::string& path)
@@ -1117,26 +1151,36 @@ namespace HEngine
         {
         case MaterialTextureSemantic::BaseColor:
             reference.AssetPath = mPbrMatRes.pbrMetallicRoughness.baseColorTexture.textureRes.textureSourcePath;
+            reference.Sampling = mPbrMatRes.pbrMetallicRoughness.baseColorTexture.sampling;
+            reference.Sampling.texCoord = mPbrMatRes.pbrMetallicRoughness.baseColorTexture.texCoord;
             reference.Fallback = "white";
             reference.bEnabled = bUseAlbedoMap;
             break;
         case MaterialTextureSemantic::Normal:
             reference.AssetPath = mPbrMatRes.normalTexture.textureRes.textureSourcePath;
+            reference.Sampling = mPbrMatRes.normalTexture.sampling;
+            reference.Sampling.texCoord = mPbrMatRes.normalTexture.texCoord;
             reference.Fallback = "normal";
             reference.bEnabled = bUseNormalMap;
             break;
         case MaterialTextureSemantic::MetallicRoughness:
             reference.AssetPath = mPbrMatRes.pbrMetallicRoughness.metallicRoughnessTexture.textureRes.textureSourcePath;
+            reference.Sampling = mPbrMatRes.pbrMetallicRoughness.metallicRoughnessTexture.sampling;
+            reference.Sampling.texCoord = mPbrMatRes.pbrMetallicRoughness.metallicRoughnessTexture.texCoord;
             reference.Fallback = "white";
             reference.bEnabled = bUseMetallicRoughnessMap;
             break;
         case MaterialTextureSemantic::Occlusion:
             reference.AssetPath = mPbrMatRes.occlusionTexture.textureRes.textureSourcePath;
+            reference.Sampling = mPbrMatRes.occlusionTexture.sampling;
+            reference.Sampling.texCoord = mPbrMatRes.occlusionTexture.texCoord;
             reference.Fallback = "white";
             reference.bEnabled = bUseAoMap;
             break;
         case MaterialTextureSemantic::Emissive:
             reference.AssetPath = mPbrMatRes.emissiveTexture.textureRes.textureSourcePath;
+            reference.Sampling = mPbrMatRes.emissiveTexture.sampling;
+            reference.Sampling.texCoord = mPbrMatRes.emissiveTexture.texCoord;
             reference.Fallback = "white";
             reference.bEnabled = bUseEmissiveMap;
             break;
@@ -1173,6 +1217,7 @@ namespace HEngine
             value.Boolean = property.BoolValue;
             value.Integer = property.IntValue;
             value.TexturePath = property.TextureValue;
+            value.TextureUvSet = property.Sampling.texCoord;
             switch (property.Decl.Type)
             {
             case MaterialPropertyType::Texture:
@@ -1236,6 +1281,7 @@ namespace HEngine
             const MaterialTextureReference reference = GetTextureReference(semantics[index]);
             snapshot.LegacyTextures[index] = {
                 .AssetPath = reference.AssetPath,
+                .Sampling = reference.Sampling,
                 .Fallback = reference.Fallback,
                 .bEnabled = reference.bEnabled,
             };
@@ -1692,6 +1738,14 @@ namespace HEngine
                     : CollapseBuiltinTexturePath(path);
             }
         };
+        const auto seedSampling = [&](std::initializer_list<const char*> names, const auto& info) {
+            if (auto* property = findProperty(names)) { property->Sampling = info.sampling; property->Sampling.texCoord = info.texCoord; }
+        };
+        seedSampling({"g_AlbedoMap", "g_BaseColorMap"}, mPbrMatRes.pbrMetallicRoughness.baseColorTexture);
+        seedSampling({"g_NormalMap"}, mPbrMatRes.normalTexture);
+        seedSampling({"g_MetallicRoughnessMap"}, mPbrMatRes.pbrMetallicRoughness.metallicRoughnessTexture);
+        seedSampling({"g_AoMap"}, mPbrMatRes.occlusionTexture);
+        seedSampling({"g_EmissiveMap"}, mPbrMatRes.emissiveTexture);
         auto applyFloat = [&](std::initializer_list<const char*> names, float value)
         {
             if (MaterialRuntimeProperty* property = findProperty(names))
@@ -1751,6 +1805,14 @@ namespace HEngine
 
             const std::string defaultPath = ResolveTexturePathFromToken(property->Decl.DefaultTextureToken);
             SetTexturePath(semantic, path, !path.empty() && path != NormalizePath(defaultPath));
+            const auto applySampling = [&](auto& target) { target.sampling = property->Sampling; target.texCoord = property->Sampling.texCoord; };
+            switch (semantic) {
+            case MaterialTextureSemantic::BaseColor: applySampling(mPbrMatRes.pbrMetallicRoughness.baseColorTexture); break;
+            case MaterialTextureSemantic::Normal: applySampling(mPbrMatRes.normalTexture); break;
+            case MaterialTextureSemantic::MetallicRoughness: applySampling(mPbrMatRes.pbrMetallicRoughness.metallicRoughnessTexture); break;
+            case MaterialTextureSemantic::Occlusion: applySampling(mPbrMatRes.occlusionTexture); break;
+            case MaterialTextureSemantic::Emissive: applySampling(mPbrMatRes.emissiveTexture); break;
+            }
         };
 
         if (const MaterialRuntimeProperty* property = findProperty({ "g_BaseColorFactor", "baseColorTint" }))
@@ -1768,7 +1830,12 @@ namespace HEngine
         if (mSchemaVersion == 1)
         {
             if (const MaterialRuntimeProperty* property = findProperty({ "g_AlphaClip" }))
-                mPbrMatRes.alphaMode = property->FloatValue >= 0.5f ? "MASK" : "OPAQUE";
+            {
+                // Alpha clipping distinguishes MASK from OPAQUE, but disabling
+                // it must not erase an authored legacy BLEND material.
+                if (property->FloatValue >= 0.5f) mPbrMatRes.alphaMode = "MASK";
+                else if (mPbrMatRes.alphaMode != "BLEND") mPbrMatRes.alphaMode = "OPAQUE";
+            }
             if (const MaterialRuntimeProperty* property = findProperty({ "g_AlphaCutoff" }))
                 mPbrMatRes.alphaCutoff = property->FloatValue;
         }
@@ -1942,8 +2009,13 @@ namespace HEngine
                         property.Decl.StableId == serializedName ||
                         property.Decl.Name == serializedName ||
                         CanonicalPropertyName(property.Decl.Name) == canonicalName;
+                    // Older V2 assets used the property name as their StableId.
+                    // A real, different StableId must still protect a reused
+                    // name from inheriting another generation's value.
                     return bNameMatches &&
-                        (serializedStableId.empty() || property.Decl.StableId.empty());
+                        (serializedStableId.empty() ||
+                            serializedStableId == serializedName ||
+                            property.Decl.StableId.empty());
                 });
             return iterator == mShaderProperties.end() ? nullptr : &*iterator;
         };
@@ -2089,6 +2161,9 @@ namespace HEngine
                     continue;
                 }
 
+                property->Sampling = {};
+                if (entry.contains("Sampling")) Serializer::Deserialize(entry.at("Sampling"), property->Sampling);
+                (void)PackTextureSampling(property->Sampling);
                 std::string normalizedFallback;
                 if (!TryReadTextureEntry(
                         entry,
@@ -2151,6 +2226,7 @@ namespace HEngine
                 bool bValueAccepted = true;
                 if (property.Decl.Type == MaterialPropertyType::Texture)
                 {
+                    property.Sampling = previous.Sampling;
                     bValueAccepted = TryNormalizeTextureReference(
                         previous.TextureValue,
                         true,
@@ -2222,6 +2298,7 @@ namespace HEngine
                 entry["Value"] = property.IntValue;
                 break;
             case MaterialPropertyType::Texture:
+                Serializer::Serialize(entry["Sampling"], property.Sampling);
                 entry["Path"] = IsBuiltinTextureToken(property.TextureValue)
                     ? std::string{}
                     : property.TextureValue;
@@ -2290,6 +2367,7 @@ namespace HEngine
             if (property.Decl.Type != MaterialPropertyType::Texture)
                 continue;
             const bool bBuiltin = IsBuiltinTextureToken(property.TextureValue);
+            Json sampling; Serializer::Serialize(sampling, property.Sampling);
             textures[property.Decl.Name] = {
                 { "StableId", property.Decl.StableId },
                 { "Type", "texture2d" },
@@ -2299,6 +2377,7 @@ namespace HEngine
                     : property.Decl.DefaultTextureToken },
                 { "ColorSpace", property.Decl.ColorSpace },
                 { "Semantic", property.Decl.TextureSemantic },
+                { "Sampling", sampling },
             };
         }
         return textures;

@@ -16,6 +16,7 @@ namespace HEngine
 		[[nodiscard]] static PresentationClock& GetInstance();
 
 		void Reset();
+        void DiscardSuspendedTime() { mLastRealTime = Clock::now(); bFirstFrame = true; }
 		[[nodiscard]] Timestep BeginFrame(
 			float fixedDeltaSeconds = 0.0f,
 			bool bAdvancePresentation = true);

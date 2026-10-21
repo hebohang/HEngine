@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><title>Starbloom C# 规则验证</title>
+<body><h1>Starbloom C# 规则验证</h1><p>此页面验证浏览器 Wasm 中的规则与 Python 参照结果，不是可玩游戏。</p>
+<p>游玩游戏：在 Editor 顶部点击“发布…” → “Web 浏览器” → “构建并预览”；也可以双击仓库根目录的 <strong>Win-RunWebGame.bat</strong>。启动预览后，浏览器会自动打开可玩游戏。</p>
+<pre id="result">正在运行…</pre>
+<script>
+if (location.protocol === 'file:') {
+    document.getElementById('result').textContent = '这是规则测试源文件，不能直接双击运行。请在仓库根目录运行 Tools/Scripting/TestSurvivorMigration.ps1 执行规则验证。此页面不是游戏入口。';
+} else {
+    import('./main.js').catch(error => document.getElementById('result').textContent = '加载失败：' + error.message);
+}
+</script></body></html>

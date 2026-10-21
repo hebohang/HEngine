@@ -1,0 +1,63 @@
+{
+  "146c5e51-8da7-4c11-9099-a0987f5ec261": {
+    "TagComponent": {
+      "Tag": "Game"
+    },
+    "TransformComponent": {
+      "Translation": [
+        0,
+        0,
+        0
+      ],
+      "Rotation": [
+        0,
+        0,
+        0
+      ],
+      "Scale": [
+        1,
+        1,
+        1
+      ]
+    },
+    "ScriptComponent": {
+      "Backend": "he.script.csharp",
+      "Type": "template.shared-arena",
+      "Fields": "{\"schema\":1,\"fields\":{}}",
+      "Enabled": true
+    }
+  },
+  "246c5e51-8da7-4c11-9099-a0987f5ec261": {
+    "TagComponent": {
+      "Tag": "Camera"
+    },
+    "TransformComponent": {
+      "Translation": [
+        0,
+        0,
+        10
+      ],
+      "Rotation": [
+        0,
+        0,
+        0
+      ],
+      "Scale": [
+        1,
+        1,
+        1
+      ]
+    },
+    "CameraComponent": {
+      "Primary": true,
+      "Camera": {
+        "mProjectionType": 1,
+        "mOrthographicSize": 16,
+        "mOrthographicNear": 0.1,
+        "mOrthographicFar": 100
+      },
+      "bOverrideExposure": true,
+      "ExposureEV100": 0
+    }
+  }
+}

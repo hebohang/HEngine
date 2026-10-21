@@ -8,6 +8,8 @@ namespace HEngine
 	CLASS(Rigidbody2DComponent : public ComponentBase, Fields)
 	{
 		REFLECTION_COMPONENT_BODY(Rigidbody2DComponent);
+    public:
+        static constexpr BuildFeature RequiredBuildFeature = BuildFeature::Physics2D;
 	public:
 		enum class BodyType { Static = 0, Dynamic, Kinematic };
 		BodyType Type = BodyType::Static;

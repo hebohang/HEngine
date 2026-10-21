@@ -1,0 +1,34 @@
+body {
+  position:absolute; left:0; top:0; width:100%; height:100%; margin:0;
+  background-color:#0c1015; color:#f2eadb; font-family:Noto Sans SC;
+  font-size:18dp; overflow:hidden; z-index:2147483646;
+}
+div { display:block; }
+#loading-ribbon {
+  position:absolute; left:63%; top:-20%; width:65%; height:145%;
+  background-color:#221d1b; transform:rotate(16deg);
+}
+#loading-edge {
+  position:absolute; left:61%; top:-20%; width:1dp; height:145%;
+  background-color:#a0744648; transform:rotate(16deg);
+}
+#loading-brand { position:absolute; left:7.5%; top:9%; color:#ca9f63; font-size:18dp; letter-spacing:2dp; }
+#loading-rule { position:absolute; left:7.5%; top:14.5%; width:85%; height:1dp; background-color:#ca9f633c; }
+#loading-copy { position:absolute; left:7.5%; top:32.5%; width:64%; }
+#loading-kicker { color:#ca9f63; font-size:14dp; letter-spacing:3dp; }
+#loading-title { font-size:66dp; font-weight:bold; margin-top:15dp; line-height:1.2; }
+#loading-caption { color:#a09c93; font-size:19dp; margin-top:28dp; }
+#loading-emblem { position:absolute; left:82%; top:43.5%; width:0; height:0; }
+.orbit { position:absolute; border-width:2dp; border-color:#ca9f63; border-radius:100dp; }
+.orbit-a { left:-67dp; top:-67dp; width:130dp; height:130dp; border-left-color:transparent; border-bottom-color:transparent; animation:14s linear infinite orbit-forward; opacity:0.8; }
+.orbit-b { left:-77dp; top:-77dp; width:150dp; height:150dp; border-top-color:transparent; border-right-color:transparent; animation:20s linear infinite orbit-reverse; opacity:0.4; }
+.orbit-c { left:-87dp; top:-87dp; width:170dp; height:170dp; border-right-color:transparent; border-bottom-color:transparent; animation:26s linear infinite orbit-forward; opacity:0.2; }
+#loading-diamond { position:absolute; left:-15dp; top:-15dp; width:30dp; height:30dp; background-color:#ca9f63; transform:rotate(45deg); }
+#loading-stage { position:absolute; left:7.5%; top:73.5%; font-size:19dp; }
+#loading-percent { position:absolute; right:7.5%; top:71.8%; color:#ca9f63; font-size:36dp; }
+#loading-track { position:absolute; left:7.5%; top:80.3%; width:85%; height:7dp; background-color:#34302c; }
+#loading-progress { width:0%; height:100%; background-color:#ca9f63; }
+#loading-footer { position:absolute; left:7.5%; top:86.5%; color:#a09c93; font-size:13dp; letter-spacing:2dp; }
+#loading-hint { position:absolute; right:7.5%; top:86.5%; color:#a09c93; font-size:13dp; letter-spacing:1dp; }
+@keyframes orbit-forward { from { transform:rotate(0deg); } to { transform:rotate(360deg); } }
+@keyframes orbit-reverse { from { transform:rotate(360deg); } to { transform:rotate(0deg); } }

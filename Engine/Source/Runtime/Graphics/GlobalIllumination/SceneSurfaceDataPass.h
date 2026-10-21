@@ -52,6 +52,8 @@ namespace HEngine
 
         [[nodiscard]] const SceneSurfaceDataPassStats& GetStats() const noexcept;
         void ClearCaches();
+        [[nodiscard]] std::function<void()> CaptureGraphState();
+        void ClearGraphResourceCaches() noexcept;
 
     private:
         struct Impl;

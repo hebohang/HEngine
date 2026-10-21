@@ -3,7 +3,9 @@
 #include "Runtime/Platform/PlatformFileSystem.h"
 
 #include <nlohmann/json.hpp>
+#if HE_SHADER_SPIRV
 #include <spirv-tools/libspirv.hpp>
+#endif
 
 #include <string>
 #include <vector>
@@ -30,9 +32,23 @@
 #include <charconv>
 #include <cmath>
 #include <regex>
+#include <locale>
+#include <map>
+#include <cerrno>
+#include <cstdlib>
 
 #ifdef _WIN32
 #include <Windows.h>
+#else
+#include <spawn.h>
+#include <sys/file.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <fcntl.h>
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
+extern char** environ;
 #endif
 
 namespace Utils
@@ -153,7 +169,111 @@ static bool RunTool(
 
     return true;
 }
+#else
+static bool RunTool(
+    const std::filesystem::path& toolPath,
+    const std::string& args,
+    std::string& diagnostics,
+    bool bEchoDiagnostics = true)
+{
+    // Parse the compiler's generated argument list without a shell. In
+    // particular, shader defines containing '$', ';' or parentheses remain
+    // literal DXC arguments and cannot execute shell commands.
+    std::vector<std::string> arguments{ toolPath.string() };
+    std::string argument;
+    bool quoted = false, started = false;
+    for (const char character : args)
+    {
+        if (character == '"')
+        {
+            quoted = !quoted;
+            started = true;
+        }
+        else if (!quoted && std::isspace(static_cast<unsigned char>(character)))
+        {
+            if (started) arguments.push_back(std::move(argument));
+            argument.clear();
+            started = false;
+        }
+        else
+        {
+            argument.push_back(character);
+            started = true;
+        }
+    }
+    if (quoted)
+    {
+        diagnostics += "Unterminated quoted compiler argument.\n";
+        return false;
+    }
+    if (started) arguments.push_back(std::move(argument));
+    std::vector<char*> argv;
+    for (auto& value : arguments) argv.push_back(value.data());
+    argv.push_back(nullptr);
+    int outputPipe[2];
+    if (pipe(outputPipe) != 0) return false;
+    fcntl(outputPipe[0], F_SETFD, FD_CLOEXEC);
+    fcntl(outputPipe[1], F_SETFD, FD_CLOEXEC);
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_adddup2(&actions, outputPipe[1], STDOUT_FILENO);
+    posix_spawn_file_actions_adddup2(&actions, outputPipe[1], STDERR_FILENO);
+    posix_spawn_file_actions_addclose(&actions, outputPipe[0]);
+    posix_spawn_file_actions_addclose(&actions, outputPipe[1]);
+    pid_t process = 0;
+    const int spawnError = posix_spawnp(&process, argv[0], &actions, nullptr, argv.data(), environ);
+    posix_spawn_file_actions_destroy(&actions);
+    close(outputPipe[1]);
+    if (spawnError != 0)
+    {
+        close(outputPipe[0]);
+        diagnostics += "Failed to launch DXC: " + std::string(std::strerror(spawnError)) + "\n";
+        std::cout << diagnostics;
+        return false;
+    }
+    std::array<char, 4096> buffer{};
+    for (;;)
+    {
+        const ssize_t count = read(outputPipe[0], buffer.data(), buffer.size());
+        if (count > 0) diagnostics.append(buffer.data(), static_cast<size_t>(count));
+        else if (count == -1 && errno == EINTR) continue;
+        else break;
+    }
+    close(outputPipe[0]);
+    int status = 0;
+    pid_t waited;
+    do { waited = waitpid(process, &status, 0); } while (waited == -1 && errno == EINTR);
+    const bool succeeded = waited == process && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+    if ((bEchoDiagnostics || !succeeded) && !diagnostics.empty()) std::cout << diagnostics;
+    if (!succeeded) std::cout << "DXC failed: " << toolPath << " (status=" << status << ")\n";
+    return succeeded;
+}
 #endif
+
+static std::filesystem::path ResolveDxcPath()
+{
+    if (const char* configured = std::getenv("HE_DXC_EXECUTABLE"); configured && *configured)
+        return std::filesystem::absolute(configured);
+#ifdef _WIN32
+    return std::filesystem::current_path() / "dxc.exe";
+#else
+#if defined(__APPLE__)
+    uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size);
+    std::vector<char> executable(size);
+    if (_NSGetExecutablePath(executable.data(), &size) == 0)
+    {
+        const auto adjacent = std::filesystem::weakly_canonical(executable.data()).parent_path() / "dxc";
+        if (std::filesystem::is_regular_file(adjacent)) return adjacent;
+    }
+#endif
+#ifdef HE_DXC_DEFAULT_EXECUTABLE
+    if (std::filesystem::is_regular_file(HE_DXC_DEFAULT_EXECUTABLE))
+        return HE_DXC_DEFAULT_EXECUTABLE;
+#endif
+    return "dxc";
+#endif
+}
 
 static std::filesystem::path ResolveInputPath(
     const std::filesystem::path& rawPath,
@@ -173,8 +293,40 @@ static std::filesystem::path ResolveInputPath(
     return absolutePath.lexically_normal();
 }
 
+struct ShaderSourceSnapshotState
+{
+    std::map<std::filesystem::path, std::string> Contents;
+    std::map<std::filesystem::path, std::filesystem::path> CompilerPaths;
+};
+
+static thread_local const ShaderSourceSnapshotState* SourceSnapshot = nullptr;
+
+struct ScopedLiveSourceReads final
+{
+    const ShaderSourceSnapshotState* Previous = SourceSnapshot;
+    ScopedLiveSourceReads() { SourceSnapshot = nullptr; }
+    ~ScopedLiveSourceReads() { SourceSnapshot = Previous; }
+};
+
+static std::filesystem::path CompilerInputPath(const std::filesystem::path& path)
+{
+    if (SourceSnapshot)
+    {
+        const auto found = SourceSnapshot->CompilerPaths.find(path.lexically_normal());
+        if (found == SourceSnapshot->CompilerPaths.end())
+            throw std::runtime_error("Compiler input is outside the immutable source snapshot: " + path.string());
+        return found->second;
+    }
+    return path;
+}
+
 std::string ReadFile(const std::filesystem::path& filepath)
 {
+    if (SourceSnapshot)
+    {
+        const auto found = SourceSnapshot->Contents.find(filepath.lexically_normal());
+        if (found != SourceSnapshot->Contents.end()) return found->second;
+    }
     std::string result;
     std::ifstream in(filepath, std::ios::in | std::ios::binary);
     if (in)
@@ -460,6 +612,16 @@ static std::vector<HEngine::ShaderArtifactTarget> ParseShaderArtifactTargets(
     {
         return static_cast<char>(std::tolower(ch));
     });
+#if defined(__APPLE__)
+    if (selection == "all") selection = "spirv";
+    if (selection == "dxil")
+        throw std::runtime_error("The macOS DXC toolchain supports SPIR-V output only; use --binary-format spirv.");
+#endif
+#if !HE_SHADER_SPIRV
+    if (selection == "all") selection = "dxil";
+    if (selection == "spirv" || selection == "spir-v")
+        throw std::runtime_error("This ShaderCompiler was built without SPIR-V support.");
+#endif
     if (selection == "dxil")
     {
         return { { HEngine::RenderBackend::DX12, HEngine::ShaderBinaryFormat::Dxil } };
@@ -509,6 +671,15 @@ static std::filesystem::path NormalizePath(const std::filesystem::path& path)
 
 static bool ReadTextFile(const std::filesystem::path& filePath, std::string& outText)
 {
+    if (SourceSnapshot)
+    {
+        const auto found = SourceSnapshot->Contents.find(filePath.lexically_normal());
+        if (found != SourceSnapshot->Contents.end())
+        {
+            outText = found->second;
+            return true;
+        }
+    }
     std::ifstream in(filePath, std::ios::in | std::ios::binary);
     if (!in.is_open())
         return false;
@@ -624,7 +795,10 @@ static std::filesystem::path ResolveIncludePath(const std::filesystem::path& sou
         -> std::filesystem::path
     {
         ec.clear();
-        const std::filesystem::path candidatePath = NormalizePath(basePath / includeAsPath);
+        const std::filesystem::path candidatePath = SourceSnapshot
+            ? (basePath / includeAsPath).lexically_normal() : NormalizePath(basePath / includeAsPath);
+        if (SourceSnapshot)
+            return SourceSnapshot->Contents.contains(candidatePath) ? candidatePath : std::filesystem::path{};
         if (!std::filesystem::is_regular_file(candidatePath, ec) || ec)
             return {};
         if (!IsPathWithinIncludeDomain(candidatePath))
@@ -672,7 +846,8 @@ static void CollectShaderDependenciesRecursive(const std::filesystem::path& sour
     dependencies.push_back(normalizedSourcePath);
 
     std::error_code ec;
-    if (!std::filesystem::exists(normalizedSourcePath, ec))
+    if ((!SourceSnapshot || !SourceSnapshot->Contents.contains(normalizedSourcePath)) &&
+        !std::filesystem::exists(normalizedSourcePath, ec))
         return;
 
     std::string sourceText;
@@ -1083,6 +1258,16 @@ static std::vector<CompiledShaderArtifact> BuildMaterialShaderArtifacts(
         Permutation{ HEngine::MaterialShaderPass::Forward, HEngine::MaterialShaderVertexPath::Skinned,
             HEngine::MaterialShaderDescriptorMode::HeapDirect, "FORWARD_SKINNED_HEAP_DIRECT" },
     };
+    constexpr std::array GBufferPermutations = {
+        Permutation{ HEngine::MaterialShaderPass::GBuffer, HEngine::MaterialShaderVertexPath::Static,
+            HEngine::MaterialShaderDescriptorMode::Baseline, "GBUFFER_CPU_STATIC_BASELINE" },
+        Permutation{ HEngine::MaterialShaderPass::GBuffer, HEngine::MaterialShaderVertexPath::Static,
+            HEngine::MaterialShaderDescriptorMode::HeapDirect, "GBUFFER_CPU_STATIC_HEAP_DIRECT" },
+        Permutation{ HEngine::MaterialShaderPass::GBuffer, HEngine::MaterialShaderVertexPath::Skinned,
+            HEngine::MaterialShaderDescriptorMode::Baseline, "GBUFFER_SKINNED_BASELINE" },
+        Permutation{ HEngine::MaterialShaderPass::GBuffer, HEngine::MaterialShaderVertexPath::Skinned,
+            HEngine::MaterialShaderDescriptorMode::HeapDirect, "GBUFFER_SKINNED_HEAP_DIRECT" },
+    };
     constexpr std::array MaskPermutations = {
         Permutation{ HEngine::MaterialShaderPass::Depth, HEngine::MaterialShaderVertexPath::Static,
             HEngine::MaterialShaderDescriptorMode::Baseline, "DEPTH_CPU_STATIC_BASELINE" },
@@ -1111,8 +1296,22 @@ static std::vector<CompiledShaderArtifact> BuildMaterialShaderArtifacts(
     };
 
     std::vector<Permutation> permutations(ForwardPermutations.begin(), ForwardPermutations.end());
+    if (manifest.BlendMode != HEngine::MaterialShaderBlendMode::Transparent)
+        permutations.insert(permutations.end(), GBufferPermutations.begin(), GBufferPermutations.end());
     if (manifest.BlendMode == HEngine::MaterialShaderBlendMode::Mask)
         permutations.insert(permutations.end(), MaskPermutations.begin(), MaskPermutations.end());
+
+    // Surface ABI v1 owns the vertex entry point. Opaque static materials
+    // share the existing object-row GPU instance contract.
+    if (manifest.BlendMode == HEngine::MaterialShaderBlendMode::Opaque)
+    {
+        for (const auto pass : { HEngine::MaterialShaderPass::Forward, HEngine::MaterialShaderPass::GBuffer })
+            for (const auto tier : { HEngine::MaterialShaderDescriptorMode::Baseline, HEngine::MaterialShaderDescriptorMode::HeapDirect })
+                permutations.push_back({ pass, HEngine::MaterialShaderVertexPath::GpuDriven, tier,
+                    pass == HEngine::MaterialShaderPass::Forward
+                        ? tier == HEngine::MaterialShaderDescriptorMode::Baseline ? "FORWARD_GPU_DRIVEN_BASELINE" : "FORWARD_GPU_DRIVEN_HEAP_DIRECT"
+                        : tier == HEngine::MaterialShaderDescriptorMode::Baseline ? "GBUFFER_GPU_DRIVEN_BASELINE" : "GBUFFER_GPU_DRIVEN_HEAP_DIRECT" });
+    }
 
     std::vector<CompiledShaderArtifact> artifacts;
     artifacts.reserve(permutations.size() * 2);
@@ -1534,10 +1733,30 @@ static bool TryParseFiniteDouble(std::string_view text, double& output) noexcept
     const std::string trimmed = TrimString(std::string(text));
     if (trimmed.empty())
         return false;
+#if defined(__APPLE__)
+    // libc++'s floating from_chars requires macOS 26. Use a fixed C++ classic
+    // locale on older deployment targets without accepting locale separators,
+    // trailing input, or the leading '+' that from_chars deliberately rejects.
+    if (trimmed.front() == '+') return false;
+    std::istringstream stream(trimmed);
+    stream.imbue(std::locale::classic());
+    double value = 0;
+    stream >> std::noskipws >> value;
+    if (stream.fail() || !stream.eof() || !std::isfinite(value)) return false;
+    if (value == 0)
+    {
+        const auto mantissa = std::string_view(trimmed).substr(0, trimmed.find_first_of("eE"));
+        if (std::ranges::any_of(mantissa, [](char digit) { return digit >= '1' && digit <= '9'; }))
+            return false; // A nonzero value underflowed, matching from_chars.
+    }
+    output = value;
+    return true;
+#else
     const char* begin = trimmed.data();
     const char* end = begin + trimmed.size();
     const std::from_chars_result result = std::from_chars(begin, end, output);
     return result.ec == std::errc{} && result.ptr == end && std::isfinite(output);
+#endif
 }
 
 static bool TryParseInt64(std::string_view text, std::int64_t& output) noexcept
@@ -2232,12 +2451,16 @@ static std::vector<std::string> BuildMaterialPermutationDefines(
         "HE_MATERIAL_SURFACE=1",
         booleanDefine("HE_MATERIAL_PASS_FORWARD",
             artifact.materialPass == HEngine::MaterialShaderPass::Forward),
+        booleanDefine("HE_MATERIAL_PASS_GBUFFER",
+            artifact.materialPass == HEngine::MaterialShaderPass::GBuffer),
         booleanDefine("HE_MATERIAL_PASS_DEPTH",
             artifact.materialPass == HEngine::MaterialShaderPass::Depth),
         booleanDefine("HE_MATERIAL_PASS_SHADOW",
             artifact.materialPass == HEngine::MaterialShaderPass::Shadow),
         booleanDefine("HE_MATERIAL_PASS_OUTLINE",
             artifact.materialPass == HEngine::MaterialShaderPass::Outline),
+        booleanDefine("HE_MATERIAL_GPU_DRIVEN",
+            artifact.vertexPath == HEngine::MaterialShaderVertexPath::GpuDriven),
         booleanDefine("HE_MATERIAL_SKINNED",
             artifact.vertexPath == HEngine::MaterialShaderVertexPath::Skinned),
         booleanDefine("HE_MATERIAL_DESCRIPTOR_HEAP_DIRECT",
@@ -2281,6 +2504,30 @@ static std::vector<std::string> BuildMaterialPermutationDefines(
                 break;
             case HEngine::MaterialShaderPropertyType::Texture2D:
                 expression = "HE_MATERIAL_TEXTURE(HE_LoadMaterialUint(" + row + "))";
+                // x is the descriptor; y is immutable runtime texture-format
+                // metadata. Keep generated source in the normal compiler path.
+                defines.push_back("HE_TEXTURE_NORMAL_FLAGS_" + property.Name +
+                    "=asuint(HE_LoadMaterialFloat4(" + row + ").y)");
+                {
+                    int standardSlot = -1;
+                    switch (property.TextureSemantic)
+                    {
+                        case HEngine::MaterialShaderTextureSemantic::BaseColor: standardSlot = 0; break;
+                        case HEngine::MaterialShaderTextureSemantic::Normal: standardSlot = 1; break;
+                        case HEngine::MaterialShaderTextureSemantic::MetallicRoughness: standardSlot = 2; break;
+                        case HEngine::MaterialShaderTextureSemantic::Occlusion: standardSlot = 3; break;
+                        case HEngine::MaterialShaderTextureSemantic::Emissive: standardSlot = 4; break;
+                        default: break;
+                    }
+                    const std::string uvExpression = standardSlot >= 0
+                        ? "HE_StandardMaterialTextureUV(" + std::to_string(standardSlot) +
+                            "u,input.UV0,input.UV1)"
+                        : "HE_SelectMaterialUV(asuint(HE_LoadMaterialFloat4(" +
+                            row + ").z),input.UV0,input.UV1)";
+                    defines.push_back(property.Name + "_UV=" + uvExpression);
+                }
+                defines.push_back(property.Name + "_UV_SET=asuint(HE_LoadMaterialFloat4(" +
+                    row + ").z)");
                 break;
         }
         defines.push_back(property.Name + "=" + expression);
@@ -2332,9 +2579,11 @@ static MaterialPragmaParseResult ParseMaterialPragmas(
     ValidateMaterialSourceContract(shaderPath, dependencies, result.diagnostics);
     for (const std::string_view reservedPermutationMacro : {
              std::string_view("HE_MATERIAL_PASS_FORWARD"),
+             std::string_view("HE_MATERIAL_PASS_GBUFFER"),
              std::string_view("HE_MATERIAL_PASS_DEPTH"),
              std::string_view("HE_MATERIAL_PASS_SHADOW"),
              std::string_view("HE_MATERIAL_PASS_OUTLINE"),
+             std::string_view("HE_MATERIAL_GPU_DRIVEN"),
              std::string_view("HE_MATERIAL_SKINNED"),
              std::string_view("HE_MATERIAL_SHADING_UNLIT"),
              std::string_view("HE_HEAP_DIRECT") })
@@ -2952,7 +3201,6 @@ static bool ValidateDxilRequirements(
     const std::filesystem::path& sourcePath,
     const CompiledShaderArtifact& artifact)
 {
-#ifdef _WIN32
     std::string dump;
     if (!RunTool(
         dxcPath,
@@ -3027,14 +3275,6 @@ static bool ValidateDxilRequirements(
         }
     }
     return true;
-#else
-    (void)dxcPath;
-    (void)outputPath;
-    (void)sourcePath;
-    (void)artifact;
-    std::cout << "DXIL requirements validation is only supported on Windows." << std::endl;
-    return false;
-#endif
 }
 
 static std::vector<HEngine::MaterialShaderDiagnostic> ParseDxcDiagnostics(
@@ -3112,19 +3352,18 @@ static bool CompileMaterialArtifactToPath(
     std::string defineArgs;
     for (const std::string& define : defines)
         defineArgs += " -D \"" + NormalizeDefine(define) + "\"";
-    std::string includeArgs = " -I \"" + RootPath.string() + "\"";
+    std::string includeArgs = " -I \"" + CompilerInputPath(RootPath).string() + "\"";
     for (const std::filesystem::path& includeRoot : AdditionalIncludePaths)
-        includeArgs += " -I \"" + includeRoot.string() + "\"";
+        includeArgs += " -I \"" + CompilerInputPath(includeRoot).string() + "\"";
     const std::string entryArg = artifact.entry.empty()
         ? std::string{}
         : " -E \"" + artifact.entry + "\"";
     const std::string args = "-nologo -Zpc -HV 2021 -O3" +
         BuildDxcBackendArguments(target) + " -T " + artifact.profile +
         entryArg + defineArgs + includeArgs +
-        " -Fo \"" + outputPath.string() + "\" \"" + sourcePath.string() + "\"";
+        " -Fo \"" + outputPath.string() + "\" \"" + CompilerInputPath(sourcePath).string() + "\"";
 
-#ifdef _WIN32
-    const std::filesystem::path dxcPath = std::filesystem::current_path() / "dxc.exe";
+    const std::filesystem::path dxcPath = ResolveDxcPath();
     std::string compilerOutput;
     if (!RunTool(dxcPath, args, compilerOutput, false))
     {
@@ -3149,17 +3388,7 @@ static bool CompileMaterialArtifactToPath(
         diagnostics.end(),
         std::make_move_iterator(parsedWarnings.begin()),
         std::make_move_iterator(parsedWarnings.end()));
-#else
-    const std::string command = "\"dxc.exe\" " + args;
-    if (system(command.c_str()) != 0)
-    {
-        diagnostics.push_back(MakeMaterialDiagnostic(
-            "DXC.Compile",
-            "DXC failed for permutation '" + artifact.variant + "', stage '" + artifact.stage + "'.",
-            sourcePath.generic_string()));
-        return false;
-    }
-#endif
+
 
     if (!std::filesystem::is_regular_file(outputPath, ec) || ec)
     {
@@ -3168,7 +3397,6 @@ static bool CompileMaterialArtifactToPath(
             sourcePath.generic_string()));
         return false;
     }
-#ifdef _WIN32
     if (target.BinaryFormat == HEngine::ShaderBinaryFormat::Dxil &&
         !ValidateDxilRequirements(dxcPath, outputPath, sourcePath, artifact))
     {
@@ -3177,7 +3405,6 @@ static bool CompileMaterialArtifactToPath(
             sourcePath.generic_string()));
         return false;
     }
-#endif
     if (target.BinaryFormat == HEngine::ShaderBinaryFormat::SpirV &&
         !ValidateSpirVArtifact(outputPath))
     {
@@ -3353,6 +3580,7 @@ static bool ValidateMaterialDependenciesUnchanged(
     std::string_view expectedRecursiveHash,
     std::vector<HEngine::MaterialShaderDiagnostic>& diagnostics)
 {
+    ScopedLiveSourceReads liveSources;
     try
     {
         const std::vector<std::filesystem::path> currentDependencies =
@@ -3386,6 +3614,30 @@ static bool PublishMaterialManifestWithDependencyLease(
     std::string_view manifestText,
     std::vector<HEngine::MaterialShaderDiagnostic>& diagnostics)
 {
+#if defined(__APPLE__)
+    // POSIX advisory locks cannot deny arbitrary editors' writes. Compilation
+    // therefore consumes an immutable snapshot. Serialize our publications,
+    // validate the live graph on both sides of the atomic replacement, and
+    // restore the prior manifest if a writer changed it during publication.
+    std::error_code directoryError;
+    std::filesystem::create_directories(manifestPath.parent_path(), directoryError);
+    const auto lockPath = manifestPath.string() + ".publish.lock";
+    const int lockFile = directoryError ? -1 : open(lockPath.c_str(), O_CREAT | O_RDWR | O_CLOEXEC, 0600);
+    if (lockFile == -1)
+    {
+        diagnostics.push_back(MakeMaterialDiagnostic("Material.ManifestPublish",
+            "Cannot acquire the material manifest publication lock.", shaderPath.generic_string()));
+        return false;
+    }
+    struct PublicationLock final
+    {
+        int File;
+        ~PublicationLock() { flock(File, LOCK_UN); close(File); }
+    } lock{ lockFile };
+    if (flock(lockFile, LOCK_EX) != 0) return false;
+    std::optional<std::string> previousManifest;
+    if (std::filesystem::is_regular_file(manifestPath)) previousManifest = ReadFile(manifestPath);
+#else
     HEngine::PlatformStableFileReadLease dependencyLease;
     std::error_code leaseError;
     if (!HEngine::PlatformFileSystem::AcquireStableFileReadLease(
@@ -3399,6 +3651,7 @@ static bool PublishMaterialManifestWithDependencyLease(
             shaderPath.generic_string()));
         return false;
     }
+#endif
 
     // This re-collects the graph only after every dependency is protected. If
     // any file changed before its lease was acquired (including a replace-save),
@@ -3418,8 +3671,92 @@ static bool PublishMaterialManifestWithDependencyLease(
             "Material.ManifestPublish", publishError, shaderPath.generic_string()));
         return false;
     }
+#if defined(__APPLE__)
+    if (!ValidateMaterialDependenciesUnchanged(shaderPath, expectedRecursiveHash, diagnostics))
+    {
+        if (previousManifest)
+        {
+            if (!WriteTextFileAtomically(manifestPath, *previousManifest, publishError))
+                diagnostics.push_back(MakeMaterialDiagnostic("Material.ManifestRestore", publishError,
+                    shaderPath.generic_string()));
+        }
+        else
+        {
+            std::error_code removeError;
+            std::filesystem::remove(manifestPath, removeError);
+            if (removeError)
+                diagnostics.push_back(MakeMaterialDiagnostic("Material.ManifestRestore", removeError.message(),
+                    shaderPath.generic_string()));
+        }
+        return false;
+    }
+#endif
     return true;
 }
+
+#if defined(__APPLE__)
+class ScopedShaderSourceSnapshot final
+{
+public:
+    explicit ScopedShaderSourceSnapshot(const std::filesystem::path& shaderPath)
+        : mStaging(OutputPath / "CACHES"), mPrevious(SourceSnapshot)
+    {
+        if (mPrevious) throw std::logic_error("Nested shader source snapshots are unsupported.");
+        const auto dependencies = CollectShaderDependencies(shaderPath);
+        for (const auto& dependency : dependencies)
+            mState.Contents.emplace(dependency, ReadFile(dependency));
+        std::vector<std::filesystem::path> roots{ NormalizePath(RootPath) };
+        for (const auto& includeRoot : AdditionalIncludePaths) roots.push_back(NormalizePath(includeRoot));
+        for (size_t index = 0; index < roots.size(); ++index)
+        {
+            const auto snapshotRoot = mStaging.Path() / ("root" + std::to_string(index));
+            std::filesystem::create_directories(snapshotRoot);
+            mState.CompilerPaths[roots[index]] = snapshotRoot;
+            for (const auto& [sourcePath, bytes] : mState.Contents)
+            {
+                const auto relative = sourcePath.lexically_relative(roots[index]);
+                if (relative.empty() || relative.is_absolute() ||
+                    std::ranges::any_of(relative, [](const auto& component) { return component == ".."; }))
+                    continue;
+                const auto destination = snapshotRoot / relative;
+                std::filesystem::create_directories(destination.parent_path());
+                std::ofstream file(destination, std::ios::binary | std::ios::trunc);
+                file.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+                file.close();
+                if (!file) throw std::runtime_error("Failed to write immutable shader source snapshot.");
+                std::filesystem::permissions(destination, std::filesystem::perms::owner_read,
+                    std::filesystem::perm_options::replace);
+                mState.CompilerPaths.try_emplace(sourcePath, destination);
+            }
+        }
+        SourceSnapshot = &mState;
+        try
+        {
+            // Re-parse the copied include graph and reject graphs that changed
+            // while being captured. From here on parser, cache hashing and DXC
+            // all see exactly these immutable bytes.
+            const auto capturedDependencies = CollectShaderDependencies(shaderPath);
+            const auto capturedHash = BuildRecursiveSourceHash(capturedDependencies);
+            std::vector<HEngine::MaterialShaderDiagnostic> diagnostics;
+            if (!ValidateMaterialDependenciesUnchanged(shaderPath, capturedHash, diagnostics))
+                throw std::runtime_error("Shader dependencies changed while capturing the immutable snapshot; retry compilation.");
+        }
+        catch (...)
+        {
+            SourceSnapshot = mPrevious;
+            throw;
+        }
+    }
+    ~ScopedShaderSourceSnapshot() { SourceSnapshot = mPrevious; }
+    ScopedShaderSourceSnapshot(const ScopedShaderSourceSnapshot&) = delete;
+    ScopedShaderSourceSnapshot& operator=(const ScopedShaderSourceSnapshot&) = delete;
+
+private:
+    MaterialStagingDirectory mStaging;
+    ShaderSourceSnapshotState mState;
+    const ShaderSourceSnapshotState* mPrevious;
+};
+#endif
 
 static bool CompileMaterialShader(
     const std::filesystem::path& shaderPath,
@@ -3625,6 +3962,7 @@ static bool CompileMaterialShader(
 
 static bool ValidateSpirVArtifact(const std::filesystem::path& artifactPath)
 {
+#if HE_SHADER_SPIRV
     std::error_code error;
     const std::uintmax_t size = std::filesystem::file_size(artifactPath, error);
     if (error || size < sizeof(std::uint32_t) || size % sizeof(std::uint32_t) != 0)
@@ -3677,6 +4015,10 @@ static bool ValidateSpirVArtifact(const std::filesystem::path& artifactPath)
         return false;
     }
     return true;
+#else
+    std::cout << "SPIR-V support is disabled: " << artifactPath << std::endl;
+    return false;
+#endif
 }
 
 bool CompileShaderImpl(const CompiledShaderArtifact& artifact,
@@ -3720,9 +4062,9 @@ bool CompileShaderImpl(const CompiledShaderArtifact& artifact,
             {
                 defineArgs += " -D \"" + NormalizeDefine(def) + "\"";
             }
-            std::string includeArgs = " -I \"" + RootPath.string() + "\"";
+            std::string includeArgs = " -I \"" + CompilerInputPath(RootPath).string() + "\"";
             for (const std::filesystem::path& includeRoot : AdditionalIncludePaths)
-                includeArgs += " -I \"" + includeRoot.string() + "\"";
+                includeArgs += " -I \"" + CompilerInputPath(includeRoot).string() + "\"";
 
             const std::string entryArg = entry.empty()
                 ? std::string{}
@@ -3731,10 +4073,9 @@ bool CompileShaderImpl(const CompiledShaderArtifact& artifact,
                 BuildDxcBackendArguments(target) + " -T " + profile +
                 entryArg + defineArgs +
                 includeArgs +
-                " -Fo \"" + outFileName.string() + "\" \"" + filePath.string() + "\"";
+                " -Fo \"" + outFileName.string() + "\" \"" + CompilerInputPath(filePath).string() + "\"";
 
-#ifdef _WIN32
-            const std::filesystem::path dxcPath = std::filesystem::current_path() / "dxc.exe";
+            const std::filesystem::path dxcPath = ResolveDxcPath();
             std::string diagnostics;
             if (!RunTool(dxcPath, args, diagnostics))
             {
@@ -3754,34 +4095,19 @@ bool CompileShaderImpl(const CompiledShaderArtifact& artifact,
                 }
                 return false;
             }
-#else
-            const std::string cmd = "\"dxc.exe\" " + args;
-            if (system(cmd.c_str()) != 0)
-            {
-                std::cout << "Shader compilation failed: source=\"" << filePath.generic_string()
-                          << "\" variant=\"" << artifact.variant
-                          << "\" entry=\"" << entry
-                          << "\" profile=\"" << profile
-                          << "\" backend=\"" << ShaderBackendName(target.Backend)
-                          << "\" format=\"" << HEngine::ToString(target.BinaryFormat)
-                          << "\"" << std::endl;
-                return false;
-            }
-#endif
+
             std::error_code ec;
             if (!std::filesystem::is_regular_file(outFileName, ec) || ec)
             {
                 std::cout << "DXC reported success but did not create output: " << outFileName << std::endl;
                 return false;
             }
-#ifdef _WIN32
             if (target.BinaryFormat == HEngine::ShaderBinaryFormat::Dxil &&
                 !ValidateDxilRequirements(dxcPath, outFileName, filePath, artifact))
             {
                 std::filesystem::remove(outFileName, ec);
                 return false;
             }
-#endif
             if (target.BinaryFormat == HEngine::ShaderBinaryFormat::SpirV &&
                 !ValidateSpirVArtifact(outFileName))
             {
@@ -3801,6 +4127,9 @@ bool CompileShader(const std::filesystem::path& shaderPath)
     const std::filesystem::path normalizedShaderPath = NormalizePath(shaderPath);
     if (!IsHShader(normalizedShaderPath))
         return true;
+#if defined(__APPLE__)
+    ScopedShaderSourceSnapshot sourceSnapshot(normalizedShaderPath);
+#endif
 
     const std::string source = ReadFile(normalizedShaderPath);
     const bool bMaterialCandidate = source.find("#pragma hmaterial") != std::string::npos;
@@ -4063,14 +4392,24 @@ static bool ValidateMaterialPermutationSet(
         "OUTLINE_SKINNED_HEAP_DIRECT",
     };
     std::vector<std::string> expected = forward;
+    if (manifest.BlendMode != HEngine::MaterialShaderBlendMode::Transparent)
+    {
+        for (const std::string& permutation : forward)
+            expected.push_back("GBUFFER" + permutation.substr(7));
+    }
     if (bExpectMaskPasses)
         expected.insert(expected.end(), mask.begin(), mask.end());
+    if (manifest.BlendMode == HEngine::MaterialShaderBlendMode::Opaque)
+        for (const auto* name : { "FORWARD_GPU_DRIVEN_BASELINE", "FORWARD_GPU_DRIVEN_HEAP_DIRECT", "GBUFFER_GPU_DRIVEN_BASELINE", "GBUFFER_GPU_DRIVEN_HEAP_DIRECT" })
+            expected.emplace_back(name);
     if (manifest.Artifacts.size() != expected.size() * 2)
         return false;
 
     for (const std::string& permutation : expected)
     {
-        const HEngine::MaterialShaderPass expectedPass = permutation.starts_with("DEPTH_")
+        const HEngine::MaterialShaderPass expectedPass = permutation.starts_with("GBUFFER_")
+            ? HEngine::MaterialShaderPass::GBuffer
+            : permutation.starts_with("DEPTH_")
             ? HEngine::MaterialShaderPass::Depth
             : permutation.starts_with("SHADOW_")
                 ? HEngine::MaterialShaderPass::Shadow
@@ -4084,7 +4423,9 @@ static bool ValidateMaterialPermutationSet(
         const HEngine::MaterialShaderVertexPath expectedVertex =
             permutation.find("SKINNED") != std::string::npos
                 ? HEngine::MaterialShaderVertexPath::Skinned
-                : HEngine::MaterialShaderVertexPath::Static;
+                : permutation.find("GPU_DRIVEN") != std::string::npos
+                    ? HEngine::MaterialShaderVertexPath::GpuDriven
+                    : HEngine::MaterialShaderVertexPath::Static;
         for (const std::string_view stage : { std::string_view("vs"), std::string_view("ps") })
         {
             const auto artifact = std::find_if(
@@ -4116,7 +4457,7 @@ static bool ValidateMaterialPermutationSet(
             HEngine::ShaderBinaryFormat::SpirV);
     if (!vulkanArtifacts.empty())
     {
-        const std::size_t expectedVulkanCount = bExpectMaskPasses ? 16u : 4u;
+        const std::size_t expectedVulkanCount = expected.size();
         if (vulkanArtifacts.size() != expectedVulkanCount ||
             std::ranges::any_of(vulkanArtifacts, [](const auto& artifact)
             {
@@ -4220,7 +4561,7 @@ static bool RunMaterialManifestSelfTests()
 
     const std::vector<CompiledShaderArtifact> validArtifacts =
         BuildMaterialShaderArtifacts("Fresnel", valid.manifest);
-    if (validArtifacts.size() != 8 || !CompileShader(shaderPath))
+    if (validArtifacts.size() != 24 || !CompileShader(shaderPath))
     {
         std::cout << "HShaderCompiler self-test failed: material artifact compilation/publication" << std::endl;
         return false;
@@ -4502,7 +4843,8 @@ static bool RunMaterialManifestSelfTests()
         "{\n"
         "    const float2 cell = floor(input.UV0 * g_CheckerScale);\n"
         "    const float checker = fmod(cell.x + cell.y, 2.0);\n"
-        "    const float4 texel = g_Map.Sample(HE_MATERIAL_DEFAULT_SAMPLER, input.UV0);\n"
+        "    const float4 texel = g_Map.Sample(HE_MATERIAL_DEFAULT_SAMPLER, g_Map_UV);\n"
+        "    surface.NormalUvSet = g_Map_UV_SET;\n"
         "    surface.BaseColor = texel.rgb * lerp(g_ColorA.rgb, g_ColorB.rgb, checker);\n"
         "    surface.Emissive = surface.BaseColor * 0.05;\n"
         "    surface.Opacity = texel.a * lerp(1.0, 0.25, checker);\n"
@@ -4526,7 +4868,36 @@ static bool RunMaterialManifestSelfTests()
     }
     const std::vector<CompiledShaderArtifact> checkerArtifacts =
         BuildMaterialShaderArtifacts("Checker", checker.manifest);
-    if (checkerArtifacts.size() != 32 || !CompileShader(checkerPath))
+    if (checkerArtifacts.size() != 40)
+    {
+        std::cout << "HShaderCompiler self-test failed: checker wrapper permutations"
+                  << std::endl;
+        return false;
+    }
+    const std::vector<std::string> checkerDefines =
+        BuildMaterialPermutationDefines(checker.manifest, checkerArtifacts.front());
+    if (std::none_of(checkerDefines.begin(), checkerDefines.end(),
+        [](const std::string& definition)
+        {
+            return definition.starts_with("g_Map_UV_SET=asuint(");
+        }))
+    {
+        std::cout << "HShaderCompiler self-test failed: texture UV set define"
+                  << std::endl;
+        return false;
+    }
+    if (std::none_of(checkerDefines.begin(), checkerDefines.end(),
+        [](const std::string& definition)
+        {
+            return definition ==
+                "g_Map_UV=HE_StandardMaterialTextureUV(0u,input.UV0,input.UV1)";
+        }))
+    {
+        std::cout << "HShaderCompiler self-test failed: standard texture UV transform"
+                  << std::endl;
+        return false;
+    }
+    if (!CompileShader(checkerPath))
     {
         std::cout << "HShaderCompiler self-test failed: checker wrapper permutations" << std::endl;
         return false;
@@ -5052,13 +5423,49 @@ static bool RunMaterialManifestSelfTests()
     return true;
 }
 
+static bool ValidateSpirVFramePushConstantContract(std::string_view assembly)
+{
+    // DXC's debug name for a block type is not part of the shader ABI. Follow
+    // g_Frame's actual variable -> pointer -> block -> matrix type chain instead.
+    std::vector<std::vector<std::string>> instructions;
+    std::istringstream stream{ std::string(assembly) };
+    std::string line;
+    while (std::getline(stream, line))
+        instructions.push_back(SplitWhitespaceTokens(line));
+    const auto find = [&](const std::vector<std::string>& prefix) -> const std::vector<std::string>*
+    {
+        for (const auto& instruction : instructions)
+            if (instruction.size() >= prefix.size() &&
+                std::equal(prefix.begin(), prefix.end(), instruction.begin())) return &instruction;
+        return nullptr;
+    };
+    std::string variable;
+    for (const auto& instruction : instructions)
+        if (instruction.size() == 3 && instruction[0] == "OpName" && instruction[2] == "\"g_Frame\"")
+            variable = instruction[1];
+    if (variable.empty()) return false;
+    const auto* declaration = find({ variable, "=", "OpVariable" });
+    if (!declaration || declaration->size() != 5 || (*declaration)[4] != "PushConstant") return false;
+    const auto* pointer = find({ (*declaration)[3], "=", "OpTypePointer", "PushConstant" });
+    if (!pointer || pointer->size() != 5) return false;
+    const std::string& block = (*pointer)[4];
+    if (!find({ "OpDecorate", block, "Block" }) ||
+        !find({ "OpMemberDecorate", block, "0", "Offset", "0" }) ||
+        !find({ "OpMemberDecorate", block, "0", "MatrixStride", "16" }) ||
+        !find({ "OpMemberDecorate", block, "0", "RowMajor" }) ||
+        find({ "OpDecorate", variable, "DescriptorSet" }) ||
+        find({ "OpDecorate", variable, "Binding" })) return false;
+    const auto* blockType = find({ block, "=", "OpTypeStruct" });
+    if (!blockType || blockType->size() != 4) return false;
+    const auto* matrix = find({ (*blockType)[3], "=", "OpTypeMatrix" });
+    if (!matrix || matrix->size() != 5 || (*matrix)[4] != "4") return false;
+    const auto* vector = find({ (*matrix)[3], "=", "OpTypeVector" });
+    if (!vector || vector->size() != 5 || (*vector)[4] != "4") return false;
+    return find({ (*vector)[3], "=", "OpTypeFloat", "32" }) != nullptr;
+}
+
 static bool RunShaderArtifactSelfTests()
 {
-#ifndef _WIN32
-    std::cout << "HShaderCompiler self-test failed: shader artifact contracts require DXC on Windows"
-              << std::endl;
-    return false;
-#else
     const std::optional<std::filesystem::path> shaderRoot =
         FindSelfTestEngineShaderRoot();
     if (!shaderRoot)
@@ -5145,8 +5552,7 @@ static bool RunShaderArtifactSelfTests()
         return false;
     }
 
-    const std::filesystem::path dxcPath =
-        std::filesystem::current_path() / "dxc.exe";
+    const std::filesystem::path dxcPath = ResolveDxcPath();
     const auto compile = [&](const HEngine::ShaderArtifactTarget& target,
                              std::string_view profile,
                              std::string_view entry,
@@ -5174,10 +5580,13 @@ static bool RunShaderArtifactSelfTests()
     const std::filesystem::path spirVLibrary = temporaryRoot / "contract.lib.spv";
     const std::filesystem::path spirVPixelAssembly = temporaryRoot / "contract.ps.spvasm";
     const std::filesystem::path spirVLibraryAssembly = temporaryRoot / "contract.lib.spvasm";
-    if (!compile(dxilTarget, "ps_6_0", "PSContract", dxilPixel, {}) ||
+    if (
+#if !defined(__APPLE__)
+        !compile(dxilTarget, "ps_6_0", "PSContract", dxilPixel, {}) ||
         !compile(dxilTarget, "lib_6_3", {}, dxilLibrary, {}) ||
-        !compile(spirVTarget, "ps_6_0", "PSContract", spirVPixel, spirVPixelAssembly) ||
-        !compile(spirVTarget, "lib_6_3", {}, spirVLibrary, spirVLibraryAssembly))
+#endif
+        (HE_SHADER_SPIRV && (!compile(spirVTarget, "ps_6_0", "PSContract", spirVPixel, spirVPixelAssembly) ||
+        !compile(spirVTarget, "lib_6_3", {}, spirVLibrary, spirVLibraryAssembly))))
     {
         std::cout << "HShaderCompiler self-test failed: DXIL/SPIR-V contract compilation"
                   << std::endl;
@@ -5198,31 +5607,31 @@ static bool RunShaderArtifactSelfTests()
         .profile = "lib_6_3",
         .artifactStem = "ShaderArtifactContract",
     };
-    if (!ValidateDxilRequirements(dxcPath, dxilPixel, sourcePath, pixelArtifact) ||
+    if (
+#if !defined(__APPLE__)
+        !ValidateDxilRequirements(dxcPath, dxilPixel, sourcePath, pixelArtifact) ||
         !ValidateDxilRequirements(dxcPath, dxilLibrary, sourcePath, libraryArtifact) ||
-        !ValidateSpirVArtifact(spirVPixel) ||
-        !ValidateSpirVArtifact(spirVLibrary))
+#endif
+        (HE_SHADER_SPIRV && (!ValidateSpirVArtifact(spirVPixel) ||
+        !ValidateSpirVArtifact(spirVLibrary))))
     {
         std::cout << "HShaderCompiler self-test failed: generated artifact validation"
                   << std::endl;
         return false;
     }
 
+    if (!HE_SHADER_SPIRV) return true;
+
     const std::string pixelAssembly = ReadFile(spirVPixelAssembly);
     const std::string libraryAssembly = ReadFile(spirVLibraryAssembly);
-    const std::array<std::string_view, 13> pixelContracts = {
+    const std::array<std::string_view, 8> pixelContracts = {
         "OpEntryPoint Fragment %PSContract \"PSContract\"",
         "OpDecorate %gl_FrontFacing BuiltIn FrontFacing",
         "OpName %g_Frame \"g_Frame\"",
-        "OpDecorate %type_PushConstant_ContractFrameConstants Block",
-        "OpMemberDecorate %type_PushConstant_ContractFrameConstants 0 Offset 0",
-        "%g_Frame = OpVariable %_ptr_PushConstant_type_PushConstant_ContractFrameConstants PushConstant",
         "OpDecorate %g_MaterialTextures DescriptorSet 1",
         "OpDecorate %g_MaterialTextures Binding 0",
         "OpDecorate %g_MaterialSamplers DescriptorSet 4",
         "OpDecorate %g_MaterialSamplers Binding 128",
-        "MatrixStride 16",
-        "RowMajor",
         "OpVectorTimesMatrix",
     };
     const std::array<std::string_view, 18> libraryContracts = {
@@ -5249,14 +5658,32 @@ static bool RunShaderArtifactSelfTests()
     {
         return std::ranges::all_of(contracts, [text](std::string_view contract)
         {
-            return text.find(contract) != std::string_view::npos;
+            if (text.find(contract) != std::string_view::npos) return true;
+            // SPIR-V Tools renamed these aliases to their ratified KHR names;
+            // both spellings represent the same built-in/storage-class values.
+            if (contract == "BuiltIn InstanceCustomIndexNV" &&
+                text.find("BuiltIn InstanceCustomIndexKHR") != std::string_view::npos) return true;
+            if (contract == "HitAttributeNV" &&
+                text.find("HitAttributeKHR") != std::string_view::npos) return true;
+            std::cout << "Missing SPIR-V contract: " << contract << '\n';
+            return false;
         });
     };
-    if (!containsAll(pixelAssembly, pixelContracts) ||
+    if (!ValidateSpirVFramePushConstantContract(pixelAssembly) ||
+        !containsAll(pixelAssembly, pixelContracts) ||
         !containsAll(libraryAssembly, libraryContracts))
     {
         std::cout << "HShaderCompiler self-test failed: SPIR-V matrix/binding/semantic contract"
                   << std::endl;
+        return false;
+    }
+    const std::string wrongStorage = std::regex_replace(pixelAssembly, std::regex("PushConstant"), "Uniform");
+    const std::string wrongOffset = std::regex_replace(pixelAssembly,
+        std::regex("(OpMemberDecorate [^ ]+ 0 Offset) 0"), "$1 4");
+    if (ValidateSpirVFramePushConstantContract(wrongStorage) ||
+        ValidateSpirVFramePushConstantContract(wrongOffset))
+    {
+        std::cout << "HShaderCompiler self-test failed: invalid push-constant storage/layout was accepted\n";
         return false;
     }
     if (pixelAssembly.find("OpDecorate %g_Frame DescriptorSet") !=
@@ -5269,11 +5696,117 @@ static bool RunShaderArtifactSelfTests()
         return false;
     }
     return true;
-#endif
 }
+
+#if defined(__APPLE__)
+static bool RunSpirVMaterialSelfTests()
+{
+    const auto engineRoot = FindSelfTestEngineShaderRoot();
+    if (!engineRoot) throw std::runtime_error("Cannot locate the SPIR-V material contract include root.");
+    struct Restore final
+    {
+        std::filesystem::path Root = RootPath, Output = OutputPath;
+        std::vector<std::filesystem::path> Includes = AdditionalIncludePaths;
+        std::vector<HEngine::ShaderArtifactTarget> Targets = ArtifactTargets;
+        std::filesystem::path Temporary;
+        ~Restore()
+        {
+            RootPath = Root; OutputPath = Output; AdditionalIncludePaths = Includes; ArtifactTargets = Targets;
+            std::error_code error;
+            std::filesystem::remove_all(Temporary, error);
+        }
+    } restore;
+    restore.Temporary = HEngine::PlatformFileSystem::MakeTemporarySiblingPath(
+        std::filesystem::temp_directory_path() / "HEngine-SpirV-MaterialContract");
+    RootPath = NormalizePath(restore.Temporary);
+    OutputPath = RootPath / "Output";
+    AdditionalIncludePaths = { *engineRoot };
+    ArtifactTargets = ParseShaderArtifactTargets("spirv");
+    const auto include = RootPath / "Shared.hlsli";
+    const std::string originalInclude = "#pragma property g_Roughness \"Roughness\" float default(0.5) range(0.04, 1.0)\n";
+    if (!WriteSelfTestText(include, originalInclude)) return false;
+    for (const auto blend : { "Opaque", "Mask" })
+    {
+        const auto source = RootPath / (std::string(blend) + ".hlsl");
+        const std::string sourceText =
+            "#include \"Modern/MaterialSurface.hlsli\"\n#include \"Shared.hlsli\"\n"
+            "#pragma hmaterial Surface Lit\n#pragma hblend " + std::string(blend) +
+            "\nvoid EvaluateMaterial(in HEMaterialInput input, inout HEMaterialSurface surface)\n"
+            "{ surface.PerceptualRoughness = g_Roughness; }\n";
+        if (!WriteSelfTestText(source, sourceText) || !CompileShader(source)) return false;
+        const auto manifestPath = OutputPath / "CACHES" / "Materials" / (source.filename().string() + ".material.json");
+        auto manifest = HEngine::LoadMaterialShaderManifest(manifestPath);
+        if (!manifest.Succeeded() || manifest.Manifest.ArtifactSets.size() != 1 ||
+            manifest.Manifest.Properties.size() != 1 || manifest.Manifest.ParameterBlock.ByteSize != 16)
+            throw std::runtime_error("SPIR-V material manifest/schema/parameter layout contract failed.");
+        const auto artifacts = HEngine::GetMaterialShaderArtifacts(manifest.Manifest,
+            HEngine::RenderBackend::Vulkan, HEngine::ShaderBinaryFormat::SpirV);
+        const size_t expected = std::string_view(blend) == "Mask" ? 20 : 12;
+        if (artifacts.size() != expected) throw std::runtime_error("SPIR-V material permutation matrix is incomplete.");
+        for (const auto& artifact : artifacts)
+        {
+            const auto path = OutputPath / "CACHES" / artifact.RelativePath;
+            if (artifact.DescriptorMode != HEngine::MaterialShaderDescriptorMode::Baseline ||
+                !artifact.RelativePath.starts_with("SPIRV/") || !ValidateSpirVArtifact(path) ||
+                BuildFileContentHash(path) != artifact.ContentHash)
+                throw std::runtime_error("Published SPIR-V material artifact content/descriptor contract failed.");
+        }
+        auto incomplete = manifest.Manifest;
+        incomplete.ArtifactSets.front().Artifacts.pop_back();
+        if (!HasDiagnosticCode(HEngine::ValidateMaterialShaderManifest(incomplete, "spirv-incomplete"),
+                "Manifest.ArtifactMatrix"))
+            throw std::runtime_error("Incomplete SPIR-V artifact matrix was accepted.");
+
+        const std::string previousManifest = ReadFile(manifestPath);
+        const auto dependencies = CollectShaderDependencies(source);
+        const auto originalHash = BuildRecursiveSourceHash(dependencies);
+        for (const bool replace : { false, true })
+        {
+            {
+                ScopedShaderSourceSnapshot snapshot(source);
+                const auto copiedSource = CompilerInputPath(include);
+                const bool changed = std::async(std::launch::async, [&]() {
+                    const std::string changedText = "#pragma property g_Roughness \"Roughness\" float default(0.8)\n";
+                    if (!replace) return WriteSelfTestText(include, changedText);
+                    const auto replacement = HEngine::PlatformFileSystem::MakeTemporarySiblingPath(include);
+                    std::error_code error;
+                    return WriteSelfTestText(replacement, changedText) &&
+                        HEngine::PlatformFileSystem::PublishFileAtomically(replacement, include, true, error);
+                }).get();
+                if (!changed || ReadFile(include) != originalInclude || ReadFile(copiedSource) != originalInclude ||
+                    BuildRecursiveSourceHash(dependencies) != originalHash)
+                    throw std::runtime_error("A concurrent source edit changed the compiler's immutable snapshot.");
+                std::vector<HEngine::MaterialShaderDiagnostic> diagnostics;
+                if (PublishMaterialManifestWithDependencyLease(source, dependencies, originalHash,
+                        manifestPath, "invalid-candidate", diagnostics) || ReadFile(manifestPath) != previousManifest ||
+                    !HasDiagnosticCode(diagnostics, "Material.DependencyChangedDuringCompile"))
+                    throw std::runtime_error("A concurrent source edit replaced the last valid SPIR-V manifest.");
+            }
+            if (!WriteSelfTestText(include, originalInclude)) return false;
+        }
+        // An unchanged recompile must reuse the content-addressed artifacts.
+        if (!CompileShader(source) || ReadFile(manifestPath) != previousManifest)
+            throw std::runtime_error("An unchanged SPIR-V recompile changed the published manifest.");
+    }
+    std::cout << "HShaderCompiler SPIR-V material/snapshot contracts PASS (DXIL is not a macOS target)\n";
+    return true;
+}
+#endif
 
 static bool RunSelfTests()
 {
+    for (const std::string_view text : { "1", "-0.5", ".25", "1e-12", "-0", " 1.25 " })
+    {
+        double value = 0;
+        if (!TryParseFiniteDouble(text, value))
+            throw std::runtime_error("Finite material number parsing rejected: " + std::string(text));
+    }
+    for (const std::string_view text : { "", "+1", "1,5", "1.0tail", "NaN", "inf", "1e9999", "1e-9999" })
+    {
+        double value = 0;
+        if (TryParseFiniteDouble(text, value))
+            throw std::runtime_error("Finite material number parsing accepted invalid input: " + std::string(text));
+    }
     const ShaderParseResult parseResult = PreParse(
         "#pragma htype ps PS\n"
         "#pragma hvariant HEAP_DIRECT\n"
@@ -5327,7 +5860,11 @@ static bool RunSelfTests()
         return false;
     }
 
+#if defined(__APPLE__)
+    if (!RunSpirVMaterialSelfTests())
+#else
     if (!RunMaterialManifestSelfTests())
+#endif
         return false;
 
     if (!RunShaderArtifactSelfTests())

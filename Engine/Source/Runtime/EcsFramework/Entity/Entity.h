@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Runtime/Core/UUID.h"
+#include "Runtime/Core/BuildFeatures.h"
 #include "Runtime/EcsFramework/Level/Level.h"
 
 #include <entt.hpp>
@@ -10,6 +11,7 @@
 
 namespace HEngine
 {
+    class NativeScriptComponent;
     class Entity
     {
     public:
@@ -20,6 +22,7 @@ namespace HEngine
         template<typename T, typename... Args>
         T& AddComponent(Args&&... args)
         {
+            RequireBuildFeature(T::RequiredBuildFeature, T::GetTypeName());
             HE_CORE_ASSERT(!HasComponent<T>(), "Entity already has component!");
             T& comp = mLevel->mRegistry.emplace<T>(mEntityHandle, std::forward<Args>(args)...);
             mLevel->OnComponentAdded<T>(*this, comp);
@@ -29,6 +32,7 @@ namespace HEngine
         template<typename T>
         T& AddComponent(const T& component)
         {
+            RequireBuildFeature(T::RequiredBuildFeature, T::GetTypeName());
             HE_CORE_ASSERT(!HasComponent<T>(), "Entity already has component!");
             T& comp = mLevel->mRegistry.emplace<T>(mEntityHandle, component);
             mLevel->OnComponentAdded<T>(*this, comp);
@@ -38,6 +42,7 @@ namespace HEngine
 		template<typename T, typename... Args>
 		T& AddOrReplaceComponent(Args&&... args)
 		{
+			RequireBuildFeature(T::RequiredBuildFeature, T::GetTypeName());
 			if constexpr (std::is_same_v<T, MeshComponent>)
 			{
 				if (HasComponent<T>())
@@ -51,6 +56,7 @@ namespace HEngine
         template<typename T>
         T& AddOrReplaceComponent(const T& component)
         {
+			RequireBuildFeature(T::RequiredBuildFeature, T::GetTypeName());
 			if constexpr (std::is_same_v<T, MeshComponent>)
 			{
 				if (HasComponent<T>())
@@ -93,7 +99,7 @@ namespace HEngine
 
         [[nodiscard]] bool IsValid() const
         {
-            return mLevel && mEntityHandle != entt::null && mLevel->mRegistry.valid(mEntityHandle);
+            return !mLevelLifetime.expired() && mEntityHandle != entt::null && mLevel->mRegistry.valid(mEntityHandle);
         }
 
         template<typename T>
@@ -103,6 +109,11 @@ namespace HEngine
 			if constexpr (std::is_same_v<T, MeshComponent>)
 			{
 				mLevel->OnMeshComponentRemoving(*this);
+			}
+			else if constexpr (std::is_same_v<T, NativeScriptComponent>)
+			{
+				GetComponent<T>().Stop();
+				if (!IsValid() || !mLevel->mRegistry.all_of<T>(mEntityHandle)) return;
 			}
 			else if constexpr (std::is_same_v<T, PythonScriptComponent>)
 			{
@@ -121,11 +132,12 @@ namespace HEngine
 
         [[nodiscard]] UUID UUID();
         [[nodiscard]] const std::string& GetName();
-        [[nodiscard]] Level* GetLevel() const { return mLevel; }
+        [[nodiscard]] Level* GetLevel() const { return mLevelLifetime.expired() ? nullptr : mLevel; }
 
         bool operator==(const Entity& other) const 
         { 
-            return mEntityHandle == other.mEntityHandle && mLevel == other.mLevel; 
+            return mEntityHandle == other.mEntityHandle && mLevel == other.mLevel &&
+                !mLevelLifetime.owner_before(other.mLevelLifetime) && !other.mLevelLifetime.owner_before(mLevelLifetime);
         }
 
         bool operator!=(const Entity& other) const
@@ -135,5 +147,12 @@ namespace HEngine
     private:
         EntityHandle mEntityHandle{ entt::null };
         Level* mLevel = nullptr;
+        std::weak_ptr<const unsigned char> mLevelLifetime;
     };
+}
+
+namespace HEngine
+{
+    template<typename T>
+    void Level::OnComponentAdded(Entity, T&) {}
 }

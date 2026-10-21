@@ -64,6 +64,17 @@ namespace HEngine
         uint64_t GeometryUploads = 0;
         uint64_t TextureUploads = 0;
         uint64_t GeometrySlotsReused = 0;
+        uint64_t GeometryBuffersReused = 0;
+		// Filled only when HE_RML_RECORD_TIMINGS=1; cumulative owner-thread CPU time.
+		uint64_t GeometryCompileNanoseconds = 0;
+		uint64_t GeometryBufferCreateNanoseconds = 0;
+		uint64_t GeometryBufferWriteNanoseconds = 0;
+		uint64_t GeometryDrawNanoseconds = 0;
+		uint64_t GeometryBuffersCreated = 0;
+		uint64_t GeometryBufferBytesCreated = 0;
+		uint64_t GeometryBuffersCreatedLe512 = 0;
+		uint64_t GeometryBuffersCreatedLe4096 = 0;
+		uint64_t GeometryArenaAllocations = 0;
         uint64_t TextureSlotsReused = 0;
         uint64_t InvalidGeometryHandles = 0;
         uint64_t InvalidTextureHandles = 0;

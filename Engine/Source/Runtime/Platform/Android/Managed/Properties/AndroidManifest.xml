@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-feature android:name="android.hardware.vulkan.version" android:version="4206592" android:required="true" />
+  <uses-feature android:name="android.hardware.touchscreen" android:required="true" />
+  <application android:label="${heApplicationLabel}" android:icon="${heApplicationIcon}" android:enableOnBackInvokedCallback="true" android:allowBackup="false" android:usesCleartextTraffic="false" android:appCategory="game" android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen" />
+</manifest>

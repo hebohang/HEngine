@@ -19,7 +19,8 @@
     "ShaderRoots": [],
     "ContentRoots": [],
     "Platforms": [
-        "Windows"
+        "Windows",
+        "macOS"
     ],
     "Configurations": [
         "Debug",

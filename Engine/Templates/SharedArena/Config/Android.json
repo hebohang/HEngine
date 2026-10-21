@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "applicationId": "com.hengine.template.sharedarena",
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "minimumSdk": 29,
+  "ndkVersion": "30.0.16248370",
+  "managedProject": "Scripts/CSharp/GameScripts.csproj",
+  "gameConfig": "Config/Game.json",
+  "pluginConfig": "Config/Plugins.json",
+  "format": "apk",
+  "signing": "Development"
+}

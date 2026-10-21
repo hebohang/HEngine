@@ -1,6 +1,6 @@
 ---
 name: he-single-testlayer-run
-description: Run exactly one HEngine logic or serialization test through the headless HEngineTests runner without editing TestLayer or starting HEngineEditor. The legacy skill name is retained for stable routing.
+description: Run one HEngine logic or serialization test with the headless HEngineTests runner.
 ---
 
 # Single engine test
@@ -18,7 +18,7 @@ Run exactly one named test:
 ```
 
 The command delegates to `Run-Test.ps1`. Do not toggle test calls in source. The
-runner builds incrementally in `out/agent/game-debug`, starts no window, times
+runner builds incrementally in `out/agent/tests-debug`, starts no window, times
 out safely, and uses exit codes for PASS/FAIL. Report the name, exact command,
 result, and evidence type `unit-test`. Use Editor runtime validation only for
 tests that truly require Window, Renderer, or UI interaction; third-party

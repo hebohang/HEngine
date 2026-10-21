@@ -160,6 +160,10 @@ namespace nvrhi::vulkan
             }
 
             commandBuffer->submissionID = submissionID;
+            // Keep UploadManager/ScratchManager alive through GPU retirement,
+            // but only once this recording enters the submitted lifetime path.
+            // Register before publishing to the tracker (not after queue submit).
+            commandBuffer->referencedResources.push_back(commandList);
             lifetimeTracker->push(commandBuffer);
 
             for (const auto& buffer : commandBuffer->referencedStagingBuffers)

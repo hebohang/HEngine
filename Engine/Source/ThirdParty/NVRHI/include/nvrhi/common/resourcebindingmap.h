@@ -31,17 +31,18 @@ namespace nvrhi {
 // describes a texture binding --- used to manage SRV / VkImageView per texture
 struct TextureBindingKey : public TextureSubresourceSet
 {
-    Format format;
-    bool isReadOnlyDSV;
+    Format format = Format::UNKNOWN;
+    bool isReadOnlyDSV = false;
+    // Packed ComponentMapping; always 0 for view types that carry no mapping.
+    uint16_t componentMapping = 0;
 
-    TextureBindingKey()
-    {
-    }
+    TextureBindingKey() = default;
 
-    TextureBindingKey(const TextureSubresourceSet& b, Format _format, bool _isReadOnlyDSV = false)
+    TextureBindingKey(const TextureSubresourceSet& b, Format _format, bool _isReadOnlyDSV = false, uint16_t _componentMapping = 0)
         : TextureSubresourceSet(b)
         , format(_format)
         , isReadOnlyDSV(_isReadOnlyDSV)
+        , componentMapping(_componentMapping)
     {
     }
 
@@ -49,7 +50,8 @@ struct TextureBindingKey : public TextureSubresourceSet
     {
         return format == other.format &&
             static_cast<const TextureSubresourceSet&>(*this) == static_cast<const TextureSubresourceSet&>(other) &&
-            isReadOnlyDSV == other.isReadOnlyDSV;
+            isReadOnlyDSV == other.isReadOnlyDSV &&
+            componentMapping == other.componentMapping;
     }
 };
 
@@ -88,7 +90,8 @@ namespace std
         {
             return std::hash<nvrhi::Format>()(s.format)
                 ^ std::hash<nvrhi::TextureSubresourceSet>()(s)
-                ^ std::hash<bool>()(s.isReadOnlyDSV);
+                ^ std::hash<bool>()(s.isReadOnlyDSV)
+                ^ std::hash<uint16_t>()(s.componentMapping);
         }
     };
 

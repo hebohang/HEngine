@@ -1,0 +1,4 @@
+{
+  "he.script.csharp": {"Game": true, "DevGame": true},
+  "he.script.python": {"Game": false, "DevGame": false}
+}

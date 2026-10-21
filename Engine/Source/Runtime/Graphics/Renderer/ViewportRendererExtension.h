@@ -34,6 +34,7 @@ namespace HEngine
         MaterialId,
         InstanceId,
         SampleCount,
+        DenoisedBeauty,
     };
 
     enum class OfflineViewportSessionState : uint8_t
@@ -61,6 +62,13 @@ namespace HEngine
 
     struct OfflineViewportRendererSettings
     {
+        bool bInteractive = true;
+        float TargetFramesPerSecond = 60.0f;
+        float WorkBudgetMilliseconds = 4.0f;
+        float InteractiveScale = 0.25f;
+        float SettleMilliseconds = 200.0f;
+        bool bDenoise = true;
+        uint32_t DenoiseIntervalMilliseconds = 500;
         uint32_t TargetSamples = 256;
         uint32_t SamplesPerFrame = 1;
         uint32_t MaxBounces = 8;
@@ -92,6 +100,21 @@ namespace HEngine
     {
         OfflineViewportSessionState State = OfflineViewportSessionState::Idle;
         uint64_t AccumulatedSamples = 0;
+        uint64_t SubmittedSamples = 0;
+        uint64_t Generation = 0;
+        uint64_t MaximumSamples = 0;
+        double AverageSamples = 0.0;
+        uint32_t InFlight = 0;
+        uint64_t StaleResults = 0;
+        bool bTimingAvailable = false;
+        double TracingMilliseconds = 0;
+        uint32_t IncludedInstances = 0;
+        uint32_t ExcludedInstances = 0;
+        uint32_t RetiredOutputSets = 0;
+        std::string Phase;
+        std::string DenoiserStatus;
+        double DenoiseMilliseconds = 0.0;
+        uint64_t DenoisedSamples = 0;
         uint64_t TargetSamples = 0;
         double ElapsedSeconds = 0.0;
         double LastGpuMilliseconds = 0.0;
@@ -154,6 +177,9 @@ namespace HEngine
         virtual void Resume() noexcept = 0;
         virtual void Restart() = 0;
         virtual void Cancel() noexcept = 0;
+        // Render-thread polling after Cancel. Includes external CPU/device work
+        // whose lifetime is not covered by the graphics submission fence.
+        [[nodiscard]] virtual bool HasPendingWork() const noexcept { return false; }
 
         [[nodiscard]] virtual TextureReadbackHandle RequestExport(
             OfflineViewportAov aov,
@@ -176,6 +202,7 @@ namespace HEngine
 
     struct OfflineViewportRendererProviderDescriptor
     {
+        bool bBasePbrMaterials = false;
         std::string Id;
         std::string DisplayName;
         std::string OwnerPluginId;
@@ -225,10 +252,11 @@ namespace HEngine
 
         OfflineViewportRendererProviderRegistration(
             std::shared_ptr<Detail::OfflineViewportRendererRegistryState> state,
-            std::string id) noexcept;
+            std::string id, uint64_t token) noexcept;
 
         std::shared_ptr<Detail::OfflineViewportRendererRegistryState> mState;
         std::string mId;
+        uint64_t mToken = 0;
     };
 
     class OfflineViewportRendererSessionLease final

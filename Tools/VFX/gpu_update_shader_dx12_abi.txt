@@ -1,0 +1,96 @@
+// Buffer Definitions:
+//
+// cbuffer cb2
+// {
+//
+//   struct EmitterData
+//   {
+//
+//       uint FlagBits;                 // Offset:    0
+//       uint Seed;                     // Offset:    4
+//       uint ParticleHead;             // Offset:    8
+//       uint ParticleSize;             // Offset:   12
+//       uint TrailHead;                // Offset:   16
+//       uint TrailSize;                // Offset:   20
+//       uint TrailPhase;               // Offset:   24
+//       uint NextEmitCount;            // Offset:   28
+//       uint TotalEmitCount;           // Offset:   32
+//       uint EmitPointCount;           // Offset:   36
+//       float TimeCount;               // Offset:   40
+//       float TimeStopped;             // Offset:   44
+//       uint Reserved0;                // Offset:   48
+//       uint Reserved1;                // Offset:   52
+//       float DeltaTime;               // Offset:   56
+//       uint Color;                    // Offset:   60
+//       float4x3 Transform;            // Offset:   64
+//
+//   } _620_emitter;                    // Offset:    0 Size:   112
+//
+// }
+//
+// cbuffer cb1
+// {
+//
+//   struct ParameterData
+//   {
+//
+//       int EmitCount;                 // Offset:    0
+//       int EmitPerFrame;              // Offset:    4
+//       float EmitOffset;              // Offset:    8
+//       uint Padding0;                 // Offset:   12
+//       float2 LifeTime;               // Offset:   16
+//       uint EmitShapeType;            // Offset:   24
+//       uint EmitRotationApplied;      // Offset:   28
+//       float4 EmitShapeData[2];       // Offset:   32
+//       float3 Direction;              // Offset:   64
+//       float Spread;                  // Offset:   76
+//       float2 InitialSpeed;           // Offset:   80
+//       float2 Damping;                // Offset:   88
+//       float4 AngularOffset[2];       // Offset:   96
+//       float4 AngularVelocity[2];     // Offset:  128
+//       float4 ScaleData1[2];          // Offset:  160
+//       float4 ScaleData2[2];          // Offset:  192
+//       float3 ScaleEasing;            // Offset:  224
+//       uint ScaleFlags;               // Offset:  236
+//       float3 Gravity;                // Offset:  240
+//       uint Padding2;                 // Offset:  252
+//       float3 VortexCenter;           // Offset:  256
+//       float VortexRotation;          // Offset:  268
+//       float3 VortexAxis;             // Offset:  272
+//       float VortexAttraction;        // Offset:  284
+//       float TurbulencePower;         // Offset:  288
+//       uint TurbulenceSeed;           // Offset:  292
+//       float TurbulenceScale;         // Offset:  296
+//       float TurbulenceOctave;        // Offset:  300
+//       uint RenderState;              // Offset:  304
+//       uint ShapeType;                // Offset:  308
+//       uint ShapeData;                // Offset:  312
+//       float ShapeSize;               // Offset:  316
+//       float Emissive;                // Offset:  320
+//       float FadeIn;                  // Offset:  324
+//       float FadeOut;                 // Offset:  328
+//       uint MaterialType;             // Offset:  332
+//       uint4 ColorData;               // Offset:  336
+//       float3 ColorEasing;            // Offset:  352
+//       uint ColorFlags;               // Offset:  364
+//
+//   } _687_paramData;                  // Offset:    0 Size:   368
+//
+// }
+//
+//
+// Resource Bindings:
+//
+// Name                                 Type  Format         Dim      HLSL Bind  Count
+// ------------------------------ ---------- ------- ----------- -------------- ------
+// NoiseSamp                         sampler      NA          NA             s2      1
+// GradientSamp                      sampler      NA          NA             s4      1
+// NoiseTex                          texture  float4          3d             t2      1
+// GradientTex                       texture  float4          2d             t4      1
+// Particles                             UAV    byte         r/w             u0      1
+// Trails                                UAV    byte         r/w             u1      1
+// cb1                               cbuffer      NA          NA            cb1      1
+// cb2                               cbuffer      NA          NA            cb2      1
+//
+//
+//

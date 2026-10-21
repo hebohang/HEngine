@@ -11,6 +11,9 @@ set(HE_DEV_AGENT_RUNTIME_SOURCES
 )
 
 add_library(HEngineDevAgentRuntime STATIC ${HE_DEV_AGENT_RUNTIME_SOURCES})
+if(MSVC)
+	target_compile_options(HEngineDevAgentRuntime PRIVATE /bigobj)
+endif()
 
 target_include_directories(HEngineDevAgentRuntime
 	PUBLIC "${EngineSourceDir}"

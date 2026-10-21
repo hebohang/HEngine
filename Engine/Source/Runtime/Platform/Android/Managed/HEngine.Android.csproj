@@ -1,0 +1,66 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-android</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>HEngine.AndroidHost</RootNamespace>
+    <HEAndroidManagedDirectory Condition="'$(HEAndroidManagedDirectory)' == ''">$(ScriptRegistryDir)/../runtime</HEAndroidManagedDirectory>
+    <SupportedOSPlatformVersion>29.0</SupportedOSPlatformVersion>
+    <RuntimeIdentifier>android-arm64</RuntimeIdentifier>
+    <ApplicationId>$(HEAndroidApplicationId)</ApplicationId>
+    <ApplicationTitle>$(HEAndroidDisplayName)</ApplicationTitle>
+    <ApplicationVersion>$(HEAndroidVersionCode)</ApplicationVersion>
+    <ApplicationDisplayVersion>$(HEAndroidVersionName)</ApplicationDisplayVersion>
+    <HEAndroidIconResource Condition="'$(HEAndroidIcon)' != ''">@drawable/game_icon</HEAndroidIconResource>
+    <HEAndroidIconResource Condition="'$(HEAndroidIcon)' == ''">@android:drawable/sym_def_app_icon</HEAndroidIconResource>
+    <AndroidManifestPlaceholders>heApplicationLabel=$(HEAndroidDisplayName);heApplicationIcon=$(HEAndroidIconResource)</AndroidManifestPlaceholders>
+    <AndroidPackageFormats>apk;aab</AndroidPackageFormats>
+    <AndroidUseInterpreter>true</AndroidUseInterpreter>
+    <!-- Use runtime JNI registration with the interpreter. Static marshal
+         tables can be empty on incremental publish while Java stubs persist. -->
+    <AndroidEnableMarshalMethods>false</AndroidEnableMarshalMethods>
+    <RunAOTCompilation>false</RunAOTCompilation>
+    <PublishTrimmed>false</PublishTrimmed>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <HEPlatform>Android</HEPlatform>
+    <HEQuality Condition="'$(HEQuality)' == ''">Desktop</HEQuality>
+    <AndroidEnableMultiDex>true</AndroidEnableMultiDex>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(HEAndroidReleaseSigning)' == 'True' or '$(HEAndroidReleaseSigning)' == 'true'">
+    <AndroidKeyStore>true</AndroidKeyStore>
+    <AndroidSigningKeyStore>$(HE_ANDROID_KEYSTORE)</AndroidSigningKeyStore>
+    <AndroidSigningKeyAlias>$(HE_ANDROID_KEY_ALIAS)</AndroidSigningKeyAlias>
+    <AndroidSigningStorePass>$(HE_ANDROID_STORE_PASSWORD)</AndroidSigningStorePass>
+    <AndroidSigningKeyPass>$(HE_ANDROID_KEY_PASSWORD)</AndroidSigningKeyPass>
+  </PropertyGroup>
+  <ItemGroup>
+    <AndroidResource Include="$(HEAndroidIcon)" Condition="'$(HEAndroidIcon)' != ''">
+      <Link>Resources/drawable/game_icon.png</Link>
+    </AndroidResource>
+    <!-- Consume the exact assemblies verified with their generated registry.
+         Rebuilding project references in a second artifacts directory changes
+         assembly identities after the registry has been generated. -->
+    <Reference Include="HEngine.ScriptCore">
+      <HintPath>$(HEAndroidManagedDirectory)/HEngine.ScriptCore.dll</HintPath>
+    </Reference>
+    <Reference Include="HEngine.ScriptRuntime">
+      <HintPath>$(HEAndroidManagedDirectory)/HEngine.ScriptRuntime.dll</HintPath>
+    </Reference>
+    <Reference Include="GameScripts">
+      <HintPath>$(HEAndroidManagedDirectory)/GameScripts.dll</HintPath>
+    </Reference>
+    <AndroidNativeLibrary Include="$(HEAndroidNativeLibrary)">
+      <Abi>arm64-v8a</Abi>
+    </AndroidNativeLibrary>
+    <AndroidAsset Include="$(HEAndroidAssets)/**/*" Condition="'$(HEAndroidAssets)' != ''">
+      <LogicalName>content/%(RecursiveDir)%(Filename)%(Extension)</LogicalName>
+    </AndroidAsset>
+  </ItemGroup>
+  <Target Name="ValidateAndroidInputs" BeforeTargets="PrepareForBuild">
+    <Error Condition="!Exists('$(HEAndroidNativeLibrary)')" Text="Build the Android ARM64 native HGame library first." />
+    <Error Condition="!Exists('$(HEAndroidManagedDirectory)/HEngine.ScriptRuntime.dll')" Text="Build and verify the Android managed script module first." />
+    <Error Condition="!Exists('$(HEAndroidAssets)/Game.pak')" Text="Android requires host-cooked content." />
+    <Error Condition="'$(HEAndroidApplicationId)' == ''" Text="Android application identity must be provided by the project." />
+  </Target>
+</Project>

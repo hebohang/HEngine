@@ -1,25 +1,12 @@
 #include "Hepch.h"
 
 #include "Runtime/Animation/AnimationStateMachine.h"
+#include "Runtime/Animation/MotionBlend.h"
 
 #include <algorithm>
 
 namespace HEngine
 {
-    namespace
-    {
-        static std::vector<glm::mat4> BlendMatrices(const std::vector<glm::mat4>& a, const std::vector<glm::mat4>& b, float alpha)
-        {
-            const size_t count = std::min(a.size(), b.size());
-            std::vector<glm::mat4> out(count, glm::mat4(1.0f));
-            for (size_t i = 0; i < count; ++i)
-            {
-                out[i] = a[i] * (1.0f - alpha) + b[i] * alpha;
-            }
-            return out;
-        }
-    }
-
     void AnimationStateMachine::Reset()
     {
         mCurrentNodeId = -1;
@@ -31,9 +18,9 @@ namespace HEngine
         mTransitionFromClip = -1;
         mTransitionToClip = -1;
         mMainClipIndex = -1;
-        mMainAnimator.Reset();
-        mFromAnimator.Reset();
-        mToAnimator.Reset();
+        mMainAnimator.ClearAnimation();
+        mFromAnimator.ClearAnimation();
+        mToAnimator.ClearAnimation();
     }
 
     void AnimationStateMachine::SetController(const AnimControllerRes& controller)
@@ -99,7 +86,7 @@ namespace HEngine
                 return;
         }
 
-        const float updateDt = dt * std::max(0.01f, playSpeed);
+        const float updateDt = dt * std::max(0.0f, playSpeed);
 
         if (!mInTransition)
         {
@@ -140,11 +127,23 @@ namespace HEngine
         if (mInTransition)
         {
             mTransitionTime += updateDt;
+            mFromAnimator.SetLoop(bLoop);
             mFromAnimator.UpdateAnimation(updateDt);
+            mToAnimator.SetLoop(bLoop);
             mToAnimator.UpdateAnimation(updateDt);
+            if (mParameters)
+            {
+                // Updating either base clip resamples its pose. Restore both
+                // states' blend sources and action layers before crossfading,
+                // so an outgoing reload/fire layer cannot disappear for a frame.
+                ApplyMotionBlend(mFromAnimator, mCurrentNodeId, *mController, *mNodeToClipIndex,
+                    *const_cast<std::vector<Animation>*>(mClips), *mParameters, bLoop);
+                ApplyMotionBlend(mToAnimator, mTargetNodeId, *mController, *mNodeToClipIndex,
+                    *const_cast<std::vector<Animation>*>(mClips), *mParameters, bLoop);
+            }
 
             const float alpha = std::clamp(mTransitionTime / mTransitionDuration, 0.0f, 1.0f);
-            outFinalMatrices = BlendMatrices(mFromAnimator.GetFinalBoneMatrices(), mToAnimator.GetFinalBoneMatrices(), alpha);
+            outFinalMatrices = Animator::BlendFinalMatrices(mFromAnimator, mToAnimator, alpha);
             outProgress = alpha;
 
             if (alpha >= 1.0f)
@@ -158,7 +157,10 @@ namespace HEngine
         }
         else
         {
+            mMainAnimator.SetLoop(bLoop);
             mMainAnimator.UpdateAnimation(updateDt);
+            if (mParameters) ApplyMotionBlend(mMainAnimator, mCurrentNodeId, *mController, *mNodeToClipIndex,
+                *const_cast<std::vector<Animation>*>(mClips), *mParameters, bLoop);
             outFinalMatrices = mMainAnimator.GetFinalBoneMatrices();
             outProgress = mMainAnimator.GetProgress();
 
@@ -230,13 +232,15 @@ namespace HEngine
         if (!mController || !mNodeToClipIndex)
             return -1;
 
+        // A playable entry state must evaluate its outgoing conditions normally.
+        // Only a non-playable Entry node redirects initialization to its first state.
+        if (mNodeToClipIndex->count(mController->entryNodeId))
+            return mController->entryNodeId;
         for (const auto& transition : mController->transitions)
         {
             if (transition.fromNodeId == mController->entryNodeId && mNodeToClipIndex->count(transition.toNodeId))
                 return transition.toNodeId;
         }
-        if (mNodeToClipIndex->count(mController->entryNodeId))
-            return mController->entryNodeId;
         if (!mNodeToClipIndex->empty())
             return mNodeToClipIndex->begin()->first;
         return -1;

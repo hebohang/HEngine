@@ -1,4 +1,5 @@
 #pragma once
+#include "Runtime/EcsFramework/System/Script/ScriptSystem.h"
 
 #include "Runtime/EcsFramework/System/Physics/PhysicSystem2D.h"
 #include "Runtime/EcsFramework/System/Physics/PhysicSystem3D.h"
@@ -9,6 +10,7 @@
 #include "Runtime/EcsFramework/System/Camera/CameraDebugDrawSystem.h"
 #include "Runtime/EcsFramework/System/Script/NativeScriptSystem.h"
 #include "Runtime/EcsFramework/System/Animation/AnimationSystem.h"
+#include "Runtime/EcsFramework/System/Animation/SequenceSystem.h"
 #include "Runtime/EcsFramework/System/Render/RenderSystem2D.h"
 #include "Runtime/EcsFramework/System/Render/RenderSystem3D.h"
 #include "Runtime/EcsFramework/System/Script/PythonScriptSystem.h"

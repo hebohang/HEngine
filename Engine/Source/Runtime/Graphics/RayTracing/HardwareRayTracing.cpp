@@ -130,7 +130,7 @@ namespace HEngine
 
     RayTracingGeometrySupport ClassifyRayTracingGeometry(
         const RenderObject& object,
-        const RenderMeshSection& section) noexcept
+        const RenderMeshSection& section, bool bBasePbrMaterials) noexcept
     {
         if (!section.SubMeshResource)
             return RayTracingGeometrySupport::MissingGeometry;
@@ -142,12 +142,12 @@ namespace HEngine
         {
             return RayTracingGeometrySupport::Skinned;
         }
-        if (!HasOnlyFlatTriangleNormals(*section.SubMeshResource))
+        if (!bBasePbrMaterials && !HasOnlyFlatTriangleNormals(*section.SubMeshResource))
             return RayTracingGeometrySupport::SmoothShadingNormals;
-        if (section.MaterialInstance.bCustomSurface)
+        if (section.GetMaterialInstance().bCustomSurface)
             return RayTracingGeometrySupport::CustomMaterialShader;
-        if (std::ranges::any_of(
-            section.MaterialInstance.LegacyTextures,
+        if (!bBasePbrMaterials && std::ranges::any_of(
+            section.GetMaterialInstance().LegacyTextures,
             [](const RenderMeshSection::MaterialInstanceSnapshot::TextureReference& texture)
             {
                 return texture.bEnabled;
@@ -158,7 +158,7 @@ namespace HEngine
             // admitting a textured mesh would silently trace the wrong BSDF.
             return RayTracingGeometrySupport::TexturedMaterial;
         }
-        if (section.AlphaMode == RenderMaterialAlphaMode::Mask)
+        if (!bBasePbrMaterials && section.AlphaMode == RenderMaterialAlphaMode::Mask)
             return RayTracingGeometrySupport::AlphaMask;
         if (section.AlphaMode == RenderMaterialAlphaMode::Blend ||
             object.Path == RenderPath::Transparent)

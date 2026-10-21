@@ -3,6 +3,7 @@
 #include "BasePanel.h"
 #include "Editor/Preview/MaterialPreviewScene.h"
 #include "Runtime/Core/Base/Base.h"
+#include "Runtime/Core/Meta/Json.h"
 
 #include <string>
 #include <string_view>
@@ -39,6 +40,8 @@ namespace HEngine
 		}
 
         bool mOpen = true;
+        [[nodiscard]] bool HasUnsavedChanges() const noexcept { return mDirty; }
+        Json AutomationMaterial(const Json& params);
     private:
 		enum class CompileState
 		{
@@ -56,11 +59,14 @@ namespace HEngine
 		[[nodiscard]] bool DrawProperties();
 		void SaveMaterial();
 		void RevertMaterial();
+		void SaveDraft();
+		void RevertDraft();
 
         bool mFirstOpen = true;
 		bool mDirty = false;
 		std::string mMaterialPath;
 		Ref<Material> mMaterial;
+		Ref<Material> mAutomationLiveMaterial;
 		MaterialPreviewScene mPreviewScene;
 		CompileState mCompileState = CompileState::Ready;
 		std::string mCompileMessage = "Using the serialized shader.";

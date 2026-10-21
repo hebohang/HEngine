@@ -6,6 +6,7 @@
 #include "Runtime/Graphics/RHI/RenderBackend.h"
 
 #include <nvrhi/nvrhi.h>
+#include <glm/vec2.hpp>
 
 #include <cstdint>
 #include <filesystem>
@@ -54,7 +55,8 @@ namespace HEngine
             uint32_t width,
             uint32_t height,
             uint64_t completedSubmission,
-            bool bCameraReset = false);
+            bool bCameraReset = false,
+            glm::vec2 jitterPixels = glm::vec2(0.0f));
         void Resize(
             uint32_t width,
             uint32_t height,
@@ -71,13 +73,15 @@ namespace HEngine
         // RG16_FLOAT, D32/R32_FLOAT, RG32_FLOAT, RGBA16_FLOAT and RG32_UINT.
         // TemporalGiConfidence is optional and must be full-resolution. The
         // caller may composite later overlays into the resolved texture without
-        // feeding those overlays back into temporal history.
+        // feeding those overlays back into temporal history. History remains on
+        // the jittered raster grid; returned presentation color is reconstructed
+        // on the unjittered grid using PrepareFrame's current jitter in pixels.
         [[nodiscard]] TextureHandle AddTaaPasses(
             RenderGraph& renderGraph,
             const SceneTaaPassInputs& inputs);
 
-        // FXAA consumes display-referred RGBA8_UNORM and fully overwrites the
-        // caller-provided single-sample RGBA8_UNORM target.
+        // FXAA consumes display-referred RGBA8_UNORM/BGRA8_UNORM and fully
+        // overwrites a single-sample target in either format (no sRGB views).
         [[nodiscard]] TextureHandle AddFxaaPass(
             RenderGraph& renderGraph,
             TextureHandle ldrInput,
@@ -86,9 +90,9 @@ namespace HEngine
             uint32_t width,
             uint32_t height);
 
-        // SMAA 1x consumes display-referred RGBA8_UNORM, creates transient
+        // SMAA 1x consumes display-referred RGBA8_UNORM/BGRA8_UNORM, creates transient
         // RG8 edge and RGBA8 blend-weight targets, then fully overwrites the
-        // caller-provided single-sample RGBA8_UNORM target.
+        // caller-provided single-sample RGBA8_UNORM/BGRA8_UNORM target.
         [[nodiscard]] TextureHandle AddSmaaPasses(
             RenderGraph& renderGraph,
             TextureHandle ldrInput,
@@ -98,6 +102,11 @@ namespace HEngine
             uint32_t height);
 
         void UpdateImportedResources(RenderGraph& renderGraph);
+        // Exchange capsule preserves graph handles/caches and temporal state,
+        // including history allocations when a candidate changes the AA mode.
+        // Retain after commit until the previous graph's submission completes.
+        [[nodiscard]] std::function<void()> CaptureGraphState();
+        void ClearGraphResourceCaches() noexcept;
         [[nodiscard]] bool ConsumeGraphRebuildRequest() noexcept;
         void NotifyFrameSubmitted(uint64_t submission) noexcept;
         void AbortFrame() noexcept;

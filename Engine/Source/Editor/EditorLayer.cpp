@@ -3,9 +3,13 @@
 #include "ImGuiWrapper/ImGuiWrapper.h"
 #include "Manager/IconManager.h"
 #include "Panels/BasePanel.h"
+#include "Panels/BuildPublishPanel.h"
 #include "Panels/ContentBrowserPanel.h"
 #include "Panels/OutputLogPanel.h"
 #include "Panels/SceneHierarchyPanel.h"
+#include "Panels/ScriptInspector.h"
+#include "Runtime/Scripting/ScriptBackendRegistry.h"
+#include "Runtime/EcsFramework/System/Script/ScriptSystem.h"
 #include "Panels/MaterialPanel.h"
 #include "Panels/AnimControllerPanel.h"
 #include "Panels/AssetPreviewPanel.h"
@@ -13,11 +17,18 @@
 #include "Panels/AudioPanel.h"
 #include "Panels/BaseSettingsPanel.h"
 #include "Panels/ProjectSettingsPanel.h"
+#include "Panels/PluginPanel.h"
 #include "Panels/RenderGraphDiagnosticsPanel.h"
 #include "Panels/OfflineRendererPanel.h"
 #include "Preview/MaterialThumbnailService.h"
 #include "Runtime/EcsFramework/Serializer/SceneSerializer.h"
+#include "Runtime/EcsFramework/Serializer/SceneDocument.h"
+#include "Runtime/EcsFramework/Serializer/SceneEditingLevel.h"
+#if HE_ENABLE_GM
+#include "Runtime/DevTools/GM/GMService.h"
+#endif
 #include "Runtime/EcsFramework/Component/Basic/TagComponent.h"
+#include "Runtime/EcsFramework/Component/Basic/IDComponent.h"
 #include "Runtime/EcsFramework/Component/Camera/CameraComponent.h"
 #include "Runtime/EcsFramework/Component/Light/DirectionalLightComponent.h"
 #include "Runtime/EcsFramework/Component/Light/PointLightComponent.h"
@@ -29,6 +40,7 @@
 #include "Runtime/Graphics/Material/MaterialResourceCache.h"
 #include "Runtime/Graphics/Material/MaterialShaderManager.h"
 #include "Runtime/Graphics/Renderer/RuntimeRenderer.h"
+#include "Runtime/Graphics/Renderer/RenderPipeline.h"
 #include "Runtime/Graphics/Settings/RenderSettingsService.h"
 #include "Runtime/Utils/PlatformUtils.h"
 #include "Runtime/Utils/IniUtils/IniFile.h"
@@ -39,14 +51,18 @@
 #include "Runtime/Resource/ModeManager/ModeManager.h"
 #include "Runtime/Resource/ConfigManager/ConfigManager.h"
 #include "Runtime/Resource/RuntimeProjectResourceWarmup.h"
+#include "Runtime/Scripting/ScriptInputContext.h"
+#include "Runtime/Core/Input/InputActions.h"
 #include "Runtime/EcsFramework/System/UI/UIViewportContext.h"
 #include "Runtime/UI/Rml/RmlUiManager.h"
 #include "Runtime/Resource/AssetManager/AssetManager.h"
 #include "Runtime/Core/Log/Log.h"
+#include "Runtime/Core/SimulationClock.h"
 #include "Runtime/Core/Modules/ModuleManager.h"
 #include "Runtime/Core/Plugins/Services/RenderCaptureService.h"
 #include "Runtime/Core/Math/Math.h"
 
+#include <cstdlib>
 #include <HEngine/ProjectBuildConfig.h>
 #include <imgui/imgui.h>
 #include <imgui/imgui_internal.h>
@@ -58,6 +74,7 @@
 #include <magic_enum.hpp>
 #include <algorithm>
 #include <cmath>
+#include <chrono>
 #include <exception>
 #include <sstream>
 #include <stdexcept>
@@ -69,6 +86,19 @@ namespace HEngine
 {
 	namespace
 	{
+        std::string EditorShortcutLabel(std::string_view label)
+        {
+            std::string result(label);
+#if defined(__APPLE__)
+            for (std::size_t position = 0; (position = result.find("Ctrl+", position)) != std::string::npos;)
+            {
+                result.replace(position, 5, "Cmd+");
+                position += 4;
+            }
+#endif
+            return result;
+        }
+
 		constexpr const char* c_MaterialShowcaseScenePath =
 			"Assets/Scenes/MaterialShowcase.he";
 
@@ -265,6 +295,7 @@ namespace HEngine
 	// Setting
 	static bool bShowBaseSettings = false;
 	static bool bShowProjectSettings = false;
+	static bool bShowPlugins = false;
 	static bool bShowRenderGraphDiagnostics = false;
 	static bool bShowOfflineRenderer = false;
 
@@ -276,7 +307,6 @@ namespace HEngine
 	static bool bShowStats = false;
 	static bool bShowSRT = true;
 	static bool bShowOutputLog = true;
-	static bool bShowFPS = false;
 
 	// Help
 	static bool bShowTutorial = false;
@@ -937,13 +967,15 @@ namespace HEngine
 	void EditorLayer::EditorLogInit()
 	{
 		using my_sink_st = my_sink<spdlog::details::null_mutex>;
-		Log::GetCoreLogger() = CreateRef<spdlog::logger>("HEngine", CreateRef<my_sink_st>());
+		Log::GetCoreLogger()->sinks().push_back(CreateRef<my_sink_st>());
 		Log::GetCoreLogger()->set_level(spdlog::level::trace);
+		if (!Log::InstallFileSink(ConfigManager::GetSavedPath("Logs/Editor.log")))
+			HE_CORE_WARN("Could not install the editor diagnostic log.");
 	}
 
     void EditorLayer::OnAttach()
     {
-		// UE-style editor panels stay inside one native window. This also avoids the
+		// Editor panels stay inside one native window. This also avoids the
 		// extra swap chains and focus ambiguity created by detached platform windows.
 		ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_ViewportsEnable;
 
@@ -957,6 +989,7 @@ namespace HEngine
 		RegisterPanel<ProjectSettingsPanel>(
 			"Project Settings",
 			&bShowProjectSettings);
+		RegisterPanel<PluginPanel>("Plugin Manager", &bShowPlugins);
 		RegisterPanel<RenderGraphDiagnosticsPanel>(
 			"RenderGraph Diagnostics",
 			&bShowRenderGraphDiagnostics);
@@ -996,6 +1029,9 @@ namespace HEngine
 			ImGui::LoadIniSettingsFromDisk(DefaultEditorConfigPath.string().c_str());
 		}
 
+		// Migrate legacy/default layouts before the first DockSpace is submitted.
+		// Doing this during detach leaves a fresh installation with collapsed panes.
+		mResetEditorDockLayout = ImGui::FindWindowSettingsByID(ImHashStr("##HEditorLayoutV2")) == nullptr;
 		const float currentWindowWidth = (float)Application::GetWindow().GetWidth();
 		if (ImGuiWindowSettings* dockSpaceSettings = ImGui::FindWindowSettingsByID(ImHashStr("DockSpace Demo")))
 		{
@@ -1011,6 +1047,11 @@ namespace HEngine
 			}
 		}
 
+#if WITH_EDITOR
+        if (runOptions.ExitAfterFrames > 0 && std::getenv("HE_EDITOR_SETTINGS_CAPTURE"))
+            bShowProjectSettings = true;
+#endif
+
 		EmbreeSystem::InitializeSharedContext();
 		Application::GetInstance().EnableMainOffscreenOutput();
 		mMaterialThumbnailService = CreateScope<MaterialThumbnailService>();
@@ -1025,8 +1066,27 @@ namespace HEngine
 			? mBaseEditorJson["DefaultScene"].get<std::string>()
 			: runOptions.StartupScene;
 		OpenScene(ConfigManager::GetFullPath(startupScene));
-		ResetSceneHistory("Open Scene");
+        ResetSceneHistory("Open Scene");
+        if (!runOptions.StartupViewportMode.empty())
+            ApplyViewportMode(runOptions.StartupViewportMode);
+#if HE_ENABLE_GM
+		for (const std::string action : {"describe","query","plan","apply","diff","validate","save","undo","redo","result","export_prefab"})
+		{
+			DevCommandDescription description;
+			description.Name = "scene." + action; description.DisplayName = description.Name;
+			description.Summary = action == "export_prefab"
+                ? "Export current author subtree to a new Assets .hprefab. Required: sceneId, baseRevision, requestId, entity, path; never overwrite. Read scene.result with ticket."
+                : "Shared author scene service; queued operations complete at OnPreUpdate. Read scene.result with ticket.";
+			description.Category = "Scene"; description.Owner = "editor.scene";
+			description.bUseTypedArguments = false;
+			(void)GMService::GetInstance().GetCommandRegistry().Register(std::move(description),
+				[this, action](DevCommandExecutionContext& context) {
+					return DevCommandResult::Success(QueueSceneEditingRequest(action, context.Arguments));
+				});
+		}
+#endif
 
+        mSceneMailbox.Initialize(runOptions.ExitAfterFrames > 0);
 		if (ConfigManager::GetLanguage() == Language::English)
 			mTextIni = CreateScope<HIni>(ConfigManager::GetEditorResourceFullPath("Localization/English.ini").string().c_str());
 		else if (ConfigManager::GetLanguage() == Language::Chinese)
@@ -1079,12 +1139,204 @@ namespace HEngine
 
 	void EditorLayer::OnPreUpdate()
 	{
-		HE_PROFILE_SECTION("Shader Watcher");
-		shaderWatcher.Update();
+        if (std::exchange(mInvalidateClosedAssetPanels, false))
+        {
+            mActiveUndoClient = nullptr;
+            std::erase_if(mPanelMap, [](const auto& item) {
+                const auto* panel = item.second.get();
+                return !panel->IsOpen() && (dynamic_cast<const MaterialPanel*>(panel) ||
+                    dynamic_cast<const AnimControllerPanel*>(panel) || dynamic_cast<const UIPanel*>(panel) ||
+                    dynamic_cast<const AssetPreviewPanel*>(panel));
+            });
+        }
+        ProcessRuntimeSceneRequest();
+        // Project Manager waits for an initialized scene and a completed UI frame,
+        // rather than treating process creation or the splash window as readiness.
+        if (!mStartupReadyReported && mPendingSceneOpenPath.empty() &&
+            Application::GetInstance().GetCompletedFrameCount() > 0)
+        {
+            if (mEditorScenePath.empty())
+                HE_CORE_ERROR("[ProjectManager] Editor startup failed: initial scene did not load");
+            else
+                HE_CORE_INFO("[ProjectManager] Editor ready");
+            mStartupReadyReported = true;
+        }
+        mSceneMailbox.SetVfxSceneContext(mActiveScene.get(), !mPendingSceneOpenPath.empty() ||
+            !mPendingSceneEdits.empty() || !mPendingSceneHistoryLabel.empty() || mSceneHistoryInteractivePending);
+        mSceneMailbox.Poll([this](const std::filesystem::path& path) { RequestOpenScene(path); },
+            [this](const Json& params) -> Json {
+                const std::string path = params.at("path");
+                if (params.at("action") == "open")
+                {
+                    if (std::filesystem::path(path).extension() == ".hanimctrl") CreateAnimControllerPanel(path);
+                    else CreateAssetPreviewPanel(path);
+                    return {{"opened",true},{"path",path}};
+                }
+                if (std::filesystem::path(path).extension() == ".hanimctrl")
+                {
+                    const auto found = mPanelMap.find(AnimControllerPanel::BuildPanelKey(path));
+                    if (found == mPanelMap.end()) throw std::invalid_argument("Controller panel has not been opened.");
+                    auto* panel = dynamic_cast<AnimControllerPanel*>(found->second.get());
+                    if (!panel) throw std::runtime_error("Requested panel is not an animation controller.");
+                    return panel->AutomationGraph(params);
+                }
+                const auto found = mPanelMap.find(AssetPreviewPanel::BuildPanelKey(path));
+                if (found == mPanelMap.end()) throw std::invalid_argument("Animation preview has not been opened.");
+                auto* panel = dynamic_cast<AssetPreviewPanel*>(found->second.get());
+                if (!panel) throw std::runtime_error("Requested panel is not an animation asset preview.");
+                if (params.at("action") == "close")
+                {
+                    mPanelMap.erase(found);
+                    return {{"closed",true},{"path",path}};
+                }
+                return panel->AutomationPreview(params);
+            }, [this](const Json& params) -> Json {
+                const std::string path = params.at("path");
+                const std::string action = params.at("action");
+                const std::string key = BuildMaterialPanelKey(path);
+                if (action == "open") CreateMaterialPanel(path);
+                const auto found = mPanelMap.find(key);
+                if (found == mPanelMap.end()) throw std::invalid_argument("Material panel has not been opened");
+                auto* panel = dynamic_cast<MaterialPanel*>(found->second.get());
+                if (!panel) throw std::runtime_error("Requested panel is not a material panel");
+                if (action == "close")
+                {
+                    if (panel->HasUnsavedChanges()) throw std::invalid_argument("Save or revert material before closing");
+                    mPanelMap.erase(found);
+                    return {{"closed",true},{"path",path}};
+                }
+                return panel->AutomationMaterial(params);
+            });
+		{
+			HE_PROFILE_SECTION("Shader Watcher");
+			shaderWatcher.Update();
+		}
+		if (!mPendingSceneOpenPath.empty() && !mSceneMailbox.IsVfxDiagnosticActive())
+		{
+			const auto path = std::exchange(mPendingSceneOpenPath, {});
+			OpenScene(path);
+		}
+        if (mSceneMailbox.IsVfxDiagnosticActive()) return; // Defer queued author transactions until normal end.
+		HE_PROFILE_SECTION("Scene Editing Observation");
+		if (!mSceneEditing || !mEditorScene) return;
+		mSceneEditing->SetPlaying(!ModeManager::IsEditState());
+		const auto observationTime = std::chrono::steady_clock::now();
+		const bool bKnownSceneEdit = !mPendingSceneHistoryLabel.empty();
+		// Author edits and queued commands need a complete, current document.
+		// Idle legacy-write detection checks a few entities per frame so large
+		// scenes do not incur a periodic full-scene serialization stall.
+		if (ModeManager::IsEditState() && !mSceneHistoryInteractivePending)
+		{
+			if (bKnownSceneEdit || !mPendingSceneEdits.empty())
+			{
+				mSceneEditing->Observe(SceneSerializer(mEditorScene).SerializeToJson(), bKnownSceneEdit);
+				mPendingSceneHistoryLabel.clear();
+				mSceneObservationHandles.clear();
+				mSceneObservationSeen.clear();
+				mSceneObservationIndex = 0;
+				mNextSceneObservation = observationTime + std::chrono::milliseconds(500);
+			}
+			else if (!mSceneObservationHandles.empty() || observationTime >= mNextSceneObservation)
+			{
+				if (mSceneObservationHandles.empty())
+				{
+					for (const auto handle : mEditorScene->GetAllEntitiesWith<IDComponent>())
+						mSceneObservationHandles.push_back(handle);
+				}
+				const auto& document = mSceneEditing->GetDocument();
+				const SceneSerializer serializer(mEditorScene);
+				const auto deadline = std::chrono::steady_clock::now() + std::chrono::microseconds(1500);
+				bool bUnreportedEdit = false;
+				for (size_t processed = 0; mSceneObservationIndex < mSceneObservationHandles.size() && processed < 8; ++processed)
+				{
+					const auto handle = mSceneObservationHandles[mSceneObservationIndex++];
+					if (!mEditorScene->mRegistry.valid(handle) || !mEditorScene->mRegistry.all_of<IDComponent>(handle))
+						continue;
+					Entity entity(handle, mEditorScene.get());
+					const std::string id = entity.UUID().str();
+					mSceneObservationSeen.insert(id);
+					const auto previous = document.find(id);
+					if (previous == document.end()) bUnreportedEdit = true;
+					else
+					{
+						Json current = serializer.SerializeEntityToJson(entity);
+						if (current.contains("CameraComponent") && previous->contains("CameraComponent"))
+						{
+							auto& camera = current["CameraComponent"]["Camera"];
+							const auto& previousCamera = (*previous)["CameraComponent"]["Camera"];
+							if (previousCamera.contains("mAspectRatio")) camera["mAspectRatio"] = previousCamera["mAspectRatio"];
+							else camera.erase("mAspectRatio");
+						}
+						bUnreportedEdit = current != *previous;
+						if (bUnreportedEdit)
+						{
+							for (const auto& [component, value] : current.items())
+								if (!previous->contains(component) || (*previous)[component] != value)
+								{
+									if (!previous->contains(component))
+									{
+										HE_CORE_WARN("Unreported scene change: entity={}, component={} added", id, component);
+										break;
+									}
+									for (const auto& [field, fieldValue] : value.items())
+										if (!(*previous)[component].contains(field) || (*previous)[component][field] != fieldValue)
+											HE_CORE_WARN("Unreported scene change: entity={}, component={}, field={}", id, component, field);
+									break;
+								}
+						}
+					}
+					if (bUnreportedEdit || std::chrono::steady_clock::now() >= deadline) break;
+				}
+				if (mSceneObservationIndex == mSceneObservationHandles.size() &&
+					mSceneObservationSeen.size() != document.size()) bUnreportedEdit = true;
+				if (bUnreportedEdit || mSceneObservationIndex == mSceneObservationHandles.size())
+				{
+					if (bUnreportedEdit)
+						mSceneEditing->Observe(serializer.SerializeToJson(), false);
+					mSceneObservationHandles.clear();
+					mSceneObservationSeen.clear();
+					mSceneObservationIndex = 0;
+					mNextSceneObservation = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+				}
+			}
+		}
+		if (!mSceneHistoryInteractivePending)
+		{
+			for (auto& pending : mPendingSceneEdits)
+			{
+				if (pending.LocalUi) pending.Request["baseRevision"] = mSceneEditing->GetRevision();
+				Json result = mSceneEditing->Execute(pending.Method, pending.Request);
+                if (pending.LocalUi)
+                    mLastSceneEditError = result.value("ok", false) ? std::string{} :
+                        result.value("error", Json::object()).dump().substr(0, 4096);
+				if (!result.value("ok",false)) HE_CORE_WARN("Scene edit failed: {0}", result.dump());
+				else if (pending.Method == "save")
+				{
+					mEditorScenePath = ConfigManager::GetProjectFullPath(result.at("path").get<std::string>());
+					if (mSceneThumbnailService) mSceneThumbnailService->Invalidate(result.at("path").get<std::string>());
+					HE_CORE_INFO("Scene saved: {0}", result.at("path").get<std::string>());
+				}
+				mSceneEditResults[pending.Ticket] = std::move(result);
+			}
+			mPendingSceneEdits.clear();
+			while (mSceneEditResults.size() > 64) mSceneEditResults.erase(mSceneEditResults.begin());
+		}
+		const bool bSceneDirty = mSceneEditing->IsDirty();
+		if (bSceneDirty != mSceneDirty)
+			HE_CORE_INFO("Scene document state: {0}; dirty={1}", mEditorScenePath.generic_string(), bSceneDirty);
+		mSceneDirty = bSceneDirty;
 	}
 
 	void EditorLayer::OnDetach()
 	{
+        StopScriptCompilation();
+        if (!ModeManager::IsEditState() && mActiveScene)
+            if (auto* scripts = mActiveScene->TryGetSystem<ScriptSystem>()) scripts->NotifyApplicationQuit();
+        if (mBuildPublishPanel) mBuildPublishPanel->Shutdown();
+        (void)mSceneMailbox.ShutdownVfx();
+#if HE_ENABLE_GM
+		(void)GMService::GetInstance().UnregisterOwner("editor.scene");
+#endif
 		if (mShaderWatcherHandle)
 			shaderWatcher.GetFileModifiedEvent().Remove(mShaderWatcherHandle);
 		if (mViewportModeController.IsOfflineRendererActive())
@@ -1112,13 +1364,12 @@ namespace HEngine
 				ReportEditorCleanupFailure("Editor runtime stop failed during detach.", std::current_exception());
 			}
 		}
-		mResetEditorDockLayout = ImGui::FindWindowSettingsByID(ImHashStr("##HEditorLayoutV2")) == nullptr;
 		ReleaseEditorRuntimeWarmupResidency(
 			"Editor resource warm-up release failed during detach.");
 
 		try
 		{
-			mRuntimeAltDown = false;
+			mRuntimeInputEngaged = false;
 			SetRuntimeCursorCaptured(false);
 			Application::GetWindow().SetInputMethodEnabled(true);
 		}
@@ -1140,8 +1391,7 @@ namespace HEngine
 		mPanelMap.clear();
 		mPendingMaterialPaths.clear();
 		mPendingAssetPreviewPaths.clear();
-		mSceneHistoryEntries.clear();
-		mSceneHistoryCursor = 0;
+		mSceneEditing.reset();
 		mSceneHistoryInteractivePending = false;
 		mPendingSceneHistoryLabel.clear();
 		mSceneDirty = false;
@@ -1159,7 +1409,51 @@ namespace HEngine
 
     void EditorLayer::OnUpdate(Timestep ts)
     {
+        static const bool bTimeEditorUpdate = [] {
+            const char* setting = std::getenv("HE_EDITOR_UPDATE_TIMINGS");
+            return setting && setting[0] == '1' && setting[1] == '\0';
+        }();
+        const auto timingStart = bTimeEditorUpdate ? std::chrono::steady_clock::now()
+            : std::chrono::steady_clock::time_point{};
+        double sceneUpdateMilliseconds = 0.0;
+        double worldSubmitMilliseconds = 0.0;
+        double thumbnailMilliseconds = 0.0;
+        bool bEditorSceneUpdated = false;
+        if (auto compiled = PollScriptCompilation())
+        {
+            mPendingScriptGeneration = compiled->Directory;
+            if (compiled->RestartPlay && !ModeManager::IsEditState())
+            {
+                TryChangeSceneMode(false);
+                // Play resets and loads the pending generation before creating instances.
+                if (ModeManager::IsEditState()) TryChangeSceneMode(true);
+            }
+        }
+        if (ModeManager::IsEditState() && !mPendingScriptGeneration.empty())
+        {
+            const auto directory = std::exchange(mPendingScriptGeneration, {});
+            try
+            {
+                auto backend = ScriptBackendRegistry::Find("he.script.csharp");
+                if (auto* reloader = dynamic_cast<IScriptReloader*>(backend.get())) reloader->Reload(directory);
+            }
+            catch (const std::exception& error) { HE_CORE_ERROR("Script reload failed: {0}", error.what()); }
+        }
         HE_PROFILE;
+        if (mSceneMailbox.IsVfxDiagnosticActive() && mViewportModeController.IsOfflineRendererActive())
+        {
+            (void)mSceneMailbox.ShutdownVfx();
+            throw std::logic_error("Editor VFX diagnostic requires the realtime raster viewport");
+        }
+        mSceneMailbox.BeginVfxFrame(mActiveScene.get());
+
+        if (mViewportModeController.IsOfflineRendererActive() &&
+            !OfflineViewportRendererProviderRegistry::Get().Contains(
+                mViewportModeController.GetCurrentMode().RendererProviderId))
+        {
+            ApplyViewportMode("raster.3d");
+            mViewportModeError = "The viewport renderer provider was disabled; returned to 3D.";
+        }
 
 		UpdateRuntimeCursorPolicy();
 
@@ -1180,22 +1474,44 @@ namespace HEngine
 				mLastRenderedDimensionMode != ModeManager::b3DMode ||
 				mLastRenderedShowColliders != ModeManager::bShowPhysicsColliders ||
 				mLastRenderedPhysicsDebugMode != ModeManager::mPhysicsDebugDrawModeFlag;
-			const bool bUpdateEditorScene =
+			const bool bUpdateEditorScene = mSceneMailbox.IsVfxDiagnosticActive() ? mSceneMailbox.HasVfxStep() :
 				mEditorWarmupFramesRemaining > 0 ||
 				bCameraChanged ||
 				bEditorStateChanged ||
-				mViewportModeController.IsOfflineRendererActive() ||
 				ModeManager::bRealtimePreview ||
 				mActiveScene->RequiresContinuousEditorUpdate();
 
 			if (bUpdateEditorScene)
 			{
+				bEditorSceneUpdated = true;
 				// Time-driven materials only need a fresh RenderWorld. Their shader
 				// time comes from PresentationClock during extraction, so keep the
 				// editor timestep paused unless the user enabled realtime preview.
-				const Timestep editorTimestep = ModeManager::bRealtimePreview ? ts : Timestep(0.0f);
-				mActiveScene->OnUpdateEditor(editorTimestep, mEditorCamera);
-				Application::GetInstance().SubmitRenderWorld(AcquireMergedRenderWorld(*mActiveScene));
+				const Timestep editorTimestep = mSceneMailbox.HasVfxStep() ? Timestep(1.0f / 60.0f) :
+                    ModeManager::bRealtimePreview ? ts : Timestep(0.0f);
+				try
+                {
+                    const auto sceneStart = bTimeEditorUpdate ? std::chrono::steady_clock::now()
+                        : std::chrono::steady_clock::time_point{};
+                    mActiveScene->OnUpdateEditor(editorTimestep, mEditorCamera);
+                    const auto submitStart = bTimeEditorUpdate ? std::chrono::steady_clock::now()
+                        : std::chrono::steady_clock::time_point{};
+                    Application::GetInstance().SubmitRenderWorld(AcquireMergedRenderWorld(*mActiveScene));
+                    if (bTimeEditorUpdate)
+                    {
+                        const auto submitEnd = std::chrono::steady_clock::now();
+                        sceneUpdateMilliseconds = std::chrono::duration<double, std::milli>(
+                            submitStart - sceneStart).count();
+                        worldSubmitMilliseconds = std::chrono::duration<double, std::milli>(
+                            submitEnd - submitStart).count();
+                    }
+                    mSceneMailbox.CompleteVfxFrame(mActiveScene.get());
+                }
+                catch (...)
+                {
+                    (void)mSceneMailbox.ShutdownVfx();
+                    throw;
+                }
 				if (mEditorWarmupFramesRemaining > 0)
 					--mEditorWarmupFramesRemaining;
 				mLastRenderedEditorView = currentView;
@@ -1240,7 +1556,9 @@ namespace HEngine
 			}
 			{
 				HE_PROFILE_SECTION("Scene Runtime Update");
-				mActiveScene->OnUpdateRuntime(ts);
+                if (!mScriptPlay.IsPaused() || mScriptPlay.NeedsStep())
+                    mActiveScene->OnUpdateRuntime(mScriptPlay.NeedsStep() ? Timestep(1.0f / 60.0f) : ts);
+                if (mScriptPlay.NeedsStep()) mScriptPlay.CompleteStep();
 			}
 			Application::GetInstance().SubmitRenderWorld(AcquireMergedRenderWorld(*mActiveScene));
 			UpdateRuntimeCursorPolicy();
@@ -1272,6 +1590,8 @@ namespace HEngine
 			ConfigManager::selectedEntity = -1;
 		}
 
+		const auto thumbnailStart = bTimeEditorUpdate ? std::chrono::steady_clock::now()
+			: std::chrono::steady_clock::time_point{};
 		if (mMaterialThumbnailService)
 		{
 			HE_PROFILE_SECTION("Material Thumbnails");
@@ -1282,6 +1602,22 @@ namespace HEngine
 			HE_PROFILE_SECTION("Scene Thumbnails");
 			mSceneThumbnailService->Tick(ts);
 		}
+        if (bTimeEditorUpdate)
+        {
+            const auto end = std::chrono::steady_clock::now();
+            const double totalMilliseconds = std::chrono::duration<double, std::milli>(
+                end - timingStart).count();
+            if (totalMilliseconds > 14.0)
+            {
+                thumbnailMilliseconds = std::chrono::duration<double, std::milli>(
+                    end - thumbnailStart).count();
+                HE_CORE_WARN("[EditorUpdateTiming] frame={} totalMs={} sceneUpdated={} sceneMs={} submitMs={} thumbnailMs={} otherMs={}",
+                    SimulationClock::GetInstance().GetFrameNumber(), totalMilliseconds,
+                    bEditorSceneUpdated, sceneUpdateMilliseconds, worldSubmitMilliseconds,
+                    thumbnailMilliseconds,
+                    totalMilliseconds - sceneUpdateMilliseconds - worldSubmitMilliseconds - thumbnailMilliseconds);
+            }
+        }
     }
 
 	void EditorLayer::OnImGuiRender()
@@ -1298,24 +1634,6 @@ namespace HEngine
 		UpdateSettings();
 		mFocusedUndoClient = nullptr;
 		mHoveredUndoClient = nullptr;
-
-		// Check async package build result
-		if (mPackageFuture.valid() &&
-			mPackageFuture.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
-		{
-			auto [success, msg] = mPackageFuture.get();
-			if (success)
-			{
-				HE_CORE_INFO("[Package] Windows 打包完成: {}", msg);
-				ImGui::InsertNotification({ ImGuiToastType_Success, 5000, "Windows打包完成: %s", msg.c_str() });
-				FileDialogs::OpenInExplorer(msg);
-			}
-			else
-			{
-				HE_CORE_ERROR("[Package] 打包失败: {}", msg);
-				ImGui::InsertNotification({ ImGuiToastType_Error, 8000, "打包失败: %s", msg.c_str() });
-			}
-		}
 
 		// ----DockSpace Begin----
 		static bool dockspaceOpen = true;
@@ -1385,9 +1703,7 @@ namespace HEngine
 				ImGuiID hierarchyDock = rightDock;
 				const ImGuiID propertiesDock = ImGui::DockBuilderSplitNode(hierarchyDock, ImGuiDir_Down, 0.64f, nullptr, &hierarchyDock);
 				const ImGuiID bottomDock = ImGui::DockBuilderSplitNode(centerDock, ImGuiDir_Down, 0.30f, nullptr, &centerDock);
-				const ImGuiID toolbarDock = ImGui::DockBuilderSplitNode(centerDock, ImGuiDir_Up, 0.07f, nullptr, &centerDock);
 
-				ImGui::DockBuilderDockWindow("##toolbar", toolbarDock);
 				ImGui::DockBuilderDockWindow("Viewport", centerDock);
 				ImGui::DockBuilderDockWindow("Content Browser", bottomDock);
 				ImGui::DockBuilderDockWindow("Output Log", bottomDock);
@@ -1398,6 +1714,10 @@ namespace HEngine
 					ImGui::CreateNewWindowSettings("##HEditorLayoutV2");
 				mResetEditorDockLayout = false;
 			}
+			// Remove the obsolete docked toolbar without disturbing other panels.
+			if (auto* toolbar = ImGui::FindWindowByName("##toolbar"); toolbar && toolbar->DockNode)
+				ImGui::DockBuilderRemoveNode(toolbar->DockNode->ID);
+			ImGui::SetCursorPosY(ImGui::GetCursorPosY() + ImGuiWrapper::S(44.0f));
             ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
         }
 
@@ -1408,17 +1728,35 @@ namespace HEngine
 		{
             if (ImGui::BeginMenu(GetText("File")))
             {
+#if defined(__APPLE__)
+                if (ImGui::MenuItem(ConfigManager::GetLanguage() == Language::Chinese
+                    ? "在 Finder 中显示项目…" : "Show Project in Finder..."))
+                    FileDialogs::OpenInExplorer(ConfigManager::GetInstance().GetRootFolder().string());
+#else
+                if (ImGui::MenuItem(ConfigManager::GetLanguage() == Language::Chinese
+                    ? "项目管理…" : "Project Manager..."))
+                {
+                    const auto launcher = ConfigManager::GetEngineFolder().parent_path() / "Win-ProjectManager.bat";
+                    if (!FileDialogs::OpenFileWithApplication(launcher,
+                        ConfigManager::GetProjectFullPath("Project.heproject")))
+                        HE_CORE_ERROR("Cannot open Project Manager: {}", launcher.string());
+                }
+#endif
+                ImGui::Separator();
 				ImGui::BeginDisabled(!ModeManager::IsEditState());
-                if (ImGui::MenuItem(GetText("New"), "Ctrl+N"))
+                if (ImGui::MenuItem(GetText("New"), EditorShortcutLabel("Ctrl+N").c_str()))
                     NewScene();
 
-                if (ImGui::MenuItem(GetText("Open..."), "Ctrl+O"))
+                ImGui::EndDisabled();
+
+                if (ImGui::MenuItem(GetText("Open..."), EditorShortcutLabel("Ctrl+O").c_str()))
                     OpenScene();
 
-				if (ImGui::MenuItem(GetText("Save"), "Ctrl+S"))
+                ImGui::BeginDisabled(!ModeManager::IsEditState());
+				if (ImGui::MenuItem(GetText("Save"), EditorShortcutLabel("Ctrl+S").c_str()))
 					SaveScene();
 
-                if (ImGui::MenuItem(GetText("Save As..."), "Ctrl+Shift+S"))
+                if (ImGui::MenuItem(GetText("Save As..."), EditorShortcutLabel("Ctrl+Shift+S").c_str()))
                     SaveSceneAs();
 				ImGui::EndDisabled();
 
@@ -1433,32 +1771,31 @@ namespace HEngine
 				const bool bCanRedo = mActiveUndoClient && mActiveUndoClient->CanRedo();
 				if (!bCanUndo)
 					ImGui::BeginDisabled();
-				if (ImGui::MenuItem(GetText("Undo"), "Ctrl+Z"))
+				if (ImGui::MenuItem(GetText("Undo"), EditorShortcutLabel("Ctrl+Z").c_str()))
 					UndoActiveDocument();
 				if (!bCanUndo)
 					ImGui::EndDisabled();
 
 				if (!bCanRedo)
 					ImGui::BeginDisabled();
-				if (ImGui::MenuItem(GetText("Redo"), "Ctrl+Y / Ctrl+Shift+Z"))
+				if (ImGui::MenuItem(GetText("Redo"), EditorShortcutLabel("Ctrl+Y / Ctrl+Shift+Z").c_str()))
 					RedoActiveDocument();
 				if (!bCanRedo)
 					ImGui::EndDisabled();
 
 				ImGui::Separator();
 				ImGui::BeginDisabled(!ModeManager::IsEditState());
-				if (ImGui::MenuItem(GetText("Duplicate Entity"), "Ctrl+D"))
+				if (ImGui::MenuItem(GetText("Duplicate Entity"), EditorShortcutLabel("Ctrl+D").c_str()))
 					OnDuplicateEntity();
 				ImGui::EndDisabled();
 
 				ImGui::EndMenu();
 			}
-			if (ImGui::BeginMenu(GetText("Build")))
+			if (ImGui::MenuItem(ConfigManager::GetLanguage() == Language::Chinese ? "发布" : "Publish", EditorShortcutLabel("Ctrl+P").c_str(), false, ModeManager::IsEditState()))
+                OpenBuildPublish();
+			if (ImGui::BeginMenu(GetText("Plugins")))
 			{
-				ImGui::BeginDisabled(!ModeManager::IsEditState());
-				if (ImGui::MenuItem(GetText("Package Windows..."), "Ctrl+P"))
-					PackageProjectWindows();
-				ImGui::EndDisabled();
+				ImGui::MenuItem(GetText("Plugin Manager"), nullptr, &bShowPlugins);
 				ImGui::EndMenu();
 			}
 			if (ImGui::BeginMenu(GetText("Settings")))
@@ -1519,7 +1856,6 @@ namespace HEngine
 				ImGui::MenuItem(GetText("Level Hierachy"), NULL, &bShowSceneHierachy);
 				ImGui::MenuItem(GetText("Properties"), NULL, &bShowProperties);
 				ImGui::MenuItem(GetText("Stats"), NULL, &bShowStats);
-				ImGui::MenuItem(EditorLayer::GetText("FPS Overlay"), NULL, &bShowFPS);
 
 				ImGuiWrapper::SeparatorWithText(GetText("SeparatorLOG"));
 
@@ -1550,6 +1886,7 @@ namespace HEngine
 					RegisterPanel<ProjectSettingsPanel>(
 						"Project Settings",
 						&bShowProjectSettings);
+					RegisterPanel<PluginPanel>("Plugin Manager", &bShowPlugins);
 					RegisterPanel<RenderGraphDiagnosticsPanel>(
 						"RenderGraph Diagnostics",
 						&bShowRenderGraphDiagnostics);
@@ -1566,15 +1903,12 @@ namespace HEngine
 			}
 			if (ImGui::BeginMenu(GetText("Help")))
 			{
-				if (ImGui::MenuItem(GetText("Material Showcase")))
-				{
-					OpenScene(ConfigManager::GetEngineContentFullPath(
-						c_MaterialShowcaseScenePath));
-				}
-				ImGui::Separator();
-				ImGui::MenuItem(GetText("Tutorial"), NULL, &bShowTutorial);
-				ImGui::MenuItem(GetText("About Me"), NULL, &bShowAboutMe);
-				ImGui::MenuItem(GetText("Demo ImGui"), NULL, &bShowDemoImGui);
+                ImGui::MenuItem(GetText("Tutorial"), nullptr, &bShowTutorial);
+                ImGui::MenuItem(GetText("About Me"), nullptr, &bShowAboutMe);
+                ImGuiWrapper::SeparatorWithText(ConfigManager::GetLanguage() == Language::Chinese ? "示例" : "Examples");
+                if (ImGui::MenuItem(GetText("Material Showcase"), nullptr, false, ModeManager::IsEditState()))
+                    RequestOpenScene(ConfigManager::GetEngineContentFullPath(c_MaterialShowcaseScenePath));
+                ImGui::MenuItem(GetText("Demo ImGui"), nullptr, &bShowDemoImGui);
 
 				ImGui::EndMenu();
 			}
@@ -1601,16 +1935,52 @@ namespace HEngine
 		if (bShowStats)
 		{
 			const std::string statsWindowName = std::string(EditorLayer::GetText("Stats")) + "###Stats";
-			ImGui::Begin(statsWindowName.c_str(), &bShowStats);
-
-			float fps = ImGui::GetIO().Framerate;
-			ImGui::Text("%s: %.1f (%.3f ms/frame)", EditorLayer::GetText("Editor FPS"), fps, 1000.0f / fps);
-			ImGui::Text("%s: %ux%u", EditorLayer::GetText("Viewport"),
-				Application::GetInstance().GetRenderWidth(),
-				Application::GetInstance().GetRenderHeight());
-
+            ImGuiWrapper::ConstrainNextWindowToWorkArea(statsWindowName.c_str(), ImVec2(460, 600), ImVec2(340, 320));
+            if (ImGui::Begin(statsWindowName.c_str(), &bShowStats))
+            {
+                const auto& stats = Application::GetInstance().GetMainSceneStats();
+                const float fps = ImGui::GetIO().Framerate;
+                ImGui::Text("%.1f FPS   /   %.2f ms", fps, fps > 0.0f ? 1000.0f / fps : 0.0f);
+                ImGui::TextDisabled("主视口 · 最近渲染帧%s", stats.bSceneReused ? "（复用缓存）" : "");
+                ImGui::Separator();
+                if (ImGui::BeginTable("##RenderStats", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
+                {
+                    const auto row = [](const char* label, auto value)
+                    {
+                        ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextUnformatted(label);
+                        ImGui::TableNextColumn(); const auto text = std::to_string(value); ImGui::TextUnformatted(text.c_str());
+                    };
+                    row("渲染宽度", Application::GetInstance().GetRenderWidth());
+                    row("渲染高度", Application::GetInstance().GetRenderHeight());
+                    row("不透明 Draw Calls", stats.StaticOpaqueDrawCount);
+                    row("透明 Draw Calls", stats.CpuTransparentDrawCount);
+                    row("骨骼 Draw Calls", stats.SkinnedDrawCount);
+                    row("深度预通道 Draw Calls", stats.DepthPrepassDrawCount);
+                    row("方向光阴影 Draw Calls", stats.DirectionalShadowDrawCount);
+                    row("GPU 间接绘制命令", stats.GpuIndirectDrawCount);
+                    row("2D 批次", stats.Primitive2DBatchCount);
+                    row("输入渲染对象", stats.InputRenderObjects);
+                    row("LOD 后候选三角形", stats.SelectedRasterTriangleCount);
+                    row("材质程序", stats.MaterialProgramCount);
+                    row("纹理绑定", stats.BindlessTextureCount);
+                    row("RenderGraph Pass", stats.CompiledPasses.size());
+                    row("几何缓冲使用 / MiB", stats.GeometryArenaUsedBytes / (1024 * 1024));
+                    ImGui::EndTable();
+                }
+                ImGui::Spacing();
+                ImGui::Text("CPU 准备 %.2f ms / 录制 %.2f ms", stats.CpuFramePreparationMilliseconds, stats.CpuGraphRecordMilliseconds);
+                if (stats.bGpuTimingEnabled && stats.GpuRenderGraphSampleCount > 0)
+                    ImGui::Text("GPU RenderGraph %.2f ms", stats.GpuRenderGraphLastMilliseconds);
+                else ImGui::TextDisabled("GPU 耗时：未采样");
+                if (stats.GpuCullingReadbackSubmission > 0)
+                    ImGui::Text("GPU 可见 %u / 裁剪 %u", stats.GpuVisibleObjectCount, stats.GpuCulledObjectCount);
+                ImGui::TextWrapped("绘制数按通道分别统计，不含 UI 与特效；GPU 数据来自最近完成的回读。");
+                if (ImGui::Button("RenderGraph 诊断")) bShowRenderGraphDiagnostics = true;
+            }
 			ImGui::End();
 		}
+		bViewportHovered = false;
+		bHandleEvent = false;
 		if (bShowViewport)
 		{
 			bViewGizmoHovered = false;
@@ -1633,7 +2003,8 @@ namespace HEngine
 			mViewportBounds[0] = { viewportMinRegion.x + viewportOffset.x, viewportMinRegion.y + viewportOffset.y };
 			mViewportBounds[1] = { viewportMaxRegion.x + viewportOffset.x, viewportMaxRegion.y + viewportOffset.y };
 
-			bViewportHovered = ImGui::IsWindowHovered();
+			bViewportHovered = ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(
+				ImVec2(mViewportBounds[0].x, mViewportBounds[0].y), ImVec2(mViewportBounds[1].x, mViewportBounds[1].y));
 			bHandleEvent = ImGui::IsWindowFocused() || bViewportHovered;
 			const bool bRenderTransformGizmo = ModeManager::IsEditState() && (bViewportHovered || ImGuizmo::IsUsing());
 			const bool bRenderViewGizmo = ModeManager::IsEditState();
@@ -1670,20 +2041,68 @@ namespace HEngine
 					ConfigManager::mViewportSize.x,
 					ConfigManager::mViewportSize.y });
 			}
+            const auto debugMode = RenderSettingsService::GetInstance().GetSnapshot().Debug.PbrDebugMode;
+            if (debugMode != 0)
+            {
+                static constexpr const char* names[] = {"正常着色", "Base Color", "World Normal", "Metallic", "Roughness", "Material AO", "Direct Lighting", "Diffuse IBL", "Specular IBL", "Shadow", "Final HDR", "HDR Validity", "Screen AO", "Depth (log)"};
+                const char* name = debugMode < std::size(names) ? names[debugMode] : "Debug";
+                ImGui::GetWindowDrawList()->AddText(ImVec2(mViewportBounds[0].x + ImGuiWrapper::S(12), mViewportBounds[0].y + ImGuiWrapper::S(58)), IM_COL32(245, 200, 120, 255), name);
+            }
+			if (ModeManager::IsEditState())
+			{
 			const ImVec2 cursorAfterViewport = ImGui::GetCursorPos();
 			ImGui::SetCursorScreenPos(ImVec2(mViewportBounds[0].x + ImGuiWrapper::S(12.0f), mViewportBounds[0].y + ImGuiWrapper::S(12.0f)));
-			ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, ImGuiWrapper::S(5.0f));
+			ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, ImGuiWrapper::S(3.0f));
 			ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, ImGuiWrapper::S(1.0f));
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImGuiWrapper::S(6.0f, 4.0f));
 			ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.075f, 0.085f, 0.10f, 0.94f));
 			ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.24f, 0.28f, 0.34f, 0.92f));
-			if (ImGui::BeginChild("##ViewportControls", ImGuiWrapper::S(330.0f, 36.0f), true,
+			if (ImGui::BeginChild("##ViewportControls", ImVec2(ImMin(ImGuiWrapper::S(viewportPanelSize.x < ImGuiWrapper::S(720.0f) ? 370.0f : 310.0f), ImMax(1.0f, viewportPanelSize.x - ImGuiWrapper::S(24.0f))), ImGuiWrapper::S(40.0f)), true,
 				ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
 			{
+				UI_ViewportMode();
+				ImGui::SameLine();
 				if (ImGui::Button(EditorLayer::GetText("Show"), ImGuiWrapper::S(64.0f, 0.0f)))
 					ImGui::OpenPopup("ViewportShowMenu");
 				if (ImGui::BeginPopup("ViewportShowMenu"))
 				{
+                    const auto snapshot = RenderSettingsService::GetInstance().GetSnapshot();
+                    ImGuiWrapper::SeparatorWithText("视图模式");
+                    const auto modeItem = [&](const char* label, ScenePbrDebugMode mode)
+                    {
+                        if (ImGui::MenuItem(label, nullptr, snapshot.Debug.PbrDebugMode == static_cast<uint32_t>(mode)))
+                        {
+                            auto draft = RenderSettingsService::GetInstance().CreateDraft(SettingsLayer::Session);
+                            draft.Patch[std::string(RenderSettingIds::PbrDebugMode)] = static_cast<uint32_t>(mode);
+                            const auto result = Application::GetInstance().ApplyRenderSettingsDraft(draft, false);
+                            if (!result.bSuccess) mViewportModeError = result.Message;
+                            else { mViewportModeError.clear(); ++mEditorRenderRevision; }
+                        }
+                    };
+                    ImGui::BeginDisabled(!ModeManager::b3DMode || !Application::GetInstance().GetActiveOfflineViewportRendererId().empty());
+                    modeItem("正常着色", ScenePbrDebugMode::Disabled);
+                    if (ImGui::BeginMenu("缓冲区可视化"))
+                    {
+                        modeItem("基础色 / Base Color", ScenePbrDebugMode::BaseColor);
+                        modeItem("世界法线 / World Normal", ScenePbrDebugMode::WorldNormal);
+                        modeItem("金属度 / Metallic", ScenePbrDebugMode::Metallic);
+                        modeItem("粗糙度 / Roughness", ScenePbrDebugMode::Roughness);
+                        modeItem("材质遮蔽 / Material AO", ScenePbrDebugMode::AmbientOcclusion);
+                        modeItem("屏幕空间遮蔽 / Screen AO", ScenePbrDebugMode::ScreenSpaceAo);
+                        modeItem("深度 / Depth（对数）", ScenePbrDebugMode::ViewDepth);
+                        ImGui::EndMenu();
+                    }
+                    if (ImGui::BeginMenu("光照诊断"))
+                    {
+                        modeItem("直接光照", ScenePbrDebugMode::DirectLighting);
+                        modeItem("漫反射环境光", ScenePbrDebugMode::DiffuseIbl);
+                        modeItem("镜面环境光", ScenePbrDebugMode::SpecularIbl);
+                        modeItem("阴影", ScenePbrDebugMode::Shadow);
+                        modeItem("HDR 有效性", ScenePbrDebugMode::HdrValidity);
+                        ImGui::EndMenu();
+                    }
+                    ImGui::EndDisabled();
+                    ImGuiWrapper::SeparatorWithText("显示选项");
 					ImGui::MenuItem(EditorLayer::GetText("Realtime Preview"), nullptr, &ModeManager::bRealtimePreview);
 					ImGui::Separator();
 					ImGui::MenuItem(EditorLayer::GetText("Collision"), nullptr, &ModeManager::bShowPhysicsColliders);
@@ -1711,16 +2130,33 @@ namespace HEngine
 				}
 
 				ImGui::SameLine(0.0f, ImGuiWrapper::S(10.0f));
-				ImGui::TextDisabled("%s", EditorLayer::GetText("Camera Speed"));
-				ImGui::SameLine(0.0f, ImGuiWrapper::S(6.0f));
-				ImGui::SetNextItemWidth(ImGuiWrapper::S(140.0f));
+				if (viewportPanelSize.x < ImGuiWrapper::S(720.0f))
+				{
+					if (ImGui::Button(GetText("Tools"))) ImGui::OpenPopup("##TransformTools");
+					if (ImGui::BeginPopup("##TransformTools"))
+					{
+						UI_ViewportTransformTools();
+						ImGui::EndPopup();
+					}
+					ImGui::SameLine();
+				}
+				ImGui::SetNextItemWidth(ImGuiWrapper::S(85.0f));
 				ImGui::SliderFloat("##ViewportCameraSpeed", &mEditorCamera.mCameraSpeed, 0.1f, 100.0f, "%.1fx", ImGuiSliderFlags_Logarithmic);
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", GetText("Camera Speed"));
 			}
 			ImGui::EndChild();
+			if (viewportPanelSize.x >= ImGuiWrapper::S(720.0f))
+			{
+				ImGui::SetCursorScreenPos(ImVec2(mViewportBounds[1].x - ImGuiWrapper::S(292.0f), mViewportBounds[0].y + ImGuiWrapper::S(12.0f)));
+				if (ImGui::BeginChild("##ViewportTransformTools", ImGuiWrapper::S(280.0f, 40.0f), true,
+					ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) UI_ViewportTransformTools();
+				ImGui::EndChild();
+			}
 			ImGui::PopStyleColor(2);
 			ImGui::PopStyleVar(3);
 			ImGui::SetCursorPos(cursorAfterViewport);
 			ImGui::Dummy(ImVec2(0.0f, 0.0f));
+			}
 			if (ModeManager::IsEditState() && mActiveScene)
 			{
 				RenderEditorEntityMarkers(
@@ -1744,7 +2180,7 @@ namespace HEngine
 					const wchar_t* path = (const wchar_t*)payload->Data;
 					const std::string scenePath = Utils::NormalizeAssetPath(
 						(std::filesystem::path("Assets") / path).generic_string());
-					OpenScene(ConfigManager::GetFullPath(scenePath));
+					RequestOpenScene(ConfigManager::GetFullPath(scenePath));
 				}
 				ImGui::EndDragDropTarget();
 			}
@@ -1810,35 +2246,50 @@ namespace HEngine
 					});
 			}
 
-			if (bShowFPS)
-			{
-				ImGuiWrapper::InternalDraw("##FPSOverlay", &bShowFPS, 10.0, WindowCorner::RightDown, []() {
-					float fps = ImGui::GetIO().Framerate;
-					ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "%s: %.1f", EditorLayer::GetText("Editor FPS"), fps);
-					});
-			}
-
 			ImGui::End();
 			ImGui::PopStyleVar();
 		}
 		// ----Windows End----
 
 		// ----Help Begin----
-		// TODO
 		ImGuiWindowFlags helpMenuFlags = ImGuiWindowFlags_NoDocking;
 		if (bShowTutorial)
 		{
 			const std::string tutorialWindowName = std::string(EditorLayer::GetText("Tutorial")) + "###Tutorial";
-			ImGui::Begin(tutorialWindowName.c_str(), &bShowTutorial, helpMenuFlags);
-			for (int line = 0; line < 10; ++line)
-				ImGui::TextUnformatted(EditorLayer::GetText("Hello!"));
+            ImGuiWrapper::ConstrainNextWindowToWorkArea(tutorialWindowName.c_str(), ImVec2(540, 340), ImVec2(360, 260));
+            if (ImGui::Begin(tutorialWindowName.c_str(), &bShowTutorial, helpMenuFlags))
+            {
+                ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_CheckMark), "HEngine / 入门指南");
+                ImGui::TextDisabled("教程待定 · 以下为最简工作流程");
+                ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
+                ImGui::TextWrapped("%s", EditorShortcutLabel("1. 从内容浏览器打开场景，在层级面板选择对象。\n\n2. 在属性面板编辑对象；使用视口工具调整变换。\n\n3. 保存场景（Ctrl+S），点击运行预览效果。\n\n4. 停止运行后，打开发布面板（Ctrl+P）检查环境并构建。").c_str());
+                ImGui::Spacing();
+                ImGui::TextWrapped("可以先从“帮助 → 示例 → 材质展示场景”开始探索。");
+            }
 			ImGui::End();
 		}
 		if (bShowAboutMe)
 		{
 			const std::string aboutWindowName = std::string(EditorLayer::GetText("About Me")) + "###About Me";
-			ImGui::Begin(aboutWindowName.c_str(), &bShowAboutMe, helpMenuFlags);
-			ImGui::TextUnformatted(EditorLayer::GetText("My name is hbh!"));
+            ImGuiWrapper::ConstrainNextWindowToWorkArea(aboutWindowName.c_str(), ImVec2(570, 350), ImVec2(380, 280));
+            if (ImGui::Begin(aboutWindowName.c_str(), &bShowAboutMe, helpMenuFlags))
+            {
+                ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_CheckMark), "HEngine");
+                ImGui::TextDisabled("由热爱驱动，与社区共建");
+                ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
+                ImGui::TextWrapped("你好，我是 hbh，HEngine 的开发者。本科毕业于清华大学自动化系，曾在大型游戏公司从事多年游戏引擎研发工作。");
+                ImGui::Spacing();
+                ImGui::TextWrapped("欢迎为 HEngine 点亮 Star，也欢迎通过 Issues 与 Pull Requests 分享想法、反馈问题、贡献代码。期待与你一起，让这个引擎不断成长。");
+                ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
+                ImGui::TextUnformatted("github.com/hebohang/HEngine");
+                if (ImGui::Button("访问 GitHub 仓库"))
+                {
+                    if (!FileDialogs::OpenWebUrl("https://github.com/hebohang/HEngine"))
+                        ImGui::SetClipboardText("https://github.com/hebohang/HEngine");
+                }
+                ImGuiWrapper::SameLine(0.0f);
+                if (ImGui::Button("复制仓库地址")) ImGui::SetClipboardText("https://github.com/hebohang/HEngine");
+            }
 			ImGui::End();
 		}
 		if (bShowDemoImGui)
@@ -1848,7 +2299,9 @@ namespace HEngine
 		// ----Help End----
 
 		UI_Toolbar();
+		UpdateRuntimeCursorPolicy();
 		UI_StatusBar();
+		if (mBuildPublishPanel) mBuildPublishPanel->Draw();
 
 		Application::GetInstance().GetImGuiLayer()->BlockEvents(false);
 
@@ -2043,28 +2496,8 @@ namespace HEngine
 		ImGui::EndPopup();
 	}
 
-	void EditorLayer::UI_Toolbar()
+	void EditorLayer::UI_ViewportMode()
 	{
-		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImGuiWrapper::S(6.0f, 6.0f));
-		ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing, ImGuiWrapper::S(4.0f, 0.0f));
-		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImGuiWrapper::S(6.0f, 6.0f));
-		ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ImGuiWrapper::S(6.0f));
-		ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, ImGuiWrapper::S(6.0f));
-		ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 1.0f);
-		ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-		ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.08f));
-		ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.28f, 0.52f, 0.86f, 0.24f));
-		ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.09f, 0.10f, 0.11f, 1.0f));
-		ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.20f, 0.23f, 0.28f, 0.80f));
-
-		ImGui::Begin("##toolbar", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-		if (ImGuiDockNode* node = ImGui::GetWindowDockNode())
-			node->LocalFlags |= ImGuiDockNodeFlags_NoTabBar;
-
-		ImGui::BeginChild("##Toolbar", ImVec2(0.0f, ImGuiWrapper::S(46.0f)), true,
-			ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-
-		IconManager& iconManager = IconManager::GetInstance();
 		const std::vector<ViewportMode> viewportModes =
 			mViewportModeController.EnumerateModes(
 				Application::GetInstance().GetRenderCapabilities());
@@ -2105,13 +2538,12 @@ namespace HEngine
 					? EditorLayer::GetText("Viewport renderer mode")
 					: mViewportModeError.c_str());
 		}
-		ImGui::SameLine();
-		ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
-		ImGui::SameLine();
-		const bool bCanUndo = mActiveUndoClient && mActiveUndoClient->CanUndo();
-		const bool bCanRedo = mActiveUndoClient && mActiveUndoClient->CanRedo();
-		const char* undoStepLabel = bCanUndo ? mActiveUndoClient->GetUndoContextName() : nullptr;
-		const char* redoStepLabel = bCanRedo ? mActiveUndoClient->GetUndoContextName() : nullptr;
+
+	}
+
+	void EditorLayer::UI_ViewportTransformTools()
+	{
+		IconManager& iconManager = IconManager::GetInstance();
 		const ImVec2 toolbarIconSize = ImGuiWrapper::S(20.0f, 20.0f);
 		auto drawToolbarButton = [&](const char* iconName, const char* tooltip, const ImVec4& tint, bool* outPressed = nullptr)
 		{
@@ -2136,40 +2568,6 @@ namespace HEngine
 			if (ImGui::IsItemHovered())
 				ImGui::SetTooltip("%s", tooltip);
 		};
-
-		bool bSavePressed = false;
-		drawToolbarButton("SaveIcon", EditorLayer::GetText("Save Scene (Ctrl+S)"), ImVec4(1, 1, 1, 1), &bSavePressed);
-		if (bSavePressed)
-			SaveScene();
-
-		ImGui::SameLine();
-		ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
-		ImGui::SameLine();
-
-		if (!bCanUndo)
-			ImGui::BeginDisabled();
-		bool bUndoPressed = false;
-		const std::string undoTooltip = MakeUndoTooltip(EditorLayer::GetText("Undo (Ctrl+Z)"), undoStepLabel);
-		drawToolbarButton("UndoIcon", undoTooltip.c_str(), bCanUndo ? ImVec4(1, 1, 1, 1) : ImVec4(0.7f, 0.7f, 0.7f, 0.8f), &bUndoPressed);
-		if (!bCanUndo)
-			ImGui::EndDisabled();
-		if (bUndoPressed)
-			UndoActiveDocument();
-
-		ImGui::SameLine();
-		if (!bCanRedo)
-			ImGui::BeginDisabled();
-		bool bRedoPressed = false;
-		const std::string redoTooltip = MakeUndoTooltip(EditorLayer::GetText("Redo (Ctrl+Y / Ctrl+Shift+Z)"), redoStepLabel);
-		drawToolbarButton("RedoIcon", redoTooltip.c_str(), bCanRedo ? ImVec4(1, 1, 1, 1) : ImVec4(0.7f, 0.7f, 0.7f, 0.8f), &bRedoPressed);
-		if (!bCanRedo)
-			ImGui::EndDisabled();
-		if (bRedoPressed)
-			RedoActiveDocument();
-
-		ImGui::SameLine();
-		ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
-		ImGui::SameLine();
 
 		auto drawGizmoButton = [&](const char* iconName, int gizmoOp, const char* tooltip)
 		{
@@ -2231,28 +2629,107 @@ namespace HEngine
 		else
 			ImGuizmo::SetOrthographic(true);
 
-		const char* untitledLabel = EditorLayer::GetText("Untitled");
-		const std::string sceneLabel = BuildSceneBadgeText(mEditorScenePath, mSceneDirty, untitledLabel);
-		const char* modeLabel = ModeManager::IsEditState() ? EditorLayer::GetText("Edit Mode") : EditorLayer::GetText("Play Mode");
-		const float chipSpacing = ImGuiWrapper::S(8.0f);
-		const float scenePillWidth = ImGui::CalcTextSize(sceneLabel.c_str()).x + ImGuiWrapper::S(20.0f);
-		const float modePillWidth = ImGui::CalcTextSize(modeLabel).x + ImGuiWrapper::S(20.0f);
-		const float playButtonWidth = toolbarIconSize.x + ImGui::GetStyle().FramePadding.x * 2.0f;
-		const float centerGroupWidth = scenePillWidth + chipSpacing + modePillWidth + chipSpacing + playButtonWidth;
-		const float centerStartX = ImGui::GetWindowWidth() * 0.5f - centerGroupWidth * 0.5f;
-		if (centerStartX > ImGui::GetCursorPosX() + ImGuiWrapper::S(12.0f))
-			ImGui::SameLine(centerStartX);
-		else
-			ImGui::SameLine(0.0f, ImGuiWrapper::S(12.0f));
+	}
 
-		EditorTheme::DrawPill(
-			sceneLabel.c_str(),
-			mSceneDirty ? ImVec4(0.34f, 0.23f, 0.12f, 0.96f) : ImVec4(0.13f, 0.19f, 0.28f, 0.96f));
-		ImGui::SameLine(0.0f, chipSpacing);
-		EditorTheme::DrawPill(
-			modeLabel,
-			ModeManager::IsEditState() ? ImVec4(0.14f, 0.22f, 0.31f, 0.96f) : ImVec4(0.16f, 0.31f, 0.20f, 0.96f));
-		ImGui::SameLine(0.0f, chipSpacing);
+	void EditorLayer::UI_Toolbar()
+	{
+		const float menuHeight = ImGui::GetFrameHeight();
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImGuiWrapper::S(6.0f, 6.0f));
+		ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing, ImGuiWrapper::S(4.0f, 0.0f));
+		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImGuiWrapper::S(6.0f, 6.0f));
+		ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ImGuiWrapper::S(3.0f));
+		ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+		ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.08f));
+		ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.28f, 0.52f, 0.86f, 0.24f));
+		ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.20f, 0.23f, 0.28f, 0.80f));
+
+		const ImGuiViewport* viewport = ImGui::GetMainViewport();
+		ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x, viewport->WorkPos.y + menuHeight));
+		ImGui::SetNextWindowSize(ImVec2(viewport->WorkSize.x, ImGuiWrapper::S(44.0f)));
+		ImGui::SetNextWindowDockID(0);
+		ImGui::Begin("##toolbar", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
+			ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+
+		ImGui::SetCursorPosY(ImGuiWrapper::S(6.0f));
+
+		IconManager& iconManager = IconManager::GetInstance();
+		const bool bCanUndo = mActiveUndoClient && mActiveUndoClient->CanUndo();
+		const bool bCanRedo = mActiveUndoClient && mActiveUndoClient->CanRedo();
+		const char* undoStepLabel = bCanUndo ? mActiveUndoClient->GetUndoContextName() : nullptr;
+		const char* redoStepLabel = bCanRedo ? mActiveUndoClient->GetUndoContextName() : nullptr;
+		const ImVec2 toolbarIconSize = ImGuiWrapper::S(20.0f, 20.0f);
+		auto drawToolbarButton = [&](const char* iconName, const char* tooltip, const ImVec4& tint, bool* outPressed = nullptr)
+		{
+			ImGuiTextureHandle icon = iconManager.TryGet(iconName);
+			if (!icon)
+				icon = iconManager.GetFileIcon();
+
+			ImGui::PushID(iconName);
+			const bool pressed = ImGui::ImageButton(
+				"##ToolbarIcon",
+				IconManager::ToImTextureID(icon),
+				toolbarIconSize,
+				ImVec2(0, 0),
+				ImVec2(1, 1),
+				ImVec4(0, 0, 0, 0),
+				tint);
+			ImGui::PopID();
+
+			if (outPressed)
+				*outPressed = pressed;
+
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("%s", tooltip);
+		};
+
+		bool bSavePressed = false;
+		drawToolbarButton("SaveIcon", EditorShortcutLabel(EditorLayer::GetText("Save Scene (Ctrl+S)")).c_str(), ImVec4(1, 1, 1, 1), &bSavePressed);
+		if (bSavePressed)
+			SaveScene();
+
+		ImGui::SameLine();
+		ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
+		ImGui::SameLine();
+
+		if (!bCanUndo)
+			ImGui::BeginDisabled();
+		bool bUndoPressed = false;
+		const std::string undoTooltip = MakeUndoTooltip(EditorShortcutLabel(EditorLayer::GetText("Undo (Ctrl+Z)")).c_str(), undoStepLabel);
+		drawToolbarButton("UndoIcon", undoTooltip.c_str(), bCanUndo ? ImVec4(1, 1, 1, 1) : ImVec4(0.7f, 0.7f, 0.7f, 0.8f), &bUndoPressed);
+		if (!bCanUndo)
+			ImGui::EndDisabled();
+		if (bUndoPressed)
+			UndoActiveDocument();
+
+		ImGui::SameLine();
+		if (!bCanRedo)
+			ImGui::BeginDisabled();
+		bool bRedoPressed = false;
+		const std::string redoTooltip = MakeUndoTooltip(EditorShortcutLabel(EditorLayer::GetText("Redo (Ctrl+Y / Ctrl+Shift+Z)")).c_str(), redoStepLabel);
+		drawToolbarButton("RedoIcon", redoTooltip.c_str(), bCanRedo ? ImVec4(1, 1, 1, 1) : ImVec4(0.7f, 0.7f, 0.7f, 0.8f), &bRedoPressed);
+		if (!bCanRedo)
+			ImGui::EndDisabled();
+		if (bRedoPressed)
+			RedoActiveDocument();
+
+		const float buttonWidth = toolbarIconSize.x + ImGui::GetStyle().FramePadding.x * 2.0f;
+		const float spacing = ImGui::GetStyle().ItemSpacing.x;
+		const float transportWidth = buttonWidth * 3.0f + spacing * 2.0f;
+		// Align the transport group with the actual viewport window, including dock resizing.
+		// Window positions are already in pixel space; only design spacing is DPI-scaled.
+		const ImVec2 toolbarPosition = ImGui::GetWindowPos();
+		float transportCenter = ImGui::GetWindowWidth() * 0.5f;
+		if (const ImGuiWindow* viewportWindow = ImGui::FindWindowByName("###Viewport");
+			bShowViewport && viewportWindow && viewportWindow->Active && !viewportWindow->Hidden)
+			transportCenter = viewportWindow->Pos.x + viewportWindow->Size.x * 0.5f - toolbarPosition.x;
+		const float minimumTransportX = ImGui::GetItemRectMax().x - toolbarPosition.x + ImGuiWrapper::S(16.0f);
+		const float maximumTransportX = ImMax(minimumTransportX, ImGui::GetWindowWidth() - transportWidth - ImGuiWrapper::S(12.0f));
+		const float transportX = ImClamp(transportCenter - transportWidth * 0.5f, minimumTransportX, maximumTransportX);
+		ImGui::SameLine(transportX);
+		const ImVec2 transportMin = ImGui::GetCursorScreenPos();
+		ImGui::GetWindowDrawList()->AddRectFilled(
+			transportMin, ImVec2(transportMin.x + transportWidth, transportMin.y + buttonWidth),
+			ImGui::GetColorU32(ImVec4(0.075f, 0.085f, 0.10f, 1.0f)), ImGuiWrapper::S(3.0f));
 		const ImGuiTextureHandle playStopIcon = ModeManager::IsEditState() ? iconManager.GetPlayIcon() : iconManager.GetStopIcon();
 		ImGui::PushStyleColor(ImGuiCol_Button,
 			ModeManager::IsEditState() ? ImVec4(0.16f, 0.35f, 0.20f, 0.96f) : ImVec4(0.45f, 0.16f, 0.16f, 0.96f));
@@ -2268,11 +2745,63 @@ namespace HEngine
 		if (ImGui::IsItemHovered())
 			ImGui::SetTooltip("%s", ModeManager::IsEditState() ? EditorLayer::GetText("Play") : EditorLayer::GetText("Stop"));
 
-		ImGui::EndChild();
+		// Keep all transport slots stable across Edit / Play / Pause.
+		auto transportButton = [&](const char* id, bool bStep, bool bResume, const char* tooltip)
+		{
+			ImGui::SameLine();
+			const ImVec2 origin = ImGui::GetCursorScreenPos();
+			const bool bPressed = ImGui::Button(id, ImVec2(buttonWidth, buttonWidth));
+			ImDrawList* draw = ImGui::GetWindowDrawList();
+			const ImU32 color = ImGui::GetColorU32(ImGuiCol_Text);
+			const ImVec2 center(origin.x + buttonWidth * 0.5f, origin.y + buttonWidth * 0.5f);
+			const float half = ImGuiWrapper::S(6.0f);
+			if (bStep || bResume)
+				draw->AddTriangleFilled(ImVec2(center.x - half, center.y - half), ImVec2(center.x - half, center.y + half), ImVec2(center.x + half, center.y), color);
+			else
+				draw->AddRectFilled(ImVec2(center.x - half, center.y - half), ImVec2(center.x - half * 0.35f, center.y + half), color);
+			if (bStep || !bResume)
+				draw->AddRectFilled(ImVec2(center.x + half * 0.5f, center.y - half), ImVec2(center.x + half, center.y + half), color);
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", tooltip);
+			return bPressed;
+		};
+		ImGui::BeginDisabled(ModeManager::IsEditState());
+		if (transportButton("##PauseResume", false, mScriptPlay.IsPaused(), GetText(mScriptPlay.IsPaused() ? "Resume" : "Pause")))
+		{
+			if (mScriptPlay.IsPaused()) mScriptPlay.Resume(); else mScriptPlay.Pause();
+			if (auto* scripts = mActiveScene->TryGetSystem<ScriptSystem>()) scripts->SetPaused(mScriptPlay.IsPaused());
+			UpdateRuntimeCursorPolicy();
+		}
+		ImGui::BeginDisabled(mScriptPlay.State() != ScriptPlayState::Paused);
+		if (transportButton("##Step", true, false, GetText("Step"))) mScriptPlay.Step();
+		ImGui::EndDisabled();
+		ImGui::EndDisabled();
+		if (!ModeManager::IsEditState())
+		{
+			const char* label = GetText("Play Options");
+			const float rightWidth = ImGui::CalcTextSize(label).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+			ImGui::SameLine(ImMax(transportX + transportWidth + spacing, ImGui::GetWindowWidth() - rightWidth - ImGuiWrapper::S(12.0f)));
+			if (ImGui::Button(label)) ImGui::OpenPopup("##PlayOptions");
+			if (ImGui::BeginPopup("##PlayOptions"))
+			{
+				ImGui::TextDisabled("%s", GetText("Release Mouse: Shift+F1 / Alt"));
+				if (ImGui::MenuItem(GetText("Apply Play Values")))
+				{
+					try
+					{
+						mSceneEditing->SetPlaying(true);
+						mSceneEditing->ApplyPlayScriptFields(SceneSerializer(mActiveScene).SerializeToJson());
+						mSceneDirty = mSceneEditing->IsDirty();
+					}
+					catch (const std::exception& error) { HE_CORE_ERROR("Apply Play Values failed: {0}", error.what()); }
+				}
+				ImGui::EndPopup();
+			}
+		}
+
 		ImGui::End();
 
-		ImGui::PopStyleColor(5);
-		ImGui::PopStyleVar(6);
+		ImGui::PopStyleColor(4);
+		ImGui::PopStyleVar(4);
 	}
 
 	void EditorLayer::UI_StatusBar()
@@ -2298,7 +2827,7 @@ namespace HEngine
 			const char* untitledLabel = EditorLayer::GetText("Untitled");
 			const std::string sceneName = GetSceneDisplayName(mEditorScenePath, untitledLabel);
 			const std::string viewportSizeText = BuildViewportSizeText(ConfigManager::mViewportSize);
-			const char* modeText = ModeManager::IsEditState() ? EditorLayer::GetText("Edit Mode") : EditorLayer::GetText("Play Mode");
+			const char* modeText = ModeManager::IsEditState() ? GetText("Edit Mode") : GetText(mScriptPlay.IsPaused() ? "Paused" : "Play Mode");
 			Entity selectedEntity = GetPanel<SceneHierarchyPanel>()->GetSelectedEntity();
 			EditorTheme::DrawPill(
 				sceneName.c_str(),
@@ -2371,6 +2900,7 @@ namespace HEngine
 		bShowProjectSettings = defaultLayout.value(
 			"ShowProjectSettings",
 			false);
+		bShowPlugins = defaultLayout.value("ShowPlugins", false);
 		bShowRenderGraphDiagnostics = defaultLayout.value(
 			"ShowRenderGraphDiagnostics",
 			false);
@@ -2400,6 +2930,7 @@ namespace HEngine
 		defaultLayout["ShowOutputLog"] = bShowOutputLog;
 		defaultLayout["ShowBaseSettings"] = bShowBaseSettings;
 		defaultLayout["ShowProjectSettings"] = bShowProjectSettings;
+		defaultLayout["ShowPlugins"] = bShowPlugins;
 		defaultLayout["ShowRenderGraphDiagnostics"] =
 			bShowRenderGraphDiagnostics;
 		defaultLayout["ShowOfflineRenderer"] = bShowOfflineRenderer;
@@ -2432,6 +2963,25 @@ namespace HEngine
 
 	void EditorLayer::OnEvent(Event& e)
     {
+        // Editor lifecycle shortcuts must remain reachable while a game's UI
+        // owns keyboard focus or its camera captures the pointer.
+        EventDispatcher lifecycleDispatcher(e);
+        lifecycleDispatcher.Dispatch<KeyPressedEvent>([this](KeyPressedEvent& key)
+        {
+            if (key.GetRepeatCount() > 0) return false;
+            if (key.GetKeyCode() == Key::F8 && !ModeManager::IsEditState())
+            {
+                TryChangeSceneMode(false);
+                return true;
+            }
+            if (key.GetKeyCode() == Key::F6 && ModeManager::IsEditState())
+            {
+                TryChangeSceneMode(true);
+                return true;
+            }
+            return false;
+        });
+        if (e.Handled) return;
 		mIteratingPanelMap = true;
 		for (const auto& [panelTypeName, panel] : mPanelMap)
 		{
@@ -2441,7 +2991,13 @@ namespace HEngine
 		FlushPendingMaterialPanels();
 		FlushPendingAssetPreviewPanels();
 
-		if (!ModeManager::IsEditState() && (bHandleEvent || mRuntimeCursorCaptured))
+		UpdateRuntimeCursorPolicy();
+		if (!ModeManager::IsEditState() && ScriptInputContext::Region.Enabled && e.GetEventType() == EventType::MouseButtonPressed)
+		{
+			mRuntimeInputEngaged = true;
+			UpdateRuntimeCursorPolicy();
+		}
+		if (!ModeManager::IsEditState() && ScriptInputContext::Region.KeyboardEnabled)
 		{
 			if (RmlUiManager::GetInstance().OnEvent(e))
 				return;
@@ -2476,11 +3032,20 @@ namespace HEngine
             return false;
 
         bool control = Input::IsKeyPressed(Key::LeftControl) || Input::IsKeyPressed(Key::RightControl);
+#if defined(__APPLE__)
+        control = control || Input::IsKeyPressed(Key::LeftSuper) || Input::IsKeyPressed(Key::RightSuper);
+#endif
         bool shift = Input::IsKeyPressed(Key::LeftShift) || Input::IsKeyPressed(Key::RightShift);
 		bool mouseRight = Input::IsMouseButtonPressed(Mouse::ButtonRight);
 
 		if (!ModeManager::IsEditState())
 		{
+
+            if (control && e.GetKeyCode() == Key::O)
+            {
+                OpenScene();
+                return true;
+            }
 			if (e.GetKeyCode() == Key::Escape)
 			{
 				if (control || !RmlUiManager::GetInstance().HasActiveDocument())
@@ -2554,7 +3119,7 @@ namespace HEngine
 			case Key::P:
 			{
 				if (control)
-					PackageProjectWindows();
+					OpenBuildPublish();
 				break;
 			}
 
@@ -2811,6 +3376,7 @@ namespace HEngine
 
     void EditorLayer::NewScene()
     {
+        if (mSceneMailbox.IsVfxDiagnosticActive()) return;
 		if (!ModeManager::IsEditState())
 		{
 			HE_CORE_WARN("Cannot create a scene while the editor is in Play mode.");
@@ -2831,26 +3397,60 @@ namespace HEngine
 		ImGui::InsertNotification({ ImGuiToastType_Success, 3000, "成功新建场景!" });
     }
 
+	void EditorLayer::RequestOpenScene(const std::filesystem::path& path)
+	{
+		// Asset activation happens during ImGui construction. Replace the scene
+		// at the next authoring boundary, before any panel reads the new scene.
+		if (!mScriptPlay.IsTransitioning())
+			mPendingSceneOpenPath = path;
+	}
+
+    std::string EditorLayer::ValidateAssetMove() const
+    {
+        if (!ModeManager::IsEditState() || mScriptPlay.IsTransitioning()) return "Stop Play before moving assets.";
+        if (mSceneDirty || !mPendingSceneHistoryLabel.empty() || mSceneHistoryInteractivePending || !mPendingSceneEdits.empty())
+            return "Save the current scene before moving assets so its references can be updated safely.";
+        if (!mPendingSceneOpenPath.empty()) return "Wait for the pending scene change before moving assets.";
+        for (const auto& [name, panel] : mPanelMap)
+        {
+            const auto* material = dynamic_cast<MaterialPanel*>(panel.get());
+            const auto* controller = dynamic_cast<AnimControllerPanel*>(panel.get());
+            const auto* ui = dynamic_cast<UIPanel*>(panel.get());
+            if ((material && material->HasUnsavedChanges()) || (controller && controller->IsUndoContextDirty()) ||
+                (ui && ui->IsUndoContextDirty()))
+                return "Save or revert unsaved material, animation and UI edits before moving assets (including closed windows).";
+            if (panel->IsOpen() && (material || controller || ui || dynamic_cast<AssetPreviewPanel*>(panel.get())))
+                return "Close material, animation, UI and asset preview windows before moving assets.";
+        }
+        return {};
+    }
+
+    void EditorLayer::RefreshAfterAssetMove(const std::filesystem::path& source, const std::filesystem::path& target)
+    {
+        mInvalidateClosedAssetPanels = true;
+        if (mEditorScenePath.empty()) return;
+        const auto relative = mEditorScenePath.lexically_normal().lexically_relative(source.lexically_normal());
+        if (!relative.empty() && *relative.begin() != "..") RequestOpenScene((target / relative).lexically_normal());
+        else RequestOpenScene(mEditorScenePath);
+    }
+
     void EditorLayer::OpenScene()
     {
-		if (!ModeManager::IsEditState())
-		{
-			HE_CORE_WARN("Cannot open a scene while the editor is in Play mode.");
-			return;
-		}
+		if (mScriptPlay.IsTransitioning()) return;
 
 		std::filesystem::path filepath = FileDialogs::OpenFile("HEngine Level (*.he)\0*.he\0\0", ConfigManager::GetFullPath("Assets/Scenes").string());
 		if (!filepath.empty())
-			OpenScene(filepath);
+			RequestOpenScene(filepath);
     }
 
 	void EditorLayer::OpenScene(const std::filesystem::path& path)
 	{
-		if (!ModeManager::IsEditState())
-		{
-			HE_CORE_WARN("Cannot open scene '{}' while the editor is in Play mode.", path.string());
-			return;
-		}
+        if (mSceneMailbox.IsVfxDiagnosticActive())
+        {
+            mPendingSceneOpenPath = path;
+            return;
+        }
+		if (mScriptPlay.IsTransitioning()) return;
 
 		if (path.extension().string() != ".he")
 		{
@@ -2862,6 +3462,10 @@ namespace HEngine
 		SceneSerializer serializer(newScene);
 		if (serializer.Deserialize(path.string()))
 		{
+            // Validate first. Cancellation/malformed scenes leave the current
+            // session alive; successful opens cross the ordinary Stop barrier.
+            if (!ModeManager::IsEditState()) TryChangeSceneMode(false);
+            if (!ModeManager::IsEditState()) return;
 			newScene->OnViewportResize((uint32_t)ConfigManager::mViewportSize.x, (uint32_t)ConfigManager::mViewportSize.y);
 			EmbreeSystem::ResetSharedContext();
 			GetPanel<SceneHierarchyPanel>()->SetContext(newScene);
@@ -2871,6 +3475,7 @@ namespace HEngine
 			mEditorScenePath = path;
 			InitializeEditorCameraFromPrimary(mEditorCamera, newScene);
 			ResetSceneHistory("Open Scene");
+			HE_CORE_INFO("Scene opened: {0}; dirty={1}", path.generic_string(), mSceneDirty);
 
 			ImGui::InsertNotification({ ImGuiToastType_Success, 3000, "成功打开场景!" });
 		}
@@ -2897,112 +3502,27 @@ namespace HEngine
         if (!filepath.empty())
         {
 			SerializeScene(mActiveScene, filepath);
-			mEditorScenePath = filepath;
 		}
     }
 
 	void EditorLayer::SerializeScene(Ref<Level> scene, const std::filesystem::path& path)
 	{
-		SceneSerializer serializer(scene);
-		serializer.Serialize(path.string());
-		if (mSceneThumbnailService)
-		{
-			mSceneThumbnailService->Invalidate(Utils::NormalizeAssetPath(
-				ConfigManager::GetRelativePath(path)));
-		}
-		mSavedSceneContentSnapshot = DumpJson(serializer.SerializeToJson());
-		mSavedSceneHistoryCursor = mSceneHistoryCursor;
-		mSceneDirty = false;
-
-		ImGui::InsertNotification({ ImGuiToastType_Success, 3000, "成功保存场景!" });
+		if (!ModeManager::IsEditState() || scene != mEditorScene || !mSceneEditing) return;
+		(void)QueueSceneEditingRequest("save", {{"sceneId",mSceneEditing->GetSceneId()},
+			{"baseRevision",mSceneEditing->GetRevision()},{"requestId",UUID().str()},
+			{"path",Utils::NormalizeAssetPath(ConfigManager::GetRelativePath(path))}});
+		if (!mPendingSceneEdits.empty()) mPendingSceneEdits.back().LocalUi = true;
 	}
 
-	void EditorLayer::PackageProjectWindows()
+	void EditorLayer::OpenBuildPublish()
 	{
-		if (mPackageFuture.valid() &&
-			mPackageFuture.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
-		{
-			ImGui::InsertNotification({ ImGuiToastType_Warning, 3000, "打包任务正在进行中，请稍后..." });
-			return;
-		}
-
-		const std::string executableName = HE_PROJECT_EXECUTABLE_NAME;
-		const auto projectRoot = ConfigManager::GetInstance().GetRootFolder();
-		const auto repoRoot = ConfigManager::GetEngineFolder().parent_path();
-		const auto buildDir = ConfigManager::GetSavedPath("Build/Package");
-		const auto packageOutputFile = buildDir / "package-output.txt";
-
-		HE_CORE_INFO("[Package] 开始打包，发布根目录: {}", (repoRoot / "dist").string());
-		ImGui::InsertNotification({ ImGuiToastType_Info, 60000, "正在编译 Runtime，请稍候..." });
-
-		mPackageFuture = std::async(std::launch::async,
-			[packageOutputFile, projectRoot, repoRoot, buildDir, executableName]() -> std::pair<bool, std::string>
-		{
-			std::error_code ec;
-			std::filesystem::create_directories(buildDir, ec);
-			if (ec)
-			{
-				HE_CORE_ERROR("[Package] 无法创建构建目录: {} ({})", buildDir.string(), ec.message());
-				return { false, "无法创建构建目录: " + buildDir.string() };
-			}
-			std::filesystem::remove(packageOutputFile, ec);
-			if (ec)
-				return { false, "无法清理旧的打包结果: " + packageOutputFile.string() };
-
-			const auto packageScript = repoRoot / "Tools/Agent/Package.ps1";
-			if (!std::filesystem::exists(packageScript))
-			{
-				HE_CORE_ERROR("[Package] 找不到统一打包入口: {}", packageScript.string());
-				return { false, "找不到统一打包入口: " + packageScript.string() };
-			}
-			const auto logFile = buildDir / "build_game.log";
-			const auto batFile = buildDir / "build_game.bat";
-			{
-				std::ofstream bat(batFile);
-				if (!bat)
-					return { false, "无法创建打包启动脚本: " + batFile.string() };
-				bat << "@echo off\r\n";
-				bat << "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \""
-					<< packageScript.string() << "\" -Project \"" << projectRoot.string()
-					<< "\" -ResultFile \"" << packageOutputFile.string() << "\" > \""
-					<< logFile.string() << "\" 2>&1\r\n";
-				bat << "exit /b %errorlevel%\r\n";
-			}
-
-			const std::string runCmd = "\"" + batFile.string() + "\"";
-			if (std::system(runCmd.c_str()) != 0)
-			{
-				HE_CORE_ERROR("[Package] 打包失败，详情见: {}", logFile.string());
-				return { false, "打包失败，详情见: " + logFile.string() };
-			}
-
-			std::ifstream result(packageOutputFile, std::ios::binary);
-			std::string packageDirText;
-			if (!result || !std::getline(result, packageDirText) || packageDirText.empty())
-			{
-				HE_CORE_ERROR("[Package] 打包结果未报告发布目录: {}", packageOutputFile.string());
-				return { false, "打包结果未报告发布目录: " + packageOutputFile.string() };
-			}
-			const auto packageDir = std::filesystem::u8path(packageDirText);
-
-			const auto packagedExe = packageDir / (executableName + ".exe");
-			const auto packagedPak = packageDir / "Game.pak";
-			const auto packagedManifest = packageDir / "Game.manifest.json";
-			if (!std::filesystem::exists(packagedExe) ||
-				!std::filesystem::exists(packagedPak) ||
-				!std::filesystem::exists(packagedManifest))
-			{
-				HE_CORE_ERROR("[Package] Cooked package is incomplete: {}", packageDir.string());
-				return { false, "Cooked package is incomplete: " + packageDir.string() };
-			}
-
-			HE_CORE_INFO("[Package] 打包完成: {}", packageDir.string());
-			return { true, packageDir.string() };
-		});
+		if (!mBuildPublishPanel) mBuildPublishPanel = CreateScope<BuildPublishPanel>();
+		mBuildPublishPanel->Open();
 	}
 
 	void EditorLayer::OnScenePlay()
 	{
+		if (mScriptPlay.IsTransitioning()) throw std::logic_error("A scene transition is already in progress.");
 		if (!ModeManager::IsEditState())
 			return;
 		if (!mEditorScene)
@@ -3010,9 +3530,18 @@ namespace HEngine
 		if (!PrepareViewportModeForPlay())
 			return;
 
+        auto backend = ScriptBackendRegistry::Find("he.script.csharp");
+        if (auto* reloader = dynamic_cast<IScriptReloader*>(backend.get()))
+            reloader->Reload(mPendingScriptGeneration);
+        mPendingScriptGeneration.clear();
+        mPrePlayEditorState = GetPanel<SceneHierarchyPanel>()->ExportEditorState();
+		Application::GetInstance().ClearRuntimeSceneRequest();
+		mRuntimeScenePath = mEditorScenePath;
 		Ref<Level> runtimeScene = Level::Copy(mEditorScene, true);
+        mScriptPlay.BeginPlay();
 		try
 		{
+            InputActions::Get().ReloadProjectMap();
 			runtimeScene->OnRuntimeStart();
 			EmbreeSystem::ResetSharedContext();
 			if (auto* physicsSystem = mEditorScene->TryGetSystem<PhysicSystem3D>())
@@ -3022,14 +3551,16 @@ namespace HEngine
 			GetPanel<SceneHierarchyPanel>()->SetContext(mActiveScene);
 			ModeManager::ChangeState();
 
-			mRuntimeAltDown = false;
+			mRuntimeInputEngaged = true;
 			CenterCursorToViewport();
-			SetRuntimeCursorCaptured(true);
+			UpdateRuntimeCursorPolicy();
 			Application::GetWindow().SetInputMethodEnabled(false);
 			(void)Application::GetInstance().GetProjectResourceWarmup().QueueGroup("Boot");
+            mScriptPlay.CommitPlay();
 		}
 		catch (...)
 		{
+            mScriptPlay.AbortPlay();
 			const std::exception_ptr originalFailure = std::current_exception();
 			if (!ModeManager::IsEditState())
 				ModeManager::ChangeState();
@@ -3046,7 +3577,7 @@ namespace HEngine
 
 			try
 			{
-				mRuntimeAltDown = false;
+				mRuntimeInputEngaged = false;
 				SetRuntimeCursorCaptured(false);
 				Application::GetWindow().SetInputMethodEnabled(true);
 			}
@@ -3071,8 +3602,11 @@ namespace HEngine
 
 	void EditorLayer::OnSceneStop()
 	{
+		if (mScriptPlay.IsTransitioning()) throw std::logic_error("A scene transition is already in progress.");
 		if (ModeManager::IsEditState())
 			return;
+        mScriptPlay.BeginStop();
+        InputActions::Get().Suspend();
 
 		std::exception_ptr firstFailure;
 		auto recordFailure = [&firstFailure](std::string_view operation) noexcept
@@ -3108,13 +3642,14 @@ namespace HEngine
 		try
 		{
 			GetPanel<SceneHierarchyPanel>()->SetContext(mActiveScene);
+			GetPanel<SceneHierarchyPanel>()->ImportEditorState(mPrePlayEditorState);
 		}
 		catch (...)
 		{
 			recordFailure("Editor scene context restoration encountered an additional failure.");
 		}
 
-		mRuntimeAltDown = false;
+		mRuntimeInputEngaged = false;
 		try
 		{
 			SetRuntimeCursorCaptured(false);
@@ -3141,8 +3676,46 @@ namespace HEngine
 		ReleaseEditorRuntimeWarmupResidency(
 			"Editor resource warm-up release failed during runtime stop.");
 
+        mScriptPlay.CommitStop();
+		UpdateRuntimeCursorPolicy();
+		Application::GetInstance().ClearRuntimeSceneRequest();
+		mRuntimeScenePath.clear();
 		if (firstFailure)
 			std::rethrow_exception(firstFailure);
+	}
+
+	void EditorLayer::ProcessRuntimeSceneRequest()
+	{
+		if (ModeManager::IsEditState() || mScriptPlay.IsTransitioning()) return;
+		bool bForceReload = false;
+		auto request = Application::GetInstance().ConsumeRuntimeSceneRequest(&bForceReload);
+		if (!request) return;
+		try
+		{
+			const auto document = ResolveSceneDocumentPath(
+				ConfigManager::GetInstance().GetRootFolder(), *request);
+			if (!bForceReload && document.FullPath == mRuntimeScenePath) return;
+			// Only replace the runtime copy, at a frame boundary outside script callbacks.
+			// The author scene, selection and undo history remain available to Stop.
+			auto nextScene = CreateRef<Level>();
+			SceneSerializer serializer(nextScene);
+			if (!serializer.Deserialize(document.FullPath.string()))
+				throw std::runtime_error("Runtime scene could not be deserialized: " + *request);
+			nextScene->OnViewportResize(static_cast<uint32_t>(ConfigManager::mViewportSize.x),
+				static_cast<uint32_t>(ConfigManager::mViewportSize.y));
+			mActiveScene->OnRuntimeStop();
+			mActiveScene = std::move(nextScene);
+			GetPanel<SceneHierarchyPanel>()->SetContext(mActiveScene);
+			EmbreeSystem::ResetSharedContext();
+			mActiveScene->OnRuntimeStart();
+			mRuntimeScenePath = document.FullPath;
+			HE_CORE_INFO("[Editor] Runtime scene transition complete scene={0}", *request);
+		}
+		catch (...)
+		{
+			ReportEditorCleanupFailure("Editor runtime scene transition failed; returning to Edit.", std::current_exception());
+			TryChangeSceneMode(false);
+		}
 	}
 
 	void EditorLayer::TryChangeSceneMode(bool bPlay) noexcept
@@ -3164,26 +3737,43 @@ namespace HEngine
 
 	void EditorLayer::UpdateRuntimeCursorPolicy()
 	{
-		const bool bUiCursorVisible = !ModeManager::IsEditState() &&
-			RmlUiManager::GetInstance().IsMouseCursorVisibleRequested();
-		if (bUiCursorVisible)
-			ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
-		else
-			ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
+		ImGuiIO& io = ImGui::GetIO();
+		const bool bPlaying = !ModeManager::IsEditState();
+		const auto mainPosition = ImGui::GetMainViewport()->Pos;
+		const auto mouse = Input::GetMousePosition();
+		const bool bInside = bShowViewport && mouse.x + mainPosition.x >= mViewportBounds[0].x &&
+			mouse.y + mainPosition.y >= mViewportBounds[0].y && mouse.x + mainPosition.x < mViewportBounds[1].x &&
+			mouse.y + mainPosition.y < mViewportBounds[1].y;
+		ImGuiWindow* hoveredWindow = nullptr;
+		ImGuiWindow* hoveredUnderMovingWindow = nullptr;
+		ImGui::FindHoveredWindowEx(ImVec2(mouse.x + mainPosition.x, mouse.y + mainPosition.y), false,
+			&hoveredWindow, &hoveredUnderMovingWindow);
+		const bool bViewportPointer = bInside && hoveredWindow && hoveredWindow->ID == ImHashStr("Viewport") &&
+			!ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+		const bool bRelease = Input::IsKeyPressed(Key::LeftAlt) || Input::IsKeyPressed(Key::RightAlt) ||
+			((Input::IsKeyPressed(Key::LeftShift) || Input::IsKeyPressed(Key::RightShift)) && Input::IsKeyPressed(Key::F1));
+		if (!bPlaying || io.AppFocusLost || !bShowViewport || mScriptPlay.IsPaused() || bRelease ||
+			(!mRuntimeCursorCaptured && !bViewportPointer))
+			mRuntimeInputEngaged = false;
 
-		if (ModeManager::IsEditState())
-		{
-			mRuntimeAltDown = false;
-			SetRuntimeCursorCaptured(false);
-			return;
-		}
-
-		const bool bAltDown = Input::IsKeyPressed(Key::LeftAlt) || Input::IsKeyPressed(Key::RightAlt);
-		if (bAltDown && !mRuntimeAltDown)
-			CenterCursorToViewport();
-
-		SetRuntimeCursorCaptured(!bAltDown && !bUiCursorVisible);
-		mRuntimeAltDown = bAltDown;
+		auto& rmlUi = RmlUiManager::GetInstance();
+		const bool bUiCursorVisible = bPlaying && rmlUi.IsMouseCursorVisibleRequested();
+		auto camera = mActiveScene ? mActiveScene->GetPrimaryCameraEntity() : Entity{};
+		const bool bOrthographic = camera && camera.HasComponent<CameraComponent>() &&
+			camera.GetComponent<CameraComponent>().Camera.GetProjectionType() == SceneCamera::ProjectionType::Orthographic;
+		SetRuntimeCursorCaptured(bPlaying && mRuntimeInputEngaged && !bUiCursorVisible && !bOrthographic);
+		const bool bViewportInput = bPlaying && !io.AppFocusLost && !mScriptPlay.IsPaused() && !bRelease &&
+			(mRuntimeCursorCaptured || bViewportPointer);
+		ScriptInputContext::Region = {
+			true, bViewportInput, bViewportInput && !io.WantTextInput,
+			mViewportBounds[0].x - mainPosition.x, mViewportBounds[0].y - mainPosition.y,
+			mViewportBounds[1].x - mViewportBounds[0].x, mViewportBounds[1].y - mViewportBounds[0].y};
+		// RmlUi must not replace ImGui's native cursor outside the game image.
+		rmlUi.SetMouseCursorEnabled(bViewportInput && bUiCursorVisible);
+		if (bViewportInput && bUiCursorVisible) io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+		else io.ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
+		if (mRuntimeCursorCaptured) io.ConfigFlags |= ImGuiConfigFlags_NoMouse;
+		else io.ConfigFlags &= ~ImGuiConfigFlags_NoMouse;
 	}
 
 	void EditorLayer::SetRuntimeCursorCaptured(bool bCaptured)
@@ -3208,14 +3798,13 @@ namespace HEngine
 		const float viewportHeight = mViewportBounds[1].y - mViewportBounds[0].y;
 		if (viewportWidth > 1.0f && viewportHeight > 1.0f)
 		{
-			int windowPosX = 0;
-			int windowPosY = 0;
-			Application::GetWindow().GetWindowScreenPosition(windowPosX, windowPosY);
+			// ImGui uses client coordinates with native multi-viewports disabled.
+			const ImVec2 mainPosition = ImGui::GetMainViewport()->Pos;
 
 			const float centerScreenX = mViewportBounds[0].x + viewportWidth * 0.5f;
 			const float centerScreenY = mViewportBounds[0].y + viewportHeight * 0.5f;
-			cursorX = centerScreenX - static_cast<float>(windowPosX);
-			cursorY = centerScreenY - static_cast<float>(windowPosY);
+			cursorX = centerScreenX - mainPosition.x;
+			cursorY = centerScreenY - mainPosition.y;
 		}
 		else
 		{
@@ -3244,55 +3833,11 @@ namespace HEngine
 
 	void EditorLayer::CaptureSceneHistory(const char* label, bool bInteractive)
 	{
-		if (!ModeManager::IsEditState() || !mEditorScene)
-			return;
-
-		if (mSceneHistoryEntries.empty())
-			ResetSceneHistory("Scene Loaded");
-
-		if (bInteractive)
-		{
-			mSceneHistoryInteractivePending = true;
-			mPendingSceneHistoryLabel = label ? label : "Edit Scene";
-			return;
-		}
-
-		if (mSceneHistoryInteractivePending)
-		{
-			mSceneHistoryInteractivePending = false;
-			mPendingSceneHistoryLabel.clear();
-		}
-
-		SceneHierarchyPanel* sceneHierarchyPanel = GetPanel<SceneHierarchyPanel>();
-		Json editorState = sceneHierarchyPanel->ExportEditorState();
-		Entity selectedEntity = sceneHierarchyPanel->GetSelectedEntity();
-
-		SceneHistoryEntry entry;
-		entry.Scene = Level::Copy(mEditorScene);
-		entry.EditorState = std::move(editorState);
-		entry.SelectedEntityUuid = selectedEntity ? selectedEntity.UUID().str() : std::string();
-		entry.MeshSelectionContext = sceneHierarchyPanel->GetMeshSelectionContext();
-		entry.Label = label ? label : "Edit Scene";
-
-		if ((mSceneHistoryCursor + 1) < mSceneHistoryEntries.size())
-		{
-			if (mSavedSceneHistoryCursor > mSceneHistoryCursor)
-				mSavedSceneHistoryCursor = std::numeric_limits<size_t>::max();
-			mSceneHistoryEntries.erase(mSceneHistoryEntries.begin() + static_cast<ptrdiff_t>(mSceneHistoryCursor + 1), mSceneHistoryEntries.end());
-		}
-
-		mSceneHistoryEntries.push_back(std::move(entry));
-		if (mSceneHistoryEntries.size() > 256)
-		{
-			if (mSavedSceneHistoryCursor == 0)
-				mSavedSceneHistoryCursor = std::numeric_limits<size_t>::max();
-			else if (mSavedSceneHistoryCursor != std::numeric_limits<size_t>::max())
-				--mSavedSceneHistoryCursor;
-			mSceneHistoryEntries.erase(mSceneHistoryEntries.begin());
-		}
-		mSceneHistoryCursor = mSceneHistoryEntries.empty() ? 0 : (mSceneHistoryEntries.size() - 1);
-		mSceneDirty = mSavedSceneHistoryCursor == std::numeric_limits<size_t>::max() ||
-			mSceneHistoryCursor != mSavedSceneHistoryCursor;
+		if (!ModeManager::IsEditState() || !mEditorScene || !mSceneEditing) return;
+		// Existing widgets report the end of their interaction. Commit at next
+		// OnPreUpdate, after UI construction and before rendering submission.
+		mSceneHistoryInteractivePending = bInteractive;
+		mPendingSceneHistoryLabel = label ? label : "Edit Scene";
 	}
 
 	void EditorLayer::CommitPendingSceneHistory()
@@ -3356,57 +3901,28 @@ namespace HEngine
 		return false;
 	}
 
-	bool EditorLayer::ApplySceneSnapshot(const Ref<Level>& snapshot, const Json& editorState, const std::string& selectedUuid, const SceneHierarchyPanel::MeshSelectionContext& meshSelectionContext)
-	{
-		if (!snapshot)
-			return false;
 
-		SceneHierarchyPanel* sceneHierarchyPanel = GetPanel<SceneHierarchyPanel>();
-		Ref<Level> restoredScene = Level::Copy(snapshot);
-		restoredScene->OnViewportResize((uint32_t)ConfigManager::mViewportSize.x, (uint32_t)ConfigManager::mViewportSize.y);
-		mEditorScene = restoredScene;
-		mActiveScene = restoredScene;
-		sceneHierarchyPanel->SetContext(mEditorScene);
-		sceneHierarchyPanel->ImportEditorState(editorState);
-
-		if (!selectedUuid.empty())
-		{
-			Entity restoredSelectedEntity = mEditorScene->TryGetEntityByUUID(UUID(selectedUuid));
-			if (restoredSelectedEntity)
-				sceneHierarchyPanel->SetSelectedEntity(restoredSelectedEntity, meshSelectionContext);
-		}
-		mEditorWarmupFramesRemaining = 10;
-		++mEditorRenderRevision;
-
-		return true;
-	}
 
 	void EditorLayer::ResetSceneHistory(const char* label)
 	{
-		if (!mEditorScene)
-			return;
-
-		SceneSerializer serializer(mEditorScene);
-		mSavedSceneContentSnapshot = DumpJson(serializer.SerializeToJson());
-
-		SceneHierarchyPanel* sceneHierarchyPanel = GetPanel<SceneHierarchyPanel>();
-		SceneHistoryEntry entry;
-		entry.Scene = Level::Copy(mEditorScene);
-		entry.EditorState = sceneHierarchyPanel->ExportEditorState();
-		Entity selectedEntity = sceneHierarchyPanel->GetSelectedEntity();
-		entry.SelectedEntityUuid = selectedEntity ? selectedEntity.UUID().str() : std::string();
-		entry.MeshSelectionContext = sceneHierarchyPanel->GetMeshSelectionContext();
-		entry.Label = label ? label : "Scene Reset";
-
-		mSceneHistoryEntries.clear();
-		mSceneHistoryEntries.push_back(std::move(entry));
-		mSceneHistoryCursor = 0;
-		mSavedSceneHistoryCursor = 0;
-		mSceneHistoryInteractivePending = false;
-		mPendingSceneHistoryLabel.clear();
-		mSceneDirty = false;
-		mEditorWarmupFramesRemaining = 30;
-		++mEditorRenderRevision;
+		if (!mEditorScene) return;
+		mSceneEditing = CreateScope<SceneEditingService>();
+		const std::string path = mEditorScenePath.empty() ? "__untitled__.he" :
+			Utils::NormalizeAssetPath(ConfigManager::GetRelativePath(mEditorScenePath));
+		mSceneEditing->Bind(ConfigManager::GetInstance().GetRootFolder(), path,
+			SceneSerializer(mEditorScene).SerializeToJson(), [this](const Json& values) {
+				ApplySceneEditingValues(mEditorScene, values);
+				mEditorScene->OnViewportResize((uint32_t)ConfigManager::mViewportSize.x, (uint32_t)ConfigManager::mViewportSize.y);
+			}, !mEditorScenePath.empty());
+		mSceneEditing->SetChangeObserver([this](uint64_t) {
+			++mEditorRenderRevision; mEditorWarmupFramesRemaining = 10;
+		});
+		mSceneHistoryInteractivePending = false; mPendingSceneHistoryLabel.clear();
+		mSceneObservationHandles.clear(); mSceneObservationSeen.clear(); mSceneObservationIndex = 0;
+		mNextSceneObservation = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+		mPendingSceneEdits.clear(); mSceneEditResults.clear();
+		mSceneDirty = mSceneEditing->IsDirty();
+		mEditorWarmupFramesRemaining = 30; ++mEditorRenderRevision;
 	}
 
 	bool EditorLayer::UndoActiveDocument()
@@ -3420,53 +3936,51 @@ namespace HEngine
 	}
 
 	bool EditorLayer::CanUndo() const
-	{
-		return ModeManager::IsEditState() && mSceneHistoryEntries.size() > 1 && mSceneHistoryCursor > 0;
-	}
-
+	{ return ModeManager::IsEditState() && mSceneEditing && mSceneEditing->CanUndo(); }
 	bool EditorLayer::CanRedo() const
-	{
-		return ModeManager::IsEditState() && !mSceneHistoryEntries.empty() && (mSceneHistoryCursor + 1) < mSceneHistoryEntries.size();
-	}
-
+	{ return ModeManager::IsEditState() && mSceneEditing && mSceneEditing->CanRedo(); }
 	bool EditorLayer::Undo()
 	{
-		if (!ModeManager::IsEditState())
-			return false;
-		if (mSceneHistoryInteractivePending)
-			CommitPendingSceneHistory();
-		if (!CanUndo())
-			return false;
-
-		const size_t targetCursor = mSceneHistoryCursor - 1;
-		const SceneHistoryEntry& entry = mSceneHistoryEntries[targetCursor];
-		if (!ApplySceneSnapshot(entry.Scene, entry.EditorState, entry.SelectedEntityUuid, entry.MeshSelectionContext))
-			return false;
-
-		mSceneHistoryCursor = targetCursor;
-		mSceneDirty = mSavedSceneHistoryCursor == std::numeric_limits<size_t>::max() ||
-			mSceneHistoryCursor != mSavedSceneHistoryCursor;
+		if (!CanUndo()) return false;
+		QueueSceneEditingRequest("undo", {{"sceneId",mSceneEditing->GetSceneId()},
+			{"baseRevision",mSceneEditing->GetRevision()},{"requestId",UUID().str()}});
+		if (!mPendingSceneEdits.empty()) mPendingSceneEdits.back().LocalUi = true;
 		return true;
 	}
-
 	bool EditorLayer::Redo()
 	{
-		if (!ModeManager::IsEditState())
-			return false;
-		if (mSceneHistoryInteractivePending)
-			CommitPendingSceneHistory();
-		if (!CanRedo())
-			return false;
-
-		const size_t targetCursor = mSceneHistoryCursor + 1;
-		const SceneHistoryEntry& entry = mSceneHistoryEntries[targetCursor];
-		if (!ApplySceneSnapshot(entry.Scene, entry.EditorState, entry.SelectedEntityUuid, entry.MeshSelectionContext))
-			return false;
-
-		mSceneHistoryCursor = targetCursor;
-		mSceneDirty = mSavedSceneHistoryCursor == std::numeric_limits<size_t>::max() ||
-			mSceneHistoryCursor != mSavedSceneHistoryCursor;
+		if (!CanRedo()) return false;
+		QueueSceneEditingRequest("redo", {{"sceneId",mSceneEditing->GetSceneId()},
+			{"baseRevision",mSceneEditing->GetRevision()},{"requestId",UUID().str()}});
+		if (!mPendingSceneEdits.empty()) mPendingSceneEdits.back().LocalUi = true;
 		return true;
+	}
+	Json EditorLayer::QueueSceneEditingRequest(const std::string& method, const Json& request)
+	{
+		if (method == "result")
+		{
+			const std::string ticket = request.at("ticket");
+			for (const auto& pending : mPendingSceneEdits)
+				if (pending.Ticket == ticket) return {{"ok",true},{"ticket",ticket},{"completion","queued"}};
+			const auto found = mSceneEditResults.find(ticket);
+			return found != mSceneEditResults.end() ? found->second : Json{{"ok",false},{"error",{{"code","ticket_expired"}}}};
+		}
+		if (mPendingSceneEdits.size() >= 32) return {{"ok",false},{"error",{{"code","queue_full"}}}};
+		const std::string ticket = UUID().str();
+		mPendingSceneEdits.push_back({ticket,method,request});
+		return {{"ok",true},{"sceneId",mSceneEditing ? mSceneEditing->GetSceneId() : ""},{"ticket",ticket},{"completion","queued"}};
+	}
+	void EditorLayer::QueueSceneOperations(Json operations)
+	{
+		if (!mSceneEditing || !ModeManager::IsEditState()) return;
+		if (!mPendingSceneEdits.empty() && mPendingSceneEdits.back().LocalUi && mPendingSceneEdits.back().Method == "apply")
+		{
+			for (auto& operation : operations) mPendingSceneEdits.back().Request["operations"].push_back(std::move(operation));
+			return;
+		}
+		(void)QueueSceneEditingRequest("apply", {{"sceneId",mSceneEditing->GetSceneId()},
+			{"baseRevision",mSceneEditing->GetRevision()},{"requestId",UUID().str()},{"operations",std::move(operations)}});
+		if (!mPendingSceneEdits.empty()) mPendingSceneEdits.back().LocalUi = true;
 	}
 
 	bool EditorLayer::IsUndoContextDirty() const

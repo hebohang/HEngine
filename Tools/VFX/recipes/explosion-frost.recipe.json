@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "id": "explosion-frost",
+  "template": "explosion",
+  "semantic": {
+    "purpose": "explosion presentation",
+    "style": "frost broad"
+  },
+  "compile": {
+    "color": [
+      80,
+      205,
+      255,
+      230
+    ],
+    "radius_m": 1.3,
+    "attack_s": 0.3,
+    "sustain_s": 0.6,
+    "decay_s": 0.7,
+    "particles": 256,
+    "direction": [
+      0,
+      1,
+      0
+    ],
+    "seed": 1806,
+    "simulation": "gpu",
+    "quality": "High"
+  },
+  "playback": {
+    "scale": 1,
+    "speed": 1,
+    "intensity": 1
+  },
+  "budget": {
+    "max_particles": 256
+  },
+  "requirements": {
+    "backends": [
+      "DX12",
+      "Vulkan"
+    ],
+    "fallback_recipe": "explosion-frost-low"
+  },
+  "dependencies": []
+}

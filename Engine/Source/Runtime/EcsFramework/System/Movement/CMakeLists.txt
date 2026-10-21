@@ -1,3 +1,7 @@
-RUNTIME_ADD_SOURCE(
-    CharacterMovementSystem.h CharacterMovementSystem.cpp
-)
+set(featureSources CharacterMovementSystem.h)
+if(HE_ENABLE_PHYSICS_3D)
+    list(APPEND featureSources CharacterMovementSystem.cpp)
+else()
+    list(APPEND featureSources CharacterMovementSystemDisabled.cpp)
+endif()
+RUNTIME_ADD_SOURCE(${featureSources})

@@ -43,14 +43,16 @@ namespace nvrhi::d3d12
         }
     }
 
-    Object Texture::getNativeView(ObjectType objectType, Format format, TextureSubresourceSet subresources, TextureDimension dimension, bool isReadOnlyDSV)
+    Object Texture::getNativeView(ObjectType objectType, Format format, TextureSubresourceSet subresources, TextureDimension dimension, bool isReadOnlyDSV,
+        std::optional<ComponentMapping> overrideComponentMapping)
     {
         static_assert(sizeof(void*) == sizeof(D3D12_CPU_DESCRIPTOR_HANDLE), "Cannot typecast a descriptor to void*");
-        
+
         switch (objectType)
         {
-        case nvrhi::ObjectTypes::D3D12_ShaderResourceViewGpuDescripror: {
-            TextureBindingKey key = TextureBindingKey(subresources, format);
+        case nvrhi::ObjectTypes::D3D12_ShaderResourceViewGpuDescriptor: {
+            const ComponentMapping componentMapping = resolveComponentMapping(overrideComponentMapping, desc.defaultComponentMapping);
+            TextureBindingKey key = TextureBindingKey(subresources, format, false, componentMapping.pack());
             DescriptorIndex descriptorIndex;
             auto found = m_CustomSRVs.find(key);
             if (found == m_CustomSRVs.end())
@@ -59,7 +61,7 @@ namespace nvrhi::d3d12
                 m_CustomSRVs[key] = descriptorIndex;
 
                 const D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle = m_Resources.shaderResourceViewHeap.getCpuHandle(descriptorIndex);
-                createSRV(cpuHandle.ptr, format, dimension, subresources);
+                createSRV(cpuHandle.ptr, format, dimension, subresources, componentMapping);
                 m_Resources.shaderResourceViewHeap.copyToShaderVisibleHeap(descriptorIndex);
             }
             else
@@ -70,7 +72,7 @@ namespace nvrhi::d3d12
             return Object(m_Resources.shaderResourceViewHeap.getGpuHandle(descriptorIndex).ptr);
         }
 
-        case nvrhi::ObjectTypes::D3D12_UnorderedAccessViewGpuDescripror: {
+        case nvrhi::ObjectTypes::D3D12_UnorderedAccessViewGpuDescriptor: {
             TextureBindingKey key = TextureBindingKey(subresources, format);
             DescriptorIndex descriptorIndex;
             auto found = m_CustomUAVs.find(key);
@@ -625,7 +627,23 @@ namespace nvrhi::d3d12
         return planeCount;
     }
 
-    void Texture::createSRV(size_t descriptor, const Format format, TextureDimension dimension, TextureSubresourceSet subresources) const
+    // Map an nvrhi::ComponentSwizzle to a D3D12_SHADER_COMPONENT_MAPPING source selector.
+    static UINT toD3D12ComponentMapping(ComponentSwizzle s)
+    {
+        switch (s)
+        {
+        case ComponentSwizzle::R:    return D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_0;
+        case ComponentSwizzle::G:    return D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_1;
+        case ComponentSwizzle::B:    return D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_2;
+        case ComponentSwizzle::A:    return D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_3;
+        case ComponentSwizzle::Zero: return D3D12_SHADER_COMPONENT_MAPPING_FORCE_VALUE_0;
+        case ComponentSwizzle::One:  return D3D12_SHADER_COMPONENT_MAPPING_FORCE_VALUE_1;
+        default:                     return D3D12_SHADER_COMPONENT_MAPPING_FROM_MEMORY_COMPONENT_0;
+        }
+    }
+
+    void Texture::createSRV(size_t descriptor, const Format format, TextureDimension dimension, TextureSubresourceSet subresources,
+        ComponentMapping componentMapping) const
     {
         subresources = subresources.resolve(desc, false);
 
@@ -635,7 +653,15 @@ namespace nvrhi::d3d12
         D3D12_SHADER_RESOURCE_VIEW_DESC viewDesc = {};
 
         viewDesc.Format = getDxgiFormatMapping(format == Format::UNKNOWN ? desc.format : format).srvFormat;
-        viewDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        // Identity maps to the default encoding (bit-identical to no swizzle); a
+        // non-identity mapping reinterprets the texture's channels for this SRV.
+        viewDesc.Shader4ComponentMapping = componentMapping.isIdentity()
+            ? D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING
+            : UINT(D3D12_ENCODE_SHADER_4_COMPONENT_MAPPING(
+                  toD3D12ComponentMapping(componentMapping.r),
+                  toD3D12ComponentMapping(componentMapping.g),
+                  toD3D12ComponentMapping(componentMapping.b),
+                  toD3D12ComponentMapping(componentMapping.a)));
 
         uint32_t planeSlice = (viewDesc.Format == DXGI_FORMAT_X24_TYPELESS_G8_UINT) ? 1 : 0;
 

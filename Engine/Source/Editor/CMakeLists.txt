@@ -17,10 +17,13 @@ endmacro(EDITOR_ADD_SOURCE)
 # end from
 
 set(EditorHeaderFiles
+	"${CMAKE_CURRENT_SOURCE_DIR}/Automation/EditorSceneMailbox.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/EditorLayer.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/EditorHistory.h"
 	"${CMAKE_CURRENT_SOURCE_DIR}/EditorTheme.h")
 set(EditorSourceFiles
+    "${CMAKE_CURRENT_SOURCE_DIR}/Panels/BuildPublishPanel.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/Automation/EditorSceneMailbox.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/EditorLayer.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/EditorHistory.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/EditorTheme.cpp"
@@ -42,9 +45,25 @@ if(EditorResourceFiles)
 endif()
 
 add_executable(HEngineEditor ${EditorSourceFiles} ${EditorResourceFiles})
+he_deploy_fsr31(HEngineEditor)
+if(MSVC)
+	target_compile_options(HEngineEditor PRIVATE /bigobj)
+endif()
+find_package(Python3 3.11 REQUIRED COMPONENTS Interpreter)
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/AssetToolsBuildConfig.h"
+    "#pragma once\n#define HE_ASSET_TOOLS_PYTHON R\"(${Python3_EXECUTABLE})\"\n")
+file(MAKE_DIRECTORY "${BINARY_ROOT_DIR}/Tools/Content")
+foreach(assetTool asset_operations.py content_sync.py)
+    configure_file("${CMAKE_SOURCE_DIR}/Tools/Content/${assetTool}"
+        "${BINARY_ROOT_DIR}/Tools/Content/${assetTool}" COPYONLY)
+endforeach()
+find_program(HE_PLUGIN_SETTINGS_POWERSHELL NAMES pwsh powershell.exe pwsh.exe REQUIRED)
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/PluginPanelBuildConfig.h"
+    "#pragma once\n#define HE_PLUGIN_SETTINGS_POWERSHELL R\"(${HE_PLUGIN_SETTINGS_POWERSHELL})\"\n#define HE_PLUGIN_SETTINGS_SCRIPT R\"(${CMAKE_SOURCE_DIR}/Tools/Plugins/ApplyConfig.ps1)\"\n#define HE_PLUGIN_SETTINGS_CMAKE R\"(${CMAKE_COMMAND})\"\n")
+target_include_directories(HEngineEditor PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 add_dependencies(HEngineEditor HEngineRuntimeShaders)
 
-if(WIN32)
+if(WIN32 AND HE_RENDER_DX12)
 	he_enable_d3d12_agility(HEngineEditor)
 endif()
 
@@ -59,6 +78,7 @@ target_compile_definitions(HEngineRuntime PUBLIC
 target_link_libraries(HEngineEditor 
 	PRIVATE HEngineRuntime
 	PRIVATE imgui_node_editor
+    PRIVATE ImGuizmo
 )
 
 he_attach_static_plugins(HEngineEditor Editor)
@@ -69,7 +89,7 @@ target_include_directories(HEngineEditor PRIVATE
 )
 
 target_compile_definitions(HEngineEditor PRIVATE
-	HE_PLATFORM_WINDOWS
+	$<$<PLATFORM_ID:Windows>:HE_PLATFORM_WINDOWS>
 	_CRT_SECURE_NO_WARNINGS
 )
 

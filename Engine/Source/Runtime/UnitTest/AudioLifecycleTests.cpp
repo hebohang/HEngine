@@ -5,6 +5,7 @@
 #include "Runtime/Audio/AudioBackend.h"
 #include "Runtime/Audio/AudioEngine.h"
 #include "Runtime/Audio/ProjectAudioPath.h"
+#include "Runtime/Audio/ScriptAudio.h"
 
 #include <array>
 #include <atomic>
@@ -319,6 +320,36 @@ namespace HEngine::Tests
                 Require(audio.Initialize(), "The injected backend could not retry initialization.");
                 Require(audio.IsInitialized() && audio.IsDeviceAvailable(),
                     "A successful injected backend was not observable.");
+
+                const auto spatial = ReadScriptAudioParams(Json{{"loop", true}, {"bus", 2}, {"position", {1, 2, 3}},
+                    {"volume", 0.25f}, {"pitch", 1.5f}, {"paused", true}, {"minDistance", 2}, {"maxDistance", 20}});
+                Require(spatial.bSpatialized && spatial.bLooping && spatial.bStream && spatial.bStartPaused &&
+                    spatial.Bus == AudioBus::UI && spatial.Position == glm::vec3(1, 2, 3) && spatial.Pitch == 1.5f,
+                    "Script spatial audio options lost their typed values.");
+                Require(ReadScriptAudioParams(Json{{"loop", true}}).Bus == AudioBus::Music,
+                    "Legacy looped audio no longer defaults to the music bus.");
+                for (const auto& invalid : {Json{{"bus", -1}}, Json{{"attenuation", 4}}, Json{{"pitch", 0}},
+                    Json{{"volume", 2}}, Json{{"pan", -2}}, Json{{"minDistance", 5}, {"maxDistance", 1}}, Json{{"position", {1, 2}}}})
+                {
+                    bool rejected = false;
+                    try { (void)ReadScriptAudioParams(invalid); } catch (const std::exception&) { rejected = true; }
+                    Require(rejected, "Invalid script audio options reached the backend.");
+                }
+                Require(ExecuteScriptAudioControl(audio, "pause", Json::object(), {41}) == true && state->bPaused,
+                    "Script pause did not reach the audio backend.");
+                Require(ExecuteScriptAudioControl(audio, "resume", Json::object(), {41}) == true && !state->bPaused,
+                    "Script resume did not reach the audio backend.");
+                Require(ExecuteScriptAudioControl(audio, "length", Json::object(), {41}) == 2.5 &&
+                    ExecuteScriptAudioControl(audio, "playbackPosition", Json::object(), {41}) == 1.25,
+                    "Script audio duration/cursor contract changed.");
+                Require(ExecuteScriptAudioControl(audio, "busVolume", Json{{"bus", 2}, {"value", 0.25f}}) == 0.25f &&
+                    state->BusVolumes[2] == 0.25f, "Script bus gain did not reach the selected bus.");
+                Require(ExecuteScriptAudioControl(audio, "pause", Json::object(), {0}) == false,
+                    "An absent audio handle was reported as paused.");
+                bool rejectedSeek = false;
+                try { (void)ExecuteScriptAudioControl(audio, "seek", Json{{"seconds", -1}}, {41}); }
+                catch (const std::invalid_argument&) { rejectedSeek = true; }
+                Require(rejectedSeek, "Negative script seek was accepted.");
 
                 AudioPlayParams params;
                 params.Bus = AudioBus::UI;

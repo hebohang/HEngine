@@ -1,10 +1,19 @@
 param(
     [string]$Project = "",
-
-    [string]$ResultFile = ""
+    [ValidatePattern('^$|^[A-Za-z0-9_./-]+[.]json$')][string]$GameConfig = "",
+    [string]$PluginConfig = "",
+    [string]$OutputRoot = "",
+    [ValidateSet('Desktop','Portable')][string]$ScriptQuality = 'Desktop',
+    [switch]$PortablePlayer,
+    [ValidateSet('', 'x64', 'arm64')][string]$Architecture = ''
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "Toolchain.ps1")
+$Architecture = Resolve-HeWindowsArchitecture $Architecture
+$generatorPlatform = if ($Architecture -eq 'arm64') { 'ARM64' } else { 'x64' }
+$toolchain = Get-HeVisualStudio -Architecture $Architecture
+Import-HeToolchain -Toolchain $toolchain
 
 function Get-PathHash {
     param([string]$Value)
@@ -25,15 +34,26 @@ function Invoke-Native {
         [scriptblock]$Command
     )
 
-    & $Command
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Description failed with exit code $LASTEXITCODE."
+    $nativeExit = 1
+    $previousPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        if ($packageEvidenceDirectory) {
+            & $Command *>&1 | Tee-Object -FilePath (Join-Path $packageEvidenceDirectory (($Description -replace '[^A-Za-z0-9-]', '-') + '.log'))
+        }
+        else { & $Command }
+        $nativeExit = $LASTEXITCODE
+    }
+    finally { $ErrorActionPreference = $previousPreference }
+    if ($nativeExit -ne 0) {
+        throw "$Description failed with exit code $nativeExit."
     }
 }
 
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 if ([string]::IsNullOrWhiteSpace($Project)) {
-    $Project = Join-Path $repositoryRoot "Project"
+    . (Join-Path $PSScriptRoot 'Project.ps1')
+    $Project = (Resolve-HEProject -RepositoryRoot $repositoryRoot).Root
 }
 elseif (-not [System.IO.Path]::IsPathRooted($Project) -and
     -not (Test-Path -LiteralPath $Project)) {
@@ -60,7 +80,7 @@ if (-not (Test-Path -LiteralPath $descriptorPath -PathType Leaf)) {
 }
 
 try {
-    $descriptor = Get-Content -Raw -LiteralPath $descriptorPath | ConvertFrom-Json
+    $descriptor = Get-Content -Raw -LiteralPath $descriptorPath -Encoding UTF8 | ConvertFrom-Json
 }
 catch {
     throw "Project descriptor is not valid JSON: $descriptorPath. $($_.Exception.Message)"
@@ -85,23 +105,38 @@ $projectRoot = [System.IO.Path]::GetFullPath($projectRoot).TrimEnd('\', '/')
 $defaultProjectRoot = [System.IO.Path]::GetFullPath(
     (Join-Path $repositoryRoot "Project")).TrimEnd('\', '/')
 $packageCacheHash = (Get-PathHash -Value "${projectId}`n${projectRoot}").Substring(0, 12)
+if ($PortablePlayer) { $packageCacheHash = (Get-PathHash -Value "${projectId}`n${projectRoot}`nportable-player").Substring(0, 12) }
+if ($Architecture -ne 'x64') { $packageCacheHash = (Get-PathHash -Value "${packageCacheHash}`n$Architecture").Substring(0, 12) }
 $bDefaultProject = [string]::Equals(
     $projectRoot,
     $defaultProjectRoot,
     [System.StringComparison]::OrdinalIgnoreCase)
-$packageOutputKey = if ($bDefaultProject) {
+$packageOutputIdentity = "${projectId}`n${projectRoot}"
+if ($PortablePlayer) { $packageOutputIdentity += "`nportable-player" }
+if ($Architecture -ne 'x64') { $packageOutputIdentity += "`n$Architecture" }
+if ($GameConfig) { $packageOutputIdentity += "`n${GameConfig}" }
+if ($PluginConfig) {
+    $PluginConfig = (Resolve-Path -LiteralPath $PluginConfig -ErrorAction Stop).Path
+    $pluginBytes = [IO.File]::ReadAllBytes($PluginConfig)
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try { $pluginIdentity = [BitConverter]::ToString($hasher.ComputeHash($pluginBytes)).Replace('-', '').ToLowerInvariant() }
+    finally { $hasher.Dispose() }
+    $packageOutputIdentity += "`nplugins:${pluginIdentity}"
+}
+$packageOutputKey = if ($bDefaultProject -and !$GameConfig -and !$PluginConfig -and !$PortablePlayer) {
     ""
 }
 else {
-    (Get-PathHash -Value "${projectId}`n${projectRoot}").Substring(0, 16)
+    (Get-PathHash -Value $packageOutputIdentity).Substring(0, 16)
 }
-$packageOutputRoot = if ($bDefaultProject) {
-    Join-Path $repositoryRoot "dist"
+$distributionRoot = if ($OutputRoot) { [IO.Path]::GetFullPath($OutputRoot) } else { Join-Path $repositoryRoot 'dist' }
+$packageOutputRoot = if ($bDefaultProject -and !$GameConfig -and !$PluginConfig -and !$PortablePlayer) {
+    $distributionRoot
 }
 else {
-    Join-Path $repositoryRoot "dist\projects\$packageOutputKey"
+    Join-Path $distributionRoot "projects\$packageOutputKey"
 }
-$buildDir = if ($bDefaultProject) {
+$buildDir = if ($bDefaultProject -and !$PortablePlayer) {
     Join-Path $repositoryRoot "out\package\build"
 }
 else {
@@ -119,9 +154,16 @@ if (Test-Path -LiteralPath $legacyLockDirectory -PathType Container) {
     throw "A legacy package lock directory remains at $legacyLockDirectory. Confirm that no package build is running, then remove this empty directory once."
 }
 $lockPath = Join-Path $buildDir ".package-build.lock"
+. (Join-Path $PSScriptRoot 'Storage.ps1')
+$packageStorageRuns = @()
+$packageEvidenceRun = $null
+$packageEvidenceDirectory = $null
+$packageStorageState = 'failed'
+$cacheLease = $null
 $packageLock = $null
 $previousNodeReuse = $env:MSBUILDDISABLENODEREUSE
 try {
+    $cacheLease = Open-HECacheLease -CachePath $buildDir
     try {
         $packageLock = [System.IO.File]::Open(
             $lockPath,
@@ -133,15 +175,32 @@ try {
         throw "Another package build is using $buildDir. Wait for it to finish."
     }
 
+    $packageEvidenceDirectory = Join-Path $repositoryRoot ('out/agent/logs/package-run-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $packageEvidenceDirectory -Force | Out-Null
+    $packageEvidenceRun = Start-HEStorageRun -Project $projectRoot -Workflow 'package' -Paths @($packageEvidenceDirectory) -Locks @($lockPath) -Outer
+    if ($PluginConfig) {
+        # Compile exactly the bytes used to choose this package's output identity.
+        $PluginConfig = Join-Path $packageEvidenceDirectory 'Plugins.json'
+        [IO.File]::WriteAllBytes($PluginConfig, $pluginBytes)
+    }
     $env:MSBUILDDISABLENODEREUSE = "1"
     $cmakeCommand = (Get-Command cmake.exe -CommandType Application -ErrorAction Stop |
         Select-Object -First 1).Source
+    $freshConfigure = @(Get-HeFreshConfigureArguments -BuildRoot $buildDir -Compiler $toolchain.Compiler -Generator $toolchain.Generator)
+    Write-Host "toolchain: $($toolchain.Generator), $($toolchain.Toolset), MSVC $($toolchain.ToolsVersion)"
     Invoke-Native -Description "Package configure" -Command {
-        & $cmakeCommand -S $repositoryRoot -B $buildDir `
+        & $cmakeCommand @freshConfigure -S $repositoryRoot -B $buildDir `
             "-DHE_PROJECT_DIR=$projectRoot" `
             "-DHE_GENERATED_SOURCE_DIR=$generatedSourceDir" `
             "-DHE_PACKAGE_OUTPUT_KEY=$packageOutputKey" `
+            "-DHE_PACKAGE_DISTRIBUTION_ROOT=$distributionRoot" `
+            "-DHE_PACKAGE_GAME_CONFIG=$GameConfig" `
+            "-DHE_PLUGIN_CONFIG=$PluginConfig" `
+            "-DHE_CODEGEN_LIBCLANG_ROOT=$env:HE_CODEGEN_LIBCLANG_ROOT" `
+            "-DHE_CODEGEN_PARSER_EXECUTABLE=$env:HE_CODEGEN_PARSER_EXECUTABLE" `
             -DPACK_GAME=ON `
+            "-DHE_PORTABLE_PLAYER=$(if ($PortablePlayer) { 'ON' } else { 'OFF' })" `
+            "-DHE_SCRIPT_QUALITY=$ScriptQuality" `
             -DHE_BUILD_DEV_GAME=OFF `
             -DHE_ENABLE_GM=OFF `
             -DHE_BUILD_TESTS=OFF `
@@ -150,7 +209,8 @@ try {
             -DHE_ENABLE_TRACY=OFF `
             -DBUILD_SHARED_LIBS=OFF `
             -DGLFW_LIBRARY_TYPE=STATIC `
-            -G "Visual Studio 17 2022" -A x64 -T v143
+            "-DCMAKE_GENERATOR_INSTANCE=$($toolchain.Path)" `
+            -G $toolchain.Generator -A $generatorPlatform -T $toolchain.Toolset
     }
     $packageTargetGraph = Join-Path $buildDir "PackageTargetGraph.dot"
     $expectedPackageLinkMap = Join-Path $buildDir `
@@ -179,6 +239,10 @@ try {
     & $packagePolicyVerifier `
         -TargetGraphPath $packageTargetGraph `
         -RequireBuildGraphInput
+    $storagePaths = @(Get-Content -LiteralPath (Join-Path $buildDir 'PackageStoragePaths.txt'))
+    if ($storagePaths.Count -ne 2) { throw 'Invalid package storage path declaration.' }
+    $packageStorageRuns += Start-HEStorageRun -Project $projectRoot -ProjectId $projectId -Workflow 'package-cook' -Kind 'package-intermediate' -Paths @($storagePaths[0]) -Locks @($lockPath)
+    $packageStorageRuns += Start-HEStorageRun -Project $projectRoot -ProjectId $projectId -Workflow 'package-staging' -Kind 'package-staging' -Paths @($storagePaths[1]) -Locks @($lockPath)
     Invoke-Native -Description "Package build" -Command {
         & $cmakeCommand --build $buildDir --config Release --target PackageGame --parallel 2
     }
@@ -187,21 +251,30 @@ try {
     # and full WARP start before its final publish command. Keep every fallible
     # package gate inside that pre-publish boundary.
 
-    if (-not [string]::IsNullOrWhiteSpace($ResultFile)) {
-        $resultPath = [System.IO.Path]::GetFullPath($ResultFile)
-        $resultDirectory = Split-Path -Parent $resultPath
-        New-Item -ItemType Directory -Force -Path $resultDirectory | Out-Null
-        $utf8WithoutBom = [System.Text.UTF8Encoding]::new($false)
-        [System.IO.File]::WriteAllText($resultPath, $packageDir, $utf8WithoutBom)
-    }
-
+    $packageStorageState = 'success'
     Write-Host "Packaged project: $projectId"
     Write-Host "Packaged game: $(Join-Path $packageDir ($executableName + '.exe'))"
 }
 finally {
+    if ($packageEvidenceRun) {
+        try {
+            foreach ($packageEvidence in @('PackageStoragePaths.txt', 'Engine/Source/Game/CookReport.json')) {
+                $sourceEvidence = Join-Path $buildDir $packageEvidence
+                if (Test-Path -LiteralPath $sourceEvidence) { Copy-Item -LiteralPath $sourceEvidence -Destination $packageEvidenceDirectory }
+            }
+            [ordered]@{project=$projectRoot;projectId=$projectId;buildRoot=$buildDir;package=$packageDir;state=$packageStorageState} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $packageEvidenceDirectory 'result.json') -Encoding UTF8
+        }
+        # A diagnostic copy can fail when the disk is full; it does not make the
+        # already observed package process outcome unknown.
+        catch { Write-Warning "storage package evidence snapshot failed: $($_.Exception.Message)" }
+    }
     if ($null -ne $packageLock) {
         $packageLock.Dispose()
     }
+    if ($cacheLease) { $cacheLease.Dispose() }
+    foreach ($storageRun in $packageStorageRuns) { Complete-HEStorageRun -Run $storageRun -State $packageStorageState -NoAuto }
+    Complete-HEStorageRun -Run $packageEvidenceRun -State $packageStorageState -NoAuto
+    if ($packageStorageState -ne 'success') { Invoke-HEStorageAuto }
     if ($null -eq $previousNodeReuse) {
         Remove-Item Env:\MSBUILDDISABLENODEREUSE -ErrorAction SilentlyContinue
     }
@@ -209,3 +282,8 @@ finally {
         $env:MSBUILDDISABLENODEREUSE = $previousNodeReuse
     }
 }
+
+# Successful CookInput copies are disposable immediately, even inside the normal throttle interval.
+try { $null = Invoke-HEStorage @('stale','--kind','package-intermediate','--project',$projectRoot) }
+catch { Write-Warning "storage package cleanup deferred: $($_.Exception.Message)" }
+Invoke-HEStorageAuto

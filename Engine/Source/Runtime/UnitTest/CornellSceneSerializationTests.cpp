@@ -50,6 +50,17 @@ namespace HEngine::Tests
             {},
             HE_ENGINE_GENERATED_CONTENT_DIR,
             HE_PROJECT_GAME_CONFIG);
+        SceneCamera orthographic;
+        orthographic.SetAspectRatio(2.0f);
+        orthographic.SetOrthographic(4.0f, 0.1f, 50.0f);
+        Require(Near(orthographic.GetOrthographicNearClip(), 0.1f) &&
+                Near(orthographic.GetOrthographicFarClip(), 50.0f),
+            "Orthographic near/far planes were reversed.");
+        const glm::mat4 expectedOrthographic = glm::ortho(-4.0f, 4.0f, -2.0f, 2.0f, 0.1f, 50.0f);
+        for (int column = 0; column < 4; ++column)
+            for (int row = 0; row < 4; ++row)
+                Require(Near(orthographic.GetProjection()[column][row], expectedOrthographic[column][row]),
+                    "Orthographic projection does not match the authored volume.");
         const std::filesystem::path scenePath =
             std::filesystem::path(HE_DEFAULT_PROJECT_DIR) /
             "Assets/CornellBox/CornellBox.he";
@@ -106,6 +117,13 @@ namespace HEngine::Tests
         {
             const CameraComponent& camera = cameraView.get<CameraComponent>(entity);
             const TransformComponent& transform = cameraView.get<TransformComponent>(entity);
+            const glm::mat4 expectedProjection = glm::perspective(
+                camera.Camera.mPerspectiveFOV, camera.Camera.mAspectRatio,
+                camera.Camera.mPerspectiveNear, camera.Camera.mPerspectiveFar);
+            for (int column = 0; column < 4; ++column)
+                for (int row = 0; row < 4; ++row)
+                    Require(Near(camera.Camera.GetProjection()[column][row], expectedProjection[column][row]),
+                        "Fixed-aspect camera projection was not rebuilt by scene component creation.");
             if (!(camera.Primary && camera.FixedAspectRatio &&
                     camera.Camera.GetProjectionType() ==
                         SceneCamera::ProjectionType::Perspective &&
@@ -138,7 +156,7 @@ namespace HEngine::Tests
             const EnvironmentLightComponent& environment =
                 environmentView.get<EnvironmentLightComponent>(entity);
             Require(environment.HdrTexturePath.empty() &&
-                    Near(environment.Exposure, 1.0f) &&
+                    Near(environment.ExposureEV100, 0.0f) &&
                     Near(environment.IBLIntensity, 0.0f),
                 "Cornell scene enabled IBL, auto exposure, or a non-unit exposure.");
         }

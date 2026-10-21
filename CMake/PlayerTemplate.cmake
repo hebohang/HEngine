@@ -1,0 +1,27 @@
+# The producer and exporter compare this contract before pairing a player with
+# content. The runtime also checks it before preparing project-specific paths.
+file(SHA256 "${RootDir}/Tools/Scripting/Api.schema.json" HE_PLAYER_SCRIPT_API_HASH)
+set(HE_PLAYER_PLUGIN_IDS ${HE_GAME_PLUGIN_IDS})
+list(SORT HE_PLAYER_PLUGIN_IDS)
+if(ANDROID)
+    set(HE_PLAYER_PLATFORM "Android-arm64")
+elseif(APPLE)
+    set(HE_PLAYER_PLATFORM "macOS-arm64")
+else()
+    set(HE_PLAYER_PLATFORM "Windows-${HE_WINDOWS_ARCH}")
+endif()
+set(HE_PLAYER_ABI_INPUT "1|${PROJECT_VERSION}|${HE_PLAYER_PLATFORM}|${HE_PLAYER_SCRIPT_API_HASH}|${HE_PLAYER_PLUGIN_IDS}")
+foreach(feature IN ITEMS HE_RENDER_DX12 HE_RENDER_VULKAN HE_FSR31 HE_ENABLE_PHYSICS_2D HE_ENABLE_PHYSICS_3D HE_ENABLE_NAVIGATION HE_ENABLE_UI_SVG HE_ENABLE_UI_LOTTIE)
+    string(APPEND HE_PLAYER_ABI_INPUT "|${feature}=${${feature}}")
+endforeach()
+string(SHA256 HE_PLAYER_FINGERPRINT "${HE_PLAYER_ABI_INPUT}")
+file(WRITE "${HE_ENGINE_GENERATED_INCLUDE_DIR}/HEngine/PlayerBuildConfig.h"
+    "#pragma once\n#define HE_PLAYER_RUNTIME_FINGERPRINT \"${HE_PLAYER_FINGERPRINT}\"\n")
+set(playerPlugins "[]")
+set(index 0)
+foreach(plugin IN LISTS HE_PLAYER_PLUGIN_IDS)
+    string(JSON playerPlugins SET "${playerPlugins}" ${index} "\"${plugin}\"")
+    math(EXPR index "${index} + 1")
+endforeach()
+file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/PlayerTemplate-$<CONFIG>.json" CONTENT
+    "{\n  \"SchemaVersion\": 1,\n  \"EngineVersion\": \"${PROJECT_VERSION}\",\n  \"Platform\": \"${HE_PLAYER_PLATFORM}\",\n  \"RuntimeFingerprint\": \"${HE_PLAYER_FINGERPRINT}\",\n  \"ScriptApiHash\": \"${HE_PLAYER_SCRIPT_API_HASH}\",\n  \"Configuration\": \"$<CONFIG>\",\n  \"PackGame\": $<IF:$<BOOL:${PACK_GAME}>,true,false>,\n  \"DevAgent\": $<IF:$<BOOL:${HE_BUILD_DEV_GAME}>,true,false>,\n  \"Plugins\": ${playerPlugins}\n}\n")

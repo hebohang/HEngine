@@ -113,6 +113,16 @@ public:
 	CommandList(int32_t swapCount = 3);
 	~CommandList() override;
 
+	// Monotonic counts of commands accepted by the backend; not GPU completion.
+	uint64_t GetRecordedDrawCount() const { return recordedDrawCount_; }
+	uint64_t GetRecordedDispatchCount() const { return recordedDispatchCount_; }
+
+private:
+	uint64_t recordedDrawCount_ = 0;
+	uint64_t recordedDispatchCount_ = 0;
+
+public:
+
 	/**
 	@brief
 	added a command into supecified context.

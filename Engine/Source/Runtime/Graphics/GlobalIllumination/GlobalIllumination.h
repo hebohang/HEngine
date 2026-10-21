@@ -1,7 +1,10 @@
 #pragma once
 
+#include "Runtime/Graphics/GlobalIllumination/SsgiReactiveBudget.h"
+
 #include "Runtime/Graphics/RenderGraph/RenderGraph.h"
 #include "Runtime/Graphics/RHI/RenderBackend.h"
+#include "Runtime/Graphics/RHI/EnvironmentSamplingProposal.h"
 #include "Runtime/Graphics/Scene/RenderWorld.h"
 
 #include <glm/glm.hpp>
@@ -72,6 +75,12 @@ namespace HEngine
         Confidence,
         Coverage,
         Variance,
+        SourceLighting,
+        TemporalDiffuseIllumination,
+        ViewDepth,
+        ScreenHitCoverage,
+        TraceTermination,
+        TraceHitLocation,
     };
 
     struct GlobalIlluminationSettings
@@ -88,6 +97,10 @@ namespace HEngine
         uint32_t SamplesPerPixel = 1;
         uint32_t MaxBounces = 4;
         uint32_t AtrousIterations = 4;
+        bool bSvgfOptimizedKernels = false;
+        bool bSsgiLocalReactiveBudget = false;
+        bool bSvgfSharedUncertainty = false;
+        bool bSsgiEnvironmentMis = true;
         uint32_t ScreenSpaceRayCount = 2;
         uint32_t ScreenSpaceStepCount = 32;
         uint32_t ScreenSpaceHiZStartMip = 2;
@@ -96,8 +109,10 @@ namespace HEngine
         float ScreenSpaceThickness = 0.1f;
         float ScreenSpaceEdgeFade = 0.05f;
         float ScreenSpaceTemporalWeight = 0.99f;
+        float ScreenSpaceDiffuseHitDistanceWeight = 1.0f;
         bool bDirectOnly = false;
         bool bBilateralUpsample = true;
+        [[nodiscard]] bool operator==(const GlobalIlluminationSettings&) const = default;
     };
 
     struct GlobalIlluminationSelection
@@ -173,6 +188,9 @@ namespace HEngine
         uint64_t JitterSequenceGeneration = 0;
         uint64_t SceneGeneration = 0;
         uint64_t GeometryTopologyGeneration = 0;
+        // Secondary transport can change while the receiving surface remains still.
+        // SSGI uses this revision for a bounded reactive history window, not a cut.
+        uint64_t GeometryTransformGeneration = 0;
         uint64_t MaterialGeneration = 0;
         uint64_t LightGeneration = 0;
         uint64_t TechniqueStateFingerprint = 0;
@@ -190,6 +208,7 @@ namespace HEngine
     {
         RenderCamera Camera;
         GlobalIlluminationHistorySignature HistorySignature;
+        SsgiReactiveRegion ReactiveRegion;
         uint32_t Width = 0;
         uint32_t Height = 0;
         uint32_t FrameSequenceIndex = 0;
@@ -246,6 +265,10 @@ namespace HEngine
         // camera/object matrices. SVGF compares reprojected history against
         // this value rather than against current-frame device depth.
         TextureHandle PreviousDepth;
+        // Legacy RT-subset surfaces carry material-table indices. Shared
+        // raster surfaces carry validity identities and sample their own
+        // material/emission textures; never index RT tables with these IDs.
+        bool bMaterialIdIsRayTracingIndex = true;
 
         [[nodiscard]] explicit operator bool() const noexcept
         {
@@ -267,10 +290,18 @@ namespace HEngine
         BufferHandle RayTracingVertexBuffer;
         BufferHandle RayTracingIndexBuffer;
         BufferHandle RayTracingInstanceBuffer;
+        BufferHandle AnalyticLightBuffer;
         // Active scene-linear environment cubemap. Offline techniques may
         // sample this directly instead of approximating the environment with
         // a constant radiance.
         TextureHandle Environment;
+        TextureHandle EnvironmentCdf;
+        std::shared_ptr<const EnvironmentSamplingProposal> EnvironmentProposal;
+        // Optional raster guides. PackedNormalRoughnessAo.w is authored
+        // material occlusion; AmbientOcclusion is screen-space visibility.
+        // They affect indirect transport only, never direct light or emission.
+        TextureHandle PackedNormalRoughnessAo;
+        TextureHandle AmbientOcclusion;
         // Opaque lighting before GI composition. Screen-space techniques must
         // sample this handle, never a SceneColor that already contains GI.
         TextureHandle OpaqueDirectHdr;
@@ -287,7 +318,7 @@ namespace HEngine
 
     struct GlobalIlluminationOutputs
     {
-        // All radiance outputs are pre-exposed, pre-tonemap scene-linear HDR.
+        // Radiance is scene-linear HDR before exposure and tone mapping.
         // CompositeRadiance is the sole final signal consumed by the raster
         // injection point. DirectDiffuse and DiffuseIndirect remain separate
         // owner AOVs and must never be added again beside CompositeRadiance.
@@ -302,11 +333,20 @@ namespace HEngine
         TextureHandle RawIndirectDiffuse;
         TextureHandle DemodulatedDiffuseIllumination;
         TextureHandle FilteredDiffuseIllumination;
+        TextureHandle TemporalDiffuseIllumination;
         TextureHandle HitDistance;
         TextureHandle Confidence;
         TextureHandle CoverageMask;
         TextureHandle HistoryLength;
         TextureHandle Variance;
+    };
+
+    struct DenoiserBudgetDiagnostics
+    {
+        uint32_t ResponseFrames = 0;
+        // 1 geometry change this frame, 2 reset pending, 4 continued response.
+        uint32_t ResponseReasons = 0;
+        bool bValid = false;
     };
 
     struct GlobalIlluminationStats
@@ -315,12 +355,26 @@ namespace HEngine
             GlobalIlluminationTechniqueKind::Off;
         uint64_t AccumulatedSamples = 0;
         uint32_t RaysPerPixel = 0;
+        SsgiReactiveRegion ReactiveRegion;
+        // 0 off, 1 enabled, 2 missing proposal, 3 non-raster, 4 non-single-bounce,
+        // 5 selected budget not exactly two. Alpha/hit distance follow proposal samples.
+        uint32_t EnvironmentMisMode = 0;
+        uint32_t FrameSequenceIndex = 0;
         uint32_t BounceCount = 0;
         uint32_t HistoryResetCount = 0;
         GlobalIlluminationHistoryResetReason LastResetReasons =
             GlobalIlluminationHistoryResetReason::None;
         double LastGpuMilliseconds = 0.0;
         std::string Status;
+        // CPU selected trace budget, never a measurement of executed GPU rays.
+        bool bScreenSpaceBudgetValid = false;
+        uint32_t ConfiguredScreenSpaceRays = 0;
+        uint32_t SelectedScreenSpaceBudgetRays = 0;
+        uint32_t ScreenSpaceTraceWidth = 0;
+        uint32_t ScreenSpaceTraceHeight = 0;
+        DenoiserBudgetDiagnostics DenoiserBudget;
+        // Unknown until optional shader instrumentation/readback is implemented.
+        int64_t ExecutedScreenSpaceRays = -1;
     };
 
     class IGlobalIlluminationTechnique
@@ -339,6 +393,10 @@ namespace HEngine
             const GlobalIlluminationSettings& settings) = 0;
         virtual void ResetHistory(GlobalIlluminationHistoryResetReason reason) = 0;
         virtual void UpdateImportedResources(RenderGraph& renderGraph) = 0;
+        // Empty means this extension does not support candidate graph swaps.
+        // Built-ins return a graph-binding exchange capsule; history is separate.
+        [[nodiscard]] virtual std::function<void()> CaptureGraphState() { return {}; }
+        virtual void ClearGraphResourceCaches() noexcept {}
         virtual void NotifyFrameSubmitted(uint64_t submission) noexcept = 0;
         virtual void AbortFrame() noexcept = 0;
         virtual void Collect(uint64_t completedSubmission) = 0;
@@ -365,6 +423,14 @@ namespace HEngine
     {
     public:
         virtual ~IDenoiser() = default;
+
+        // Optional bounded sampling feedback after PrepareFrame. This changes
+        // estimator variance, not its PDF, normalization or configured quality.
+        [[nodiscard]] virtual uint32_t GetMinimumRayCount() const noexcept { return 1; }
+        virtual void SetReactiveRegion(SsgiReactiveRegion region) { (void)region; }
+        [[nodiscard]] virtual SsgiReactiveRegion GetReactiveRegion() const noexcept { return {}; }
+
+        [[nodiscard]] virtual DenoiserBudgetDiagnostics GetBudgetDiagnostics() const noexcept { return {}; }
 
         virtual void PrepareFrame(
             const GlobalIlluminationHistorySignature& signature,

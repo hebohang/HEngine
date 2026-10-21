@@ -20,6 +20,15 @@ void ChangeRenderPassPipelineState(EffekseerRenderer::RendererRef renderer, Rend
 
 void FlushAndWait(::Effekseer::Backend::GraphicsDeviceRef graphicsDevice);
 
+struct RecordedCommandCounts
+{
+	uint64_t Draw = 0;
+	uint64_t Dispatch = 0;
+};
+
+// Backend-neutral public wrapper; clients do not need LLGI implementation headers.
+RecordedCommandCounts GetRecordedCommandCounts(Effekseer::RefPtr<EffekseerRenderer::CommandList> commandList);
+
 Effekseer::RefPtr<EffekseerRenderer::CommandList> CreateCommandList(::Effekseer::Backend::GraphicsDeviceRef graphicsDevice,
 																	Effekseer::RefPtr<::EffekseerRenderer::SingleFrameMemoryPool> memoryPool);
 

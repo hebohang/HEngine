@@ -19,7 +19,7 @@ namespace HEngine
 		void OnEvent(Event& e);
 
 		[[nodiscard]] inline float GetDistance() const { return mDistance; }
-		inline void SetDistance(float distance) { mDistance = distance; }
+		inline void SetDistance(float distance) { mDistance = distance; UpdateView(); }
 
 		inline void SetViewportSize(float width, float height) { mViewportWidth = width; mViewportHeight = height; UpdateProjection(); }
 

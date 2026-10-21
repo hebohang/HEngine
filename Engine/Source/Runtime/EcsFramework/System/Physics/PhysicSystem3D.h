@@ -5,6 +5,7 @@
 #include "Runtime/Graphics/Renderer2D.h"
 #include "Runtime/Resource/ModeManager/ModeManager.h"
 
+#if HE_ENABLE_PHYSICS_3D
 #include <Jolt/Jolt.h>
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Core/JobSystemThreadPool.h>
@@ -28,6 +29,7 @@
 
 namespace HEngine
 {
+	class ScriptContactListener3D;
 	namespace Utils
 	{
 		inline glm::vec3 JoltVec3ToGlm(JPH::Vec3Arg src)
@@ -54,7 +56,7 @@ namespace HEngine
     class PhysicSystem3D : public System
     {
 	public:
-		PhysicSystem3D(Level* level) : System(level) {}
+		PhysicSystem3D(Level* level);
 		~PhysicSystem3D() noexcept override;
 
 		static constexpr JPH::ObjectLayer ObjectLayerStatic = 0;
@@ -74,6 +76,8 @@ namespace HEngine
 		JPH::TempAllocator* GetTempAllocator() const { return mTempAllocator.get(); }
 
 		bool SetBodyLinearVelocity(void* runtimeBody, const glm::vec3& velocity);
+        bool GetBodyLinearVelocity(void* runtimeBody, glm::vec3& velocity);
+        bool ApplyBodyForce(void* runtimeBody, const glm::vec3& force, bool impulse);
 		bool SnapEntityToFloor(Entity entity);
 		[[nodiscard]] bool RaycastFloorHeight(
 			const glm::vec3& position,
@@ -99,6 +103,8 @@ namespace HEngine
 		void EnsureEditorDebugJoltInitialized();
 		void ReleaseEditorDebugJoltIfNeeded() noexcept;
 		void BuildRuntimeRigidBodies();
+		void OnBodyRemoving(Registry& registry, EntityHandle entity);
+		entt::scoped_connection mBodyConnection;
 		void ClearRuntimeRigidBodies();
 		void CleanupRuntimeState();
 		void DrawDebugBodies();
@@ -108,6 +114,7 @@ namespace HEngine
 		#endif
 
 		std::unique_ptr<JPH::PhysicsSystem> mPhysicsSystem;
+		std::unique_ptr<ScriptContactListener3D> mContactListener;
 		std::unique_ptr<JPH::TempAllocatorImpl> mTempAllocator;
 		std::unique_ptr<JPH::JobSystemThreadPool> mJobSystem;
 
@@ -126,3 +133,23 @@ namespace HEngine
 		static int sJoltInitRefCount;
     };
 }
+
+#else
+namespace HEngine
+{
+    // Kept as a queryable system type; Level never registers it when disabled.
+    class PhysicSystem3D : public System
+    {
+    public:
+        explicit PhysicSystem3D(Level* level) : System(level) {}
+        void* GetPhysicsSystem() const { return nullptr; }
+        static void SetDebugMode(PhysicsDebugDrawModeFlag) {}
+        void ReleaseEditorDebugResources() {}
+        bool SetBodyLinearVelocity(void*, const glm::vec3&) { return false; }
+        bool GetBodyLinearVelocity(void*, glm::vec3&) { return false; }
+        bool ApplyBodyForce(void*, const glm::vec3&, bool) { return false; }
+        bool SnapEntityToFloor(Entity) ;
+        bool RaycastFloorHeight(const glm::vec3&, float, float, float&) const { return false; }
+    };
+}
+#endif

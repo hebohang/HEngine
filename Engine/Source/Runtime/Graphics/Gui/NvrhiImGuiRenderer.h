@@ -64,6 +64,11 @@ namespace HEngine
             const nvrhi::SamplerHandle& sampler = nullptr,
             nvrhi::Format viewFormat = nvrhi::Format::UNKNOWN,
             nvrhi::TextureSubresourceSet subresources = nvrhi::AllSubresources);
+        // Preserve the ImGui handle while replacing its binding. The previous
+        // binding is retained until the last frame slot using it is acquired.
+        void ReplaceTexture(ImGuiTextureHandle handle,
+            const nvrhi::TextureHandle& texture,
+            nvrhi::Format viewFormat, uint32_t retireFrameIndex);
         // retireFrameIndex must be the frame slot that last referenced the texture.
         // Its NVRHI objects and index are retained until that slot is acquired again.
         void UnregisterTexture(ImGuiTextureHandle handle, uint32_t retireFrameIndex);

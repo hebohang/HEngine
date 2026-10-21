@@ -76,6 +76,7 @@ int main()
     std::unique_ptr<HEngine::ImGuiLayer> layerOwner;
     HEngine::NvrhiImGuiLayer* layer = nullptr;
     nvrhi::TextureHandle checkerTexture;
+    nvrhi::TextureHandle replacementTexture;
     int result = 1;
 
     try
@@ -103,8 +104,8 @@ int main()
                 .Renderer = HEngine::NvrhiImGuiRendererDesc{
                     .Device = renderDevice.GetDevice(),
                     .FramesInFlight = renderDevice.GetCapabilities().FramesInFlight,
-                    .VertexShaderDxil = shaderCache / "NvrhiImGui.vs",
-                    .PixelShaderDxil = shaderCache / "NvrhiImGui.ps",
+                    .VertexShaderArtifact = shaderCache / "NvrhiImGui.vs",
+                    .PixelShaderArtifact = shaderCache / "NvrhiImGui.ps",
                     .DebugName = "NVRHI ImGui DX12 Smoke",
                 },
                 .bInstallGlfwCallbacks = true,
@@ -132,9 +133,11 @@ int main()
         HEngine::ImGuiTextureHandle retiredHandle;
         HEngine::ImGuiTextureHandle recycledHandle;
         uint32_t retiredFrameSlot = 0;
+        uint32_t lastSubmittedFrameSlot = 0;
         bool bCheckerUploaded = false;
         bool bRetireScheduled = false;
         bool bIndexRecycled = false;
+        bool bCheckerReplaced = false;
 
         for (uint32_t frameNumber = 0; frameNumber < c_FrameCount; ++frameNumber)
         {
@@ -171,6 +174,19 @@ int main()
                     bCheckerUploaded = true;
                 }
 
+                if (frameNumber == 2)
+                {
+                    replacementTexture = CreateCheckerTexture(renderDevice.GetDevice());
+                    frame.GraphicsCommandList->writeTexture(
+                        replacementTexture, 0, 0, c_CheckerPixels.data(),
+                        4u * sizeof(uint32_t));
+                    layer->ReplaceTexture(checkerHandle, replacementTexture,
+                        nvrhi::Format::UNKNOWN, lastSubmittedFrameSlot);
+                    if (!layer->IsTextureValid(checkerHandle))
+                        throw std::runtime_error("ImGui binding replacement invalidated its stable handle");
+                    bCheckerReplaced = true;
+                }
+
                 if (frameNumber == 1)
                 {
                     retiredHandle = layer->RegisterTexture(checkerTexture);
@@ -204,6 +220,7 @@ int main()
                     swapChain.GetCurrentFramebuffer(),
                     frame.FrameIndex);
                 renderDevice.SubmitAndPresent(frame, false);
+                lastSubmittedFrameSlot = frame.FrameIndex;
             }
             catch (...)
             {
@@ -214,7 +231,7 @@ int main()
             }
         }
 
-        if (!bIndexRecycled)
+        if (!bIndexRecycled || !bCheckerReplaced)
             throw std::runtime_error("ImGui smoke did not reacquire the retired frame slot");
         if (!layer->GetFontTexture() || layer->GetRegisteredTextureCount() < 3)
             throw std::runtime_error("ImGui font/custom texture registration is incomplete");
@@ -230,13 +247,14 @@ int main()
         layer = nullptr;
         layerOwner.reset();
         checkerTexture = nullptr;
+        replacementTexture = nullptr;
         renderDevice.Shutdown();
         window.reset();
 
         std::cout
             << "IMGUI_DX12_SMOKE_PASS: GLFW platform/input + NVRHI layer recording, dynamic font "
             << "upload, typed textures, deferred index recycling, disabled secondary viewports, "
-            << "resize, validation, and shutdown\n";
+            << "stable binding replacement, resize, validation, and shutdown\n";
         result = 0;
     }
     catch (const std::exception& exception)
@@ -260,6 +278,7 @@ int main()
         layer = nullptr;
         layerOwner.reset();
         checkerTexture = nullptr;
+        replacementTexture = nullptr;
         if (renderDevice.IsInitialized())
         {
             try

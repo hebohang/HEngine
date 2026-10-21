@@ -1,8 +1,12 @@
 #include "Hepch.h"
 
 #include "Runtime/Graphics/VFX/EffekseerRuntime.h"
+#include "Runtime/Graphics/VFX/EffekseerCamera.h"
+#include "Runtime/Graphics/VFX/EffekseerRenderGraphPass.h"
 
 #include "Runtime/Audio/AudioEngine.h"
+#include "Runtime/Core/AppFramework/Application.h"
+#include "Runtime/Graphics/RHI/RenderDevice.h"
 #include "Runtime/Graphics/VFX/EffekseerPackage.h"
 #include "Runtime/Graphics/VFX/EffekseerRegressionManifest.h"
 #include "Runtime/Platform/Interop/EffekseerRenderInterop.h"
@@ -10,10 +14,11 @@
 #include "Runtime/Utils/PathUtils/PathUtils.h"
 #include "Runtime/Utils/StringUtils/StringUtils.h"
 
-#include "ThirdParty/assimp/contrib/zip/src/zip.h"
+#include "zip.h"
 
 #include <Effekseer.h>
 #include <EffekseerRendererCommon/EffekseerRenderer.Renderer.h>
+#include <EffekseerRendererCommon/TextureLoader.h>
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -115,12 +120,22 @@ namespace HEngine
             uint32_t PreviousCpuInstances = 0;
             bool bUsesSceneDepth = false;
             bool bUsesBackground = false;
+            bool bUsesGpuParticles = false;
+            bool bSupportsGlobalColor = true;
+            bool bUsesCustomMaterial = false;
+            float AuthoredRadiusMeters = 0.0f;
+            glm::vec4 Color = glm::vec4(1.0f);
+            float Intensity = 1.0f;
         };
 
         struct EffectRenderRequirements
         {
             bool bUsesSceneDepth = false;
             bool bUsesBackground = false;
+            bool bUsesGpuParticles = false;
+            bool bSupportsGlobalColor = true;
+            bool bUsesCustomMaterial = false;
+            float AuthoredRadiusMeters = 0.0f;
         };
 
         class RollingMetricAccumulator final
@@ -219,34 +234,16 @@ namespace HEngine
             }
         };
 
-        bool IsEnvironmentEnabled(const char* name)
-        {
-            if (name == nullptr)
-                return false;
-
-            char* value = nullptr;
-            size_t valueLength = 0;
-            if (_dupenv_s(&value, &valueLength, name) != 0 || value == nullptr)
-                return false;
-
-            const std::string text(value);
-            std::free(value);
-            return text == "1" || text == "true" || text == "TRUE" || text == "on" || text == "ON";
-        }
-
         [[nodiscard]] std::string GetEnvironmentText(const char* name)
         {
-            if (name == nullptr)
-                return {};
+            const char* value = name ? std::getenv(name) : nullptr;
+            return value ? std::string(value) : std::string{};
+        }
 
-            char* value = nullptr;
-            size_t valueLength = 0;
-            if (_dupenv_s(&value, &valueLength, name) != 0 || value == nullptr)
-                return {};
-
-            std::string text(value);
-            std::free(value);
-            return text;
+        bool IsEnvironmentEnabled(const char* name)
+        {
+            const auto text = GetEnvironmentText(name);
+            return text == "1" || text == "true" || text == "TRUE" || text == "on" || text == "ON";
         }
 
         [[nodiscard]] bool HasDangerousArchivePath(const std::string& rawPath)
@@ -583,8 +580,7 @@ namespace HEngine
                 if (path == nullptr)
                     return nullptr;
 
-                const std::wstring rawWide = reinterpret_cast<const wchar_t*>(path);
-                const std::string rawPath = Utils::WStringToAnsi(rawWide);
+                const std::string rawPath = EffekseerPackage::Utf16PathToUtf8(path);
                 const auto& package = GetActivePackage();
                 auto matched = package != nullptr ? FindPackageFile(*package, rawPath) : nullptr;
 
@@ -609,6 +605,42 @@ namespace HEngine
                 return nullptr;
             }
 
+        };
+
+        class DiagnosedTextureLoader final : public Effekseer::TextureLoader
+        {
+        public:
+            explicit DiagnosedTextureLoader(Effekseer::TextureLoaderRef inner)
+                : mInner(std::move(inner)) {}
+
+            Effekseer::TextureRef Load(const char16_t* path, Effekseer::TextureType textureType) override
+            {
+                auto texture = mInner->Load(path, textureType);
+                if (texture == nullptr)
+                {
+                    const std::string rawPath = path != nullptr ? EffekseerPackage::Utf16PathToUtf8(path) : "";
+                    HE_CORE_WARN("[Effekseer] Texture decode/upload failed. dependency='{0}'",
+                                 GetSafeDependencyPath(rawPath));
+                }
+                return texture;
+            }
+
+            Effekseer::TextureRef Load(const void* data, int32_t size, Effekseer::TextureType textureType,
+                                      bool isMipMapEnabled) override
+            {
+                auto texture = mInner->Load(data, size, textureType, isMipMapEnabled);
+                if (texture == nullptr)
+                    HE_CORE_WARN("[Effekseer] Embedded texture decode/upload failed. bytes={0}", size);
+                return texture;
+            }
+
+            void Unload(Effekseer::TextureRef texture) override
+            {
+                mInner->Unload(texture);
+            }
+
+        private:
+            Effekseer::TextureLoaderRef mInner;
         };
 
         std::shared_ptr<EfkPkgContent> LoadEfkPkg(const std::string& relativePath)
@@ -877,7 +909,7 @@ namespace HEngine
                 if (path == nullptr)
                     return nullptr;
 
-                std::string relativePath = Utils::WStringToAnsi(reinterpret_cast<const wchar_t*>(path));
+                std::string relativePath = EffekseerPackage::Utf16PathToUtf8(path);
                 if (relativePath.empty())
                     return nullptr;
 
@@ -1067,12 +1099,18 @@ namespace HEngine
         class GpuParticleRequestDetector final : public Effekseer::GpuParticleFactory
         {
         public:
+            Effekseer::GpuParticleFactoryRef Delegate;
             Effekseer::GpuParticles::ResourceRef CreateResource(
-                const Effekseer::GpuParticles::ParamSet&,
-                const Effekseer::Effect*) override
+                const Effekseer::GpuParticles::ParamSet& params,
+                const Effekseer::Effect* effect) override
             {
                 ++mRequestCount;
-                return nullptr;
+                if (params.RenderColor.ColorInherit != Effekseer::BindType::NotBind_Root)
+                    ++mUnsupportedGlobalColorCount;
+                auto resource = Delegate != nullptr ? Delegate->CreateResource(params, effect) : nullptr;
+                if (Delegate != nullptr && resource == nullptr)
+                    ++mFailureCount;
+                return resource;
             }
 
             [[nodiscard]] uint64_t GetRequestCount() const
@@ -1080,17 +1118,53 @@ namespace HEngine
                 return mRequestCount;
             }
 
+            [[nodiscard]] uint64_t GetFailureCount() const { return mFailureCount; }
+            [[nodiscard]] uint64_t GetUnsupportedGlobalColorCount() const { return mUnsupportedGlobalColorCount; }
+
         private:
             uint64_t mRequestCount = 0;
+            uint64_t mFailureCount = 0;
+            uint64_t mUnsupportedGlobalColorCount = 0;
         };
 
         struct EffekseerState
         {
+            struct GpuTiming
+            {
+                nvrhi::TimerQueryHandle Simulation;
+                nvrhi::TimerQueryHandle Draw;
+                bool bSimulationRecorded = false;
+                bool bDrawRecorded = false;
+            };
+            struct TimingSlot
+            {
+                std::vector<GpuTiming> Records;
+                size_t Used = 0;
+                uint64_t Submission = 0;
+            };
+            nvrhi::IDevice* Device = nullptr;
+            std::vector<TimingSlot> TimingSlots;
+            uint32_t TimingSlotIndex = 0;
+            uint64_t TotalRecordedDrawCount = 0;
+            uint64_t TotalRecordedDispatchCount = 0;
+            uint64_t LastGpuTimingSubmission = 0;
+            uint64_t LastGpuSimulationSubmission = 0;
+            uint64_t LastGpuRenderSubmission = 0;
+            uint64_t UpdateSerial = 0;
             bool Initialized = false;
             bool bDetailedStatsEnabled = false;
             bool bStatsLogEnabled = false;
             bool bGpuParticlesCapable = false;
             bool bGpuParticlesEnabled = false;
+            // User/default intent survives temporary Low-quality suppression.
+            bool bGpuParticlesRequested = false;
+            bool bGpuComputePending = false;
+            nvrhi::ICommandList* HostCommandList = nullptr;
+            uint64_t LastHostSubmission = 0;
+            std::unique_ptr<RenderGraph> SimulationGraph;
+            bool bGpuSimulationAdvanced = false;
+            bool bGpuSimulationDesynchronized = false;
+            std::string Backend = "unconfigured";
             bool bStressModeEnabled = false;
             bool bValidatePackagesPending = false;
             bool bValidatePackagesActive = false;
@@ -1144,6 +1218,25 @@ namespace HEngine
             static EffekseerState s;
             return s;
         }
+
+#if HE_VFX_GPU_STRESS_ALLOWED && HE_ENABLE_GM
+        enum class InitializationFailurePoint { None, AfterManager, AfterGpu };
+        thread_local InitializationFailurePoint s_InitializationFailurePoint = InitializationFailurePoint::None;
+        thread_local bool s_bInitializationRecoveryActive = false;
+
+        struct InjectedInitializationFailure : std::runtime_error
+        {
+            explicit InjectedInitializationFailure(InitializationFailurePoint point)
+                : std::runtime_error("Injected Effekseer initialization failure"), Point(point) {}
+            InitializationFailurePoint Point;
+        };
+
+        void InjectInitializationFailure(InitializationFailurePoint point)
+        {
+            if (s_InitializationFailurePoint == point)
+                throw InjectedInitializationFailure(point);
+        }
+#endif
 
         [[nodiscard]] float ElapsedMilliseconds(Clock::time_point start)
         {
@@ -1227,6 +1320,42 @@ namespace HEngine
             return std::min(limit, kGpuTrailCapacity);
         }
 
+        bool ValidateBuiltinSamplerParameters(const Effekseer::EffectRef& effect, const std::string& packagePath)
+        {
+            std::vector<Effekseer::EffectNode*> pending;
+            if (effect && effect->GetRoot()) pending.emplace_back(effect->GetRoot());
+            while (!pending.empty())
+            {
+                auto* node = pending.back();
+                pending.pop_back();
+                for (int index = 0; index < node->GetChildrenCount(); ++index)
+                    if (auto* child = node->GetChild(index)) pending.emplace_back(child);
+                const auto type = node->GetType();
+                if (type != Effekseer::EffectNodeType::Sprite && type != Effekseer::EffectNodeType::Ribbon &&
+                    type != Effekseer::EffectNodeType::Ring && type != Effekseer::EffectNodeType::Model &&
+                    type != Effekseer::EffectNodeType::Track)
+                    continue;
+                const auto parameter = node->GetBasicRenderParameter();
+                // File materials supply their own sampler metadata. Validate
+                // the CPU built-in path, including CPU+GPU hybrid nodes.
+                if (parameter.MaterialType == Effekseer::RendererMaterialType::File) continue;
+                for (size_t slot = 0; slot < parameter.TextureFilters.size(); ++slot)
+                {
+                    const auto filter = parameter.TextureFilters[slot];
+                    const auto wrap = parameter.TextureWraps[slot];
+                    if ((filter != Effekseer::TextureFilterType::Nearest && filter != Effekseer::TextureFilterType::Linear) ||
+                        (wrap != Effekseer::TextureWrapType::Repeat && wrap != Effekseer::TextureWrapType::Clamp &&
+                         wrap != Effekseer::TextureWrapType::Mirror))
+                    {
+                        HE_CORE_ERROR("[Effekseer] Invalid built-in CPU sampler; package rejected: {} nodeType={} slot={} filter={} wrap={}",
+                            packagePath, static_cast<int>(type), slot, static_cast<int>(filter), static_cast<int>(wrap));
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
         EffectRenderRequirements GetEffectRenderRequirements(const Effekseer::EffectRef& effect)
         {
             EffectRenderRequirements requirements;
@@ -1241,6 +1370,8 @@ namespace HEngine
                 Effekseer::EffectNode* node = pending.back();
                 pending.pop_back();
                 const Effekseer::EffectBasicRenderParameter parameter = node->GetBasicRenderParameter();
+                requirements.bUsesCustomMaterial = requirements.bUsesCustomMaterial ||
+                    parameter.MaterialType == Effekseer::RendererMaterialType::File;
                 requirements.bUsesSceneDepth = requirements.bUsesSceneDepth ||
                     parameter.SoftParticleDistanceFar > 0.0f ||
                     parameter.SoftParticleDistanceNear > 0.0f ||
@@ -1265,10 +1396,26 @@ namespace HEngine
                 : destination + value;
         }
 
+        [[nodiscard]] bool IsGpuParticleProbeEnabled()
+        {
+            // Runtime CMake defines STRESS_ALLOWED only for dev game && !PACK_GAME.
+            // HE_ENABLE_GM is the existing public Runtime developer-tools switch.
+#if HE_VFX_GPU_STRESS_ALLOWED && HE_ENABLE_GM
+            return IsEnvironmentEnabled("HE_VFX_GPU_PARTICLES");
+#else
+            return false;
+#endif
+        }
+
         [[nodiscard]] bool ConfigureGpuParticles(EffekseerState& s, bool bEnabled)
         {
             if (bEnabled == s.bGpuParticlesEnabled)
                 return true;
+            if (s.HostCommandList)
+            {
+                HE_CORE_WARN("[Effekseer] GPU configuration requires a closed host frame");
+                return false;
+            }
 
             if (!bEnabled)
             {
@@ -1284,22 +1431,49 @@ namespace HEngine
                 }
                 if (s.Manager != nullptr)
                 {
+                    if (s.Device) s.Device->waitForIdle();
                     s.Manager->SetGpuParticleSystem(nullptr);
-                    s.Manager->SetGpuParticleFactory(nullptr);
+                    auto detector = Effekseer::MakeRefPtr<GpuParticleRequestDetector>();
+                    s.GpuParticleFactory = detector;
+                    s.GpuParticleRequestDetectorTyped = detector.Get();
+                    s.Manager->SetGpuParticleFactory(detector);
                 }
                 s.GpuParticleSystem.Reset();
-                s.GpuParticleFactory.Reset();
-                s.GpuParticleRequestDetectorTyped = nullptr;
                 s.GpuParticleCapacity = 0;
                 s.GpuTrailCapacity = 0;
                 s.bGpuParticlesEnabled = false;
+                s.bGpuComputePending = false;
                 return true;
             }
 
-            HE_CORE_ERROR(
-                "[Effekseer] GPU particles are unsupported by the current external-command-list "
-                "adapter; the request was rejected before creating an Effekseer GPU particle system");
-            return false;
+            // The explicit development probe does not publish backend support.
+            // Capability remains false until the corresponding acceptance run.
+            if ((!s.bGpuParticlesCapable && !IsGpuParticleProbeEnabled()) ||
+                s.Renderer == nullptr || s.Manager == nullptr ||
+                s.Manager->GetTotalInstanceCount() > 0 || !s.ActiveEffects.empty())
+                return false;
+            const uint32_t capacity = GetGpuParticleCapacity(s.QualityTier);
+            if (capacity == 0)
+                return false;
+            Effekseer::GpuParticleSystem::Settings settings;
+            settings.EmitterMaxCount = kGpuEmitterCapacity;
+            settings.ParticleMaxCount = capacity;
+            settings.TrailMaxCount = GetGpuTrailCapacity(s.QualityTier);
+            auto factory = s.Renderer->CreateGpuParticleFactory();
+            auto system = s.Renderer->CreateGpuParticleSystem(settings);
+            if (factory == nullptr || system == nullptr)
+                return false;
+            auto detector = Effekseer::MakeRefPtr<GpuParticleRequestDetector>();
+            detector->Delegate = factory;
+            s.GpuParticleFactory = detector;
+            s.GpuParticleSystem = system;
+            s.GpuParticleRequestDetectorTyped = detector.Get();
+            s.Manager->SetGpuParticleFactory(detector);
+            s.Manager->SetGpuParticleSystem(system);
+            s.GpuParticleCapacity = capacity;
+            s.GpuTrailCapacity = settings.TrailMaxCount;
+            s.bGpuParticlesEnabled = true;
+            return true;
         }
 
         void RemoveTrackedEffect(EffekseerState& s, VFXHandle handle)
@@ -1357,18 +1531,7 @@ namespace HEngine
             }
         }
 
-        Effekseer::Matrix44 ToEffekseerMatrix(const glm::mat4& m)
-        {
-            Effekseer::Matrix44 out;
-            for (int r = 0; r < 4; ++r)
-            {
-                for (int c = 0; c < 4; ++c)
-                {
-                    out.Values[r][c] = m[r][c];
-                }
-            }
-            return out;
-        }
+
     }
 
     void EffekseerRuntime::Initialize(const EffekseerRuntimeDesc& desc)
@@ -1394,12 +1557,78 @@ namespace HEngine
         }
         if (desc.FramesInFlight == 0)
             throw std::invalid_argument("Effekseer runtime frames-in-flight must be positive");
-        if (IsEnvironmentEnabled("HE_VFX_GPU_PARTICLES"))
+        if (s.HostCommandList || s.RenderBackendStatus == VFXRenderBackendStatus::FrameActive)
+            throw std::logic_error("Effekseer initialization requires a closed host frame");
+
+#if HE_VFX_GPU_STRESS_ALLOWED && HE_ENABLE_GM
+        if (!s_bInitializationRecoveryActive && IsEnvironmentEnabled("HE_VFX_VALIDATE_INIT_RECOVERY"))
         {
-            throw std::runtime_error(
-                "HE_VFX_GPU_PARTICLES is unsupported by the current Effekseer "
-                "external-command-list adapter; GPU particle initialization was rejected");
+            struct RecoveryScope
+            {
+                RecoveryScope() { s_bInitializationRecoveryActive = true; }
+                ~RecoveryScope()
+                {
+                    s_InitializationFailurePoint = InitializationFailurePoint::None;
+                    s_bInitializationRecoveryActive = false;
+                }
+            } recoveryScope;
+            uint32_t attempts = 0;
+            try
+            {
+                if (!IsGpuParticleProbeEnabled() || GetGpuParticleCapacity(s.QualityTier) == 0)
+                    throw std::runtime_error("Recovery validation requires the explicit GPU probe and non-Low quality");
+                const auto requireClean = [&s]()
+                {
+                    if (s.Initialized || s.Manager || s.Renderer || s.RenderInterop || s.Device ||
+                        s.GpuParticleSystem || s.GpuParticleFactory || s.GpuParticleRequestDetectorTyped ||
+                        s.FileInterface || s.SoundLoader || s.SoundPlayer || s.SoundPlayerTyped ||
+                        s.GpuParticleCapacity || s.GpuTrailCapacity || s.bGpuParticlesRequested ||
+                        s.bGpuParticlesEnabled || s.bGpuParticlesCapable || !s.TimingSlots.empty() ||
+                        s.SimulationGraph || s.HostCommandList || !s.Effects.empty() || !s.Packages.empty() ||
+                        !s.ActiveEffects.empty() || !s.EffectRequirements.empty() || !s.PlayedEffectPaths.empty() ||
+                        s.RenderBackendStatus != VFXRenderBackendStatus::Unconfigured)
+                        throw std::runtime_error("Initialization rollback retained device-dependent state");
+                };
+                for (const auto point : { InitializationFailurePoint::AfterManager, InitializationFailurePoint::AfterGpu })
+                {
+                    s_InitializationFailurePoint = point;
+                    ++attempts;
+                    bool bInjected = false;
+                    try { Initialize(desc); }
+                    catch (const InjectedInitializationFailure& error) { bInjected = error.Point == point; }
+                    if (!bInjected)
+                        throw std::runtime_error("Initialization recovery did not reach the requested failure point");
+                    requireClean();
+                    Shutdown();
+                    requireClean();
+                    HE_CORE_INFO("[Effekseer][InitRecovery] checkpoint=PASS attempt={} stage={} clean=true repeatedShutdown=true",
+                        attempts, point == InitializationFailurePoint::AfterManager ? "after-manager" : "after-gpu");
+                }
+                s_InitializationFailurePoint = InitializationFailurePoint::None;
+                ++attempts;
+                Initialize(desc);
+                if (!s.Initialized || !s.bGpuParticlesRequested || !s.bGpuParticlesEnabled || !s.GpuParticleSystem)
+                    throw std::runtime_error("Initialization recovery could not reinitialize the GPU runtime");
+                HE_CORE_INFO("[Effekseer][InitRecovery] result=PASS attempts={} injected=2 reinitialized=true gpuRequested={} gpuEnabled={} gpuCapacity={}",
+                    attempts, s.bGpuParticlesRequested, s.bGpuParticlesEnabled, s.GpuParticleCapacity);
+                return;
+            }
+            catch (...)
+            {
+                Shutdown();
+                HE_CORE_ERROR("[Effekseer][InitRecovery] result=FAIL attempts={}", attempts);
+                throw;
+            }
         }
+#endif
+
+        // The caller cannot mark ownership until Initialize returns. Roll back
+        // partial resources here while its render device is still alive.
+        struct InitializationRollback
+        {
+            bool bCommitted = false;
+            ~InitializationRollback() { if (!bCommitted) EffekseerRuntime::Shutdown(); }
+        } rollback;
 
 #if HE_VFX_DETAILED_STATS
         s.bDetailedStatsEnabled = !IsEnvironmentEnabled("HE_VFX_DISABLE_STATS");
@@ -1443,11 +1672,16 @@ namespace HEngine
         s.Renderer = EffekseerRenderer::RendererRef(s.RenderInterop->GetRenderer());
         if (s.Renderer != nullptr)
             s.Renderer->AddRef();
-        // CPU sprite/model rendering is supported through the external NVRHI
-        // command list. Effekseer 1.80.6 GPU emitters are not: their deferred
-        // StandardRenderer flush does not complete on this integration path.
+        // Backend acceptance is tracked separately from experimental execution.
         s.bGpuParticlesCapable = false;
         s.RenderBackendStatus = VFXRenderBackendStatus::Ready;
+        s.Backend = desc.Device->getGraphicsAPI() == nvrhi::GraphicsAPI::D3D12 ? "DX12" : "Vulkan";
+        s.Device = desc.Device;
+        s.TimingSlots.resize(desc.FramesInFlight);
+        s.TotalRecordedDrawCount = s.TotalRecordedDispatchCount = 0;
+        s.LastGpuTimingSubmission = 0;
+        s.LastGpuSimulationSubmission = s.LastGpuRenderSubmission = 0;
+        s.UpdateSerial = 0;
 
         s.Manager = Effekseer::Manager::Create(s.MaxInstanceCount);
 
@@ -1465,6 +1699,18 @@ namespace HEngine
             return;
         }
 
+#if HE_VFX_GPU_STRESS_ALLOWED && HE_ENABLE_GM
+        if (s_InitializationFailurePoint == InitializationFailurePoint::AfterManager)
+            HE_CORE_INFO("[Effekseer][InitRecovery] stage=after-manager managerConstructed=true rendererConstructed=true gpuRequested={} gpuEnabled={}",
+                s.bGpuParticlesRequested, s.bGpuParticlesEnabled);
+        InjectInitializationFailure(InitializationFailurePoint::AfterManager);
+#endif
+
+        // SDK caching keys only by virtual resource path, so two packages or
+        // successive reload versions could alias stale textures/models/materials.
+        // Runtime's package/Effect caches still share each loaded effect; distinct
+        // effects now own their resources independently (higher memory/load cost).
+        s.Manager->GetSetting()->SetIsFileCacheEnabled(false);
         s.Manager->SetSpriteRenderer(s.Renderer->CreateSpriteRenderer());
         s.Manager->SetRibbonRenderer(s.Renderer->CreateRibbonRenderer());
         s.Manager->SetRingRenderer(s.Renderer->CreateRingRenderer());
@@ -1472,15 +1718,39 @@ namespace HEngine
         s.Manager->SetModelRenderer(s.Renderer->CreateModelRenderer());
 
         s.FileInterface = Effekseer::MakeRefPtr<PackageFileInterface>();
-        s.Manager->SetTextureLoader(s.Renderer->CreateTextureLoader(s.FileInterface));
+        // SceneColor is scene-linear HDR. The renderer convenience loader
+        // defaults to Gamma (UNORM); decode only authored color textures here.
+        // Normal/distortion/data texture formats remain linear in this loader.
+        s.Manager->SetTextureLoader(Effekseer::MakeRefPtr<DiagnosedTextureLoader>(
+            EffekseerRenderer::CreateTextureLoader(
+                s.Renderer->GetGraphicsDevice(), s.FileInterface, Effekseer::ColorSpaceType::Linear)));
         s.Manager->SetModelLoader(s.Renderer->CreateModelLoader(s.FileInterface));
         s.Manager->SetMaterialLoader(s.Renderer->CreateMaterialLoader(s.FileInterface));
-        s.Manager->SetCoordinateSystem(Effekseer::CoordinateSystem::LH);
+        // Setting supplies procedural meshes by default, but no CurveLoader.
+        // Resolve authored curve paths through the same package-only interface.
+        s.Manager->SetCurveLoader(Effekseer::MakeRefPtr<Effekseer::CurveLoader>(s.FileInterface));
+        // Scene cameras use a right-handed view with forward along -Z. Effekseer
+        // also uses this setting to orient its world-space frustum planes.
+        s.Manager->SetCoordinateSystem(EffekseerSceneCoordinateSystem);
 
         auto gpuParticleDetector = Effekseer::MakeRefPtr<GpuParticleRequestDetector>();
         s.GpuParticleFactory = gpuParticleDetector;
         s.GpuParticleRequestDetectorTyped = gpuParticleDetector.Get();
         s.Manager->SetGpuParticleFactory(gpuParticleDetector);
+        s.bGpuParticlesRequested = s.bGpuParticlesCapable || IsGpuParticleProbeEnabled();
+        if (s.bGpuParticlesRequested && GetGpuParticleCapacity(s.QualityTier) > 0 && !ConfigureGpuParticles(s, true))
+            throw std::runtime_error("Effekseer requested GPU particle initialization failed");
+
+#if HE_VFX_GPU_STRESS_ALLOWED && HE_ENABLE_GM
+        if (s_InitializationFailurePoint == InitializationFailurePoint::AfterGpu)
+        {
+            if (!s.bGpuParticlesRequested || !s.bGpuParticlesEnabled || !s.GpuParticleSystem || s.GpuParticleCapacity == 0)
+                throw std::runtime_error("Recovery injection requires a constructed GPU system");
+            HE_CORE_INFO("[Effekseer][InitRecovery] stage=after-gpu gpuConstructed=true gpuRequested={} gpuEnabled={} gpuCapacity={}",
+                s.bGpuParticlesRequested, s.bGpuParticlesEnabled, s.GpuParticleCapacity);
+            InjectInitializationFailure(InitializationFailurePoint::AfterGpu);
+        }
+#endif
 
         s.SoundLoader = Effekseer::MakeRefPtr<AudioEngineEffekseerSoundLoader>();
         s.SoundPlayer = Effekseer::MakeRefPtr<AudioEngineEffekseerSoundPlayer>();
@@ -1510,6 +1780,7 @@ namespace HEngine
                     "The explicitly requested Effekseer package regression failed");
             }
         }
+        rollback.bCommitted = true;
     }
 
     void EffekseerRuntime::Init()
@@ -1524,18 +1795,99 @@ namespace HEngine
             "after the NVRHI render device is ready");
     }
 
+    void EffekseerRuntime::BeginHostFrame(uint32_t slot, uint64_t completed, nvrhi::ICommandList* commandList)
+    {
+        auto& s = GetState();
+        if (s.HostCommandList || !commandList)
+            throw std::logic_error("VFX host frame requires one non-nested command list");
+        if (s.Initialized && (!s.Device || slot >= s.TimingSlots.size()))
+            throw std::logic_error("VFX host frame has no valid device or frame slot");
+        if (s.RenderInterop && s.RenderInterop->IsInitialized())
+            s.RenderInterop->BeginHostFrame(slot, completed);
+        if (!s.Device || slot >= s.TimingSlots.size()) return;
+        auto& timingSlot = s.TimingSlots.at(slot);
+        if (timingSlot.Submission && timingSlot.Submission > completed)
+            throw std::logic_error("VFX timer slot is still in flight");
+        for (size_t i = 0; i < timingSlot.Used; ++i)
+        {
+            auto& timing = timingSlot.Records[i];
+            if (timingSlot.Submission)
+            {
+                bool sampled = false;
+                if (timing.bSimulationRecorded && s.Device->pollTimerQuery(timing.Simulation))
+                {
+                    s.Metrics.GpuSimulationMs.Add(s.Device->getTimerQueryTime(timing.Simulation) * 1000.0f);
+                    s.LastGpuSimulationSubmission = timingSlot.Submission;
+                    sampled = true;
+                }
+                if (timing.bDrawRecorded && s.Device->pollTimerQuery(timing.Draw))
+                {
+                    s.Metrics.GpuRenderMs.Add(s.Device->getTimerQueryTime(timing.Draw) * 1000.0f);
+                    s.LastGpuRenderSubmission = timingSlot.Submission;
+                    sampled = true;
+                }
+                if (sampled) s.LastGpuTimingSubmission = timingSlot.Submission;
+            }
+            if (timing.Simulation) s.Device->resetTimerQuery(timing.Simulation);
+            if (timing.Draw) s.Device->resetTimerQuery(timing.Draw);
+            timing.bSimulationRecorded = timing.bDrawRecorded = false;
+        }
+        timingSlot.Used = 0;
+        timingSlot.Submission = 0;
+        s.TimingSlotIndex = slot;
+        s.HostCommandList = commandList;
+        s.bGpuSimulationAdvanced = false;
+    }
+
+    void EffekseerRuntime::NotifyHostFrameSubmitted(uint32_t slot, uint64_t submission) noexcept
+    {
+        auto& s = GetState();
+        if (s.RenderInterop)
+            s.RenderInterop->NotifyHostFrameSubmitted(slot, submission);
+        if (s.HostCommandList && slot == s.TimingSlotIndex && submission > s.LastHostSubmission)
+        {
+            if (slot < s.TimingSlots.size()) s.TimingSlots[slot].Submission = submission;
+            s.LastHostSubmission = submission;
+            s.HostCommandList = nullptr;
+            s.bGpuSimulationAdvanced = false;
+        }
+    }
+
+    void EffekseerRuntime::AbortHostFrame(uint32_t slot) noexcept
+    {
+        auto& s = GetState();
+        if (s.RenderInterop)
+            s.RenderInterop->AbortHostFrame(slot);
+        if (s.HostCommandList && slot == s.TimingSlotIndex)
+        {
+            if (s.bGpuSimulationAdvanced)
+            {
+                s.bGpuSimulationDesynchronized = true;
+                s.RenderBackendStatus = VFXRenderBackendStatus::Unconfigured;
+            }
+            s.HostCommandList = nullptr;
+            s.bGpuComputePending = false;
+            s.bGpuSimulationAdvanced = false;
+        }
+        // Submitted slots remain owned until the host's completed serial.
+    }
+
     void EffekseerRuntime::Shutdown()
     {
         HE_PROFILE_SECTION("EffekseerRuntime::Shutdown");
         auto& s = GetState();
-        if (!s.Initialized)
-        {
-            s.RenderInterop.reset();
-            s.RenderBackendStatus = VFXRenderBackendStatus::Unconfigured;
-            return;
-        }
+        if (s.HostCommandList)
+            throw std::logic_error("Effekseer Shutdown requires the host frame to be aborted first");
         if (s.RenderBackendStatus == VFXRenderBackendStatus::FrameActive)
             throw std::logic_error("Effekseer Shutdown cannot run while a render frame is active");
+        s.TimingSlots.clear();
+        s.SimulationGraph.reset();
+        s.bGpuSimulationDesynchronized = false;
+        s.LastHostSubmission = 0;
+        s.Device = nullptr;
+        s.bGpuComputePending = false;
+        // Initialization can fail after creating the manager or GPU system but
+        // before Initialized is published. The same release order applies.
 
         if (s.Manager != nullptr)
             s.Manager->StopAllEffects();
@@ -1567,6 +1919,7 @@ namespace HEngine
         s.Metrics.Reset();
         s.bGpuParticlesCapable = false;
         s.bGpuParticlesEnabled = false;
+        s.bGpuParticlesRequested = false;
         s.bRejectAmbientForRenderBudget = false;
         s.bRejectCombatForRenderBudget = false;
         s.bValidatePackagesPending = false;
@@ -1643,7 +1996,7 @@ namespace HEngine
 
         const std::string cacheKeySource =
             Utils::PathToUtf8(package->FullPath.lexically_normal()) +
-            std::to_string(lastWriteTime.time_since_epoch().count()) +
+            std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(lastWriteTime.time_since_epoch()).count()) +
             std::to_string(packageSize);
         const size_t cacheKey = std::hash<std::string>{}(cacheKeySource);
 
@@ -1710,6 +2063,35 @@ namespace HEngine
         return LoadEffectInternal(relativePath, false);
     }
 
+    bool EffekseerRuntime::ReloadEffect(const std::string& relativePath)
+    {
+        auto& s = GetState();
+        std::string path;
+        if (!s.Initialized || !TryNormalizeEffectPackagePath(relativePath, path)) return false;
+        const auto key = Utils::MakeProjectPathCacheKey(path);
+        // Node handles retain old allocations and restore without allocation on
+        // failure. Manager retains active EffectRefs independently of this cache.
+        auto previousEffect = s.Effects.extract(key);
+        auto previousPackage = s.Packages.extract(key);
+        auto previousRequirements = s.EffectRequirements.extract(key);
+        bool loaded = false;
+        try { loaded = LoadEffectInternal(path, false); }
+        catch (const std::exception& error)
+        {
+            HE_CORE_ERROR("[Effekseer] Reload rejected '{}': {}", path, error.what());
+        }
+        if (!loaded)
+        {
+            s.Effects.erase(key);
+            s.Packages.erase(key);
+            s.EffectRequirements.erase(key);
+            if (previousEffect) s.Effects.insert(std::move(previousEffect));
+            if (previousPackage) s.Packages.insert(std::move(previousPackage));
+            if (previousRequirements) s.EffectRequirements.insert(std::move(previousRequirements));
+        }
+        return loaded;
+    }
+
     bool EffekseerRuntime::LoadEffectInternal(const std::string& relativePath, bool bBypassCacheBudget)
     {
         HE_PROFILE_SECTION("EffekseerRuntime::LoadEffect");
@@ -1724,7 +2106,11 @@ namespace HEngine
         const std::string packageKey = Utils::MakeProjectPathCacheKey(packagePath);
 
         if (s.Effects.find(packageKey) != s.Effects.end())
-            return true;
+        {
+            const auto requirements = s.EffectRequirements.find(packageKey);
+            return s.bGpuParticlesEnabled || requirements == s.EffectRequirements.end() ||
+                !requirements->second.bUsesGpuParticles;
+        }
 
         const bool bNeedsPackageCacheEntry = !s.Packages.contains(packageKey);
         if (!bBypassCacheBudget &&
@@ -1797,31 +2183,137 @@ namespace HEngine
             return false;
         }
 
-        std::wstring materialPathW;
-        materialPathW.reserve(pkg->MainEffectBaseDir.size());
-        for (char c : pkg->MainEffectBaseDir)
-            materialPathW.push_back(static_cast<wchar_t>(c));
+        // The SDK reads EFKE's container version without validating it. Check
+        // the bounded envelope before handing bytes to its legacy parser.
+        // Official 1.80.6 and existing editable packages use EFKE 0; raw SKFE
+        // remains supported, including existing 1.7 packages.
+        const auto& effectBytes = pkg->MainEffectData;
+        const auto readWord = [&](size_t offset) {
+            uint32_t value = 0;
+            std::memcpy(&value, effectBytes.data() + offset, sizeof(value));
+            return value;
+        };
+        size_t runtimeOffset = 0;
+        size_t runtimeSize = effectBytes.size();
+        bool validEnvelope = effectBytes.size() >= 8;
+        if (validEnvelope && std::memcmp(effectBytes.data(), "EFKE", 4) == 0)
+        {
+            validEnvelope = readWord(4) == 0;
+            bool foundRuntime = false;
+            for (size_t offset = 8; validEnvelope && offset < effectBytes.size();)
+            {
+                if (effectBytes.size() - offset < 8) { validEnvelope = false; break; }
+                const size_t chunkSize = readWord(offset + 4);
+                if (chunkSize > effectBytes.size() - offset - 8) { validEnvelope = false; break; }
+                if (std::memcmp(effectBytes.data() + offset, "BIN_", 4) == 0)
+                {
+                    // Older exports may append compatibility BIN_ payloads.
+                    // Match the pinned SDK's EfkEfcFile::ReadRuntimeData,
+                    // which consumes the first BIN_, while still validating
+                    // every chunk boundary before passing the container on.
+                    if (!foundRuntime)
+                    {
+                        foundRuntime = true;
+                        runtimeOffset = offset + 8;
+                        runtimeSize = chunkSize;
+                    }
+                }
+                offset += 8 + chunkSize;
+            }
+            validEnvelope = validEnvelope && foundRuntime;
+        }
+        // SupportBinaryVersion is Version18 (1810) in the pinned SDK. Preserve
+        // its older nonnegative binary versions, rejecting negative/future ones.
+        if (!validEnvelope || runtimeSize < 8 ||
+            std::memcmp(effectBytes.data() + runtimeOffset, "SKFE", 4) != 0 ||
+            readWord(runtimeOffset + 4) > 1810u)
+        {
+            HE_CORE_ERROR("[Effekseer] Unsupported or malformed EFKE/SKFE package data: {0}", packagePath);
+            return false;
+        }
+
+        const std::u16string materialPath = EffekseerPackage::Utf8PathToUtf16(pkg->MainEffectBaseDir);
 
         ScopedPackageLookup packageLookup(pkg);
         const uint64_t gpuParticleRequestsBefore = s.GpuParticleRequestDetectorTyped != nullptr
             ? s.GpuParticleRequestDetectorTyped->GetRequestCount()
             : 0;
+        const uint64_t gpuParticleFailuresBefore = s.GpuParticleRequestDetectorTyped != nullptr
+            ? s.GpuParticleRequestDetectorTyped->GetFailureCount() : 0;
+        const uint64_t unsupportedGlobalColorBefore = s.GpuParticleRequestDetectorTyped != nullptr
+            ? s.GpuParticleRequestDetectorTyped->GetUnsupportedGlobalColorCount() : 0;
         auto effect = Effekseer::Effect::Create(s.Manager,
                                                 pkg->MainEffectData.data(),
                                                 static_cast<int32_t>(pkg->MainEffectData.size()),
                                                 1.0f,
-                                                reinterpret_cast<const char16_t*>(materialPathW.c_str()));
+                                                materialPath.c_str());
         if (effect == nullptr)
         {
             HE_CORE_ERROR("[Effekseer] Load effect failed: {0}", packagePath);
             return false;
         }
+        // Effect::Create can succeed with null resources. Validate the SDK's
+        // declared dependencies, not recipe/provenance claims, before publishing.
+        // Empty paths are optional; compiled-material probing may legitimately
+        // fall back to .efkmat, so only its final material result is checked.
+        if (!ValidateBuiltinSamplerParameters(effect, packagePath))
+            return false;
+        const auto resourcesLoaded = [&](const char* kind, int count, auto pathGetter, auto resourceGetter) {
+            for (int i = 0; i < count; ++i)
+            {
+                const char16_t* path = (effect.Get()->*pathGetter)(i);
+                if (path == nullptr || path[0] == 0)
+                    continue;
+                const std::string dependency = pkg->MainEffectBaseDir +
+                    EffekseerPackage::Utf16PathToUtf8(path);
+                const auto bytes = FindPackageFile(*pkg, dependency);
+                // MaterialLoader tries path + "d" first and can succeed without
+                // the source .efkmat. Its final SDK material must still be valid.
+                const auto compiledMaterial = std::strcmp(kind, "material") == 0
+                    ? FindPackageFile(*pkg, dependency + "d") : nullptr;
+                const bool present = (bytes != nullptr && !bytes->empty()) ||
+                    (compiledMaterial != nullptr && !compiledMaterial->empty()) ||
+                    (std::strcmp(kind, "material") == 0 && IsCompiledMaterialProbeWithSource(*pkg, dependency));
+                // ResourceManager may cache the same virtual path from another
+                // effect. A cached object must not hide a missing package entry.
+                if (!present || (effect.Get()->*resourceGetter)(i) == nullptr)
+                {
+                    HE_CORE_ERROR("[Effekseer] Required {} resource slot {} failed to load; package rejected: {}",
+                        kind, i, packagePath);
+                    return false;
+                }
+            }
+            return true;
+        };
+        if (!resourcesLoaded("color texture", effect->GetColorImageCount(), &Effekseer::Effect::GetColorImagePath, &Effekseer::Effect::GetColorImage) ||
+            !resourcesLoaded("normal texture", effect->GetNormalImageCount(), &Effekseer::Effect::GetNormalImagePath, &Effekseer::Effect::GetNormalImage) ||
+            !resourcesLoaded("distortion texture", effect->GetDistortionImageCount(), &Effekseer::Effect::GetDistortionImagePath, &Effekseer::Effect::GetDistortionImage) ||
+            !resourcesLoaded("model", effect->GetModelCount(), &Effekseer::Effect::GetModelPath, &Effekseer::Effect::GetModel) ||
+            !resourcesLoaded("material", effect->GetMaterialCount(), &Effekseer::Effect::GetMaterialPath, &Effekseer::Effect::GetMaterial) ||
+            !resourcesLoaded("sound", effect->GetWaveCount(), &Effekseer::Effect::GetWavePath, &Effekseer::Effect::GetWave) ||
+            !resourcesLoaded("curve", effect->GetCurveCount(), &Effekseer::Effect::GetCurvePath, &Effekseer::Effect::GetCurve))
+            return false;
+        for (int i = 0; i < effect->GetProceduralModelCount(); ++i)
+        {
+            if (effect->GetProceduralModelParameter(i) != nullptr && effect->GetProceduralModel(i) == nullptr)
+            {
+                HE_CORE_ERROR("[Effekseer] Required procedural model slot {} failed; package rejected: {}", i, packagePath);
+                return false;
+            }
+        }
+        const bool bUsesGpuParticles = s.GpuParticleRequestDetectorTyped != nullptr &&
+            s.GpuParticleRequestDetectorTyped->GetRequestCount() != gpuParticleRequestsBefore;
         if (s.GpuParticleRequestDetectorTyped != nullptr &&
-            s.GpuParticleRequestDetectorTyped->GetRequestCount() != gpuParticleRequestsBefore)
+            s.GpuParticleRequestDetectorTyped->GetFailureCount() != gpuParticleFailuresBefore)
+        {
+            HE_CORE_ERROR("[Effekseer] GPU resource creation failed; package publication rejected: {0}", packagePath);
+            return false;
+        }
+        if (bUsesGpuParticles && !s.bGpuParticlesEnabled)
         {
             HE_CORE_ERROR(
                 "[Effekseer] Package rejected because it contains GPU particles, which are unsupported "
-                "by the current DX12 external-command-list adapter: {0}",
+                "by the current runtime configuration: {0}",
                 packagePath);
             return false;
         }
@@ -1831,6 +2323,28 @@ namespace HEngine
             return true;
         cacheTransaction.MarkEffectInserted();
         s.EffectRequirements[packageKey] = GetEffectRenderRequirements(effect);
+        s.EffectRequirements[packageKey].bUsesGpuParticles = bUsesGpuParticles;
+        s.EffectRequirements[packageKey].bSupportsGlobalColor =
+            !s.EffectRequirements[packageKey].bUsesCustomMaterial && (!bUsesGpuParticles ||
+            s.GpuParticleRequestDetectorTyped->GetUnsupportedGlobalColorCount() == unsupportedGlobalColorBefore);
+        const auto provenance = pkg->Files.find(NormalizeVirtualPath("PROVENANCE.json"));
+        if (provenance != pkg->Files.end() && provenance->second && provenance->second->size() <= 65536)
+        {
+            const auto metadata = nlohmann::json::parse(provenance->second->begin(), provenance->second->end(), nullptr, false);
+            if (metadata.is_object() && metadata.contains("recipe") && metadata["recipe"].is_object())
+            {
+                const auto& recipe = metadata["recipe"];
+                if (recipe.contains("schema_version") && recipe["schema_version"].is_number_integer() &&
+                    recipe["schema_version"] == 1 && recipe.contains("compile") &&
+                    recipe["compile"].is_object() && recipe["compile"].contains("radius_m") &&
+                    recipe["compile"]["radius_m"].is_number())
+                {
+                    const float radius = recipe["compile"]["radius_m"].get<float>();
+                    if (std::isfinite(radius) && radius >= 0.01f && radius <= 50.0f)
+                        s.EffectRequirements[packageKey].AuthoredRadiusMeters = radius;
+                }
+            }
+        }
         s.Metrics.EffectLoadMs.Add(ElapsedMilliseconds(loadStart));
         cacheTransaction.Commit();
         return true;
@@ -1927,6 +2441,9 @@ namespace HEngine
             return -1;
         }
 
+        if (params.bOverrideRandomSeed)
+            s.Manager->SetRandomSeed(handle, params.RandomSeed);
+
         const glm::vec3 dir = glm::dot(params.Forward, params.Forward) > 1e-8f
             ? glm::normalize(params.Forward)
             : glm::vec3(0.0f, 0.0f, -1.0f);
@@ -1936,7 +2453,7 @@ namespace HEngine
 
         const float clampedScale = glm::max(params.Scale, 0.001f);
         s.Manager->SetScale(handle, clampedScale, clampedScale, clampedScale);
-        s.Manager->SetSpeed(handle, glm::max(params.Speed, 0.01f));
+        s.Manager->SetSpeed(handle, glm::max(params.Speed, 0.0f));
 
         const VFXHandle publicHandle = static_cast<VFXHandle>(handle);
         s.Manager->SetLayer(handle, static_cast<int32_t>(categoryIndex));
@@ -1950,6 +2467,10 @@ namespace HEngine
             0,
             requirements.bUsesSceneDepth,
             requirements.bUsesBackground,
+            requirements.bUsesGpuParticles,
+            requirements.bSupportsGlobalColor,
+            requirements.bUsesCustomMaterial,
+            requirements.AuthoredRadiusMeters,
         };
         ++s.ActiveByCategory[categoryIndex];
         ++s.EffectsCreatedThisFrame;
@@ -2018,6 +2539,206 @@ namespace HEngine
         return s.Initialized && s.Manager != nullptr && handle >= 0 && s.Manager->Exists(handle);
     }
 
+    glm::vec3 EffekseerRuntime::GetEffectPosition(VFXHandle handle)
+    {
+        if (!IsEffectPlaying(handle))
+            throw std::invalid_argument("VFX position query requires a live handle");
+        const auto position = GetState().Manager->GetLocation(handle);
+        return {position.X, position.Y, position.Z};
+    }
+
+    nlohmann::json EffekseerRuntime::GetEffectStatus(VFXHandle handle)
+    {
+        const bool playing = IsEffectPlaying(handle);
+        nlohmann::json result{{"handle", handle}, {"playing", playing},
+            {"paused", nullptr}, {"speed", nullptr}, {"simulationFrame", nullptr},
+            {"simulationFrameStatus", "unavailable: SDK has no public per-handle frame query"}};
+        if (playing)
+        {
+            result["paused"] = GetState().Manager->GetPaused(handle);
+            result["speed"] = GetState().Manager->GetSpeed(handle);
+            const auto position = GetEffectPosition(handle);
+            result["position"] = {position.x, position.y, position.z};
+            const auto active = GetState().ActiveEffects.find(handle);
+            result["supportsGlobalColor"] = active != GetState().ActiveEffects.end() && active->second.bSupportsGlobalColor;
+            if (active != GetState().ActiveEffects.end())
+            {
+                result["supportsGlobalColorReason"] = active->second.bUsesCustomMaterial
+                    ? "custom_material_color_response_unverified"
+                    : (active->second.bSupportsGlobalColor ? "builtin_material_color_input_supported"
+                        : "gpu_root_color_inheritance_required");
+                result["authoredRadiusMeters"] = active->second.AuthoredRadiusMeters > 0.0f
+                    ? nlohmann::json(active->second.AuthoredRadiusMeters) : nlohmann::json(nullptr);
+                result["intensity"] = active->second.Intensity;
+            }
+        }
+        return result;
+    }
+
+    bool EffekseerRuntime::SetEffectPaused(VFXHandle handle, bool bPaused)
+    {
+        if (!IsEffectPlaying(handle))
+            return false;
+        GetState().Manager->SetPaused(handle, bPaused);
+        return true;
+    }
+
+    bool EffekseerRuntime::SetEffectColor(VFXHandle handle, const glm::vec4& color)
+    {
+        const auto active = GetState().ActiveEffects.find(handle);
+        if (active == GetState().ActiveEffects.end() || !active->second.bSupportsGlobalColor)
+            return false;
+        for (int i = 0; i < 4; ++i)
+            if (!std::isfinite(color[i]) || color[i] < 0.0f || color[i] > 1.0f)
+                return false;
+        if (!IsEffectPlaying(handle))
+            return false;
+        active->second.Color = color;
+        const auto appliedColor = color * active->second.Intensity;
+        GetState().Manager->SetAllColor(handle, {
+            static_cast<uint8_t>(std::lround(appliedColor.r * 255.0f)),
+            static_cast<uint8_t>(std::lround(appliedColor.g * 255.0f)),
+            static_cast<uint8_t>(std::lround(appliedColor.b * 255.0f)),
+            static_cast<uint8_t>(std::lround(appliedColor.a * 255.0f))});
+        return true;
+    }
+
+    bool EffekseerRuntime::SetEffectParameter(VFXHandle handle, const std::string& name, float value)
+    {
+        if (!std::isfinite(value) || !IsEffectPlaying(handle))
+            return false;
+        const auto active = GetState().ActiveEffects.find(handle);
+        if (active == GetState().ActiveEffects.end())
+            return false;
+        if (name == "speed")
+            return SetEffectSpeed(handle, value);
+        if (name == "intensity")
+        {
+            if (value < 0.0f || value > 1.0f || !active->second.bSupportsGlobalColor)
+                return false;
+            active->second.Intensity = value;
+            return SetEffectColor(handle, active->second.Color);
+        }
+        float scale = value;
+        if (name == "radius_m")
+        {
+            if (value < 0.01f || value > 50.0f || active->second.AuthoredRadiusMeters <= 0.0f)
+                return false;
+            scale = value / active->second.AuthoredRadiusMeters;
+        }
+        else if (name != "scale")
+            return false;
+        if (scale <= 0.0f || scale > 1000.0f)
+            return false;
+        GetState().Manager->SetScale(handle, scale, scale, scale);
+        return true;
+    }
+
+    bool EffekseerRuntime::SetEffectSpeed(VFXHandle handle, float speed)
+    {
+        if (!std::isfinite(speed) || speed < 0.0f || speed > 16.0f || !IsEffectPlaying(handle))
+            return false;
+        GetState().Manager->SetSpeed(handle, speed);
+        return true;
+    }
+
+    bool EffekseerRuntime::SetEffectDynamicInput(VFXHandle handle, uint32_t index, float value)
+    {
+        if (index >= 4 || !std::isfinite(value) || !IsEffectPlaying(handle))
+            return false;
+        GetState().Manager->SetDynamicInput(handle, static_cast<int32_t>(index), value);
+        return true;
+    }
+
+    nlohmann::json EffekseerRuntime::DescribeStats()
+    {
+        using Json = nlohmann::json;
+        const auto stats = EffekseerRuntime::GetStats(true);
+        const auto memory = Application::GetInstance().GetRenderMemoryBudget();
+        const auto metric = [](const VFXRollingMetric& value)
+        { return Json{{"current",value.Current},{"p50",value.P50},{"p95",value.P95},
+            {"samples",value.SampleCount},{"status",static_cast<int>(value.Status)}}; };
+        return Json{{"cpuUpdateMs",metric(stats.CpuUpdateMs)},
+            {"cpuDrawSubmitMs",metric(stats.CpuDrawSubmitMs)},
+            {"gpuSimulationMs",metric(stats.GpuSimulationMs)},
+            {"gpuRenderMs",metric(stats.GpuRenderMs)},
+            {"activeEffects",metric(stats.ActiveEffects)},
+            {"cpuInstances",metric(stats.ActiveCpuInstances)},
+            {"gpuParticles",metric(stats.ActiveGpuParticles)},
+            {"drawCalls",metric(stats.DrawCalls)},{"vertices",metric(stats.VertexCount)},
+            {"cachedEffects",metric(stats.CachedEffects)},{"cachedPackages",metric(stats.CachedPackages)},
+            {"recordedDrawCount",stats.RecordedDrawCount},
+            {"recordedDispatchCount",stats.RecordedDispatchCount},
+            {"recordingSerial",stats.RecordingSerial},
+            {"totalRecordedDrawCount",stats.TotalRecordedDrawCount},
+            {"totalRecordedDispatchCount",stats.TotalRecordedDispatchCount},
+            {"lastGpuTimingSubmission",stats.LastGpuTimingSubmission},
+            {"lastGpuSimulationSubmission",stats.LastGpuSimulationSubmission},
+            {"lastGpuRenderSubmission",stats.LastGpuRenderSubmission},
+            {"updateSerial",stats.UpdateSerial},
+            {"gpuAllocation", {{"emitterSlotFailures",stats.GpuEmitterSlotFailures},
+                {"particleBlockFailures",stats.GpuParticleBlockFailures}, {"trailBlockFailures",stats.GpuTrailBlockFailures},
+                {"allocatedEmitters",stats.GpuAllocatedEmitters}, {"reservedParticles",stats.GpuReservedParticles},
+                {"reservedTrails",stats.GpuReservedTrails},
+                {"scope", "current GPU system CPU allocator; not live GPU particles or fence-retired memory"}}},
+            {"bufferPools", {{"available",stats.bBufferPoolStatsAvailable},
+                {"storageBufferCount",stats.StorageBufferCount},{"storageLogicalBytes",stats.StorageLogicalBytes},
+                {"uniformBufferCount",stats.UniformBufferCount},{"uniformLogicalBytes",stats.UniformLogicalBytes},
+                {"uniformSnapshotCount",stats.UniformSnapshotCount},
+                {"scope","registered LLGI storage/uniform held buffers; deduplicated buffer identity; GetSize logical bytes, not native allocation or fence-retired memory; excludes textures, vertex/index, command-only uploads and frame pools"}}},
+            {"renderMemory", {{"available",memory.bAvailable},{"perProcess",memory.bPerProcess},
+                {"localBudgetBytes",memory.LocalBudgetBytes},{"localUsageBytes",memory.LocalUsageBytes},
+                {"localReservationBytes",memory.LocalReservationBytes},
+                {"nonLocalAvailable",memory.bNonLocalAvailable},{"nonLocalBudgetBytes",memory.NonLocalBudgetBytes},
+                {"nonLocalUsageBytes",memory.NonLocalUsageBytes},
+                {"scope","RenderDevice OS budget query; unavailable is not zero; not VFX-only or exact native allocation"}}},
+            {"recordingEvidence", "accepted native commands; not GPU completion"},
+            {"gpuEnabled",stats.bGpuParticlesEnabled},{"gpuValidated",stats.bGpuParticlesCapable}};
+    }
+
+    nlohmann::json EffekseerRuntime::Describe()
+    {
+        using Json = nlohmann::json;
+        const auto& s = GetState();
+        return Json{
+            {"schemaVersion", 1}, {"implementation", "Effekseer-1.80.6"},
+            {"runtimeApiVersion", 2},
+            {"buildIdentity", {{"vfxTranslationUnitCompiled", __DATE__ " " __TIME__},
+                {"scope", "VFX translation unit; verify complete executable SHA256 in the host receipt"}}},
+            {"backend", s.Backend}, {"initialized", s.Initialized},
+            {"gpu", {{"validated", s.bGpuParticlesCapable}, {"enabled", s.bGpuParticlesEnabled},
+                {"requested", s.bGpuParticlesRequested},
+                {"enableSemantics", "Enable accepts a request; Low quality suppresses the actual GPU system until a quiescent non-Low quality selection. Explicit disable clears the request."},
+                {"status", s.bGpuParticlesCapable ? "available" : "unverified"}}},
+            {"parameters", {
+                {"seed", {{"type", "int32"}, {"default", nullptr}, {"unit", "seed"},
+                    {"application", "before_first_update"}}},
+                {"speed", {{"type", "float"}, {"default", 1.0}, {"min", 0}, {"max", 16},
+                    {"unit", "time_multiplier"}, {"application", "next_update"}}},
+                {"scale", {{"type", "float"}, {"default", 1.0}, {"minExclusive", 0}, {"max", 1000},
+                    {"unit", "authored_scale_multiplier"}, {"application", "play or next update; authored parent bindings govern existing particles"}}},
+                {"radius_m", {{"type", "float"}, {"min", 0.01}, {"max", 50}, {"unit", "nominal authored meters"},
+                    {"constraint", "Requires recipe v1 radius metadata; applies target/authored radius as uniform scale, not a measured particle bound"}}},
+                {"intensity", {{"type", "float"}, {"default", 1.0}, {"min", 0}, {"max", 1},
+                    {"unit", "componentwise RGBA attenuation"}, {"application", "next update"},
+                    {"constraint", "Built-in materials only, with the same compiled color binding requirements as color; custom material output depends on authored vertex color usage and is unsupported; not HDR amplification or photometric power"}}},
+                {"color", {{"type", "float4"}, {"default", {1,1,1,1}}, {"min", 0}, {"max", 1},
+                    {"unit", "normalized_rgba_multiplier"}, {"application", "next_update"},
+                    {"constraint", "Built-in materials only; custom material output depends on authored vertex color usage and is unsupported. GPU nodes must all use compiled NotBind_Root color inheritance; per-effect status reports support and reason, not guaranteed visible pixel response"}}},
+                {"dynamicInput", {{"type", "float"}, {"indexMin", 0}, {"indexMax", 3},
+                    {"default", "authored"}, {"unit", "authored"}, {"application", "next_update"},
+                    {"constraint", "Requires a matching authored dynamic equation; no implicit semantic names"}}}
+            }},
+            {"resources", {{"format", "efkpkg"}, {"path", "project-relative"},
+                {"mainEntry", "explicit for multi-effect archives"}}},
+            {"lifecycle", {{"handle", "runtime-owned; invalid after stop/end/runtime shutdown; caller must stop handles on owner or scene teardown"},
+                {"pause", "holds simulation; remains drawable"},
+                {"preview", "restart with seed then fixed simulation steps; no constant-time seek"}}},
+            {"errors", {{"play", "negative handle on failure"},
+                {"mutation", "false for stale handle or invalid/unsupported parameter; previous state retained"}}}
+        };
+    }
+
     void EffekseerRuntime::StopEffect(VFXHandle handle)
     {
         auto& s = GetState();
@@ -2044,7 +2765,7 @@ namespace HEngine
         }
     }
 
-    VFXStats EffekseerRuntime::GetStats()
+    VFXStats EffekseerRuntime::GetStats(bool includeResourcePools)
     {
         auto& s = GetState();
         VFXStats stats;
@@ -2071,14 +2792,38 @@ namespace HEngine
         stats.CachedPackages = s.Metrics.CachedPackages.Snapshot();
         stats.DrawCalls = s.Metrics.DrawCalls.Snapshot();
         stats.VertexCount = s.Metrics.VertexCount.Snapshot();
-        // Renderer counters cover the CPU renderer path, but Effekseer's GPU
-        // particle backend submits through its own backend path. Do not expose
-        // the partial counters as an exact combined total while GPU particles
-        // are enabled.
-        if (s.bGpuParticlesEnabled)
+        stats.TotalRecordedDrawCount = s.TotalRecordedDrawCount;
+        stats.TotalRecordedDispatchCount = s.TotalRecordedDispatchCount;
+        stats.LastGpuTimingSubmission = s.LastGpuTimingSubmission;
+        stats.LastGpuSimulationSubmission = s.LastGpuSimulationSubmission;
+        stats.LastGpuRenderSubmission = s.LastGpuRenderSubmission;
+        stats.UpdateSerial = s.UpdateSerial;
+        if (s.GpuParticleSystem)
         {
-            stats.DrawCalls.Status = VFXMetricStatus::Unavailable;
-            stats.VertexCount.Status = VFXMetricStatus::Unavailable;
+            const auto allocation = s.GpuParticleSystem->GetAllocationStats();
+            stats.GpuEmitterSlotFailures = allocation.EmitterSlotFailureCount;
+            stats.GpuParticleBlockFailures = allocation.ParticleBlockFailureCount;
+            stats.GpuTrailBlockFailures = allocation.TrailBlockFailureCount;
+            stats.GpuAllocatedEmitters = allocation.AllocatedEmitterCount;
+            stats.GpuReservedParticles = allocation.ReservedParticleCount;
+            stats.GpuReservedTrails = allocation.ReservedTrailCount;
+        }
+        if (s.RenderInterop)
+        {
+            const auto& recording = s.RenderInterop->GetStatus();
+            stats.RecordedDrawCount = recording.RecordedDrawCount;
+            stats.RecordedDispatchCount = recording.RecordedDispatchCount;
+            stats.RecordingSerial = recording.RecordingSerial;
+            if (includeResourcePools)
+            {
+                const auto pool = s.RenderInterop->GetBufferPoolStats();
+                stats.bBufferPoolStatsAvailable = pool.bAvailable;
+                stats.StorageBufferCount = pool.StorageBufferCount;
+                stats.StorageLogicalBytes = pool.StorageLogicalBytes;
+                stats.UniformBufferCount = pool.UniformBufferCount;
+                stats.UniformLogicalBytes = pool.UniformLogicalBytes;
+                stats.UniformSnapshotCount = pool.UniformSnapshotCount;
+            }
         }
         // Aggregate live allocation is unavailable for the same reason as the
         // live GPU particle count; capacity is an exact configured constant.
@@ -2134,25 +2879,34 @@ namespace HEngine
             return;
         }
         auto& s = GetState();
-        s.QualityTier = qualityTier;
         const uint32_t desiredGpuCapacity = GetGpuParticleCapacity(qualityTier);
-        if (s.bGpuParticlesEnabled && s.GpuParticleCapacity != desiredGpuCapacity)
+        const bool bDesiredEnabled = s.bGpuParticlesRequested && desiredGpuCapacity > 0;
+        const bool bReconfigure = bDesiredEnabled != s.bGpuParticlesEnabled ||
+            (bDesiredEnabled && s.GpuParticleCapacity != desiredGpuCapacity);
+        if (bReconfigure &&
+            (s.HostCommandList || (s.Manager &&
+                (s.Manager->GetTotalInstanceCount() > 0 || !s.ActiveEffects.empty()))))
         {
-            if (ConfigureGpuParticles(s, false))
-            {
-                if (desiredGpuCapacity == 0)
-                {
-                    HE_CORE_INFO("[Effekseer] GPU particles disabled by Low quality tier");
-                }
-                else if (!ConfigureGpuParticles(s, true))
-                {
-                    HE_CORE_WARN("[Effekseer] Failed to recreate GPU particle buffers for the selected quality tier");
-                }
-            }
-            else
-            {
-                HE_CORE_WARN("[Effekseer] VFX quality changed while effects are active; GPU buffer resize requires a quiescent manager");
-            }
+            HE_CORE_WARN("[Effekseer] Quality change rejected until effects stop and the host frame closes");
+            return;
+        }
+        // Disable before publishing a new tier; an unexpected rejection must
+        // leave both quality and the previous request unchanged.
+        if (bReconfigure && s.bGpuParticlesEnabled && !ConfigureGpuParticles(s, false))
+        {
+            HE_CORE_WARN("[Effekseer] Quality change rejected because GPU buffers could not be disabled");
+            return;
+        }
+        s.QualityTier = qualityTier;
+        if (bReconfigure && bDesiredEnabled && !ConfigureGpuParticles(s, true))
+        {
+            // Keep the selected quality and request; actual enabled remains
+            // false. Repeating the quality selection retries after recovery.
+            HE_CORE_WARN("[Effekseer] GPU buffer creation failed for selected quality; GPU particles remain disabled");
+        }
+        else if (bReconfigure && desiredGpuCapacity == 0)
+        {
+            HE_CORE_INFO("[Effekseer] GPU particles suspended by Low quality tier");
         }
     }
 
@@ -2171,7 +2925,16 @@ namespace HEngine
         auto& s = GetState();
         if (!s.Initialized)
             return false;
-        return ConfigureGpuParticles(s, bEnabled);
+        if (bEnabled && !s.bGpuParticlesCapable && !IsGpuParticleProbeEnabled())
+            return false;
+        // Low accepts the enable request but keeps the actual system disabled.
+        // IsGpuParticlesEnabled reports actual state; a later non-Low tier
+        // realizes the request only after the normal quiescence checks pass.
+        const bool bActualEnabled = bEnabled && GetGpuParticleCapacity(s.QualityTier) > 0;
+        if (!ConfigureGpuParticles(s, bActualEnabled))
+            return false;
+        s.bGpuParticlesRequested = bEnabled;
+        return true;
     }
 
     bool EffekseerRuntime::ValidateEffectPackages(
@@ -2403,12 +3166,61 @@ namespace HEngine
         }
     }
 
+    void EffekseerRuntime::ComputeParticles(nvrhi::ICommandList* commandList)
+    {
+        auto& s = GetState();
+        if (!s.bGpuComputePending) return;
+        if (!commandList || commandList != s.HostCommandList ||
+            s.bGpuSimulationDesynchronized || s.RenderBackendStatus != VFXRenderBackendStatus::Ready)
+            throw std::logic_error("VFX simulation requires the active host graphics command list");
+        EffekseerState::GpuTiming* timing = nullptr;
+        if (s.bDetailedStatsEnabled && s.Device && s.TimingSlotIndex < s.TimingSlots.size())
+        {
+            auto& slot = s.TimingSlots[s.TimingSlotIndex];
+            if (slot.Used == slot.Records.size()) slot.Records.emplace_back();
+            timing = &slot.Records[slot.Used++];
+            if (!timing->Simulation) timing->Simulation = s.Device->createTimerQuery();
+        }
+        s.RenderBackendStatus = VFXRenderBackendStatus::FrameActive;
+        // Manager::Compute also advances SDK CPU-side emitter bookkeeping. An
+        // aborted submission cannot be replayed from the most recent delta.
+        s.bGpuSimulationAdvanced = true;
+        try
+        {
+            s.RenderInterop->BeginComputeFrame(commandList);
+            const auto dispatchesBefore = s.GpuParticleSystem->GetDispatchRequestCount();
+            if (timing && timing->Simulation) commandList->beginTimerQuery(timing->Simulation);
+            s.Manager->Compute();
+            s.RenderInterop->EndFrame();
+            if (timing && timing->Simulation)
+            {
+                commandList->endTimerQuery(timing->Simulation);
+                timing->bSimulationRecorded = s.GpuParticleSystem->GetDispatchRequestCount() > dispatchesBefore;
+            }
+            s.TotalRecordedDrawCount += s.RenderInterop->GetStatus().RecordedDrawCount;
+            s.TotalRecordedDispatchCount += s.RenderInterop->GetStatus().RecordedDispatchCount;
+            s.bGpuComputePending = false;
+            s.RenderBackendStatus = VFXRenderBackendStatus::Ready;
+        }
+        catch (...)
+        {
+            s.RenderInterop->AbortRecording();
+            s.bGpuSimulationDesynchronized = true;
+            s.RenderBackendStatus = VFXRenderBackendStatus::Unconfigured;
+            throw;
+        }
+    }
+
     void EffekseerRuntime::Update(Timestep ts)
     {
         HE_PROFILE_SECTION("EffekseerRuntime::Update");
         auto& s = GetState();
         if (!s.Initialized || s.Manager == nullptr)
             return;
+
+        if (s.bGpuParticlesEnabled && (!s.HostCommandList || s.bGpuSimulationDesynchronized ||
+            s.RenderBackendStatus != VFXRenderBackendStatus::Ready))
+            throw std::logic_error("VFX GPU update requires a valid host frame; reinitialize after an aborted simulation");
 
         if (s.bValidatePackagesPending && !s.bValidatePackagesActive)
         {
@@ -2445,18 +3257,50 @@ namespace HEngine
         param.UpdateInterval = 0.0f;
 
         const auto updateStart = Clock::now();
+        const auto allocationsBefore = s.GpuParticleSystem
+            ? s.GpuParticleSystem->GetAllocationStats() : Effekseer::GpuParticleSystem::AllocationStats{};
+        if (s.bGpuParticlesEnabled) s.bGpuSimulationAdvanced = true;
         s.Manager->Update(param);
-        s.Metrics.CpuUpdateMs.Add(ElapsedMilliseconds(updateStart));
+        if (s.GpuParticleSystem)
+        {
+            const auto allocationsAfter = s.GpuParticleSystem->GetAllocationStats();
+            if (allocationsAfter.EmitterSlotFailureCount != allocationsBefore.EmitterSlotFailureCount ||
+                allocationsAfter.ParticleBlockFailureCount != allocationsBefore.ParticleBlockFailureCount ||
+                allocationsAfter.TrailBlockFailureCount != allocationsBefore.TrailBlockFailureCount)
+            {
+                HE_CORE_ERROR("[Effekseer] GPU emitter allocation failed: slots={0}, particles={1}, trails={2}; inspect vfx.stats gpuAllocation",
+                    allocationsAfter.EmitterSlotFailureCount - allocationsBefore.EmitterSlotFailureCount,
+                    allocationsAfter.ParticleBlockFailureCount - allocationsBefore.ParticleBlockFailureCount,
+                    allocationsAfter.TrailBlockFailureCount - allocationsBefore.TrailBlockFailureCount);
+            }
+        }
+        ++s.UpdateSerial;
+        s.bGpuComputePending = s.bGpuParticlesEnabled;
         s.ElapsedTimeSeconds += deltaSeconds;
         if (s.Renderer != nullptr)
             s.Renderer->SetTime(s.ElapsedTimeSeconds);
 
         if (s.bGpuParticlesEnabled)
         {
-            // GPU particle commands must be emitted while the RenderGraph VFX
-            // pass owns an NVRHI command list. Render() performs Compute()
-            // immediately before Draw() inside that explicit interop frame.
+            try
+            {
+                if (!s.SimulationGraph)
+                {
+                    auto graph = std::make_unique<RenderGraph>();
+                    EffekseerRenderGraphPass::AddSimulationToGraph(*graph);
+                    graph->CompileOrThrow();
+                    s.SimulationGraph = std::move(graph);
+                }
+                s.SimulationGraph->Execute(s.HostCommandList);
+            }
+            catch (...)
+            {
+                s.bGpuSimulationDesynchronized = true;
+                s.RenderBackendStatus = VFXRenderBackendStatus::Unconfigured;
+                throw;
+            }
         }
+        s.Metrics.CpuUpdateMs.Add(ElapsedMilliseconds(updateStart));
 
         RemoveFinishedEffectsAndRefreshUsage(s);
         if (s.ActiveEffects.empty())
@@ -2564,8 +3408,24 @@ namespace HEngine
             return;
         }
 
-        s.Renderer->SetCameraMatrix(ToEffekseerMatrix(s.View));
-        s.Renderer->SetProjectionMatrix(ToEffekseerMatrix(s.Projection));
+        s.Renderer->SetCameraMatrix(ToEffekseerCameraMatrix(s.View));
+        s.Renderer->SetProjectionMatrix(ToEffekseerCameraMatrix(s.Projection));
+        const auto finiteColor = [](const glm::vec3& color) {
+            const auto channel = [](float value) -> uint8_t {
+                return std::isfinite(value)
+                    ? static_cast<uint8_t>(std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f))
+                    : 0;
+            };
+            return Effekseer::Color(channel(color.r), channel(color.g), channel(color.b), 255);
+        };
+        glm::vec3 lightDirection = desc.LightDirection;
+        if (!std::isfinite(lightDirection.x) || !std::isfinite(lightDirection.y) ||
+            !std::isfinite(lightDirection.z) || glm::dot(lightDirection, lightDirection) < 1e-8f)
+            lightDirection = glm::vec3(0.0f, 1.0f, 0.0f);
+        lightDirection = glm::normalize(lightDirection);
+        s.Renderer->SetLightDirection({ lightDirection.x, lightDirection.y, lightDirection.z });
+        s.Renderer->SetLightColor(finiteColor(desc.LightColor));
+        s.Renderer->SetLightAmbientColor(finiteColor(desc.LightAmbientColor));
 
         for (size_t category = 0;
              category < static_cast<size_t>(VFXBudgetCategory::Count);
@@ -2581,16 +3441,9 @@ namespace HEngine
             s.Manager->SetLayerParameter(static_cast<int32_t>(category), layerParam);
         }
 
-        Effekseer::Manager::DrawParameter drawParam;
-        drawParam.ViewProjectionMatrix = s.Renderer->GetCameraProjectionMatrix();
+        auto drawParam = BuildEffekseerCameraDrawParameters(
+            s.View, s.Projection, desc.ZNear, desc.ZFar, desc.CameraPosition);
         drawParam.CameraCullingMask = s.Manager->GetCameraCullingMaskToShowAllEffects();
-        drawParam.ZNear = desc.ZNear;
-        drawParam.ZFar = desc.ZFar;
-        drawParam.CameraPosition = {
-            desc.CameraPosition.x,
-            desc.CameraPosition.y,
-            desc.CameraPosition.z
-        };
 
         s.Renderer->ResetDrawCallCount();
         s.Renderer->ResetDrawVertexCount();
@@ -2617,6 +3470,14 @@ namespace HEngine
         depthReconstruction.ProjectionMatrix44 = s.Projection[3][3];
 
         s.RenderBackendStatus = VFXRenderBackendStatus::FrameActive;
+        EffekseerState::GpuTiming* timing = nullptr;
+        if (s.bDetailedStatsEnabled && s.Device && s.TimingSlotIndex < s.TimingSlots.size())
+        {
+            auto& slot = s.TimingSlots[s.TimingSlotIndex];
+            if (slot.Used == slot.Records.size()) slot.Records.emplace_back();
+            timing = &slot.Records[slot.Used++];
+            if (!timing->Draw) timing->Draw = s.Device->createTimerQuery();
+        }
         try
         {
             s.RenderInterop->BeginFrame({
@@ -2626,19 +3487,25 @@ namespace HEngine
                 .BackgroundTexture = desc.BackgroundTexture,
                 .DepthReconstruction = depthReconstruction,
             });
-            if (s.bGpuParticlesEnabled)
-                s.Manager->Compute();
+            if (timing && timing->Draw) desc.CommandList->beginTimerQuery(timing->Draw);
             s.RenderInterop->BeginRendering();
             s.Manager->Draw(drawParam);
             s.RenderInterop->EndRendering();
+            if (timing && timing->Draw)
+            {
+                desc.CommandList->endTimerQuery(timing->Draw);
+                timing->bDrawRecorded = true;
+            }
             s.RenderInterop->EndFrame();
+            s.TotalRecordedDrawCount += s.RenderInterop->GetStatus().RecordedDrawCount;
+            s.TotalRecordedDispatchCount += s.RenderInterop->GetStatus().RecordedDispatchCount;
             s.RenderBackendStatus = VFXRenderBackendStatus::Ready;
         }
         catch (...)
         {
-            // The bridge owns precise partial-frame unwinding. Shutdown is the
-            // only safe recovery after native command recording fails.
-            s.RenderInterop->Shutdown();
+            // Previously submitted records may still be executing. Unwind this
+            // recording without destroying their descriptor or vertex storage.
+            s.RenderInterop->AbortRecording();
             s.RenderBackendStatus = VFXRenderBackendStatus::Unconfigured;
             throw;
         }

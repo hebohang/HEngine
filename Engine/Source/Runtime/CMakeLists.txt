@@ -41,19 +41,28 @@ add_subdirectory(Utils)
 source_group(TREE "${EngineRuntimeDir}" FILES ${RuntimeHeaderFiles} ${RuntimeSourceFiles})
 
 add_library(HEngineRuntime STATIC ${RuntimeHeaderFiles} ${RuntimeSourceFiles})
+target_compile_definitions(HEngineRuntime PRIVATE HE_FSR31=$<BOOL:${HE_FSR31}>)
+target_compile_definitions(HEngineRuntime PRIVATE HE_FSR31_DX12=$<BOOL:${HE_FSR31_DX12}> HE_FSR31_VULKAN=$<BOOL:${HE_FSR31_VULKAN}>)
+if(HE_FSR31)
+    target_include_directories(HEngineRuntime PRIVATE "${HE_FSR31_ROOT}/ffx-api/include")
+endif()
+target_link_libraries(HEngineRuntime PRIVATE HEngineScriptCore)
 
 target_include_directories(HEngineRuntime 
     PRIVATE "${EngineSourceDir}"
     PRIVATE "${EngineRuntimeDir}" # make sure we can directly include "Hepch.h"
+    PRIVATE "${ProjectRootDir}/Source" # project reflection headers in the selected host's generated aggregate
     PRIVATE "${ThirdPartyDir}/Effekseer/src/Effekseer"
     PRIVATE "${ThirdPartyDir}/Effekseer/src/EffekseerRendererDX12"
     PRIVATE "${ThirdPartyDir}/Effekseer/src/EffekseerRendererVulkan"
     PUBLIC "${HE_ENGINE_GENERATED_INCLUDE_DIR}"
+    PUBLIC "${CMAKE_BINARY_DIR}/generated/scripting"
 )
 
 target_compile_definitions(HEngineRuntime
     PRIVATE HE_BUILD_DLL
     PRIVATE GLFW_INCLUDE_NONE
+    PUBLIC HE_RUNTIME_ASSET_IMPORT=$<BOOL:${HE_RUNTIME_ASSET_IMPORT}>
     PUBLIC HE_ENABLE_GM=$<BOOL:${HE_ENABLE_GM}>
     PRIVATE HE_NVRHI_NVAPI_ENABLED=$<BOOL:${NVRHI_WITH_NVAPI}>
     PRIVATE HE_NVRHI_NATIVE_OMM_ENABLED=$<BOOL:${NVRHI_D3D12_WITH_DXR12_OPACITY_MICROMAP}>
@@ -67,24 +76,7 @@ if(HE_BUILD_TESTS)
 endif()
 
 if(PACK_GAME)
-    set(HE_PACKAGE_ZIP_SOURCES
-        "${ThirdPartyDir}/assimp/contrib/unzip/ioapi.c"
-        "${ThirdPartyDir}/assimp/contrib/unzip/unzip.c"
-        "${ThirdPartyDir}/assimp/contrib/zip/src/zip.c"
-    )
-    target_sources(HEngineRuntime PRIVATE ${HE_PACKAGE_ZIP_SOURCES})
-    set_source_files_properties(${HE_PACKAGE_ZIP_SOURCES} PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
-    set_source_files_properties(
-        "${ThirdPartyDir}/assimp/contrib/zip/src/zip.c"
-        PROPERTIES COMPILE_DEFINITIONS MINIZ_NO_TIME)
     target_compile_definitions(HEngineRuntime PRIVATE HE_PACKAGED_GAME=1)
-    target_include_directories(HEngineRuntime PRIVATE
-        "${ThirdPartyDir}/assimp/contrib/unzip"
-        "${ThirdPartyDir}/assimp/contrib/zip/src"
-        "${ThirdPartyDir}/assimp/contrib/zlib"
-        "${CMAKE_CURRENT_BINARY_DIR}/../ThirdParty/assimp/contrib/zlib"
-    )
-    target_link_libraries(HEngineRuntime PRIVATE zlibstatic)
     if(WIN32)
         target_link_libraries(HEngineRuntime PRIVATE Shell32 Ole32)
     endif()
@@ -97,7 +89,11 @@ else()
     target_compile_definitions(HEngineRuntime PRIVATE HE_VFX_DETAILED_STATS=1)
 endif()
 
-if(HE_BUILD_DEV_GAME AND NOT PACK_GAME)
+option(HE_EDITOR_VFX_GPU_PROBE "Allow explicit GPU diagnostics in a non-shipping GM Editor" OFF)
+if(HE_EDITOR_VFX_GPU_PROBE AND (PACK_GAME OR HE_BUILD_DEV_GAME OR NOT HE_ENABLE_GM))
+    message(FATAL_ERROR "HE_EDITOR_VFX_GPU_PROBE requires non-PACK Editor with HE_ENABLE_GM")
+endif()
+if((HE_BUILD_DEV_GAME OR HE_EDITOR_VFX_GPU_PROBE) AND NOT PACK_GAME)
     target_compile_definitions(HEngineRuntime PRIVATE HE_VFX_GPU_STRESS_ALLOWED=1)
 else()
     target_compile_definitions(HEngineRuntime PRIVATE HE_VFX_GPU_STRESS_ALLOWED=0)
@@ -109,38 +105,42 @@ endif()
 
 target_precompile_headers(HEngineRuntime PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/Hepch.h")
 
-target_link_libraries(HEngineRuntime PUBLIC glfw
-    PUBLIC glm
+target_link_libraries(HEngineRuntime PUBLIC glm
     PUBLIC imgui
     PUBLIC spdlog
-    PUBLIC box2d
     PUBLIC stb
-    PUBLIC Jolt
-    PUBLIC pybind11::embed pybind11::module pybind11::pybind11
     PUBLIC magic_enum
     PUBLIC nlohmann_json::nlohmann_json
     PUBLIC xg
     PUBLIC simpleIni
     PUBLIC headers
-    PUBLIC libs
+    PRIVATE HEArchive
     PUBLIC Tracy::TracyClient
     PRIVATE miniaudio
     PUBLIC Effekseer
-    PRIVATE EffekseerRendererDX12
-    PRIVATE EffekseerRendererVulkan
-    PUBLIC Recast
-    PUBLIC Detour
-    PUBLIC DetourCrowd
-    PUBLIC DetourTileCache
     PUBLIC rmlui
     PUBLIC nvrhi
 )
 
+if(APPLE)
+    target_compile_definitions(HEngineRuntime PRIVATE
+        VK_ENABLE_BETA_EXTENSIONS VK_USE_PLATFORM_MACOS_MVK)
+    target_link_libraries(HEngineRuntime PRIVATE Vulkan::Vulkan
+        "-framework Cocoa" "-framework CoreFoundation" "-framework CoreAudio"
+        "-framework AudioToolbox" "-framework AudioUnit")
+endif()
+
+if(ANDROID)
+    target_link_libraries(HEngineRuntime PRIVATE android log dl)
+else()
+    target_link_libraries(HEngineRuntime PUBLIC glfw)
+endif()
+
 if(HE_RENDER_DX12)
-    target_link_libraries(HEngineRuntime PRIVATE nvrhi_d3d12)
+    target_link_libraries(HEngineRuntime PRIVATE nvrhi_d3d12 EffekseerRendererDX12)
 endif()
 if(HE_RENDER_VULKAN)
-    target_link_libraries(HEngineRuntime PRIVATE nvrhi_vk)
+    target_link_libraries(HEngineRuntime PRIVATE nvrhi_vk EffekseerRendererVulkan)
     if(TARGET Vulkan::Headers)
         target_link_libraries(HEngineRuntime PRIVATE Vulkan::Headers)
     elseif(TARGET Vulkan-Headers)
@@ -151,12 +151,24 @@ if(HE_RENDER_VULKAN)
     endif()
 endif()
 
-if(NOT PACK_GAME)
-    target_link_libraries(HEngineRuntime PUBLIC
-        ImGuizmo
-        embree
-        assimp
-    )
+foreach(feature IN ITEMS PHYSICS_2D PHYSICS_3D NAVIGATION UI_SVG UI_LOTTIE)
+    target_compile_definitions(HEngineRuntime PUBLIC HE_ENABLE_${feature}=$<BOOL:${HE_ENABLE_${feature}}>)
+endforeach()
+if(HE_ENABLE_PHYSICS_2D)
+    target_link_libraries(HEngineRuntime PUBLIC box2d)
+endif()
+if(HE_ENABLE_PHYSICS_3D)
+    target_link_libraries(HEngineRuntime PUBLIC Jolt)
+endif()
+if(HE_ENABLE_NAVIGATION)
+    target_link_libraries(HEngineRuntime PRIVATE Recast Detour DetourCrowd DetourTileCache)
+endif()
+
+if(HE_RUNTIME_ASSET_IMPORT)
+    target_link_libraries(HEngineRuntime PUBLIC assimp)
+endif()
+if(HE_WITH_EDITOR)
+    target_link_libraries(HEngineRuntime PRIVATE ImGuizmo embree)
 
     if(NOT HE_BUILD_DEV_GAME)
         target_link_libraries(HEngineRuntime PUBLIC
@@ -171,7 +183,9 @@ set_target_properties(HEngineRuntime PROPERTIES FOLDER "Engine")
 
 if (WIN32)
     # Native DX12 libraries are an implementation detail of Runtime/Platform.
-    target_link_libraries(HEngineRuntime PRIVATE DirectX)
+    if(HE_RENDER_DX12)
+        target_link_libraries(HEngineRuntime PRIVATE DirectX)
+    endif()
     target_link_libraries(HEngineRuntime PRIVATE windowscodecs ole32)
     if(MSVC AND HE_EFFEKSEER_BUILD_VULKAN)
         # Vendored Effekseer/LLGI still calls Vulkan's C entry points. Keep
@@ -185,6 +199,19 @@ endif()
 
 if(HE_BUILD_TESTS)
     add_subdirectory(UnitTest)
+endif()
+
+if(APPLE AND HE_WITH_EDITOR)
+    # Reuse the existing settings suite with the native Editor build graph;
+    # no Window or graphics device is created by this isolated runner.
+    add_executable(HEMacRenderSettingsTests EXCLUDE_FROM_ALL
+        Platform/macOS/Tests/MacRenderSettingsTests.cpp
+        UnitTest/RenderSettingsTests.cpp)
+    target_include_directories(HEMacRenderSettingsTests PRIVATE
+        "${EngineSourceDir}" "${EngineRuntimeDir}" "${HE_GENERATED_SOURCE_DIR}")
+    target_link_libraries(HEMacRenderSettingsTests PRIVATE HEngineRuntime)
+    set_target_properties(HEMacRenderSettingsTests PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${BINARY_ROOT_DIR}" FOLDER "Tests")
 endif()
 
 

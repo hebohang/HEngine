@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RuntimeFrameworkVersion>10.0.10</RuntimeFrameworkVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../Engine/Managed/HEngine.ScriptCore/HEngine.ScriptCore.csproj" />
+    <Compile Include="../../../Engine/Templates/FirstPerson/Scripts/CSharp/*.cs" Link="FirstPerson/%(Filename)%(Extension)" />
+    <Compile Include="../../../Engine/Templates/TopDown/Scripts/CSharp/*.cs" Link="TopDown/%(Filename)%(Extension)" />
+    <Content Include="../../../Engine/Templates/FirstPerson/Assets/Scenes/Main.he" Link="Fixtures/FirstPerson/Main.he" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../../Engine/Templates/FirstPerson/Config/Input.json" Link="Fixtures/FirstPerson/Input.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../../Engine/Templates/TopDown/Assets/Scenes/Main.he" Link="Fixtures/TopDown/Main.he" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../../Engine/Templates/TopDown/Config/Input.json" Link="Fixtures/TopDown/Input.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

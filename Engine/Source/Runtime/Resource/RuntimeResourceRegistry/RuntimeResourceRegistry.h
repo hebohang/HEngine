@@ -199,6 +199,8 @@ namespace HEngine
 
         [[nodiscard]] static RuntimeResourceRegistry& GetInstance();
 
+        // Zero workers is a synchronous-only registry. QueueAsync rejects the
+        // request before creating entries or pins; host IO may complete first.
         void Init(
             size_t workerCount = 2,
             std::thread::id initThreadId = std::this_thread::get_id());
